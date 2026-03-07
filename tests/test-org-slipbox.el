@@ -1356,6 +1356,77 @@
        "--glob \\*.org --glob \\*.org.gpg --glob \\*.org.age "
        "--file /tmp/regex /tmp/org\\ slipbox")))))
 
+(ert-deftest org-slipbox-test-graph-write-dot-uses-rpc-and-writes-file ()
+  "Graph DOT export should request DOT from the daemon and write it to disk."
+  (require 'org-slipbox-graph)
+  (let* ((output (make-temp-file "org-slipbox-graph-" nil ".dot"))
+         method
+         params)
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                     (lambda (request-method request-params)
+                       (setq method request-method
+                             params request-params)
+                       '(:dot "digraph \"org-slipbox\" {}\n"))))
+            (org-slipbox-graph-write-dot nil nil output))
+          (should (equal method "slipbox/graphDot"))
+          (should (equal (plist-get params :include_orphans) t))
+          (should (equal (plist-get params :shorten_titles) "truncate"))
+          (with-temp-buffer
+            (insert-file-contents output)
+            (should (equal (buffer-string) "digraph \"org-slipbox\" {}\n"))))
+      (when (file-exists-p output)
+        (delete-file output)))))
+
+(ert-deftest org-slipbox-test-graph-write-file-renders-neighborhood-graph ()
+  "Rendered graph export should request neighborhood DOT and invoke Graphviz."
+  (require 'org-slipbox-graph)
+  (let* ((output (make-temp-file "org-slipbox-graph-" nil ".svg"))
+         rpc-params
+         dot-command)
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'org-slipbox-rpc-graph-dot)
+                     (lambda (params)
+                       (setq rpc-params params)
+                       '(:dot "digraph \"org-slipbox\" {}\n")))
+                    ((symbol-function 'executable-find)
+                     (lambda (program)
+                       (and (string= program "dot") "/usr/bin/dot")))
+                    ((symbol-function 'call-process)
+                     (lambda (&rest args)
+                       (setq dot-command args)
+                       (write-region "<svg/>" nil output nil 'silent)
+                       0)))
+            (org-slipbox-graph-write-file 2 '(:node_key "file:alpha.org") output))
+          (should (equal (plist-get rpc-params :root_node_key) "file:alpha.org"))
+          (should (equal (plist-get rpc-params :max_distance) 2))
+          (should-not (plist-get rpc-params :include_orphans))
+          (should (equal (car dot-command) "dot"))
+          (with-temp-buffer
+            (insert-file-contents output)
+            (should (equal (buffer-string) "<svg/>"))))
+      (when (file-exists-p output)
+        (delete-file output)))))
+
+(ert-deftest org-slipbox-test-graph-command-opens-rendered-output ()
+  "Interactive graph rendering should open the generated file."
+  (require 'org-slipbox-graph)
+  (let (write-args opened)
+    (cl-letf (((symbol-function 'org-slipbox-graph-write-file)
+               (lambda (&rest args)
+                 (setq write-args args)
+                 "/tmp/generated.svg"))
+              ((symbol-function 'org-slipbox-graph--open)
+               (lambda (file)
+                 (setq opened file))))
+      (should (equal (org-slipbox-graph '(4) '(:node_key "file:alpha.org"))
+                     "/tmp/generated.svg")))
+    (should (equal (car write-args) '(4)))
+    (should (equal (cadr write-args) '(:node_key "file:alpha.org")))
+    (should (equal opened "/tmp/generated.svg"))))
+
 (ert-deftest org-slipbox-test-buffer-reflink-patterns-expand-citekeys ()
   "Reflink search should include cite: variants for citekeys."
   (should

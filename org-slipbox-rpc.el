@@ -84,6 +84,7 @@ list, each element must be a regexp string."
 (defconst org-slipbox-rpc-method-index "slipbox/index")
 (defconst org-slipbox-rpc-method-index-file "slipbox/indexFile")
 (defconst org-slipbox-rpc-method-indexed-files "slipbox/indexedFiles")
+(defconst org-slipbox-rpc-method-graph-dot "slipbox/graphDot")
 (defconst org-slipbox-rpc-method-search-nodes "slipbox/searchNodes")
 (defconst org-slipbox-rpc-method-random-node "slipbox/randomNode")
 (defconst org-slipbox-rpc-method-search-tags "slipbox/searchTags")
@@ -233,6 +234,10 @@ list, each element must be a regexp string."
 (defun org-slipbox-rpc-indexed-files ()
   "Return the relative paths currently stored in the index."
   (org-slipbox-rpc-request org-slipbox-rpc-method-indexed-files))
+
+(defun org-slipbox-rpc-graph-dot (params)
+  "Return Graphviz DOT for graph generation PARAMS."
+  (org-slipbox-rpc-request org-slipbox-rpc-method-graph-dot params))
 
 (defun org-slipbox-rpc-search-nodes (query limit)
   "Search nodes matching QUERY with LIMIT."

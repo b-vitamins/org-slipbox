@@ -1,6 +1,6 @@
 use slipbox_core::{
-    AgendaParams, AgendaResult, BacklinksParams, BacklinksResult, IndexFileParams,
-    IndexedFilesResult, NodeAtPointParams, NodeFromIdParams, NodeFromRefParams,
+    AgendaParams, AgendaResult, BacklinksParams, BacklinksResult, GraphParams, GraphResult,
+    IndexFileParams, IndexedFilesResult, NodeAtPointParams, NodeFromIdParams, NodeFromRefParams,
     NodeFromTitleOrAliasParams, PingInfo, RandomNodeResult, SearchNodesParams, SearchNodesResult,
     SearchRefsParams, SearchRefsResult, SearchTagsParams, SearchTagsResult, StatusInfo,
 };
@@ -40,6 +40,33 @@ pub(crate) fn index(state: &mut ServerState) -> Result<serde_json::Value, JsonRp
         .sync_index(&files)
         .map_err(|error| internal_error(error.context("failed to update SQLite index")))?;
     to_value(stats)
+}
+
+pub(crate) fn graph_dot(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let mut params: GraphParams = parse_params(params)?;
+    let hidden_link_types = params.normalized_hidden_link_types();
+    if let Some(unsupported) = hidden_link_types
+        .iter()
+        .find(|link_type| link_type.as_str() != "id")
+    {
+        return Err(JsonRpcError::new(JsonRpcErrorObject::invalid_request(
+            format!("unsupported graph link type filter: {unsupported}"),
+        )));
+    }
+    params.hidden_link_types = hidden_link_types;
+
+    if let Some(root_node_key) = params.root_node_key.as_deref() {
+        state.known_node(root_node_key, "graph root node")?;
+    }
+
+    let dot = state
+        .database
+        .graph_dot(&params)
+        .map_err(|error| internal_error(error.context("failed to generate graph DOT")))?;
+    to_value(GraphResult { dot })
 }
 
 pub(crate) fn search_nodes(

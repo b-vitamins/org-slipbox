@@ -1,3 +1,5 @@
+mod graph;
+
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;

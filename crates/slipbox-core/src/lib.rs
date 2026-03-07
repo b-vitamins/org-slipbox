@@ -26,6 +26,53 @@ pub struct IndexedFilesResult {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum GraphTitleShortening {
+    Truncate,
+    Wrap,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GraphParams {
+    #[serde(default)]
+    pub root_node_key: Option<String>,
+    #[serde(default)]
+    pub max_distance: Option<u32>,
+    #[serde(default)]
+    pub include_orphans: bool,
+    #[serde(default)]
+    pub hidden_link_types: Vec<String>,
+    #[serde(default = "default_graph_max_title_length")]
+    pub max_title_length: usize,
+    #[serde(default)]
+    pub shorten_titles: Option<GraphTitleShortening>,
+}
+
+impl GraphParams {
+    #[must_use]
+    pub fn normalized_hidden_link_types(&self) -> Vec<String> {
+        let mut types = Vec::new();
+        for link_type in &self.hidden_link_types {
+            let normalized = link_type.trim().to_ascii_lowercase();
+            if !normalized.is_empty() && !types.iter().any(|candidate| candidate == &normalized) {
+                types.push(normalized);
+            }
+        }
+        types
+    }
+
+    #[must_use]
+    pub fn normalized_max_title_length(&self) -> usize {
+        self.max_title_length.clamp(8, 500)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GraphResult {
+    pub dot: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum NodeKind {
     File,
     Heading,
@@ -550,6 +597,10 @@ const fn default_agenda_limit() -> usize {
 
 const fn default_ref_limit() -> usize {
     50
+}
+
+const fn default_graph_max_title_length() -> usize {
+    100
 }
 
 const fn default_heading_level() -> u32 {
