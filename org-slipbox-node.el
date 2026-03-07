@@ -29,6 +29,7 @@
 
 ;;; Code:
 
+(require 'org)
 (require 'subr-x)
 (require 'org-slipbox-rpc)
 
@@ -87,7 +88,9 @@ Each template is a list of the form (KEY DESCRIPTION [:path STRING] [:title STRI
                         (org-slipbox-rpc-request
                          "slipbox/backlinks"
                          `(:node_key ,node-key :limit 200))))
-         (backlinks (and response (plist-get response :backlinks))))
+         (backlinks (and response
+                         (org-slipbox--plist-sequence
+                          (plist-get response :backlinks)))))
     (when node
       (with-current-buffer (get-buffer-create "*org-slipbox backlinks*")
         (let ((inhibit-read-only t))
@@ -100,12 +103,68 @@ Each template is a list of the form (KEY DESCRIPTION [:path STRING] [:title STRI
             (insert "No backlinks found.\n")))
         (display-buffer (current-buffer))))))
 
+(defun org-slipbox-node-from-ref (reference)
+  "Return the indexed node for REFERENCE, or nil when none exists."
+  (org-slipbox-rpc-request "slipbox/nodeFromRef" `(:reference ,reference)))
+
+(defun org-slipbox-ref-find (query)
+  "Find a node by reference QUERY and visit it."
+  (interactive (list (read-string "Find ref: ")))
+  (let* ((response (org-slipbox-rpc-request
+                    "slipbox/searchRefs"
+                    `(:query ,query :limit ,org-slipbox-search-limit)))
+         (refs (org-slipbox--plist-sequence (plist-get response :refs)))
+         (choices (mapcar (lambda (entry)
+                            (cons (org-slipbox--ref-display entry) entry))
+                          refs)))
+    (cond
+     ((null refs)
+      (user-error "No ref matches %s" query))
+     ((= (length refs) 1)
+      (org-slipbox--visit-node (plist-get (car refs) :node)))
+     (t
+      (let* ((selection (completing-read "Ref: " choices nil t))
+             (entry (cdr (assoc selection choices))))
+        (org-slipbox--visit-node (plist-get entry :node)))))))
+
+(defun org-slipbox-ref-add (reference)
+  "Add REFERENCE to the current node."
+  (interactive (list (read-string "Ref: ")))
+  (org-slipbox--node-property-add "ROAM_REFS" reference))
+
+(defun org-slipbox-ref-remove (&optional reference)
+  "Remove REFERENCE from the current node."
+  (interactive)
+  (let* ((references (org-slipbox--current-node-property-values "ROAM_REFS"))
+         (reference (or reference
+                        (and references
+                             (completing-read "Ref: " references nil t)))))
+    (unless reference
+      (user-error "No ref to remove"))
+    (org-slipbox--node-property-remove "ROAM_REFS" reference)))
+
+(defun org-slipbox-alias-add (alias)
+  "Add ALIAS to the current node."
+  (interactive (list (read-string "Alias: ")))
+  (org-slipbox--node-property-add "ROAM_ALIASES" alias))
+
+(defun org-slipbox-alias-remove (&optional alias)
+  "Remove ALIAS from the current node."
+  (interactive)
+  (let* ((aliases (org-slipbox--current-node-property-values "ROAM_ALIASES"))
+         (alias (or alias
+                    (and aliases
+                         (completing-read "Alias: " aliases nil t)))))
+    (unless alias
+      (user-error "No alias to remove"))
+    (org-slipbox--node-property-remove "ROAM_ALIASES" alias)))
+
 (defun org-slipbox--select-or-capture-node (query)
   "Return a node selected for QUERY, or create one."
   (let* ((response (org-slipbox-rpc-request
                     "slipbox/searchNodes"
                     `(:query ,query :limit ,org-slipbox-search-limit)))
-         (nodes (plist-get response :nodes))
+         (nodes (org-slipbox--plist-sequence (plist-get response :nodes)))
          (create-choice (format "[Create] %s" query))
          (choices (mapcar (lambda (node)
                             (cons (org-slipbox--node-display node) node))
@@ -117,6 +176,12 @@ Each template is a list of the form (KEY DESCRIPTION [:path STRING] [:title STRI
      ((eq choice :create) (org-slipbox--capture-node query))
      (choice choice)
      (t nil))))
+
+(defun org-slipbox--ref-display (entry)
+  "Return a display string for reference ENTRY."
+  (format "%s | %s"
+          (plist-get entry :reference)
+          (org-slipbox--node-display (plist-get entry :node))))
 
 (defun org-slipbox--capture-node (title &optional template)
   "Capture a new node with TITLE using TEMPLATE."
@@ -231,6 +296,187 @@ Each template is a list of the form (KEY DESCRIPTION [:path STRING] [:title STRI
       (if (string-empty-p trimmed)
           "note"
         trimmed))))
+
+(defun org-slipbox--node-property-add (property value)
+  "Add VALUE to PROPERTY on the current node."
+  (setq value (string-trim value))
+  (when (string-empty-p value)
+    (user-error "%s must not be empty" property))
+  (let* ((current (org-slipbox--current-node-property-values property))
+         (updated (if (member value current) current (append current (list value)))))
+    (org-slipbox--set-current-node-property property updated)))
+
+(defun org-slipbox--node-property-remove (property value)
+  "Remove VALUE from PROPERTY on the current node."
+  (let* ((current (org-slipbox--current-node-property-values property))
+         (updated (delete value (copy-sequence current))))
+    (org-slipbox--set-current-node-property property updated)))
+
+(defun org-slipbox--current-node-property-values (property)
+  "Return PROPERTY values from the current node."
+  (save-excursion
+    (save-restriction
+      (widen)
+      (if (org-slipbox--file-node-p)
+          (org-slipbox--file-property-values property)
+        (org-back-to-heading t)
+        (org-slipbox--split-property-values (org-entry-get (point) property))))))
+
+(defun org-slipbox--set-current-node-property (property values)
+  "Set PROPERTY on the current node to VALUES."
+  (save-excursion
+    (save-restriction
+      (widen)
+      (if (org-slipbox--file-node-p)
+          (org-slipbox--set-file-property property values)
+        (org-back-to-heading t)
+        (if values
+            (org-entry-put (point) property (org-slipbox--format-property-values values))
+          (org-delete-property property)))))
+  (org-slipbox--save-and-sync-current-buffer)
+  values)
+
+(defun org-slipbox--file-node-p ()
+  "Return non-nil when point refers to the file-level node."
+  (org-before-first-heading-p))
+
+(defun org-slipbox--file-property-values (property)
+  "Return file-level PROPERTY values."
+  (pcase-let ((`(,start . ,end) (or (org-slipbox--file-property-drawer-bounds)
+                                    '(nil . nil))))
+    (if (and start end)
+        (save-excursion
+          (goto-char start)
+          (if (re-search-forward
+               (format "^[ \t]*:%s:[ \t]*\\(.*\\)$" (regexp-quote property))
+               end
+               t)
+              (org-slipbox--split-property-values (match-string 1))
+            nil))
+      nil)))
+
+(defun org-slipbox--set-file-property (property values)
+  "Set file-level PROPERTY to VALUES."
+  (let ((value (and values (org-slipbox--format-property-values values))))
+    (pcase-let ((`(,drawer-start . ,drawer-end) (or (org-slipbox--file-property-drawer-bounds)
+                                                    '(nil . nil))))
+      (if (and drawer-start drawer-end)
+          (save-excursion
+            (goto-char drawer-start)
+            (if (re-search-forward
+                 (format "^[ \t]*:%s:[ \t]*\\(.*\\)$" (regexp-quote property))
+                 drawer-end
+                 t)
+                (if value
+                    (replace-match (format ":%s: %s" property value) t t)
+                  (delete-region (line-beginning-position)
+                                 (min (point-max) (1+ (line-end-position))))
+                  (when (org-slipbox--file-property-drawer-empty-p drawer-start)
+                    (org-slipbox--delete-file-property-drawer drawer-start)))
+              (when value
+                (goto-char drawer-end)
+                (forward-line -1)
+                (beginning-of-line)
+                (insert (format ":%s: %s\n" property value)))))
+        (when value
+          (save-excursion
+            (goto-char (org-slipbox--file-property-insert-point))
+            (insert ":PROPERTIES:\n"
+                    (format ":%s: %s\n" property value)
+                    ":END:\n")
+            (unless (looking-at-p "\n\\|\\'")
+              (insert "\n"))))))))
+
+(defun org-slipbox--file-property-drawer-bounds ()
+  "Return the bounds of the file-level property drawer, if present."
+  (save-excursion
+    (goto-char (point-min))
+    (goto-char (org-slipbox--file-property-insert-point))
+    (while (and (not (eobp)) (looking-at-p "[ \t]*$"))
+      (forward-line 1))
+    (when (looking-at-p "[ \t]*:PROPERTIES:[ \t]*$")
+      (let ((start (line-beginning-position)))
+        (when (re-search-forward "^[ \t]*:END:[ \t]*$" nil t)
+          (cons start (line-end-position)))))))
+
+(defun org-slipbox--file-property-insert-point ()
+  "Return the buffer position where the file property drawer belongs."
+  (save-excursion
+    (goto-char (point-min))
+    (while (and (not (eobp)) (looking-at-p "[ \t]*$"))
+      (forward-line 1))
+    (while (and (not (eobp))
+                (string-prefix-p "#+" (string-trim (or (thing-at-point 'line t) ""))))
+      (forward-line 1))
+    (point)))
+
+(defun org-slipbox--file-property-drawer-empty-p (drawer-start)
+  "Return non-nil when the file property drawer at DRAWER-START has no entries."
+  (save-excursion
+    (goto-char drawer-start)
+    (forward-line 1)
+    (looking-at-p "[ \t]*:END:[ \t]*$")))
+
+(defun org-slipbox--delete-file-property-drawer (drawer-start)
+  "Delete the file property drawer starting at DRAWER-START."
+  (save-excursion
+    (goto-char drawer-start)
+    (when (re-search-forward "^[ \t]*:END:[ \t]*$" nil t)
+      (delete-region drawer-start
+                     (min (point-max)
+                          (if (eobp) (point) (1+ (point))))))))
+
+(defun org-slipbox--split-property-values (value)
+  "Split multivalue property VALUE into a list."
+  (when (and value (not (string-empty-p value)))
+    (let ((values nil)
+          (current "")
+          (in-quotes nil)
+          (escape nil)
+          (bracket-depth 0))
+      (dolist (character (string-to-list value))
+        (cond
+         (escape
+          (setq current (concat current (string character))
+                escape nil))
+         ((and in-quotes (eq character ?\\))
+          (setq escape t))
+         ((eq character ?\")
+          (setq in-quotes (not in-quotes)))
+         ((and (not in-quotes) (eq character ?\[))
+          (setq bracket-depth (1+ bracket-depth)
+                current (concat current (string character))))
+         ((and (not in-quotes) (eq character ?\]))
+          (setq bracket-depth (max 0 (1- bracket-depth))
+                current (concat current (string character))))
+         ((and (not in-quotes) (= bracket-depth 0) (memq character '(?\s ?\t ?\n)))
+          (unless (string-empty-p current)
+            (push current values)
+            (setq current "")))
+         (t
+          (setq current (concat current (string character))))))
+      (unless (string-empty-p current)
+        (push current values))
+      (nreverse values))))
+
+(defun org-slipbox--format-property-values (values)
+  "Format property VALUES as a single Org property string."
+  (mapconcat
+   (lambda (value)
+     (if (string-match-p "[[:space:]\"]" value)
+         (prin1-to-string value)
+       value))
+   values
+   " "))
+
+(defun org-slipbox--save-and-sync-current-buffer ()
+  "Save and sync the current buffer into the index."
+  (unless buffer-file-name
+    (user-error "Current buffer is not visiting a file"))
+  (save-buffer)
+  (org-slipbox-rpc-request
+   "slipbox/indexFile"
+   `(:file_path ,(expand-file-name buffer-file-name))))
 
 (defun org-slipbox--visit-node (node)
   "Visit NODE in its source file."

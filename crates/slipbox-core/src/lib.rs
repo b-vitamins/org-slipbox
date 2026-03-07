@@ -50,6 +50,8 @@ pub struct NodeRecord {
     #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
+    pub refs: Vec<String>,
+    #[serde(default)]
     pub todo_keyword: Option<String>,
     #[serde(default)]
     pub scheduled_for: Option<String>,
@@ -79,6 +81,7 @@ pub struct IndexedNode {
     pub outline_path: String,
     pub aliases: Vec<String>,
     pub tags: Vec<String>,
+    pub refs: Vec<String>,
     pub todo_keyword: Option<String>,
     pub scheduled_for: Option<String>,
     pub deadline_for: Option<String>,
@@ -168,6 +171,36 @@ pub struct AgendaResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RefRecord {
+    pub reference: String,
+    pub node: NodeRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchRefsParams {
+    pub query: String,
+    #[serde(default = "default_ref_limit")]
+    pub limit: usize,
+}
+
+impl SearchRefsParams {
+    #[must_use]
+    pub fn normalized_limit(&self) -> usize {
+        self.limit.clamp(1, 200)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchRefsResult {
+    pub refs: Vec<RefRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeFromRefParams {
+    pub reference: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureNodeParams {
     pub title: String,
     #[serde(default)]
@@ -218,6 +251,118 @@ const fn default_agenda_limit() -> usize {
     200
 }
 
+const fn default_ref_limit() -> usize {
+    50
+}
+
 const fn default_heading_level() -> u32 {
     1
+}
+
+#[must_use]
+pub fn normalize_reference(input: &str) -> Vec<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+
+    if let Some(inner) = trimmed
+        .strip_prefix("[[")
+        .and_then(|value| value.strip_suffix("]]"))
+    {
+        let target = inner.split_once("][").map_or(inner, |(path, _)| path);
+        return normalize_reference(target);
+    }
+
+    if let Some(key) = trimmed.strip_prefix('@') {
+        return normalize_cite_keys(key);
+    }
+
+    if let Some(inner) = trimmed
+        .strip_prefix("[cite:")
+        .and_then(|value| value.strip_suffix(']'))
+    {
+        return extract_org_cite_keys(inner);
+    }
+
+    if let Some(path) = trimmed.strip_prefix("cite:") {
+        return normalize_cite_keys(path);
+    }
+
+    vec![trimmed.to_owned()]
+}
+
+fn normalize_cite_keys(input: &str) -> Vec<String> {
+    input
+        .split([',', ';'])
+        .filter_map(|part| {
+            let key = part
+                .trim()
+                .trim_start_matches('@')
+                .trim_start_matches("cite:")
+                .trim();
+            if key.is_empty() {
+                None
+            } else {
+                Some(format!("@{key}"))
+            }
+        })
+        .collect()
+}
+
+fn extract_org_cite_keys(input: &str) -> Vec<String> {
+    let mut refs = Vec::new();
+    let mut current = String::new();
+    let mut collecting = false;
+
+    for character in input.chars() {
+        if collecting {
+            if is_cite_key_char(character) {
+                current.push(character);
+                continue;
+            }
+            if !current.is_empty() {
+                refs.push(format!("@{current}"));
+                current.clear();
+            }
+            collecting = false;
+        }
+
+        if character == '@' {
+            collecting = true;
+        }
+    }
+
+    if collecting && !current.is_empty() {
+        refs.push(format!("@{current}"));
+    }
+
+    if refs.is_empty() {
+        normalize_cite_keys(input)
+    } else {
+        refs
+    }
+}
+
+fn is_cite_key_char(character: char) -> bool {
+    character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | ':' | '.')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_reference;
+
+    #[test]
+    fn normalizes_common_reference_forms() {
+        assert_eq!(normalize_reference("@thrun2005"), vec!["@thrun2005"]);
+        assert_eq!(normalize_reference("cite:thrun2005"), vec!["@thrun2005"]);
+        assert_eq!(
+            normalize_reference("[cite:@thrun2005; @smith2024]"),
+            vec!["@thrun2005", "@smith2024"]
+        );
+        assert_eq!(
+            normalize_reference("[[https://example.test/path][Example]]"),
+            vec!["https://example.test/path"]
+        );
+    }
 }

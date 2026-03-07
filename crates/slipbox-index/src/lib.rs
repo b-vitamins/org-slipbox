@@ -3,7 +3,7 @@ use std::path::Path;
 use std::time::UNIX_EPOCH;
 
 use anyhow::{Context, Result};
-use slipbox_core::{IndexedFile, IndexedLink, IndexedNode, NodeKind};
+use slipbox_core::{IndexedFile, IndexedLink, IndexedNode, NodeKind, normalize_reference};
 use walkdir::WalkDir;
 
 pub fn scan_root(root: &Path) -> Result<Vec<IndexedFile>> {
@@ -60,6 +60,7 @@ fn parse_document(file_path: &str, mtime_ns: i64, source: &str) -> IndexedFile {
         outline_path: String::new(),
         aliases: file_properties.aliases,
         tags: file_tags.clone(),
+        refs: file_properties.refs,
         todo_keyword: None,
         scheduled_for: None,
         deadline_for: None,
@@ -94,6 +95,7 @@ fn parse_document(file_path: &str, mtime_ns: i64, source: &str) -> IndexedFile {
                         .cloned()
                         .collect(),
                 ),
+                refs: heading_metadata.refs,
                 todo_keyword,
                 scheduled_for: heading_metadata.scheduled_for,
                 deadline_for: heading_metadata.deadline_for,
@@ -211,6 +213,9 @@ fn parse_property_drawer(lines: &[&str], start_index: usize) -> NodeProperties {
         if let Some(value) = strip_keyword(trimmed, ":ROAM_ALIASES:") {
             properties.aliases = parse_aliases(value);
         }
+        if let Some(value) = strip_keyword(trimmed, ":ROAM_REFS:") {
+            properties.refs = parse_refs(value);
+        }
     }
 
     properties
@@ -239,6 +244,9 @@ fn parse_heading_metadata(lines: &[&str], start_index: usize) -> HeadingMetadata
             }
             if let Some(value) = strip_keyword(trimmed, ":ROAM_ALIASES:") {
                 metadata.aliases = parse_aliases(value);
+            }
+            if let Some(value) = strip_keyword(trimmed, ":ROAM_REFS:") {
+                metadata.refs = parse_refs(value);
             }
             continue;
         }
@@ -320,29 +328,51 @@ fn parse_colon_tags(input: &str) -> Vec<String> {
 }
 
 fn parse_aliases(input: &str) -> Vec<String> {
-    let mut aliases = Vec::new();
+    unique_strings(parse_quoted_values(input))
+}
+
+fn parse_refs(input: &str) -> Vec<String> {
+    unique_strings(
+        parse_quoted_values(input)
+            .into_iter()
+            .flat_map(|value| normalize_reference(&value))
+            .collect(),
+    )
+}
+
+fn parse_quoted_values(input: &str) -> Vec<String> {
+    let mut values = Vec::new();
     let mut current = String::new();
     let mut in_quotes = false;
+    let mut bracket_depth = 0_usize;
 
     for character in input.chars() {
         match character {
             '"' => {
                 if in_quotes {
                     if !current.is_empty() {
-                        aliases.push(std::mem::take(&mut current));
+                        values.push(std::mem::take(&mut current));
                     }
                     in_quotes = false;
                 } else {
                     if !current.trim().is_empty() {
-                        aliases.extend(current.split_whitespace().map(str::to_owned));
+                        values.extend(current.split_whitespace().map(str::to_owned));
                         current.clear();
                     }
                     in_quotes = true;
                 }
             }
-            character if character.is_whitespace() && !in_quotes => {
+            '[' if !in_quotes => {
+                bracket_depth += 1;
+                current.push(character);
+            }
+            ']' if !in_quotes => {
+                bracket_depth = bracket_depth.saturating_sub(1);
+                current.push(character);
+            }
+            character if character.is_whitespace() && !in_quotes && bracket_depth == 0 => {
                 if !current.is_empty() {
-                    aliases.push(std::mem::take(&mut current));
+                    values.push(std::mem::take(&mut current));
                 }
             }
             _ => current.push(character),
@@ -350,14 +380,10 @@ fn parse_aliases(input: &str) -> Vec<String> {
     }
 
     if !current.trim().is_empty() {
-        if in_quotes {
-            aliases.push(current.trim().to_owned());
-        } else {
-            aliases.extend(current.split_whitespace().map(str::to_owned));
-        }
+        values.push(current.trim().to_owned());
     }
 
-    unique_strings(aliases)
+    values
 }
 
 fn unique_strings(values: Vec<String>) -> Vec<String> {
@@ -374,12 +400,14 @@ fn unique_strings(values: Vec<String>) -> Vec<String> {
 struct NodeProperties {
     explicit_id: Option<String>,
     aliases: Vec<String>,
+    refs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]
 struct HeadingMetadata {
     explicit_id: Option<String>,
     aliases: Vec<String>,
+    refs: Vec<String>,
     scheduled_for: Option<String>,
     deadline_for: Option<String>,
     closed_at: Option<String>,

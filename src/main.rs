@@ -6,13 +6,15 @@ use clap::{Parser, Subcommand};
 use serde::de::DeserializeOwned;
 use slipbox_core::{
     AgendaParams, AgendaResult, AppendHeadingParams, BacklinksParams, BacklinksResult,
-    CaptureNodeParams, EnsureFileNodeParams, EnsureNodeIdParams, IndexFileParams, NodeRecord,
-    PingInfo, SearchNodesParams, SearchNodesResult,
+    CaptureNodeParams, EnsureFileNodeParams, EnsureNodeIdParams, IndexFileParams,
+    NodeFromRefParams, NodeRecord, PingInfo, SearchNodesParams, SearchNodesResult,
+    SearchRefsParams, SearchRefsResult,
 };
 use slipbox_rpc::{
     JsonRpcError, JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_AGENDA,
     METHOD_APPEND_HEADING, METHOD_BACKLINKS, METHOD_CAPTURE_NODE, METHOD_ENSURE_FILE_NODE,
-    METHOD_ENSURE_NODE_ID, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_PING, METHOD_SEARCH_NODES,
+    METHOD_ENSURE_NODE_ID, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_NODE_FROM_REF, METHOD_PING,
+    METHOD_SEARCH_NODES, METHOD_SEARCH_REFS,
 };
 use slipbox_store::Database;
 
@@ -189,6 +191,22 @@ fn dispatch_request(
                 .backlinks(&params.node_key, params.normalized_limit())
                 .map_err(|error| internal_error(error.context("failed to query backlinks")))?;
             to_value(BacklinksResult { backlinks })
+        }
+        METHOD_SEARCH_REFS => {
+            let params: SearchRefsParams = parse_params(params)?;
+            let refs = state
+                .database
+                .search_refs(&params.query, params.normalized_limit())
+                .map_err(|error| internal_error(error.context("failed to query refs")))?;
+            to_value(SearchRefsResult { refs })
+        }
+        METHOD_NODE_FROM_REF => {
+            let params: NodeFromRefParams = parse_params(params)?;
+            let node = state
+                .database
+                .node_from_ref(&params.reference)
+                .map_err(|error| internal_error(error.context("failed to resolve ref")))?;
+            to_value(node)
         }
         METHOD_AGENDA => {
             let params: AgendaParams = parse_params(params)?;

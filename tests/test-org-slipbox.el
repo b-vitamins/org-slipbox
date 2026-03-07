@@ -74,6 +74,25 @@
             '(:title "Slip: Sample Title"
               :file_path "notes/2026-sample-title.org")))))
 
+(ert-deftest org-slipbox-test-ref-find-uses-rpc ()
+  "Ref lookup should query the dedicated ref RPC."
+  (let (method params visited)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:refs [(:reference "@smith2024"
+                           :node (:title "Paper"
+                                  :file_path "paper.org"
+                                  :line 1))])))
+              ((symbol-function 'org-slipbox--visit-node)
+               (lambda (node)
+                 (setq visited node))))
+      (org-slipbox-ref-find "smith"))
+    (should (equal method "slipbox/searchRefs"))
+    (should (equal params '(:query "smith" :limit 50)))
+    (should (equal visited '(:title "Paper" :file_path "paper.org" :line 1)))))
+
 (ert-deftest org-slipbox-test-agenda-day-range ()
   "Agenda day ranges should cover the full calendar day."
   (should
@@ -97,6 +116,58 @@
      (equal params
             '(:start "2026-03-07T00:00:00"
               :end "2026-03-07T23:59:59")))))
+
+(ert-deftest org-slipbox-test-ref-add-updates-file-property ()
+  "Adding a ref should update the file-level property drawer and sync the file."
+  (let* ((root (make-temp-file "org-slipbox-ref-" t))
+         (file (expand-file-name "note.org" root))
+         method
+         params)
+    (unwind-protect
+        (progn
+          (write-region "#+title: Note\n\n" nil file nil 'silent)
+          (with-current-buffer (find-file-noselect file)
+            (goto-char (point-min))
+            (let ((org-slipbox-directory root))
+              (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                         (lambda (request-method request-params)
+                           (setq method request-method
+                                 params request-params)
+                           nil)))
+                (org-slipbox-ref-add "http://site.net/docs/01. introduction - hello world.html")))
+            (kill-buffer (current-buffer)))
+          (should (equal method "slipbox/indexFile"))
+          (should (equal params `(:file_path ,file)))
+          (should
+           (equal
+            (with-temp-buffer
+              (insert-file-contents file)
+              (buffer-string))
+            "#+title: Note\n:PROPERTIES:\n:ROAM_REFS: \"http://site.net/docs/01. introduction - hello world.html\"\n:END:\n\n")))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-alias-add-updates-heading-property ()
+  "Adding an alias should update the current heading property drawer."
+  (let* ((root (make-temp-file "org-slipbox-alias-" t))
+         (file (expand-file-name "note.org" root)))
+    (unwind-protect
+        (progn
+          (write-region "#+title: Note\n\n* Heading\n" nil file nil 'silent)
+          (with-current-buffer (find-file-noselect file)
+            (goto-char (point-min))
+            (search-forward "* Heading")
+            (let ((org-slipbox-directory root))
+              (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                         (lambda (&rest _args) nil)))
+                (org-slipbox-alias-add "Batman")))
+            (kill-buffer (current-buffer)))
+          (should
+           (equal
+            (with-temp-buffer
+              (insert-file-contents file)
+              (buffer-string))
+            "#+title: Note\n\n* Heading\n:PROPERTIES:\n:ROAM_ALIASES: Batman\n:END:\n")))
+      (delete-directory root t))))
 
 (ert-deftest org-slipbox-test-syncable-buffer-detection ()
   "Autosync should only consider Org files under the configured root."

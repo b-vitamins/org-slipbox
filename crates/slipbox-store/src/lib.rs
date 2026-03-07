@@ -5,9 +5,9 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
-use slipbox_core::{IndexStats, IndexedFile, NodeKind, NodeRecord};
+use slipbox_core::{IndexStats, IndexedFile, NodeKind, NodeRecord, RefRecord, normalize_reference};
 
-const SCHEMA_VERSION: i32 = 3;
+const SCHEMA_VERSION: i32 = 4;
 
 pub struct Database {
     connection: Connection,
@@ -55,6 +55,7 @@ impl Database {
                         n.outline_path,
                         n.aliases_json,
                         n.tags_json,
+                        n.refs_json,
                         n.todo_keyword,
                         n.scheduled_for,
                         n.deadline_for,
@@ -65,7 +66,7 @@ impl Database {
                    FROM node_fts
                    JOIN nodes AS n ON n.id = node_fts.rowid
                   WHERE node_fts MATCH ?1
-                  ORDER BY bm25(node_fts, 1.0, 0.3, 0.2, 0.8, 0.4), n.file_path, n.line
+                  ORDER BY bm25(node_fts, 1.0, 0.3, 0.2, 0.7, 0.8, 0.4), n.file_path, n.line
                   LIMIT ?2",
             )?;
             let rows = statement.query_map(params![fts_query, limit], row_to_node)?;
@@ -80,6 +81,7 @@ impl Database {
                         outline_path,
                         aliases_json,
                         tags_json,
+                        refs_json,
                         todo_keyword,
                         scheduled_for,
                         deadline_for,
@@ -123,6 +125,7 @@ impl Database {
                              n.outline_path,
                              n.aliases_json,
                              n.tags_json,
+                             n.refs_json,
                              n.todo_keyword,
                              n.scheduled_for,
                              n.deadline_for,
@@ -144,6 +147,80 @@ impl Database {
             .context("failed to read backlinks")
     }
 
+    pub fn search_refs(&self, query: &str, limit: usize) -> Result<Vec<RefRecord>> {
+        let limit = limit.clamp(1, 200) as i64;
+        if query.trim().is_empty() {
+            let mut statement = self.connection.prepare(
+                "SELECT r.ref,
+                        n.node_key,
+                        n.explicit_id,
+                        n.file_path,
+                        n.title,
+                        n.outline_path,
+                        n.aliases_json,
+                        n.tags_json,
+                        n.refs_json,
+                        n.todo_keyword,
+                        n.scheduled_for,
+                        n.deadline_for,
+                        n.closed_at,
+                        n.level,
+                        n.line,
+                        n.kind
+                   FROM refs AS r
+                   JOIN nodes AS n ON n.node_key = r.node_key
+                  ORDER BY r.ref, n.file_path, n.line
+                  LIMIT ?1",
+            )?;
+            let rows = statement.query_map(params![limit], row_to_ref)?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .context("failed to read refs")
+        } else {
+            let query = query.trim();
+            let normalized = normalize_reference(query)
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| query.to_owned());
+            let bare = query.trim_start_matches('@');
+            let mut statement = self.connection.prepare(
+                "SELECT r.ref,
+                        n.node_key,
+                        n.explicit_id,
+                        n.file_path,
+                        n.title,
+                        n.outline_path,
+                        n.aliases_json,
+                        n.tags_json,
+                        n.refs_json,
+                        n.todo_keyword,
+                        n.scheduled_for,
+                        n.deadline_for,
+                        n.closed_at,
+                        n.level,
+                        n.line,
+                        n.kind
+                   FROM refs AS r
+                   JOIN nodes AS n ON n.node_key = r.node_key
+                  WHERE r.ref LIKE ?1
+                     OR r.ref LIKE ?2
+                     OR r.ref LIKE ?3
+                  ORDER BY r.ref, n.file_path, n.line
+                  LIMIT ?4",
+            )?;
+            let rows = statement.query_map(
+                params![
+                    format!("{query}%"),
+                    format!("{normalized}%"),
+                    format!("@{bare}%"),
+                    limit
+                ],
+                row_to_ref,
+            )?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .context("failed to search refs")
+        }
+    }
+
     pub fn agenda_nodes(&self, start: &str, end: &str, limit: usize) -> Result<Vec<NodeRecord>> {
         let mut statement = self.connection.prepare(
             "SELECT node_key,
@@ -153,6 +230,7 @@ impl Database {
                     outline_path,
                     aliases_json,
                     tags_json,
+                    refs_json,
                     todo_keyword,
                     scheduled_for,
                     deadline_for,
@@ -172,6 +250,41 @@ impl Database {
             .context("failed to read agenda nodes")
     }
 
+    pub fn node_from_ref(&self, reference: &str) -> Result<Option<NodeRecord>> {
+        let normalized = normalize_reference(reference);
+        let Some(reference) = normalized.first() else {
+            return Ok(None);
+        };
+
+        self.connection
+            .query_row(
+                "SELECT n.node_key,
+                        n.explicit_id,
+                        n.file_path,
+                        n.title,
+                        n.outline_path,
+                        n.aliases_json,
+                        n.tags_json,
+                        n.refs_json,
+                        n.todo_keyword,
+                        n.scheduled_for,
+                        n.deadline_for,
+                        n.closed_at,
+                        n.level,
+                        n.line,
+                        n.kind
+                   FROM refs AS r
+                   JOIN nodes AS n ON n.node_key = r.node_key
+                  WHERE r.ref = ?1
+                  ORDER BY n.file_path, n.line
+                  LIMIT 1",
+                params![reference],
+                row_to_node,
+            )
+            .optional()
+            .context("failed to fetch node from ref")
+    }
+
     pub fn node_by_key(&self, node_key: &str) -> Result<Option<NodeRecord>> {
         self.connection
             .query_row(
@@ -182,6 +295,7 @@ impl Database {
                         outline_path,
                         aliases_json,
                         tags_json,
+                        refs_json,
                         todo_keyword,
                         scheduled_for,
                         deadline_for,
@@ -231,6 +345,7 @@ impl Database {
              PRAGMA synchronous = NORMAL;
 
              DROP TABLE IF EXISTS links;
+             DROP TABLE IF EXISTS refs;
              DROP TABLE IF EXISTS node_fts;
              DROP TABLE IF EXISTS nodes;
              DROP TABLE IF EXISTS files;
@@ -249,6 +364,7 @@ impl Database {
                outline_path TEXT NOT NULL,
                aliases_json TEXT NOT NULL,
                tags_json TEXT NOT NULL,
+               refs_json TEXT NOT NULL,
                todo_keyword TEXT,
                scheduled_for TEXT,
                deadline_for TEXT,
@@ -263,7 +379,13 @@ impl Database {
                outline_path,
                file_path,
                alias_text,
+               ref_text,
                tag_text
+             );
+
+             CREATE TABLE IF NOT EXISTS refs (
+               node_key TEXT NOT NULL,
+               ref TEXT NOT NULL
              );
 
              CREATE TABLE IF NOT EXISTS links (
@@ -284,6 +406,9 @@ impl Database {
              CREATE INDEX IF NOT EXISTS idx_links_destination_explicit_id
                ON links (destination_explicit_id);
 
+             CREATE INDEX IF NOT EXISTS idx_refs_ref
+               ON refs (ref);
+
              CREATE INDEX IF NOT EXISTS idx_nodes_scheduled_for
                ON nodes (scheduled_for)
                WHERE scheduled_for IS NOT NULL;
@@ -292,7 +417,7 @@ impl Database {
                ON nodes (deadline_for)
                WHERE deadline_for IS NOT NULL;
 
-             PRAGMA user_version = 3;",
+             PRAGMA user_version = 4;",
         )?;
         Ok(())
     }
@@ -317,6 +442,7 @@ impl Database {
                    outline_path,
                    aliases_json,
                    tags_json,
+                   refs_json,
                    todo_keyword,
                    scheduled_for,
                    deadline_for,
@@ -325,7 +451,7 @@ impl Database {
                    line,
                    kind
                  )
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
                 params![
                     node.node_key,
                     node.explicit_id,
@@ -335,6 +461,7 @@ impl Database {
                     serde_json::to_string(&node.aliases)
                         .context("failed to serialize node aliases")?,
                     serde_json::to_string(&node.tags).context("failed to serialize node tags")?,
+                    serde_json::to_string(&node.refs).context("failed to serialize node refs")?,
                     node.todo_keyword,
                     node.scheduled_for,
                     node.deadline_for,
@@ -347,17 +474,26 @@ impl Database {
 
             let row_id = transaction.last_insert_rowid();
             transaction.execute(
-                "INSERT INTO node_fts (rowid, title, outline_path, file_path, alias_text, tag_text)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT INTO node_fts (rowid, title, outline_path, file_path, alias_text, ref_text, tag_text)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     row_id,
                     node.title,
                     node.outline_path,
                     node.file_path,
                     node.aliases.join(" "),
+                    node.refs.join(" "),
                     node.tags.join(" ")
                 ],
             )?;
+
+            for reference in &node.refs {
+                transaction.execute(
+                    "INSERT INTO refs (node_key, ref)
+                     VALUES (?1, ?2)",
+                    params![node.node_key, reference],
+                )?;
+            }
         }
 
         for link in &file.links {
@@ -399,6 +535,15 @@ impl Database {
 
 fn delete_file_rows(transaction: &rusqlite::Transaction<'_>, file_path: &str) -> Result<()> {
     transaction.execute(
+        "DELETE FROM refs
+          WHERE node_key IN (
+                SELECT node_key
+                  FROM nodes
+                 WHERE file_path = ?1
+          )",
+        params![file_path],
+    )?;
+    transaction.execute(
         "DELETE FROM links
           WHERE source_node_key IN (
                 SELECT node_key
@@ -422,7 +567,7 @@ fn delete_file_rows(transaction: &rusqlite::Transaction<'_>, file_path: &str) ->
 }
 
 fn row_to_node(row: &rusqlite::Row<'_>) -> rusqlite::Result<NodeRecord> {
-    let kind_text: String = row.get(13)?;
+    let kind_text: String = row.get(14)?;
     Ok(NodeRecord {
         node_key: row.get(0)?,
         explicit_id: row.get(1)?,
@@ -431,12 +576,41 @@ fn row_to_node(row: &rusqlite::Row<'_>) -> rusqlite::Result<NodeRecord> {
         outline_path: row.get(4)?,
         aliases: parse_string_list(row.get::<_, String>(5)?),
         tags: parse_string_list(row.get::<_, String>(6)?),
-        todo_keyword: row.get(7)?,
-        scheduled_for: row.get(8)?,
-        deadline_for: row.get(9)?,
-        closed_at: row.get(10)?,
-        level: row.get(11)?,
-        line: row.get(12)?,
+        refs: parse_string_list(row.get::<_, String>(7)?),
+        todo_keyword: row.get(8)?,
+        scheduled_for: row.get(9)?,
+        deadline_for: row.get(10)?,
+        closed_at: row.get(11)?,
+        level: row.get(12)?,
+        line: row.get(13)?,
+        kind: kind_text.parse().unwrap_or(NodeKind::Heading),
+    })
+}
+
+fn row_to_ref(row: &rusqlite::Row<'_>) -> rusqlite::Result<RefRecord> {
+    Ok(RefRecord {
+        reference: row.get(0)?,
+        node: row_to_node_with_offset(row, 1)?,
+    })
+}
+
+fn row_to_node_with_offset(row: &rusqlite::Row<'_>, offset: usize) -> rusqlite::Result<NodeRecord> {
+    let kind_text: String = row.get(offset + 14)?;
+    Ok(NodeRecord {
+        node_key: row.get(offset)?,
+        explicit_id: row.get(offset + 1)?,
+        file_path: row.get(offset + 2)?,
+        title: row.get(offset + 3)?,
+        outline_path: row.get(offset + 4)?,
+        aliases: parse_string_list(row.get::<_, String>(offset + 5)?),
+        tags: parse_string_list(row.get::<_, String>(offset + 6)?),
+        refs: parse_string_list(row.get::<_, String>(offset + 7)?),
+        todo_keyword: row.get(offset + 8)?,
+        scheduled_for: row.get(offset + 9)?,
+        deadline_for: row.get(offset + 10)?,
+        closed_at: row.get(offset + 11)?,
+        level: row.get(offset + 12)?,
+        line: row.get(offset + 13)?,
         kind: kind_text.parse().unwrap_or(NodeKind::Heading),
     })
 }
