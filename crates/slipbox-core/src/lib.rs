@@ -475,6 +475,11 @@ pub struct ExtractSubtreeParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RewriteFileParams {
+    pub file_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndexFileParams {
     pub file_path: String,
 }

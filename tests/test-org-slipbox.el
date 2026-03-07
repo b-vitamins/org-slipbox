@@ -798,8 +798,68 @@
             (list "heading:source.org:3" target)))
           (should
            (equal
-            (nreverse refresh-calls)
-            (list source target))))
+           (nreverse refresh-calls)
+           (list source target))))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-demote-entire-buffer-calls-rust-rpc-and-refreshes-buffer ()
+  "Whole-buffer demotion should delegate file mutation to the Rust RPC layer."
+  (let* ((root (make-temp-file "org-slipbox-demote-" t))
+         (file (expand-file-name "note.org" root))
+         sync-calls
+         refresh-calls
+         rpc-path)
+    (unwind-protect
+        (progn
+          (write-region "* Note\n" nil file nil 'silent)
+          (with-current-buffer (find-file-noselect file)
+            (let ((org-slipbox-directory root))
+              (cl-letf (((symbol-function 'org-slipbox--sync-live-file-buffer-if-needed)
+                         (lambda (path)
+                           (push path sync-calls)))
+                        ((symbol-function 'org-slipbox-rpc-demote-entire-file)
+                         (lambda (path)
+                           (setq rpc-path path)
+                           '(:node_key "heading:note.org:1")))
+                        ((symbol-function 'org-slipbox--refresh-or-kill-file-buffer)
+                         (lambda (path)
+                           (push path refresh-calls))))
+                (should (equal (plist-get (org-slipbox-demote-entire-buffer) :node_key)
+                               "heading:note.org:1"))))
+            (kill-buffer (current-buffer)))
+          (should (equal rpc-path file))
+          (should (equal sync-calls (list file)))
+          (should (equal refresh-calls (list file))))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-promote-entire-buffer-calls-rust-rpc-and-refreshes-buffer ()
+  "Whole-buffer promotion should delegate file mutation to the Rust RPC layer."
+  (let* ((root (make-temp-file "org-slipbox-promote-" t))
+         (file (expand-file-name "note.org" root))
+         sync-calls
+         refresh-calls
+         rpc-path)
+    (unwind-protect
+        (progn
+          (write-region "* Note\n" nil file nil 'silent)
+          (with-current-buffer (find-file-noselect file)
+            (let ((org-slipbox-directory root))
+              (cl-letf (((symbol-function 'org-slipbox--sync-live-file-buffer-if-needed)
+                         (lambda (path)
+                           (push path sync-calls)))
+                        ((symbol-function 'org-slipbox-rpc-promote-entire-file)
+                         (lambda (path)
+                           (setq rpc-path path)
+                           '(:node_key "file:note.org")))
+                        ((symbol-function 'org-slipbox--refresh-or-kill-file-buffer)
+                         (lambda (path)
+                           (push path refresh-calls))))
+                (should (equal (plist-get (org-slipbox-promote-entire-buffer) :node_key)
+                               "file:note.org"))))
+            (kill-buffer (current-buffer)))
+          (should (equal rpc-path file))
+          (should (equal sync-calls (list file)))
+          (should (equal refresh-calls (list file))))
       (delete-directory root t))))
 
 (ert-deftest org-slipbox-test-ref-find-uses-rpc ()

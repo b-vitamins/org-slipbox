@@ -10,17 +10,18 @@ use slipbox_core::{
     CaptureTemplateParams, EnsureFileNodeParams, EnsureNodeIdParams, ExtractSubtreeParams,
     IndexFileParams, NodeAtPointParams, NodeFromIdParams, NodeFromRefParams,
     NodeFromTitleOrAliasParams, NodeRecord, PingInfo, RandomNodeResult, RefileSubtreeParams,
-    SearchNodesParams, SearchNodesResult, SearchRefsParams, SearchRefsResult, SearchTagsParams,
-    SearchTagsResult, UpdateNodeMetadataParams,
+    RewriteFileParams, SearchNodesParams, SearchNodesResult, SearchRefsParams, SearchRefsResult,
+    SearchTagsParams, SearchTagsResult, UpdateNodeMetadataParams,
 };
 use slipbox_rpc::{
     JsonRpcError, JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_AGENDA,
     METHOD_APPEND_HEADING, METHOD_APPEND_HEADING_AT_OUTLINE_PATH, METHOD_APPEND_HEADING_TO_NODE,
-    METHOD_BACKLINKS, METHOD_CAPTURE_NODE, METHOD_CAPTURE_TEMPLATE, METHOD_ENSURE_FILE_NODE,
-    METHOD_ENSURE_NODE_ID, METHOD_EXTRACT_SUBTREE, METHOD_INDEX, METHOD_INDEX_FILE,
-    METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_REF,
-    METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_RANDOM_NODE, METHOD_REFILE_SUBTREE,
-    METHOD_SEARCH_NODES, METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS, METHOD_UPDATE_NODE_METADATA,
+    METHOD_BACKLINKS, METHOD_CAPTURE_NODE, METHOD_CAPTURE_TEMPLATE, METHOD_DEMOTE_ENTIRE_FILE,
+    METHOD_ENSURE_FILE_NODE, METHOD_ENSURE_NODE_ID, METHOD_EXTRACT_SUBTREE, METHOD_INDEX,
+    METHOD_INDEX_FILE, METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_REF,
+    METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_PROMOTE_ENTIRE_FILE, METHOD_RANDOM_NODE,
+    METHOD_REFILE_SUBTREE, METHOD_SEARCH_NODES, METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS,
+    METHOD_UPDATE_NODE_METADATA,
 };
 use slipbox_store::Database;
 
@@ -453,6 +454,26 @@ fn dispatch_request(
             let extracted =
                 read_required_node_by_id(state, &outcome.explicit_id, "extracted node")?;
             to_value(extracted)
+        }
+        METHOD_PROMOTE_ENTIRE_FILE => {
+            let params: RewriteFileParams = parse_params(params)?;
+            let (relative_path, absolute_path) = resolve_index_path(&state.root, &params.file_path)
+                .map_err(|error| internal_error(error.context("failed to resolve file path")))?;
+            let outcome = slipbox_write::promote_entire_file(&state.root, &relative_path)
+                .map_err(|error| internal_error(error.context("failed to promote file node")))?;
+            sync_one_path(state, &absolute_path)?;
+            let refreshed = read_required_node(state, &outcome.node_key, "promoted file node")?;
+            to_value(refreshed)
+        }
+        METHOD_DEMOTE_ENTIRE_FILE => {
+            let params: RewriteFileParams = parse_params(params)?;
+            let (relative_path, absolute_path) = resolve_index_path(&state.root, &params.file_path)
+                .map_err(|error| internal_error(error.context("failed to resolve file path")))?;
+            let outcome = slipbox_write::demote_entire_file(&state.root, &relative_path)
+                .map_err(|error| internal_error(error.context("failed to demote file node")))?;
+            sync_one_path(state, &absolute_path)?;
+            let refreshed = read_required_node(state, &outcome.node_key, "demoted file node")?;
+            to_value(refreshed)
         }
         METHOD_INDEX_FILE => {
             let params: IndexFileParams = parse_params(params)?;

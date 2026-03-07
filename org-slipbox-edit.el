@@ -40,6 +40,26 @@
   :group 'org-slipbox)
 
 ;;;###autoload
+(defun org-slipbox-demote-entire-buffer ()
+  "Demote the current Org buffer into a single root heading node."
+  (interactive)
+  (let ((file (org-slipbox--current-edit-file)))
+    (org-slipbox--sync-live-file-buffer-if-needed file)
+    (prog1
+        (org-slipbox-rpc-demote-entire-file file)
+      (org-slipbox--refresh-or-kill-file-buffer file))))
+
+;;;###autoload
+(defun org-slipbox-promote-entire-buffer ()
+  "Promote the current Org buffer from a single root heading into a file node."
+  (interactive)
+  (let ((file (org-slipbox--current-edit-file)))
+    (org-slipbox--sync-live-file-buffer-if-needed file)
+    (prog1
+        (org-slipbox-rpc-promote-entire-file file)
+      (org-slipbox--refresh-or-kill-file-buffer file))))
+
+;;;###autoload
 (defun org-slipbox-refile (node)
   "Refile the current subtree under NODE."
   (interactive (list (org-slipbox--read-existing-node "Refile to: ")))
@@ -84,6 +104,12 @@
     (org-slipbox--refresh-or-kill-file-buffer source-file)
     (org-slipbox--refresh-or-kill-file-buffer target-path)
     target-path))
+
+(defun org-slipbox--current-edit-file ()
+  "Return the current file path for a structural edit command."
+  (unless buffer-file-name
+    (user-error "Current buffer is not visiting a file"))
+  buffer-file-name)
 
 (defun org-slipbox--refresh-or-kill-file-buffer (path)
   "Refresh the live buffer visiting PATH, or kill it when PATH no longer exists."

@@ -47,3 +47,4 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Added org-roam-style typed capture templates, including datetree and existing-node targets plus `${...}` and `org-capture` body expansion.
 - Added exact backlink locations plus preview-rich context-buffer and backlink views backed by indexed link occurrences.
 - Added region-aware node insertion so selected text can be preserved through both existing-node and capture-and-insert flows.
+- Added whole-buffer file-node promote and demote commands through Rust-backed rewrite RPCs.

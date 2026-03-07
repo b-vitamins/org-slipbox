@@ -9,7 +9,8 @@ use slipbox_write::{
     MetadataUpdate, RewriteOutcome, append_heading, append_heading_at_outline_path,
     append_heading_to_node, capture_file_note, capture_file_note_at,
     capture_file_note_at_with_head_and_refs, capture_file_note_with_refs, capture_template,
-    ensure_file_note, ensure_node_id, extract_subtree, refile_subtree, update_node_metadata,
+    demote_entire_file, ensure_file_note, ensure_node_id, extract_subtree, promote_entire_file,
+    refile_subtree, update_node_metadata,
 };
 use tempfile::tempdir;
 
@@ -486,6 +487,71 @@ fn update_node_metadata_rewrites_heading_aliases_and_tags() -> Result<()> {
         .expect("updated heading should exist");
     assert_eq!(refreshed.aliases, vec!["Batman"]);
     assert_eq!(refreshed.tags, vec!["two"]);
+
+    Ok(())
+}
+
+#[test]
+fn demote_entire_file_converts_file_metadata_into_a_root_heading() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let note_path = root.join("note.org");
+    fs::write(
+        &note_path,
+        "#+title: Note\n#+filetags: :alpha:\n:PROPERTIES:\n:ID: note-id\n:END:\n\nFile body.\n\n* Child\nBody.\n",
+    )?;
+
+    let outcome = demote_entire_file(&root, "note.org")?;
+    let source = fs::read_to_string(&note_path)?;
+    assert!(source.starts_with("* Note :alpha:\n:PROPERTIES:\n:ID: note-id\n:END:\n"));
+    assert!(source.contains("\nFile body.\n\n** Child\nBody.\n"));
+    assert_eq!(outcome.node_key, "heading:note.org:1");
+
+    let indexed = scan_path(&root, &note_path)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_file_index(&indexed)?;
+    let node = database
+        .node_by_key("heading:note.org:1")?
+        .expect("demoted heading should exist");
+    assert_eq!(node.title, "Note");
+    assert_eq!(node.tags, vec!["alpha"]);
+    assert_eq!(node.explicit_id.as_deref(), Some("note-id"));
+
+    Ok(())
+}
+
+#[test]
+fn promote_entire_file_converts_a_single_root_heading_into_a_file_node() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let note_path = root.join("note.org");
+    fs::write(
+        &note_path,
+        "* Note :alpha:\n:PROPERTIES:\n:ID: note-id\n:END:\nBody.\n\n** Child\nBody.\n",
+    )?;
+
+    let outcome = promote_entire_file(&root, "note.org")?;
+    let source = fs::read_to_string(&note_path)?;
+    assert!(
+        source
+            .starts_with("#+title: Note\n#+filetags: :alpha:\n:PROPERTIES:\n:ID: note-id\n:END:\n")
+    );
+    assert!(source.contains("\nBody.\n\n* Child\nBody.\n"));
+    assert_eq!(outcome.node_key, "file:note.org");
+
+    let indexed = scan_path(&root, &note_path)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_file_index(&indexed)?;
+    let node = database
+        .node_by_key("file:note.org")?
+        .expect("promoted file node should exist");
+    assert_eq!(node.title, "Note");
+    assert_eq!(node.tags, vec!["alpha"]);
+    assert_eq!(node.explicit_id.as_deref(), Some("note-id"));
 
     Ok(())
 }

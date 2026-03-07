@@ -804,6 +804,36 @@ pub fn extract_subtree(
     })
 }
 
+pub fn demote_entire_file(root: &Path, file_path: &str) -> Result<CaptureOutcome> {
+    let relative_path = normalize_relative_org_path(file_path)?;
+    let absolute_path = root.join(&relative_path);
+    let source = fs::read_to_string(&absolute_path)
+        .with_context(|| format!("failed to read {}", absolute_path.display()))?;
+    let mut document = OrgDocument::from_source(&source);
+    document.demote_entire_file(&relative_path);
+    fs::write(&absolute_path, document.render())
+        .with_context(|| format!("failed to write {}", absolute_path.display()))?;
+    Ok(CaptureOutcome {
+        absolute_path,
+        node_key: format!("heading:{}:1", relative_path.replace('\\', "/")),
+    })
+}
+
+pub fn promote_entire_file(root: &Path, file_path: &str) -> Result<CaptureOutcome> {
+    let relative_path = normalize_relative_org_path(file_path)?;
+    let absolute_path = root.join(&relative_path);
+    let source = fs::read_to_string(&absolute_path)
+        .with_context(|| format!("failed to read {}", absolute_path.display()))?;
+    let mut document = OrgDocument::from_source(&source);
+    document.promote_entire_file()?;
+    fs::write(&absolute_path, document.render())
+        .with_context(|| format!("failed to write {}", absolute_path.display()))?;
+    Ok(CaptureOutcome {
+        absolute_path,
+        node_key: format!("file:{}", relative_path.replace('\\', "/")),
+    })
+}
+
 fn insert_file_id(source: &str, explicit_id: &str) -> String {
     let mut document = OrgDocument::from_source(source);
     document.set_file_property("ID", Some(explicit_id.to_owned()));
@@ -1260,6 +1290,39 @@ impl OrgDocument {
         self.lines.iter().any(|line| !line.trim().is_empty())
     }
 
+    fn demote_entire_file(&mut self, relative_path: &str) {
+        let title = self
+            .file_keyword_value("title")
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| default_capture_file_title(relative_path, ""));
+        let tags = self.filetags();
+
+        self.set_file_keyword("title", None);
+        self.set_file_keyword("filetags", None);
+        demote_all_headings(&mut self.lines);
+        self.lines.insert(0, format_heading_line(1, &title, &tags));
+    }
+
+    fn promote_entire_file(&mut self) -> Result<()> {
+        if !self.buffer_promoteable_p() {
+            bail!("cannot promote: multiple root headings or there is extra file-level text");
+        }
+
+        let heading = self.lines.remove(0);
+        let heading_text = heading.trim_start();
+        let (title_text, tags) = split_heading_tags(heading_text[2..].trim());
+        let (_, title) = split_todo_keyword(title_text);
+        let title = title.trim();
+        if title.is_empty() {
+            bail!("cannot promote: top-level heading must have a title");
+        }
+
+        promote_subtree_lines(&mut self.lines);
+        self.set_file_keyword("title", Some(title.to_owned()));
+        self.set_file_keyword("filetags", keyword_value(&tags));
+        Ok(())
+    }
+
     fn heading_index(&self, line_number: usize) -> Result<usize> {
         if line_number == 0 || line_number > self.lines.len() {
             bail!("heading line {line_number} is out of range");
@@ -1592,6 +1655,31 @@ impl OrgDocument {
         Ok(current)
     }
 
+    fn file_keyword_value(&self, keyword: &str) -> Option<String> {
+        file_keyword_value(&self.lines, keyword)
+    }
+
+    fn filetags(&self) -> Vec<String> {
+        self.file_keyword_value("filetags")
+            .map(|value| parse_colon_tags(&value))
+            .unwrap_or_default()
+    }
+
+    fn h1_count(&self) -> usize {
+        self.lines
+            .iter()
+            .filter(|line| heading_level(line) == Some(1))
+            .count()
+    }
+
+    fn buffer_promoteable_p(&self) -> bool {
+        self.h1_count() == 1
+            && self
+                .lines
+                .first()
+                .is_some_and(|line| heading_level(line) == Some(1))
+    }
+
     fn file_body_start_index(&self) -> usize {
         let mut index = file_property_drawer_bounds(&self.lines)
             .map(|(_, end)| end)
@@ -1714,6 +1802,13 @@ fn file_property_insert_index(lines: &[String]) -> usize {
     }
 
     index
+}
+
+fn file_keyword_value(lines: &[String], keyword: &str) -> Option<String> {
+    let needle = format!("#+{keyword}:");
+    (0..file_keyword_limit(lines)).find_map(|index| {
+        strip_keyword(lines[index].trim_start(), &needle).map(|value| value.trim().to_owned())
+    })
 }
 
 fn file_property_drawer_bounds(lines: &[String]) -> Option<(usize, usize)> {

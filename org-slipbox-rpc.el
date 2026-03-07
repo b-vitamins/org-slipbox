@@ -79,6 +79,8 @@
 (defconst org-slipbox-rpc-method-update-node-metadata "slipbox/updateNodeMetadata")
 (defconst org-slipbox-rpc-method-refile-subtree "slipbox/refileSubtree")
 (defconst org-slipbox-rpc-method-extract-subtree "slipbox/extractSubtree")
+(defconst org-slipbox-rpc-method-promote-entire-file "slipbox/promoteEntireFile")
+(defconst org-slipbox-rpc-method-demote-entire-file "slipbox/demoteEntireFile")
 
 (defun org-slipbox-rpc-live-p ()
   "Return non-nil when the org-slipbox JSON-RPC process is live."
@@ -240,6 +242,18 @@ When NOCASE is non-nil, use case-insensitive matching."
   (org-slipbox-rpc-request
    org-slipbox-rpc-method-extract-subtree
    `(:source_node_key ,source-node-key :file_path ,(expand-file-name file-path))))
+
+(defun org-slipbox-rpc-promote-entire-file (file-path)
+  "Promote FILE-PATH from a single root heading into a file node."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-promote-entire-file
+   `(:file_path ,(expand-file-name file-path))))
+
+(defun org-slipbox-rpc-demote-entire-file (file-path)
+  "Demote FILE-PATH into a single root heading node."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-demote-entire-file
+   `(:file_path ,(expand-file-name file-path))))
 
 (provide 'org-slipbox-rpc)
 
