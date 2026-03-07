@@ -61,6 +61,30 @@ Each template is a list of the form (KEY DESCRIPTION [:path STRING] [:title STRI
     (message "Indexed %s files, %s nodes, %s links" files nodes links)
     response))
 
+(defun org-slipbox-node-from-id (id)
+  "Return the indexed node with explicit ID."
+  (org-slipbox-rpc-request "slipbox/nodeFromId" `(:id ,id)))
+
+(defun org-slipbox-node-from-title-or-alias (title-or-alias &optional nocase)
+  "Return the indexed node matching TITLE-OR-ALIAS.
+When NOCASE is non-nil, use case-insensitive matching."
+  (org-slipbox-rpc-request
+   "slipbox/nodeFromTitleOrAlias"
+   `(:title_or_alias ,title-or-alias :nocase ,(and nocase t))))
+
+(defun org-slipbox-node-at-point (&optional assert)
+  "Return the indexed node at point.
+If ASSERT is non-nil, signal a user error when no node is available."
+  (let ((node (and (org-slipbox--queryable-node-buffer-p)
+                   (progn
+                     (org-slipbox--sync-node-buffer-if-needed)
+                     (org-slipbox-rpc-request
+                      "slipbox/nodeAtPoint"
+                      `(:file_path ,(expand-file-name (org-slipbox--current-node-buffer-file))
+                        :line ,(line-number-at-pos)))))))
+    (or node
+        (and assert (user-error "No node at point")))))
+
 (defun org-slipbox-capture (&optional title)
   "Create a new note with TITLE and visit it."
   (interactive)
@@ -521,6 +545,27 @@ When PREFIX is non-nil, only return tags matching PREFIX."
   (org-slipbox-rpc-request
    "slipbox/indexFile"
    `(:file_path ,(expand-file-name buffer-file-name))))
+
+(defun org-slipbox--sync-node-buffer-if-needed ()
+  "Save and sync the current node buffer when it has local modifications."
+  (let ((base-buffer (or (buffer-base-buffer) (current-buffer))))
+    (when (and (org-slipbox--queryable-node-buffer-p)
+               (buffer-modified-p base-buffer))
+      (with-current-buffer base-buffer
+        (org-slipbox--save-and-sync-current-buffer)))))
+
+(defun org-slipbox--queryable-node-buffer-p ()
+  "Return non-nil when the current buffer can resolve indexed nodes."
+  (let ((file (org-slipbox--current-node-buffer-file)))
+    (and file
+         org-slipbox-directory
+         (string-suffix-p ".org" file)
+         (file-in-directory-p (expand-file-name file)
+                              (expand-file-name org-slipbox-directory)))))
+
+(defun org-slipbox--current-node-buffer-file ()
+  "Return the current base buffer file path."
+  (buffer-file-name (or (buffer-base-buffer) (current-buffer))))
 
 (defun org-slipbox--tag-completion-table (string pred action)
   "Completion table for tags using STRING, PRED, and ACTION."

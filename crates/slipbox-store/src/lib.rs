@@ -7,7 +7,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
 use slipbox_core::{IndexStats, IndexedFile, NodeKind, NodeRecord, RefRecord, normalize_reference};
 
-const SCHEMA_VERSION: i32 = 5;
+const SCHEMA_VERSION: i32 = 6;
 
 pub struct Database {
     connection: Connection,
@@ -125,6 +125,120 @@ impl Database {
             rows.collect::<rusqlite::Result<Vec<_>>>()
                 .context("failed to search tags")
         }
+    }
+
+    pub fn node_from_id(&self, explicit_id: &str) -> Result<Option<NodeRecord>> {
+        self.connection
+            .query_row(
+                "SELECT node_key,
+                        explicit_id,
+                        file_path,
+                        title,
+                        outline_path,
+                        aliases_json,
+                        tags_json,
+                        refs_json,
+                        todo_keyword,
+                        scheduled_for,
+                        deadline_for,
+                        closed_at,
+                        level,
+                        line,
+                        kind
+                   FROM nodes
+                  WHERE explicit_id = ?1
+                  LIMIT 1",
+                params![explicit_id],
+                row_to_node,
+            )
+            .optional()
+            .context("failed to fetch node from ID")
+    }
+
+    pub fn node_from_title_or_alias(
+        &self,
+        title_or_alias: &str,
+        nocase: bool,
+    ) -> Result<Vec<NodeRecord>> {
+        let sql = if nocase {
+            "SELECT DISTINCT n.node_key,
+                             n.explicit_id,
+                             n.file_path,
+                             n.title,
+                             n.outline_path,
+                             n.aliases_json,
+                             n.tags_json,
+                             n.refs_json,
+                             n.todo_keyword,
+                             n.scheduled_for,
+                             n.deadline_for,
+                             n.closed_at,
+                             n.level,
+                             n.line,
+                             n.kind
+               FROM nodes AS n
+               LEFT JOIN aliases AS a ON a.node_key = n.node_key
+              WHERE n.title = ?1 COLLATE NOCASE
+                 OR a.alias = ?1 COLLATE NOCASE
+              ORDER BY n.file_path, n.line
+              LIMIT 2"
+        } else {
+            "SELECT DISTINCT n.node_key,
+                             n.explicit_id,
+                             n.file_path,
+                             n.title,
+                             n.outline_path,
+                             n.aliases_json,
+                             n.tags_json,
+                             n.refs_json,
+                             n.todo_keyword,
+                             n.scheduled_for,
+                             n.deadline_for,
+                             n.closed_at,
+                             n.level,
+                             n.line,
+                             n.kind
+               FROM nodes AS n
+               LEFT JOIN aliases AS a ON a.node_key = n.node_key
+              WHERE n.title = ?1
+                 OR a.alias = ?1
+              ORDER BY n.file_path, n.line
+              LIMIT 2"
+        };
+        let mut statement = self.connection.prepare(sql)?;
+        let rows = statement.query_map(params![title_or_alias], row_to_node)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("failed to fetch node from title or alias")
+    }
+
+    pub fn node_at_point(&self, file_path: &str, line: u32) -> Result<Option<NodeRecord>> {
+        self.connection
+            .query_row(
+                "SELECT node_key,
+                        explicit_id,
+                        file_path,
+                        title,
+                        outline_path,
+                        aliases_json,
+                        tags_json,
+                        refs_json,
+                        todo_keyword,
+                        scheduled_for,
+                        deadline_for,
+                        closed_at,
+                        level,
+                        line,
+                        kind
+                   FROM nodes
+                  WHERE file_path = ?1
+                    AND line <= ?2
+                  ORDER BY line DESC, level DESC
+                  LIMIT 1",
+                params![file_path, line],
+                row_to_node,
+            )
+            .optional()
+            .context("failed to fetch node at point")
     }
 
     pub fn backlinks(&self, node_key: &str, limit: usize) -> Result<Vec<NodeRecord>> {
@@ -373,6 +487,7 @@ impl Database {
              PRAGMA synchronous = NORMAL;
 
              DROP TABLE IF EXISTS links;
+             DROP TABLE IF EXISTS aliases;
              DROP TABLE IF EXISTS tags;
              DROP TABLE IF EXISTS refs;
              DROP TABLE IF EXISTS node_fts;
@@ -417,6 +532,11 @@ impl Database {
                ref TEXT NOT NULL
              );
 
+             CREATE TABLE IF NOT EXISTS aliases (
+               node_key TEXT NOT NULL,
+               alias TEXT NOT NULL
+             );
+
              CREATE TABLE IF NOT EXISTS tags (
                node_key TEXT NOT NULL,
                tag TEXT NOT NULL
@@ -429,6 +549,12 @@ impl Database {
 
              CREATE INDEX IF NOT EXISTS idx_nodes_file_path
                ON nodes (file_path);
+
+             CREATE INDEX IF NOT EXISTS idx_nodes_title
+               ON nodes (title);
+
+             CREATE INDEX IF NOT EXISTS idx_nodes_title_nocase
+               ON nodes (title COLLATE NOCASE);
 
              CREATE INDEX IF NOT EXISTS idx_nodes_explicit_id
                ON nodes (explicit_id)
@@ -443,6 +569,12 @@ impl Database {
              CREATE INDEX IF NOT EXISTS idx_refs_ref
                ON refs (ref);
 
+             CREATE INDEX IF NOT EXISTS idx_aliases_alias
+               ON aliases (alias);
+
+             CREATE INDEX IF NOT EXISTS idx_aliases_alias_nocase
+               ON aliases (alias COLLATE NOCASE);
+
              CREATE INDEX IF NOT EXISTS idx_tags_tag
                ON tags (tag);
 
@@ -454,7 +586,7 @@ impl Database {
                ON nodes (deadline_for)
                WHERE deadline_for IS NOT NULL;
 
-             PRAGMA user_version = 5;",
+             PRAGMA user_version = 6;",
         )?;
         Ok(())
     }
@@ -532,6 +664,14 @@ impl Database {
                 )?;
             }
 
+            for alias in &node.aliases {
+                transaction.execute(
+                    "INSERT INTO aliases (node_key, alias)
+                     VALUES (?1, ?2)",
+                    params![node.node_key, alias],
+                )?;
+            }
+
             for tag in &node.tags {
                 transaction.execute(
                     "INSERT INTO tags (node_key, tag)
@@ -579,6 +719,15 @@ impl Database {
 }
 
 fn delete_file_rows(transaction: &rusqlite::Transaction<'_>, file_path: &str) -> Result<()> {
+    transaction.execute(
+        "DELETE FROM aliases
+          WHERE node_key IN (
+                SELECT node_key
+                  FROM nodes
+                 WHERE file_path = ?1
+          )",
+        params![file_path],
+    )?;
     transaction.execute(
         "DELETE FROM tags
           WHERE node_key IN (

@@ -74,6 +74,65 @@
             '(:title "Slip: Sample Title"
               :file_path "notes/2026-sample-title.org")))))
 
+(ert-deftest org-slipbox-test-node-from-id-uses-rpc ()
+  "Exact ID lookup should call the dedicated RPC."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:title "Note" :file_path "note.org" :line 1))))
+      (should
+       (equal
+        (org-slipbox-node-from-id "abc123")
+        '(:title "Note" :file_path "note.org" :line 1))))
+    (should (equal method "slipbox/nodeFromId"))
+    (should (equal params '(:id "abc123")))))
+
+(ert-deftest org-slipbox-test-node-from-title-or-alias-uses-rpc ()
+  "Exact title or alias lookup should call the dedicated RPC."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:title "Bruce Wayne" :file_path "wayne.org" :line 1))))
+      (should
+       (equal
+        (org-slipbox-node-from-title-or-alias "batman" t)
+        '(:title "Bruce Wayne" :file_path "wayne.org" :line 1))))
+    (should (equal method "slipbox/nodeFromTitleOrAlias"))
+    (should (equal params '(:title_or_alias "batman" :nocase t)))))
+
+(ert-deftest org-slipbox-test-node-at-point-syncs-modified-buffer ()
+  "Point-based lookup should sync modified buffers before querying."
+  (let* ((root (make-temp-file "org-slipbox-node-" t))
+         (file (expand-file-name "note.org" root))
+         calls)
+    (unwind-protect
+        (progn
+          (write-region "#+title: Note\n\n* Heading\n" nil file nil 'silent)
+          (with-current-buffer (find-file-noselect file)
+            (goto-char (point-max))
+            (insert "Body\n")
+            (search-backward "* Heading")
+            (let ((org-slipbox-directory root))
+              (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                         (lambda (request-method &optional request-params)
+                           (push (list request-method request-params) calls)
+                           (when (equal request-method "slipbox/nodeAtPoint")
+                             '(:title "Heading" :file_path "note.org" :line 3)))))
+                (should
+                 (equal
+                  (org-slipbox-node-at-point)
+                  '(:title "Heading" :file_path "note.org" :line 3)))))
+            (kill-buffer (current-buffer)))
+          (should
+           (equal
+            (mapcar #'car (nreverse calls))
+            '("slipbox/indexFile" "slipbox/nodeAtPoint"))))
+      (delete-directory root t))))
+
 (ert-deftest org-slipbox-test-ref-find-uses-rpc ()
   "Ref lookup should query the dedicated ref RPC."
   (let (method params visited)

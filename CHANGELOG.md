@@ -22,3 +22,4 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Added indexed `ROAM_REFS` support, ref lookup commands, and alias/ref metadata editing commands.
 - Added indexed tag completion plus file-level and heading-level tag editing commands.
 - Added daily-note discovery and next/previous navigation commands.
+- Added exact node lookup helpers for IDs, exact title/alias matches, and point-based resolution.

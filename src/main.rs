@@ -7,13 +7,15 @@ use serde::de::DeserializeOwned;
 use slipbox_core::{
     AgendaParams, AgendaResult, AppendHeadingParams, BacklinksParams, BacklinksResult,
     CaptureNodeParams, EnsureFileNodeParams, EnsureNodeIdParams, IndexFileParams,
-    NodeFromRefParams, NodeRecord, PingInfo, SearchNodesParams, SearchNodesResult,
-    SearchRefsParams, SearchRefsResult, SearchTagsParams, SearchTagsResult,
+    NodeAtPointParams, NodeFromIdParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
+    PingInfo, SearchNodesParams, SearchNodesResult, SearchRefsParams, SearchRefsResult,
+    SearchTagsParams, SearchTagsResult,
 };
 use slipbox_rpc::{
     JsonRpcError, JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_AGENDA,
     METHOD_APPEND_HEADING, METHOD_BACKLINKS, METHOD_CAPTURE_NODE, METHOD_ENSURE_FILE_NODE,
-    METHOD_ENSURE_NODE_ID, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_NODE_FROM_REF, METHOD_PING,
+    METHOD_ENSURE_NODE_ID, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_NODE_AT_POINT,
+    METHOD_NODE_FROM_ID, METHOD_NODE_FROM_REF, METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING,
     METHOD_SEARCH_NODES, METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS,
 };
 use slipbox_store::Database;
@@ -191,6 +193,41 @@ fn dispatch_request(
                 .search_tags(&params.query, params.normalized_limit())
                 .map_err(|error| internal_error(error.context("failed to query tags")))?;
             to_value(SearchTagsResult { tags })
+        }
+        METHOD_NODE_FROM_ID => {
+            let params: NodeFromIdParams = parse_params(params)?;
+            let node = state
+                .database
+                .node_from_id(&params.id)
+                .map_err(|error| internal_error(error.context("failed to resolve node ID")))?;
+            to_value(node)
+        }
+        METHOD_NODE_FROM_TITLE_OR_ALIAS => {
+            let params: NodeFromTitleOrAliasParams = parse_params(params)?;
+            let matches = state
+                .database
+                .node_from_title_or_alias(&params.title_or_alias, params.nocase)
+                .map_err(|error| {
+                    internal_error(error.context("failed to resolve node title or alias"))
+                })?;
+            if matches.len() > 1 {
+                return Err(JsonRpcError::new(JsonRpcErrorObject::invalid_request(
+                    format!("multiple nodes match {}", params.title_or_alias),
+                )));
+            }
+            to_value(matches.into_iter().next())
+        }
+        METHOD_NODE_AT_POINT => {
+            let params: NodeAtPointParams = parse_params(params)?;
+            let (relative_path, _) = resolve_index_path(&state.root, &params.file_path)
+                .map_err(|error| internal_error(error.context("failed to resolve file path")))?;
+            let node = state
+                .database
+                .node_at_point(&relative_path, params.normalized_line())
+                .map_err(|error| {
+                    internal_error(error.context("failed to resolve node at point"))
+                })?;
+            to_value(node)
         }
         METHOD_BACKLINKS => {
             let params: BacklinksParams = parse_params(params)?;

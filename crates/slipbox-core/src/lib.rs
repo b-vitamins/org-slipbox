@@ -151,6 +151,31 @@ pub struct SearchTagsResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeFromIdParams {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeFromTitleOrAliasParams {
+    pub title_or_alias: String,
+    #[serde(default)]
+    pub nocase: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeAtPointParams {
+    pub file_path: String,
+    pub line: u32,
+}
+
+impl NodeAtPointParams {
+    #[must_use]
+    pub fn normalized_line(&self) -> u32 {
+        self.line.max(1)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BacklinksParams {
     pub node_key: String,
     #[serde(default = "default_backlink_limit")]
