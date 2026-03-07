@@ -326,6 +326,8 @@ pub struct CaptureTemplateParams {
     pub empty_lines_before: u32,
     #[serde(default)]
     pub empty_lines_after: u32,
+    #[serde(default)]
+    pub table_line_pos: Option<String>,
 }
 
 impl CaptureTemplateParams {
@@ -362,6 +364,14 @@ impl CaptureTemplateParams {
     #[must_use]
     pub fn normalized_empty_lines_after(&self) -> usize {
         self.empty_lines_after.min(8) as usize
+    }
+
+    #[must_use]
+    pub fn normalized_table_line_pos(&self) -> Option<String> {
+        self.table_line_pos.as_ref().and_then(|value| {
+            let trimmed = value.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_owned())
+        })
     }
 }
 

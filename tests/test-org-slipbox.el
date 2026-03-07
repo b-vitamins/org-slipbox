@@ -492,6 +492,41 @@
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest org-slipbox-test-capture-finalize-passes-table-line-position ()
+  "Table-line drafts should pass `:table-line-pos' through to the RPC."
+  (let (buffer method params)
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                     (lambda (request-method request-params)
+                       (setq method request-method
+                             params request-params)
+                       '(:title "Note" :file_path "notes/note.org" :line 5))))
+            (setq buffer
+                  (org-slipbox--capture-node-at-time
+                   "Note"
+                   '("t" "table row" table-line "| ${title} |"
+                     :target (file "notes/${slug}.org")
+                     :table-line-pos "I+1")
+                   nil
+                   (encode-time 0 0 0 7 3 2026)))
+            (with-current-buffer buffer
+              (org-slipbox-capture-finalize)))
+          (should-not (buffer-live-p buffer))
+          (should (equal method "slipbox/captureTemplate"))
+          (should
+           (equal params
+                  '(:title "Note"
+                    :capture_type "table-line"
+                    :content "| Note |"
+                    :prepend nil
+                    :empty_lines_before 0
+                    :empty_lines_after 0
+                    :table_line_pos "I+1"
+                    :file_path "notes/note.org"))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (ert-deftest org-slipbox-test-typed-capture-target-node-resolves-existing-node ()
   "Typed templates should resolve `(node ...)' targets before draft creation."
   (let (buffer method params)
@@ -590,6 +625,27 @@
    (org-slipbox--capture-node
     "Note"
     '("d" "default" :path "notes/${slug}.org" :immediate-finish t))
+   :type 'error))
+
+(ert-deftest org-slipbox-test-capture-unsupported-target-option-errors ()
+  "Unsupported target-preparation keys should error clearly."
+  (dolist (key '(:exact-position :insert-here))
+    (should-error
+     (org-slipbox--capture-node
+      "Note"
+      `("d" "default" :path "notes/${slug}.org" ,key t))
+     :type 'error)))
+
+(ert-deftest org-slipbox-test-capture-table-line-position-requires-table-line ()
+  "Non-table captures should reject `:table-line-pos' explicitly."
+  (should-error
+   (org-slipbox--capture-node-at-time
+    "Note"
+    '("d" "default" plain "${title}"
+      :target (file "notes/${slug}.org")
+      :table-line-pos "I+1")
+    nil
+    (encode-time 0 0 0 7 3 2026))
    :type 'error))
 
 (ert-deftest org-slipbox-test-capture-datetree-target-expands-outline-path ()

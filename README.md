@@ -31,9 +31,10 @@ The Rust workspace links against a system SQLite installation.
 - Resolve nodes from indexed refs and citekeys, and edit alias/ref/tag metadata from Emacs.
 - Capture notes from refs without duplicating existing ref-backed nodes.
 - Expand capture templates into exact file targets, optional file heads, and outline-path targets.
+- Prepare capture targets consistently across exact files, file heads, outline paths, datetrees, and existing indexed nodes.
 - Expand capture templates with contextual variables such as refs and protocol-supplied body text.
 - Start note capture in a transient draft buffer and only write through Rust RPC on finalize or jump-to-captured flows.
-- Support org-roam-style typed capture templates with `entry`, `plain`, `item`, `checkitem`, and `table-line` content.
+- Support org-roam-style typed capture templates with `entry`, `plain`, `item`, `checkitem`, and `table-line` content, including explicit `:table-line-pos` placement.
 - Honor capture post-success actions such as `:finalize` and `:jump-to-captured`, including insert-link flows.
 - Capture into datetree targets and existing indexed nodes through the shared Rust write pipeline.
 - Display a persistent or dedicated context buffer for the current node with refs, backlinks, and dedicated-buffer reference discovery sections.

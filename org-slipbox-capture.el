@@ -65,6 +65,9 @@ TYPE may be one of `plain', `entry', `item', `checkitem', or
 describe the content inserted there. The older shorthand template
 syntax is preserved for compatibility.
 
+Typed `table-line' templates may also set `:table-line-pos' to place
+the inserted row relative to table separators.
+
 In addition to target and content options, typed templates may carry
 the lifecycle keys `:finalize' and `:jump-to-captured'. Compatibility
 keys from `org-capture', including `:immediate-finish', `:kill-buffer',
@@ -92,6 +95,10 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
   '(:immediate-finish :kill-buffer :no-save :unnarrowed
     :clock-in :clock-resume :clock-keep)
   "Template lifecycle keys reserved for later capture-parity work.")
+
+(defconst org-slipbox--capture-unsupported-target-keys
+  '(:exact-position :insert-here)
+  "Target-preparation keys that currently error instead of being ignored.")
 
 (cl-defstruct (org-slipbox-capture-session
                (:constructor org-slipbox--make-capture-session))
@@ -200,7 +207,9 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
          (template-options (org-slipbox--capture-template-options template))
          (session (copy-sequence session))
          (time (org-slipbox--capture-template-time time template-options)))
-    (org-slipbox--capture-validate-template-options template-options)
+    (org-slipbox--capture-validate-template-options
+     template-options
+     (org-slipbox--capture-template-type template))
     (org-slipbox--open-capture-session
      (if (org-slipbox--typed-capture-template-p template)
          (org-slipbox--prepare-typed-capture-session
@@ -235,11 +244,19 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
            (org-read-date nil t nil "Capture date: "))
       (current-time)))
 
-(defun org-slipbox--capture-validate-template-options (template-options)
-  "Signal a clear error for unsupported keys in TEMPLATE-OPTIONS."
+(defun org-slipbox--capture-validate-template-options
+    (template-options capture-type)
+  "Signal a clear error for unsupported keys in TEMPLATE-OPTIONS.
+CAPTURE-TYPE is the effective type for the selected template."
   (dolist (key org-slipbox--capture-unsupported-lifecycle-keys)
     (when (plist-member template-options key)
-      (user-error "Capture option %S is not implemented yet" key))))
+      (user-error "Capture option %S is not implemented yet" key)))
+  (dolist (key org-slipbox--capture-unsupported-target-keys)
+    (when (plist-member template-options key)
+      (user-error "Capture option %S is not implemented yet" key)))
+  (when (and (plist-member template-options :table-line-pos)
+             (not (eq capture-type 'table-line)))
+    (user-error "Capture option :table-line-pos requires `table-line' capture")))
 
 (defun org-slipbox--prepare-shorthand-capture-session
     (title template refs time variables session)
@@ -478,6 +495,8 @@ REFS, TIME, VARIABLES, and SESSION describe the session state."
            :prepend (and (plist-get template-options :prepend) t)
            :empty_lines_before (plist-get empty-lines :before)
            :empty_lines_after (plist-get empty-lines :after))
+     (when-let ((table-line-pos (plist-get template-options :table-line-pos)))
+       (list :table_line_pos table-line-pos))
      (when-let ((refs (org-slipbox-capture-session-refs capture-session)))
        (list :refs refs))
      (org-slipbox--capture-target-params target))))

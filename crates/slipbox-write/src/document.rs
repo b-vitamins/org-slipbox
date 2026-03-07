@@ -196,63 +196,6 @@ impl OrgDocument {
         Ok((start, end))
     }
 
-    pub(crate) fn list_bounds(&self, start: usize, end: usize) -> Option<(usize, usize)> {
-        let mut list_start = None;
-        for index in start..end {
-            let line = self.lines.get(index)?;
-            if looks_like_list_item(line) {
-                list_start = Some(index);
-                break;
-            }
-        }
-
-        let start = list_start?;
-        let mut end_index = end;
-        for index in start + 1..end {
-            let line = self.lines.get(index)?;
-            let trimmed = line.trim_start();
-            if trimmed.is_empty() {
-                end_index = index;
-                break;
-            }
-            if looks_like_list_item(trimmed) || line.starts_with(' ') || line.starts_with('\t') {
-                continue;
-            }
-            end_index = index;
-            break;
-        }
-
-        Some((start, end_index))
-    }
-
-    pub(crate) fn table_bounds(&self, start: usize, end: usize) -> Option<(usize, usize)> {
-        let mut table_start = None;
-        for index in start..end {
-            let line = self.lines.get(index)?;
-            if line.trim_start().starts_with('|') {
-                table_start = Some(index);
-                break;
-            }
-        }
-
-        let start = table_start?;
-        let mut end_index = end;
-        for index in start + 1..end {
-            let line = self.lines.get(index)?;
-            if line.trim().is_empty() {
-                end_index = index;
-                break;
-            }
-            if line.trim_start().starts_with('|') {
-                continue;
-            }
-            end_index = index;
-            break;
-        }
-
-        Some((start, end_index))
-    }
-
     pub(crate) fn insert_block(
         &mut self,
         index: usize,
@@ -595,24 +538,6 @@ pub(crate) fn heading_level(line: &str) -> Option<usize> {
         return None;
     }
     Some(stars)
-}
-
-pub(crate) fn looks_like_list_item(line: &str) -> bool {
-    let trimmed = line.trim_start();
-    looks_like_checkitem(trimmed)
-        || trimmed.starts_with("- ")
-        || trimmed.starts_with("+ ")
-        || trimmed.starts_with("* ")
-        || trimmed
-            .chars()
-            .next()
-            .is_some_and(|character| character.is_ascii_digit())
-            && (trimmed.contains(". ") || trimmed.contains(") "))
-}
-
-pub(crate) fn looks_like_checkitem(line: &str) -> bool {
-    let trimmed = line.trim_start();
-    trimmed.starts_with("- [") || trimmed.starts_with("+ [") || trimmed.starts_with("* [")
 }
 
 pub(crate) fn shift_subtree_levels(lines: &mut [String], desired_root_level: usize) -> Result<()> {

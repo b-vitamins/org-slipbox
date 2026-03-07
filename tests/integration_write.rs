@@ -247,6 +247,7 @@ fn capture_template_entry_inserts_child_under_outline_target() -> Result<()> {
             prepend: false,
             empty_lines_before: 0,
             empty_lines_after: 0,
+            table_line_pos: None,
         },
     )?;
 
@@ -307,6 +308,7 @@ fn capture_template_item_appends_inside_existing_list_body() -> Result<()> {
             prepend: false,
             empty_lines_before: 0,
             empty_lines_after: 0,
+            table_line_pos: None,
         },
     )?;
 
@@ -357,6 +359,7 @@ fn capture_template_table_line_uses_existing_table_block() -> Result<()> {
             prepend: false,
             empty_lines_before: 0,
             empty_lines_after: 0,
+            table_line_pos: None,
         },
     )?;
 
@@ -366,6 +369,292 @@ fn capture_template_table_line_uses_existing_table_block() -> Result<()> {
     let source = fs::read_to_string(&note_path)?;
     assert!(source.contains("| One  | 1     |\n| Two | 2 |\n"));
     assert_eq!(captured.node_key, parent.node_key);
+
+    Ok(())
+}
+
+#[test]
+fn capture_template_table_line_honors_explicit_table_line_position() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let note_path = root.join("project.org");
+    fs::write(
+        &note_path,
+        "#+title: Project\n\n* Parent\n| Name | Value |\n|------+-------|\n| One  | 1     |\n| Two  | 2     |\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let parent = database
+        .search_nodes("parent", 10)?
+        .into_iter()
+        .find(|candidate| candidate.title == "Parent")
+        .expect("parent node should exist");
+
+    capture_template(
+        &root,
+        Some(&parent),
+        &CaptureTemplateParams {
+            title: String::new(),
+            file_path: None,
+            node_key: Some(parent.node_key.clone()),
+            head: None,
+            outline_path: Vec::new(),
+            capture_type: CaptureContentType::TableLine,
+            content: String::from("Zero | 0"),
+            refs: Vec::new(),
+            prepend: false,
+            empty_lines_before: 0,
+            empty_lines_after: 0,
+            table_line_pos: Some(String::from("I+1")),
+        },
+    )?;
+
+    assert_eq!(
+        fs::read_to_string(&note_path)?,
+        "#+title: Project\n\n* Parent\n| Name | Value |\n|------+-------|\n| Zero | 0 |\n| One  | 1     |\n| Two  | 2     |\n"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn capture_template_plain_file_target_appends_after_existing_headings() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let note_path = root.join("note.org");
+    fs::write(&note_path, "#+title: Note\n\n* Existing\nBody.\n")?;
+
+    let captured = capture_template(
+        &root,
+        None,
+        &CaptureTemplateParams {
+            title: String::from("Note"),
+            file_path: Some(String::from("note.org")),
+            node_key: None,
+            head: None,
+            outline_path: Vec::new(),
+            capture_type: CaptureContentType::Plain,
+            content: String::from("Tail"),
+            refs: Vec::new(),
+            prepend: false,
+            empty_lines_before: 0,
+            empty_lines_after: 0,
+            table_line_pos: None,
+        },
+    )?;
+
+    assert_eq!(captured.node_key, "file:note.org");
+    assert_eq!(
+        fs::read_to_string(&note_path)?,
+        "#+title: Note\n\n* Existing\nBody.\nTail\n"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn capture_template_plain_file_prepend_skips_top_file_metadata() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let note_path = root.join("note.org");
+    fs::write(
+        &note_path,
+        "#+title: Note\n:PROPERTIES:\n:ID: note-id\n:END:\n# Comment\n-----\nBody.\n",
+    )?;
+
+    capture_template(
+        &root,
+        None,
+        &CaptureTemplateParams {
+            title: String::from("Note"),
+            file_path: Some(String::from("note.org")),
+            node_key: None,
+            head: None,
+            outline_path: Vec::new(),
+            capture_type: CaptureContentType::Plain,
+            content: String::from("Prepended"),
+            refs: Vec::new(),
+            prepend: true,
+            empty_lines_before: 0,
+            empty_lines_after: 0,
+            table_line_pos: None,
+        },
+    )?;
+
+    assert_eq!(
+        fs::read_to_string(&note_path)?,
+        "#+title: Note\n:PROPERTIES:\n:ID: note-id\n:END:\n# Comment\n-----\nPrepended\nBody.\n"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn capture_template_item_file_target_finds_first_list_in_whole_buffer() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let note_path = root.join("note.org");
+    fs::write(&note_path, "#+title: Note\n\n* Existing\n- One\n- Two\n")?;
+
+    capture_template(
+        &root,
+        None,
+        &CaptureTemplateParams {
+            title: String::from("Note"),
+            file_path: Some(String::from("note.org")),
+            node_key: None,
+            head: None,
+            outline_path: Vec::new(),
+            capture_type: CaptureContentType::Item,
+            content: String::from("Three"),
+            refs: Vec::new(),
+            prepend: false,
+            empty_lines_before: 0,
+            empty_lines_after: 0,
+            table_line_pos: None,
+        },
+    )?;
+
+    assert_eq!(
+        fs::read_to_string(&note_path)?,
+        "#+title: Note\n\n* Existing\n- One\n- Two\n- Three\n"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn capture_template_item_prepend_renumbers_existing_ordered_lists() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let note_path = root.join("project.org");
+    fs::write(&note_path, "#+title: Project\n\n* Parent\n1. One\n2. Two\n")?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+    let parent = database
+        .search_nodes("parent", 10)?
+        .into_iter()
+        .find(|candidate| candidate.title == "Parent")
+        .expect("parent node should exist");
+
+    capture_template(
+        &root,
+        Some(&parent),
+        &CaptureTemplateParams {
+            title: String::new(),
+            file_path: None,
+            node_key: Some(parent.node_key.clone()),
+            head: None,
+            outline_path: Vec::new(),
+            capture_type: CaptureContentType::Item,
+            content: String::from("Zero"),
+            refs: Vec::new(),
+            prepend: true,
+            empty_lines_before: 0,
+            empty_lines_after: 0,
+            table_line_pos: None,
+        },
+    )?;
+
+    assert_eq!(
+        fs::read_to_string(&note_path)?,
+        "#+title: Project\n\n* Parent\n1. Zero\n2. One\n3. Two\n"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn capture_template_table_line_creates_table_when_missing() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let note_path = root.join("project.org");
+    fs::write(&note_path, "#+title: Project\n\n* Parent\nText\n")?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+    let parent = database
+        .search_nodes("parent", 10)?
+        .into_iter()
+        .find(|candidate| candidate.title == "Parent")
+        .expect("parent node should exist");
+
+    capture_template(
+        &root,
+        Some(&parent),
+        &CaptureTemplateParams {
+            title: String::new(),
+            file_path: None,
+            node_key: Some(parent.node_key.clone()),
+            head: None,
+            outline_path: Vec::new(),
+            capture_type: CaptureContentType::TableLine,
+            content: String::from("Two | 2"),
+            refs: Vec::new(),
+            prepend: false,
+            empty_lines_before: 0,
+            empty_lines_after: 0,
+            table_line_pos: None,
+        },
+    )?;
+
+    assert_eq!(
+        fs::read_to_string(&note_path)?,
+        "#+title: Project\n\n* Parent\nText\n|   |\n|---|\n| Two | 2 |\n"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn capture_template_table_line_file_target_finds_existing_table_in_whole_buffer() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let note_path = root.join("note.org");
+    fs::write(
+        &note_path,
+        "#+title: Note\n\n* Existing\n| Name |\n|------|\n| One  |\n",
+    )?;
+
+    capture_template(
+        &root,
+        None,
+        &CaptureTemplateParams {
+            title: String::from("Note"),
+            file_path: Some(String::from("note.org")),
+            node_key: None,
+            head: None,
+            outline_path: Vec::new(),
+            capture_type: CaptureContentType::TableLine,
+            content: String::from("Two"),
+            refs: Vec::new(),
+            prepend: true,
+            empty_lines_before: 0,
+            empty_lines_after: 0,
+            table_line_pos: None,
+        },
+    )?;
+
+    assert_eq!(
+        fs::read_to_string(&note_path)?,
+        "#+title: Note\n\n* Existing\n| Name |\n|------|\n| Two |\n| One  |\n"
+    );
 
     Ok(())
 }
