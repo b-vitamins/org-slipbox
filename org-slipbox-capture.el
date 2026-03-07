@@ -69,13 +69,15 @@ Typed `table-line' templates may also set `:table-line-pos' to place
 the inserted row relative to table separators.
 
 In addition to target and content options, typed templates may carry
-the lifecycle keys `:finalize' and `:jump-to-captured'. Compatibility
-keys from `org-capture', including `:immediate-finish', `:kill-buffer',
-`:no-save', `:unnarrowed', `:clock-in', `:clock-resume', and
-`:clock-keep', are parsed so org-roam-style templates can be reused.
-Unsupported lifecycle keys currently signal a clear user error instead
+the lifecycle keys `:finalize', `:jump-to-captured',
+`:immediate-finish', `:prepare-finalize', `:before-finalize', and
+`:after-finalize'. Compatibility keys from `org-capture' that do not
+yet map cleanly onto the draft-based capture model, including
+`:kill-buffer', `:no-save', `:unnarrowed', `:clock-in',
+`:clock-resume', and `:clock-keep', signal a clear user error instead
 of being accepted silently. Every capture starts in a transient draft
-buffer and only writes through the Rust RPC layer on finalize."
+buffer unless `:immediate-finish' commits the prepared draft directly,
+and all target writes still go through the Rust RPC layer."
   :type 'sexp
   :group 'org-slipbox)
 
@@ -92,9 +94,13 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
   :group 'org-slipbox)
 
 (defconst org-slipbox--capture-unsupported-lifecycle-keys
-  '(:immediate-finish :kill-buffer :no-save :unnarrowed
+  '(:kill-buffer :no-save :unnarrowed
     :clock-in :clock-resume :clock-keep)
   "Template lifecycle keys reserved for later capture-parity work.")
+
+(defconst org-slipbox--capture-phase-keys
+  '(:prepare-finalize :before-finalize :after-finalize)
+  "Lifecycle hook keys supported by org-slipbox capture templates.")
 
 (defconst org-slipbox--capture-unsupported-target-keys
   '(:exact-position :insert-here)
@@ -121,6 +127,12 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
 
 (defvar-local org-slipbox-capture--body-start nil
   "Marker pointing at the editable body of the current capture draft.")
+
+(defvar org-slipbox-capture-current-session nil
+  "Dynamically bound capture session for lifecycle handlers.")
+
+(defvar org-slipbox-capture-current-node nil
+  "Dynamically bound captured node for lifecycle handlers.")
 
 (defvar org-slipbox-capture-mode-map
   (let ((map (make-sparse-keymap)))
@@ -206,16 +218,20 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
   (let* ((template (or template (org-slipbox--default-capture-template)))
          (template-options (org-slipbox--capture-template-options template))
          (session (copy-sequence session))
-         (time (org-slipbox--capture-template-time time template-options)))
+         (time (org-slipbox--capture-template-time time template-options))
+         (capture-session nil))
     (org-slipbox--capture-validate-template-options
      template-options
      (org-slipbox--capture-template-type template))
-    (org-slipbox--open-capture-session
-     (if (org-slipbox--typed-capture-template-p template)
-         (org-slipbox--prepare-typed-capture-session
-          title template refs time variables session)
-       (org-slipbox--prepare-shorthand-capture-session
-        title template refs time variables session)))))
+    (setq capture-session
+          (if (org-slipbox--typed-capture-template-p template)
+              (org-slipbox--prepare-typed-capture-session
+               title template refs time variables session)
+            (org-slipbox--prepare-shorthand-capture-session
+             title template refs time variables session)))
+    (if (plist-get template-options :immediate-finish)
+        (org-slipbox--capture-immediate-finish capture-session)
+      (org-slipbox--open-capture-session capture-session))))
 
 (defun org-slipbox--default-capture-template ()
   "Return the default capture template."
@@ -254,9 +270,36 @@ CAPTURE-TYPE is the effective type for the selected template."
   (dolist (key org-slipbox--capture-unsupported-target-keys)
     (when (plist-member template-options key)
       (user-error "Capture option %S is not implemented yet" key)))
+  (dolist (key org-slipbox--capture-phase-keys)
+    (when (plist-member template-options key)
+      (org-slipbox--capture-validate-phase-functions
+       key
+       (plist-get template-options key))))
+  (when (plist-member template-options :finalize)
+    (org-slipbox--capture-validate-finalize
+     (plist-get template-options :finalize)))
   (when (and (plist-member template-options :table-line-pos)
              (not (eq capture-type 'table-line)))
     (user-error "Capture option :table-line-pos requires `table-line' capture")))
+
+(defun org-slipbox--capture-validate-phase-functions (key value)
+  "Signal a user error when VALUE for lifecycle KEY is invalid."
+  (unless (or (functionp value)
+              (and (listp value)
+                   (not (functionp value))
+                   (seq-every-p #'functionp value)))
+    (user-error "Capture option %S must be a function or list of functions" key)))
+
+(defun org-slipbox--capture-validate-finalize (finalize)
+  "Signal a user error when FINALIZE is invalid."
+  (cond
+   ((symbolp finalize)
+    (unless (functionp (intern-soft
+                        (format "org-slipbox--capture-finalize-%s" finalize)))
+      (user-error "Unsupported capture finalize action %S" finalize)))
+   ((functionp finalize) nil)
+   (t
+    (user-error "Unsupported capture finalize action %S" finalize))))
 
 (defun org-slipbox--prepare-shorthand-capture-session
     (title template refs time variables session)
@@ -333,8 +376,8 @@ REFS, TIME, VARIABLES, and SESSION describe the session state."
       'entry
     'plain))
 
-(defun org-slipbox--open-capture-session (capture-session)
-  "Display a draft buffer for CAPTURE-SESSION and return that buffer."
+(defun org-slipbox--capture-create-buffer (capture-session)
+  "Create and populate a draft buffer for CAPTURE-SESSION."
   (let ((buffer (generate-new-buffer
                  (format "*org-slipbox capture: %s*"
                          (org-slipbox-capture-session-capture-title capture-session)))))
@@ -349,8 +392,22 @@ REFS, TIME, VARIABLES, and SESSION describe the session state."
                      org-slipbox--capture-body-start
                    (point-max)))
       (set-buffer-modified-p nil))
+    buffer))
+
+(defun org-slipbox--open-capture-session (capture-session)
+  "Display a draft buffer for CAPTURE-SESSION and return that buffer."
+  (let ((buffer (org-slipbox--capture-create-buffer capture-session)))
     (pop-to-buffer buffer)
     buffer))
+
+(defun org-slipbox--capture-immediate-finish (capture-session)
+  "Commit CAPTURE-SESSION immediately without displaying a draft buffer."
+  (let ((buffer (org-slipbox--capture-create-buffer capture-session)))
+    (unwind-protect
+        (with-current-buffer buffer
+          (org-slipbox--capture-finalize-buffer))
+      (when (buffer-live-p buffer)
+        (org-slipbox--capture-kill-buffer buffer)))))
 
 (defun org-slipbox--capture-insert-session-header (capture-session)
   "Insert a read-only metadata header for CAPTURE-SESSION."
@@ -425,22 +482,40 @@ REFS, TIME, VARIABLES, and SESSION describe the session state."
 (defun org-slipbox-capture-finalize ()
   "Commit the current org-slipbox draft through the Rust RPC layer."
   (interactive)
+  (org-slipbox--capture-finalize-buffer))
+
+(defun org-slipbox--capture-finalize-buffer ()
+  "Commit the current org-slipbox draft buffer through the Rust RPC layer."
   (unless (org-slipbox-capture-session-p org-slipbox-capture--session)
     (user-error "Not in an org-slipbox capture draft"))
   (let* ((capture-session org-slipbox-capture--session)
+         (template-options (org-slipbox-capture-session-template-options capture-session))
+         (caller-session (org-slipbox-capture-session-caller-session capture-session))
          (node (org-slipbox--capture-commit-session
                 capture-session
-                (buffer-substring-no-properties org-slipbox--capture-body-start
-                                                (point-max))))
+                (progn
+                  (org-slipbox--capture-run-phase-functions
+                   :prepare-finalize
+                   template-options
+                   capture-session
+                   nil)
+                  (buffer-substring-no-properties org-slipbox--capture-body-start
+                                                  (point-max)))))
          (buffer (current-buffer)))
-    (org-slipbox--capture-kill-buffer buffer)
     (unwind-protect
-        (org-slipbox--capture-run-lifecycle
-         node
-         (org-slipbox-capture-session-template-options capture-session)
-         (org-slipbox-capture-session-caller-session capture-session))
-      (org-slipbox--capture-cleanup-session
-       (org-slipbox-capture-session-caller-session capture-session)))
+        (progn
+          (org-slipbox--capture-run-phase-functions
+           :before-finalize
+           template-options
+           capture-session
+           node)
+          (org-slipbox--capture-kill-buffer buffer)
+          (org-slipbox--capture-run-lifecycle-with-session
+           node
+           template-options
+           caller-session
+           capture-session))
+      (org-slipbox--capture-cleanup-session caller-session))
     node))
 
 ;;;###autoload
@@ -736,10 +811,39 @@ REFS, TIME, VARIABLES, and SESSION describe the session state."
 
 (defun org-slipbox--capture-run-lifecycle (node template-options session)
   "Apply template and caller lifecycle settings for NODE."
+  (org-slipbox--capture-run-lifecycle-with-session
+   node template-options session nil))
+
+(defun org-slipbox--capture-run-lifecycle-with-session
+    (node template-options session capture-session)
+  "Apply template and caller lifecycle settings for NODE and CAPTURE-SESSION."
   (let ((finalize (org-slipbox--capture-resolve-finalize template-options session)))
+    (org-slipbox--capture-run-phase-functions
+     :after-finalize
+     template-options
+     capture-session
+     node)
     (when finalize
       (org-slipbox--capture-call-finalizer finalize node session))
     node))
+
+(defun org-slipbox--capture-run-phase-functions
+    (phase template-options capture-session node)
+  "Run lifecycle PHASE handlers from TEMPLATE-OPTIONS.
+CAPTURE-SESSION and NODE are exposed through dynamic variables."
+  (dolist (function (org-slipbox--capture-phase-functions
+                     (plist-get template-options phase)))
+    (let ((org-slipbox-capture-current-session capture-session)
+          (org-slipbox-capture-current-node node))
+      (funcall function))))
+
+(defun org-slipbox--capture-phase-functions (value)
+  "Return lifecycle functions normalized from VALUE."
+  (cond
+   ((null value) nil)
+   ((functionp value) (list value))
+   ((listp value) value)
+   (t nil)))
 
 (defun org-slipbox--capture-resolve-finalize (template-options session)
   "Resolve the effective finalize action for TEMPLATE-OPTIONS and SESSION."

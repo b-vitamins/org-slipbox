@@ -492,6 +492,118 @@
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest org-slipbox-test-capture-immediate-finish-commits-without-draft ()
+  "Immediate-finish capture should commit directly without displaying a draft."
+  (let (method params result)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:title "Note" :file_path "notes/note.org" :line 5))))
+      (setq result
+            (org-slipbox--capture-node-at-time
+             "Note"
+             '("d" "default" plain "${title}"
+               :target (file "notes/${slug}.org")
+               :immediate-finish t)
+             nil
+             (encode-time 0 0 0 7 3 2026)))
+      (should-not (get-buffer "*org-slipbox capture: Note*"))
+      (should (equal result '(:title "Note" :file_path "notes/note.org" :line 5)))
+      (should (equal method "slipbox/captureTemplate"))
+      (should
+       (equal params
+              '(:title "Note"
+                :capture_type "plain"
+                :content "Note"
+                :prepend nil
+                :empty_lines_before 0
+                :empty_lines_after 0
+                :file_path "notes/note.org"))))))
+
+(ert-deftest org-slipbox-test-capture-immediate-finish-insert-link ()
+  "Immediate-finish capture should support insert-link finalization."
+  (with-temp-buffer
+    (org-mode)
+    (let ((marker (point-marker)))
+      (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                 (lambda (&rest _args)
+                   '(:title "Note"
+                     :file_path "notes/note.org"
+                     :line 5
+                     :explicit_id "note-1")))
+                ((symbol-function 'org-slipbox--ensure-node-id)
+                 (lambda (node)
+                   node)))
+        (org-slipbox--capture-node-at-time
+         "Note"
+         '("d" "default" plain "${title}"
+           :target (file "notes/${slug}.org")
+           :immediate-finish t)
+         nil
+         (encode-time 0 0 0 7 3 2026)
+         nil
+         `(:finalize insert-link
+           :call-location ,marker
+           :link-description "Inserted"))
+        (should (equal (buffer-string)
+                       "[[id:note-1][Inserted]]"))))))
+
+(ert-deftest org-slipbox-test-capture-immediate-finish-jumps-to-captured-node ()
+  "Immediate-finish capture should still honor `:jump-to-captured'."
+  (let (visited)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (&rest _args)
+                 '(:title "Note" :file_path "notes/note.org" :line 5)))
+              ((symbol-function 'org-slipbox--visit-node)
+               (lambda (node &optional _other-window)
+                 (setq visited node))))
+      (org-slipbox--capture-node-at-time
+       "Note"
+       '("d" "default" plain "${title}"
+         :target (file "notes/${slug}.org")
+         :jump-to-captured t
+         :immediate-finish t)
+       nil
+       (encode-time 0 0 0 7 3 2026))
+      (should (equal visited '(:title "Note" :file_path "notes/note.org" :line 5))))))
+
+(ert-deftest org-slipbox-test-capture-lifecycle-handlers-run-in-order ()
+  "Lifecycle handlers should run in org-capture order with dynamic context."
+  (let (events)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (&rest _args)
+                 '(:title "Note" :file_path "notes/note.org" :line 5))))
+      (org-slipbox--capture-node-at-time
+       "Note"
+       `("d" "default" plain "${title}"
+         :target (file "notes/${slug}.org")
+         :immediate-finish t
+         :prepare-finalize
+         ,(lambda ()
+            (push (list :prepare
+                        (org-slipbox-capture-session-p org-slipbox-capture-current-session)
+                        org-slipbox-capture-current-node)
+                  events))
+         :before-finalize
+         ,(lambda ()
+            (push (list :before
+                        (plist-get org-slipbox-capture-current-node :title))
+                  events))
+         :after-finalize
+         ,(lambda ()
+            (push (list :after
+                        (plist-get org-slipbox-capture-current-node :title))
+                  events)))
+       nil
+       (encode-time 0 0 0 7 3 2026)))
+    (setq events (nreverse events))
+    (should (equal (mapcar #'car events) '(:prepare :before :after)))
+    (should (equal (nth 1 (car events)) t))
+    (should-not (nth 2 (car events)))
+    (should (equal (cadr (nth 1 events)) "Note"))
+    (should (equal (cadr (nth 2 events)) "Note"))))
+
 (ert-deftest org-slipbox-test-capture-finalize-passes-table-line-position ()
   "Table-line drafts should pass `:table-line-pos' through to the RPC."
   (let (buffer method params)
@@ -619,13 +731,51 @@
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest org-slipbox-test-capture-abort-leaves-new-file-absent ()
+  "Aborting a file-target capture should leave new target files absent."
+  (let* ((root (make-temp-file "org-slipbox-capture-" t))
+         (org-slipbox-directory root)
+         (target (expand-file-name "notes/abort-me.org" root))
+         buffer)
+    (unwind-protect
+        (progn
+          (setq buffer
+                (org-slipbox--capture-node-at-time
+                 "Abort Me"
+                 '("d" "default" :path "notes/${slug}.org")
+                 nil
+                 (encode-time 0 0 0 7 3 2026)))
+          (with-current-buffer buffer
+            (goto-char (point-max))
+            (insert "Transient text")
+            (org-slipbox-capture-abort))
+          (should-not (file-exists-p target)))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer))
+      (delete-directory root t))))
+
 (ert-deftest org-slipbox-test-capture-unsupported-lifecycle-option-errors ()
   "Unsupported org-capture lifecycle keys should error clearly."
-  (should-error
-   (org-slipbox--capture-node
-    "Note"
-    '("d" "default" :path "notes/${slug}.org" :immediate-finish t))
-   :type 'error))
+  (dolist (key '(:kill-buffer :no-save :unnarrowed
+                  :clock-in :clock-resume :clock-keep))
+    (should-error
+     (org-slipbox--capture-node
+      "Note"
+      `("d" "default" :path "notes/${slug}.org" ,key t))
+     :type 'error)))
+
+(ert-deftest org-slipbox-test-capture-invalid-lifecycle-handler-errors ()
+  "Lifecycle handlers must be functions or lists of functions."
+  (dolist (key '(:prepare-finalize :before-finalize :after-finalize))
+    (should-error
+     (org-slipbox--capture-node-at-time
+      "Note"
+      `("d" "default" plain "${title}"
+        :target (file "notes/${slug}.org")
+        ,key 42)
+      nil
+      (encode-time 0 0 0 7 3 2026))
+     :type 'error)))
 
 (ert-deftest org-slipbox-test-capture-unsupported-target-option-errors ()
   "Unsupported target-preparation keys should error clearly."
