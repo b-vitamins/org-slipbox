@@ -87,6 +87,33 @@ fn backlinks_support_unique_sources() -> Result<()> {
 }
 
 #[test]
+fn reports_index_stats_and_indexed_files() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    fs::write(root.join("alpha.org"), "#+title: Alpha\n")?;
+    fs::write(root.join("beta.org"), "#+title: Beta\n\n* Heading\n")?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let stats = database.stats()?;
+    assert_eq!(stats.files_indexed, 2);
+    assert_eq!(stats.nodes_indexed, 3);
+    assert_eq!(stats.links_indexed, 0);
+
+    assert_eq!(
+        database.indexed_files()?,
+        vec!["alpha.org".to_owned(), "beta.org".to_owned()]
+    );
+
+    Ok(())
+}
+
+#[test]
 fn indexes_and_queries_distinct_tags() -> Result<()> {
     let workspace = tempdir()?;
     let root = workspace.path().join("notes");

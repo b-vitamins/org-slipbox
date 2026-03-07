@@ -9,6 +9,21 @@ pub struct PingInfo {
     pub db: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StatusInfo {
+    pub version: String,
+    pub root: String,
+    pub db: String,
+    pub files_indexed: u64,
+    pub nodes_indexed: u64,
+    pub links_indexed: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IndexedFilesResult {
+    pub files: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeKind {

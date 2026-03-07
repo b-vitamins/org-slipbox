@@ -223,6 +223,61 @@
         "--exclude-regexp" "^archive/"
         "--exclude-regexp" "\\.cache/")))))
 
+(ert-deftest org-slipbox-test-rebuild-resets-daemon-and-deletes-database-files ()
+  "Rebuild should reset the daemon connection and delete SQLite files first."
+  (let* ((root (make-temp-file "org-slipbox-maint-" t))
+         (database (expand-file-name "org-slipbox.sqlite" root))
+         reset-called
+         index-called)
+    (unwind-protect
+        (progn
+          (write-region "" nil database nil 'silent)
+          (write-region "" nil (concat database "-wal") nil 'silent)
+          (write-region "" nil (concat database "-shm") nil 'silent)
+          (let ((org-slipbox-database-file database))
+            (cl-letf (((symbol-function 'org-slipbox-rpc-reset)
+                       (lambda ()
+                         (setq reset-called t)))
+                      ((symbol-function 'org-slipbox-rpc-index)
+                       (lambda ()
+                         (setq index-called t)
+                         '(:files_indexed 1 :nodes_indexed 2 :links_indexed 3))))
+              (org-slipbox-rebuild)))
+          (should reset-called)
+          (should index-called)
+          (should-not (file-exists-p database))
+          (should-not (file-exists-p (concat database "-wal")))
+          (should-not (file-exists-p (concat database "-shm"))))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-sync-current-file-saves-and-indexes-buffer ()
+  "Explicit current-file sync should save the buffer before indexing it."
+  (let* ((root (make-temp-file "org-slipbox-maint-" t))
+         (file (expand-file-name "note.org" root))
+         method
+         params)
+    (unwind-protect
+        (progn
+          (write-region "* Note\n" nil file nil 'silent)
+          (with-current-buffer (find-file-noselect file)
+            (goto-char (point-max))
+            (insert "Body\n")
+            (let ((org-slipbox-directory root))
+              (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                         (lambda (request-method request-params)
+                           (setq method request-method
+                                 params request-params)
+                           '(:file_path "note.org"))))
+                (org-slipbox-sync-current-file)
+                (should-not (buffer-modified-p))))
+            (kill-buffer (current-buffer)))
+          (should (equal method "slipbox/indexFile"))
+          (should (equal params `(:file_path ,file)))
+          (with-temp-buffer
+            (insert-file-contents file)
+            (should (string-match-p "Body" (buffer-string)))))
+      (delete-directory root t))))
+
 (ert-deftest org-slipbox-test-node-display-includes-file-and-line ()
   "Node display strings should be stable and informative."
   (should
@@ -1369,6 +1424,114 @@
               (org-slipbox-buffer-render-contents))
             (should-not called))
         (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-diagnose-node-renders-status-file-and-node ()
+  "Node diagnostics should include daemon status, file state, and node data."
+  (let* ((root (make-temp-file "org-slipbox-diagnose-" t))
+         (file (expand-file-name "note.org" root))
+         (buffer-name "*org-slipbox diagnostics*"))
+    (unwind-protect
+        (progn
+          (write-region "#+title: Note\n" nil file nil 'silent)
+          (with-current-buffer (find-file-noselect file)
+            (let ((org-slipbox-directory root)
+                  (org-slipbox-autosync-mode t))
+              (cl-letf (((symbol-function 'org-slipbox-rpc-status)
+                         (lambda ()
+                           '(:version "0.0.0"
+                             :root "/tmp/root"
+                             :db "/tmp/org-slipbox.sqlite"
+                             :files_indexed 2
+                             :nodes_indexed 3
+                             :links_indexed 4)))
+                        ((symbol-function 'org-slipbox-rpc-indexed-files)
+                         (lambda ()
+                           '(:files ["note.org"])))
+                        ((symbol-function 'org-slipbox-node-at-point)
+                         (lambda (&optional _assert)
+                           '(:title "Heading"
+                             :file_path "note.org"
+                             :line 2
+                             :node_key "heading:note.org:2"))))
+                (org-slipbox-diagnose-node)))
+            (kill-buffer (current-buffer)))
+          (with-current-buffer buffer-name
+            (should (string-match-p "Status" (buffer-string)))
+            (should (string-match-p "Autosync:[[:space:]]+enabled" (buffer-string)))
+            (should (string-match-p "Eligible:[[:space:]]+yes" (buffer-string)))
+            (should (string-match-p "Indexed:[[:space:]]+yes" (buffer-string)))
+            (should (string-match-p ":title \"Heading\"" (buffer-string)))))
+      (when (get-buffer buffer-name)
+        (kill-buffer buffer-name))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-diagnose-file-renders-eligibility-reasons ()
+  "File diagnostics should explain exclusion and eligibility state."
+  (let* ((root (make-temp-file "org-slipbox-diagnose-" t))
+         (archive (expand-file-name "archive" root))
+         (file (expand-file-name "skip.org" archive))
+         (buffer-name "*org-slipbox file diagnostics*"))
+    (unwind-protect
+        (progn
+          (make-directory archive t)
+          (write-region "" nil file nil 'silent)
+          (let ((org-slipbox-directory root)
+                (org-slipbox-file-exclude-regexp "^archive/"))
+            (cl-letf (((symbol-function 'org-slipbox-rpc-indexed-files)
+                       (lambda ()
+                         '(:files []))))
+              (org-slipbox-diagnose-file file)))
+          (with-current-buffer buffer-name
+            (should (string-match-p "Excluded by policy:[[:space:]]+yes" (buffer-string)))
+            (should (string-match-p "Matched excludes:[[:space:]]+\\^archive/" (buffer-string)))
+            (should (string-match-p "Eligible:[[:space:]]+no" (buffer-string)))))
+      (when (get-buffer buffer-name)
+        (kill-buffer buffer-name))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-list-files-report-compares-eligible-and-indexed ()
+  "File reports should expose drift between eligible and indexed files."
+  (let* ((root (make-temp-file "org-slipbox-files-report-" t))
+         (keep (expand-file-name "keep.org" root))
+         (missing (expand-file-name "missing.org" root))
+         (buffer-name "*org-slipbox files*"))
+    (unwind-protect
+        (progn
+          (write-region "" nil keep nil 'silent)
+          (write-region "" nil missing nil 'silent)
+          (let ((org-slipbox-directory root))
+            (cl-letf (((symbol-function 'org-slipbox-rpc-status)
+                       (lambda ()
+                         '(:files_indexed 2 :nodes_indexed 2 :links_indexed 0)))
+                      ((symbol-function 'org-slipbox-rpc-indexed-files)
+                       (lambda ()
+                         '(:files ["keep.org" "stale.org"]))))
+              (org-slipbox-list-files-report)))
+          (with-current-buffer buffer-name
+            (should (string-match-p "Eligible But Not Indexed" (buffer-string)))
+            (should (string-match-p "^missing\\.org$" (buffer-string)))
+            (should (string-match-p "Indexed But Not Eligible" (buffer-string)))
+            (should (string-match-p "^stale\\.org$" (buffer-string)))))
+      (when (get-buffer buffer-name)
+        (kill-buffer buffer-name))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-db-explore-opens-configured-sqlite-file ()
+  "Database exploration should open the SQLite file reported by the daemon."
+  (let ((original-require (symbol-function 'require))
+        opened)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-status)
+               (lambda ()
+                 '(:db "/tmp/org-slipbox.sqlite")))
+              ((symbol-function 'require)
+               (lambda (feature &optional _filename _noerror)
+                 (unless (eq feature 'sqlite-mode)
+                   (funcall original-require feature))))
+              ((symbol-function 'sqlite-mode-open-file)
+               (lambda (file)
+                 (setq opened file))))
+      (org-slipbox-db-explore))
+    (should (equal opened "/tmp/org-slipbox.sqlite"))))
 
 (ert-deftest org-slipbox-test-link-replace-at-point-rewrites-slipbox-links ()
   "Title-based org-slipbox links should rewrite to `id:' links."

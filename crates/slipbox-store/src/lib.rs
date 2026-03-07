@@ -50,6 +50,32 @@ impl Database {
         self.replace_file_index(file)
     }
 
+    pub fn stats(&self) -> Result<IndexStats> {
+        Ok(IndexStats {
+            files_indexed: self
+                .connection
+                .query_row("SELECT COUNT(*) FROM files", [], |row| row.get::<_, u64>(0))
+                .context("failed to count indexed files")?,
+            nodes_indexed: self
+                .connection
+                .query_row("SELECT COUNT(*) FROM nodes", [], |row| row.get::<_, u64>(0))
+                .context("failed to count indexed nodes")?,
+            links_indexed: self
+                .connection
+                .query_row("SELECT COUNT(*) FROM links", [], |row| row.get::<_, u64>(0))
+                .context("failed to count indexed links")?,
+        })
+    }
+
+    pub fn indexed_files(&self) -> Result<Vec<String>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT path FROM files ORDER BY path")?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("failed to read indexed file list")
+    }
+
     pub fn search_nodes(&self, query: &str, limit: usize) -> Result<Vec<NodeRecord>> {
         let limit = limit.clamp(1, 200) as i64;
         if let Some(fts_query) = build_fts_query(query) {

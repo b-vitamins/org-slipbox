@@ -5,8 +5,10 @@ use serde_json::Value;
 use thiserror::Error;
 
 pub const METHOD_PING: &str = "slipbox/ping";
+pub const METHOD_STATUS: &str = "slipbox/status";
 pub const METHOD_INDEX: &str = "slipbox/index";
 pub const METHOD_INDEX_FILE: &str = "slipbox/indexFile";
+pub const METHOD_INDEXED_FILES: &str = "slipbox/indexedFiles";
 pub const METHOD_SEARCH_NODES: &str = "slipbox/searchNodes";
 pub const METHOD_RANDOM_NODE: &str = "slipbox/randomNode";
 pub const METHOD_SEARCH_TAGS: &str = "slipbox/searchTags";

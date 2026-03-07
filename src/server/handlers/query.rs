@@ -1,8 +1,8 @@
 use slipbox_core::{
     AgendaParams, AgendaResult, BacklinksParams, BacklinksResult, IndexFileParams,
-    NodeAtPointParams, NodeFromIdParams, NodeFromRefParams, NodeFromTitleOrAliasParams, PingInfo,
-    RandomNodeResult, SearchNodesParams, SearchNodesResult, SearchRefsParams, SearchRefsResult,
-    SearchTagsParams, SearchTagsResult,
+    IndexedFilesResult, NodeAtPointParams, NodeFromIdParams, NodeFromRefParams,
+    NodeFromTitleOrAliasParams, PingInfo, RandomNodeResult, SearchNodesParams, SearchNodesResult,
+    SearchRefsParams, SearchRefsResult, SearchTagsParams, SearchTagsResult, StatusInfo,
 };
 use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
 
@@ -14,6 +14,21 @@ pub(crate) fn ping(state: &ServerState) -> Result<serde_json::Value, JsonRpcErro
         version: env!("CARGO_PKG_VERSION").to_owned(),
         root: state.root.display().to_string(),
         db: state.db_path.display().to_string(),
+    })
+}
+
+pub(crate) fn status(state: &ServerState) -> Result<serde_json::Value, JsonRpcError> {
+    let stats = state
+        .database
+        .stats()
+        .map_err(|error| internal_error(error.context("failed to read index statistics")))?;
+    to_value(StatusInfo {
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        root: state.root.display().to_string(),
+        db: state.db_path.display().to_string(),
+        files_indexed: stats.files_indexed,
+        nodes_indexed: stats.nodes_indexed,
+        links_indexed: stats.links_indexed,
     })
 }
 
@@ -45,6 +60,14 @@ pub(crate) fn random_node(state: &mut ServerState) -> Result<serde_json::Value, 
         .random_node()
         .map_err(|error| internal_error(error.context("failed to query random node")))?;
     to_value(RandomNodeResult { node })
+}
+
+pub(crate) fn indexed_files(state: &ServerState) -> Result<serde_json::Value, JsonRpcError> {
+    let files = state
+        .database
+        .indexed_files()
+        .map_err(|error| internal_error(error.context("failed to read indexed files")))?;
+    to_value(IndexedFilesResult { files })
 }
 
 pub(crate) fn search_tags(

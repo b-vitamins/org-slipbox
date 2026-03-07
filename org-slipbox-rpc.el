@@ -80,8 +80,10 @@ list, each element must be a regexp string."
   "Configuration used to start `org-slipbox--connection'.")
 
 (defconst org-slipbox-rpc-method-ping "slipbox/ping")
+(defconst org-slipbox-rpc-method-status "slipbox/status")
 (defconst org-slipbox-rpc-method-index "slipbox/index")
 (defconst org-slipbox-rpc-method-index-file "slipbox/indexFile")
+(defconst org-slipbox-rpc-method-indexed-files "slipbox/indexedFiles")
 (defconst org-slipbox-rpc-method-search-nodes "slipbox/searchNodes")
 (defconst org-slipbox-rpc-method-random-node "slipbox/randomNode")
 (defconst org-slipbox-rpc-method-search-tags "slipbox/searchTags")
@@ -201,9 +203,22 @@ list, each element must be a regexp string."
   "Send METHOD with PARAMS to the local org-slipbox daemon."
   (jsonrpc-request (org-slipbox-rpc-ensure) method params))
 
+(defun org-slipbox-rpc-reset ()
+  "Shutdown the live org-slipbox JSON-RPC connection, if any."
+  (when org-slipbox--connection
+    (let ((connection org-slipbox--connection))
+      (setq org-slipbox--connection nil
+            org-slipbox--connection-config nil)
+      (when (jsonrpc-running-p connection)
+        (jsonrpc-shutdown connection)))))
+
 (defun org-slipbox-rpc-ping ()
   "Request daemon identity information."
   (org-slipbox-rpc-request org-slipbox-rpc-method-ping))
+
+(defun org-slipbox-rpc-status ()
+  "Request daemon and index status information."
+  (org-slipbox-rpc-request org-slipbox-rpc-method-status))
 
 (defun org-slipbox-rpc-index ()
   "Rebuild the index for the configured slipbox root."
@@ -214,6 +229,10 @@ list, each element must be a regexp string."
   (org-slipbox-rpc-request
    org-slipbox-rpc-method-index-file
    `(:file_path ,(expand-file-name file-path))))
+
+(defun org-slipbox-rpc-indexed-files ()
+  "Return the relative paths currently stored in the index."
+  (org-slipbox-rpc-request org-slipbox-rpc-method-indexed-files))
 
 (defun org-slipbox-rpc-search-nodes (query limit)
   "Search nodes matching QUERY with LIMIT."
