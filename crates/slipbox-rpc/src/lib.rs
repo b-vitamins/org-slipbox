@@ -26,6 +26,7 @@ pub const METHOD_APPEND_HEADING_AT_OUTLINE_PATH: &str = "slipbox/appendHeadingAt
 pub const METHOD_ENSURE_NODE_ID: &str = "slipbox/ensureNodeId";
 pub const METHOD_UPDATE_NODE_METADATA: &str = "slipbox/updateNodeMetadata";
 pub const METHOD_REFILE_SUBTREE: &str = "slipbox/refileSubtree";
+pub const METHOD_REFILE_REGION: &str = "slipbox/refileRegion";
 pub const METHOD_EXTRACT_SUBTREE: &str = "slipbox/extractSubtree";
 pub const METHOD_PROMOTE_ENTIRE_FILE: &str = "slipbox/promoteEntireFile";
 pub const METHOD_DEMOTE_ENTIRE_FILE: &str = "slipbox/demoteEntireFile";

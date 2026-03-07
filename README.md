@@ -39,7 +39,7 @@ The Rust workspace links against a system SQLite installation.
 - Capture into datetree targets and existing indexed nodes through the shared Rust write pipeline.
 - Display a persistent or dedicated context buffer for the current node with refs, backlinks, and dedicated-buffer reference discovery sections.
 - Complete and follow title-based org-slipbox links, with optional rewrite to stable `id:` links.
-- Refile subtrees between indexed notes and extract subtrees into new promoted file notes.
+- Refile either the active region or the current subtree between indexed notes, and extract subtrees into new promoted file notes.
 - Promote a single root-heading note into a file node, or demote a file node into a single root heading, through Rust-backed rewrite commands.
 - Query indexed agenda entries from scheduled and deadline planning lines.
 - Resolve backlinks for nodes with explicit Org `ID` properties.

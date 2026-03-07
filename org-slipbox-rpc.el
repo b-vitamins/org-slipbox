@@ -101,6 +101,7 @@ list, each element must be a regexp string."
 (defconst org-slipbox-rpc-method-ensure-node-id "slipbox/ensureNodeId")
 (defconst org-slipbox-rpc-method-update-node-metadata "slipbox/updateNodeMetadata")
 (defconst org-slipbox-rpc-method-refile-subtree "slipbox/refileSubtree")
+(defconst org-slipbox-rpc-method-refile-region "slipbox/refileRegion")
 (defconst org-slipbox-rpc-method-extract-subtree "slipbox/extractSubtree")
 (defconst org-slipbox-rpc-method-promote-entire-file "slipbox/promoteEntireFile")
 (defconst org-slipbox-rpc-method-demote-entire-file "slipbox/demoteEntireFile")
@@ -318,6 +319,15 @@ When NOCASE is non-nil, use case-insensitive matching."
   (org-slipbox-rpc-request
    org-slipbox-rpc-method-refile-subtree
    `(:source_node_key ,source-node-key :target_node_key ,target-node-key)))
+
+(defun org-slipbox-rpc-refile-region (file-path start end target-node-key)
+  "Refile the region from FILE-PATH between START and END under TARGET-NODE-KEY."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-refile-region
+   `(:file_path ,(expand-file-name file-path)
+     :start ,start
+     :end ,end
+     :target_node_key ,target-node-key)))
 
 (defun org-slipbox-rpc-extract-subtree (source-node-key file-path)
   "Extract SOURCE-NODE-KEY into FILE-PATH."

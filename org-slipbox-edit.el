@@ -61,30 +61,42 @@
 
 ;;;###autoload
 (defun org-slipbox-refile (node)
-  "Refile the current subtree under NODE."
+  "Refile the current subtree or active region under NODE."
   (interactive (list (org-slipbox--read-existing-node "Refile to: ")))
   (unless node
     (user-error "No target node selected"))
   (unless buffer-file-name
     (user-error "Current buffer is not visiting a file"))
   (let* ((source-node (org-slipbox-node-at-point t))
+         (region (org-slipbox--refile-active-region))
          (source-file (expand-file-name (plist-get source-node :file_path)
                                         org-slipbox-directory))
          (target-file (expand-file-name (plist-get node :file_path)
                                         org-slipbox-directory))
          moved-node)
-    (when (equal (plist-get source-node :node_key)
-                 (plist-get node :node_key))
-      (user-error "Target is the same as current node"))
-    (org-slipbox--sync-live-file-buffer-if-needed target-file)
-    (setq moved-node
-          (org-slipbox-rpc-refile-subtree
-           (plist-get source-node :node_key)
-           (plist-get node :node_key)))
-    (org-slipbox--refresh-or-kill-file-buffer source-file)
-    (unless (equal source-file target-file)
-      (org-slipbox--refresh-or-kill-file-buffer target-file))
-    moved-node))
+    (unwind-protect
+        (progn
+          (when (equal (plist-get source-node :node_key)
+                       (plist-get node :node_key))
+            (user-error "Target is the same as current node"))
+          (org-slipbox--sync-live-file-buffer-if-needed source-file)
+          (org-slipbox--sync-live-file-buffer-if-needed target-file)
+          (setq moved-node
+                (if region
+                    (org-slipbox-rpc-refile-region
+                     buffer-file-name
+                     (marker-position (plist-get region :beg))
+                     (marker-position (plist-get region :end))
+                     (plist-get node :node_key))
+                  (org-slipbox-rpc-refile-subtree
+                   (plist-get source-node :node_key)
+                   (plist-get node :node_key))))
+          (org-slipbox--refresh-or-kill-file-buffer source-file)
+          (unless (equal source-file target-file)
+            (org-slipbox--refresh-or-kill-file-buffer target-file))
+          moved-node)
+      (org-slipbox--clear-refile-region region)
+      (deactivate-mark))))
 
 ;;;###autoload
 (defun org-slipbox-extract-subtree (&optional file-path)
@@ -110,6 +122,18 @@
   (unless buffer-file-name
     (user-error "Current buffer is not visiting a file"))
   buffer-file-name)
+
+(defun org-slipbox--refile-active-region ()
+  "Return active-region markers for refile, or nil when inactive."
+  (when (use-region-p)
+    (list :beg (set-marker (make-marker) (region-beginning))
+          :end (set-marker (make-marker) (region-end)))))
+
+(defun org-slipbox--clear-refile-region (region)
+  "Clear REGION markers created for `org-slipbox-refile'."
+  (when region
+    (set-marker (plist-get region :beg) nil)
+    (set-marker (plist-get region :end) nil)))
 
 (defun org-slipbox--refresh-or-kill-file-buffer (path)
   "Refresh the live buffer visiting PATH, or kill it when PATH no longer exists."

@@ -5,8 +5,8 @@ use slipbox_rpc::{
     METHOD_ENSURE_FILE_NODE, METHOD_ENSURE_NODE_ID, METHOD_EXTRACT_SUBTREE, METHOD_INDEX,
     METHOD_INDEX_FILE, METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_REF,
     METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_PROMOTE_ENTIRE_FILE, METHOD_RANDOM_NODE,
-    METHOD_REFILE_SUBTREE, METHOD_SEARCH_NODES, METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS,
-    METHOD_UPDATE_NODE_METADATA,
+    METHOD_REFILE_REGION, METHOD_REFILE_SUBTREE, METHOD_SEARCH_NODES, METHOD_SEARCH_REFS,
+    METHOD_SEARCH_TAGS, METHOD_UPDATE_NODE_METADATA,
 };
 
 use crate::server::handlers::{query, write};
@@ -53,6 +53,7 @@ fn dispatch_request(
         METHOD_ENSURE_NODE_ID => write::ensure_node_id(state, params),
         METHOD_UPDATE_NODE_METADATA => write::update_node_metadata(state, params),
         METHOD_REFILE_SUBTREE => write::refile_subtree(state, params),
+        METHOD_REFILE_REGION => write::refile_region(state, params),
         METHOD_EXTRACT_SUBTREE => write::extract_subtree(state, params),
         METHOD_PROMOTE_ENTIRE_FILE => write::promote_entire_file(state, params),
         METHOD_DEMOTE_ENTIRE_FILE => write::demote_entire_file(state, params),

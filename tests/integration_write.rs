@@ -6,11 +6,11 @@ use slipbox_core::{CaptureContentType, CaptureTemplateParams};
 use slipbox_index::{scan_path, scan_root};
 use slipbox_store::Database;
 use slipbox_write::{
-    MetadataUpdate, RewriteOutcome, append_heading, append_heading_at_outline_path,
-    append_heading_to_node, capture_file_note, capture_file_note_at,
-    capture_file_note_at_with_head_and_refs, capture_file_note_with_refs, capture_template,
-    demote_entire_file, ensure_file_note, ensure_node_id, extract_subtree, promote_entire_file,
-    refile_subtree, update_node_metadata,
+    MetadataUpdate, RegionRewriteOutcome, RewriteOutcome, append_heading,
+    append_heading_at_outline_path, append_heading_to_node, capture_file_note,
+    capture_file_note_at, capture_file_note_at_with_head_and_refs, capture_file_note_with_refs,
+    capture_template, demote_entire_file, ensure_file_note, ensure_node_id, extract_subtree,
+    promote_entire_file, refile_region, refile_subtree, update_node_metadata,
 };
 use tempfile::tempdir;
 
@@ -889,6 +889,126 @@ fn refile_subtree_moves_heading_between_files_and_preserves_source_file_note() -
 }
 
 #[test]
+fn refile_region_moves_selected_text_under_target_heading() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let source_path = root.join("source.org");
+    let target_path = root.join("target.org");
+    let source_body = "#+title: Source\nBody line one.\nBody line two.\n";
+    fs::write(&source_path, source_body)?;
+    fs::write(&target_path, "#+title: Target\n\n* Parent\n")?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let target = database
+        .search_nodes("parent", 10)?
+        .into_iter()
+        .find(|candidate| candidate.title == "Parent")
+        .expect("target heading should exist");
+
+    let body_start = source_body.find("Body").expect("body should exist");
+    let body_end = source_body.len();
+    let outcome = refile_region(
+        &root,
+        "source.org",
+        source_body[..body_start].chars().count() + 1,
+        source_body[..body_end].chars().count() + 1,
+        &target,
+    )?;
+    sync_region_rewrite_outcome(&mut database, &root, &outcome)?;
+
+    assert_eq!(fs::read_to_string(&source_path)?, "#+title: Source\n");
+    assert_eq!(
+        fs::read_to_string(&target_path)?,
+        "#+title: Target\n\n* Parent\nBody line one.\nBody line two.\n"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn refile_region_same_file_adjusts_insertion_and_heading_levels() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let note_path = root.join("note.org");
+    let source = "#+title: Note\n\n* Parent\n** Keep\nText\n** Move\nBody\n";
+    fs::write(&note_path, source)?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let keep = database
+        .search_nodes("keep", 10)?
+        .into_iter()
+        .find(|candidate| candidate.title == "Keep")
+        .expect("target heading should exist");
+
+    let region_start = source.find("** Move").expect("move heading should exist");
+    let outcome = refile_region(
+        &root,
+        "note.org",
+        source[..region_start].chars().count() + 1,
+        source.chars().count() + 1,
+        &keep,
+    )?;
+    sync_region_rewrite_outcome(&mut database, &root, &outcome)?;
+
+    assert_eq!(
+        fs::read_to_string(&note_path)?,
+        "#+title: Note\n\n* Parent\n** Keep\nText\n*** Move\nBody\n"
+    );
+
+    let moved = database
+        .search_nodes("move", 10)?
+        .into_iter()
+        .find(|candidate| candidate.title == "Move")
+        .expect("moved heading should still be indexed");
+    assert_eq!(moved.file_path, "note.org");
+    assert_eq!(moved.level, 3);
+
+    Ok(())
+}
+
+#[test]
+fn refile_region_removes_source_file_when_selection_empties_it() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let source_path = root.join("source.org");
+    let target_path = root.join("target.org");
+    let source = "* Move Me\nBody\n";
+    fs::write(&source_path, source)?;
+    fs::write(&target_path, "#+title: Target\n\n* Parent\n")?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let target = database
+        .search_nodes("parent", 10)?
+        .into_iter()
+        .find(|candidate| candidate.title == "Parent")
+        .expect("target heading should exist");
+
+    let outcome = refile_region(&root, "source.org", 1, source.chars().count() + 1, &target)?;
+    sync_region_rewrite_outcome(&mut database, &root, &outcome)?;
+
+    assert!(!source_path.exists());
+    let target_source = fs::read_to_string(&target_path)?;
+    assert!(target_source.contains("* Parent\n** Move Me\nBody\n"));
+
+    Ok(())
+}
+
+#[test]
 fn extract_subtree_promotes_heading_into_a_file_node() -> Result<()> {
     let workspace = tempdir()?;
     let root = workspace.path().join("notes");
@@ -933,6 +1053,27 @@ fn sync_rewrite_outcome(
     database: &mut Database,
     root: &Path,
     outcome: &RewriteOutcome,
+) -> Result<()> {
+    for path in &outcome.changed_paths {
+        let indexed = scan_path(root, path)?;
+        database.sync_file_index(&indexed)?;
+    }
+
+    for path in &outcome.removed_paths {
+        let relative = path
+            .strip_prefix(root)?
+            .to_string_lossy()
+            .replace('\\', "/");
+        database.remove_file_index(&relative)?;
+    }
+
+    Ok(())
+}
+
+fn sync_region_rewrite_outcome(
+    database: &mut Database,
+    root: &Path,
+    outcome: &RegionRewriteOutcome,
 ) -> Result<()> {
     for path in &outcome.changed_paths {
         let indexed = scan_path(root, path)?;

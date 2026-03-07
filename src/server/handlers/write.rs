@@ -1,7 +1,8 @@
 use slipbox_core::{
     AppendHeadingAtOutlinePathParams, AppendHeadingParams, AppendHeadingToNodeParams,
     CaptureNodeParams, CaptureTemplateParams, EnsureFileNodeParams, EnsureNodeIdParams,
-    ExtractSubtreeParams, RefileSubtreeParams, RewriteFileParams, UpdateNodeMetadataParams,
+    ExtractSubtreeParams, RefileRegionParams, RefileSubtreeParams, RewriteFileParams,
+    UpdateNodeMetadataParams,
 };
 use slipbox_rpc::JsonRpcError;
 
@@ -157,6 +158,23 @@ pub(crate) fn refile_subtree(
     let outcome = slipbox_write::refile_subtree(&state.root, &source, &target)
         .map_err(|error| internal_error(error.context("failed to refile subtree")))?;
     to_value(state.sync_rewrite(&outcome, "refiled node")?)
+}
+
+pub(crate) fn refile_region(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: RefileRegionParams = parse_params(params)?;
+    let (relative_path, _) = state
+        .resolve_index_path(&params.file_path)
+        .map_err(|error| internal_error(error.context("failed to resolve file path")))?;
+    let target = state.known_node(&params.target_node_key, "target node")?;
+    let (start, end) = params.normalized_range();
+    let outcome = slipbox_write::refile_region(&state.root, &relative_path, start, end, &target)
+        .map_err(|error| internal_error(error.context("failed to refile region")))?;
+    state.sync_paths(&outcome.changed_paths)?;
+    state.remove_deleted_paths(&outcome.removed_paths)?;
+    to_value(serde_json::json!({ "refiled": true }))
 }
 
 pub(crate) fn extract_subtree(

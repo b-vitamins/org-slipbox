@@ -479,6 +479,27 @@ pub struct RefileSubtreeParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RefileRegionParams {
+    pub file_path: String,
+    pub start: u32,
+    pub end: u32,
+    pub target_node_key: String,
+}
+
+impl RefileRegionParams {
+    #[must_use]
+    pub fn normalized_range(&self) -> (usize, usize) {
+        let start = self.start.max(1) as usize;
+        let end = self.end.max(1) as usize;
+        if start <= end {
+            (start, end)
+        } else {
+            (end, start)
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtractSubtreeParams {
     pub source_node_key: String,
     pub file_path: String,

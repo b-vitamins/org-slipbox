@@ -1342,7 +1342,62 @@
           (should
            (equal
             sync-calls
-            (list target)))
+            (list target source)))
+          (should
+           (equal
+            (nreverse refresh-calls)
+            (list source target))))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-refile-active-region-calls-rust-rpc-and-refreshes-buffers ()
+  "Active-region refile should delegate movement to the Rust RPC layer."
+  (let* ((root (make-temp-file "org-slipbox-refile-region-" t))
+         (source (expand-file-name "source.org" root))
+         (target (expand-file-name "target.org" root))
+         sync-calls
+         refresh-calls
+         rpc-args)
+    (unwind-protect
+        (progn
+          (write-region "Body\n" nil source nil 'silent)
+          (write-region "" nil target nil 'silent)
+          (with-current-buffer (find-file-noselect source)
+            (let ((org-slipbox-directory root))
+              (cl-letf (((symbol-function 'use-region-p) (lambda () t))
+                        ((symbol-function 'region-beginning) (lambda () 2))
+                        ((symbol-function 'region-end) (lambda () 5))
+                        ((symbol-function 'org-slipbox-node-at-point)
+                         (lambda (&optional _assert)
+                           '(:node_key "file:source.org"
+                             :file_path "source.org"
+                             :line 1
+                             :kind "file"
+                             :title "Source")))
+                        ((symbol-function 'org-slipbox--sync-live-file-buffer-if-needed)
+                         (lambda (path)
+                           (push path sync-calls)))
+                        ((symbol-function 'org-slipbox-rpc-refile-region)
+                         (lambda (file-path start end target-node-key)
+                           (setq rpc-args (list file-path start end target-node-key))
+                           '(:node_key "heading:target.org:4")))
+                        ((symbol-function 'org-slipbox--refresh-or-kill-file-buffer)
+                         (lambda (path)
+                           (push path refresh-calls))))
+                (org-slipbox-refile
+                 '(:node_key "heading:target.org:3"
+                   :file_path "target.org"
+                   :line 3
+                   :kind "heading"
+                   :title "Parent"))))
+            (kill-buffer (current-buffer)))
+          (should
+           (equal
+            rpc-args
+            (list source 2 5 "heading:target.org:3")))
+          (should
+           (equal
+            sync-calls
+            (list target source)))
           (should
            (equal
             (nreverse refresh-calls)
