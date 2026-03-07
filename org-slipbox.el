@@ -31,6 +31,7 @@
 
 ;;; Code:
 
+(require 'org-slipbox-node)
 (require 'org-slipbox-rpc)
 
 ;;;###autoload
@@ -42,6 +43,10 @@
          (root (plist-get response :root)))
     (message "org-slipbox %s at %s" version root)
     response))
+
+;;;###autoload(autoload 'org-slipbox-index "org-slipbox-node" nil t)
+;;;###autoload(autoload 'org-slipbox-node-find "org-slipbox-node" nil t)
+;;;###autoload(autoload 'org-slipbox-node-backlinks "org-slipbox-node" nil t)
 
 (provide 'org-slipbox)
 

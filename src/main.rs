@@ -1,10 +1,17 @@
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use clap::{Parser, Subcommand};
-use slipbox_core::PingInfo;
-use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse};
+use serde::de::DeserializeOwned;
+use slipbox_core::{
+    BacklinksParams, BacklinksResult, PingInfo, SearchNodesParams, SearchNodesResult,
+};
+use slipbox_rpc::{
+    JsonRpcError, JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_BACKLINKS,
+    METHOD_INDEX, METHOD_PING, METHOD_SEARCH_NODES,
+};
+use slipbox_store::Database;
 
 #[derive(Debug, Parser)]
 #[command(author, version, about = "Org slipbox tools")]
@@ -34,6 +41,10 @@ fn main() -> Result<()> {
 }
 
 fn serve(root: PathBuf, db: PathBuf) -> Result<()> {
+    let root = root
+        .canonicalize()
+        .with_context(|| format!("failed to canonicalize root {}", root.display()))?;
+    let mut state = ServerState::new(root, db)?;
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut reader = BufReader::new(stdin.lock());
@@ -42,7 +53,7 @@ fn serve(root: PathBuf, db: PathBuf) -> Result<()> {
     loop {
         match read_request(&mut reader) {
             Ok(Some(request)) => {
-                let response = handle_request(&root, &db, request);
+                let response = handle_request(&mut state, request);
                 write_response(&mut writer, &response)?;
             }
             Ok(None) => break,
@@ -57,6 +68,23 @@ fn serve(root: PathBuf, db: PathBuf) -> Result<()> {
     }
 
     Ok(())
+}
+
+struct ServerState {
+    root: PathBuf,
+    db_path: PathBuf,
+    database: Database,
+}
+
+impl ServerState {
+    fn new(root: PathBuf, db_path: PathBuf) -> Result<Self> {
+        let database = Database::open(&db_path)?;
+        Ok(Self {
+            root,
+            db_path,
+            database,
+        })
+    }
 }
 
 fn read_request(reader: &mut impl BufRead) -> Result<Option<JsonRpcRequest>> {
@@ -111,24 +139,85 @@ fn write_response(writer: &mut impl Write, response: &JsonRpcResponse) -> Result
     Ok(())
 }
 
-fn handle_request(root: &PathBuf, db: &PathBuf, request: JsonRpcRequest) -> JsonRpcResponse {
+fn handle_request(state: &mut ServerState, request: JsonRpcRequest) -> JsonRpcResponse {
     let JsonRpcRequest { id, method, .. } = request;
     let id = id.unwrap_or(serde_json::Value::Null);
 
-    let response = match method.as_str() {
-        "slipbox/ping" => Ok(serde_json::to_value(PingInfo {
-            version: env!("CARGO_PKG_VERSION").to_owned(),
-            root: root.display().to_string(),
-            db: db.display().to_string(),
-        })
-        .expect("serializing ping response cannot fail")),
-        _ => Err(JsonRpcError::new(JsonRpcErrorObject::method_not_found(
-            format!("unsupported method: {method}"),
-        ))),
-    };
+    let response = dispatch_request(state, &method, request.params);
 
     match response {
         Ok(result) => JsonRpcResponse::success(id, result),
         Err(error) => JsonRpcResponse::error(id, error.into_inner()),
     }
+}
+
+fn dispatch_request(
+    state: &mut ServerState,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    match method {
+        METHOD_PING => to_value(PingInfo {
+            version: env!("CARGO_PKG_VERSION").to_owned(),
+            root: state.root.display().to_string(),
+            db: state.db_path.display().to_string(),
+        }),
+        METHOD_INDEX => {
+            let files = slipbox_index::scan_root(&state.root)
+                .map_err(|error| internal_error(error.context("failed to scan Org files")))?;
+            let stats = state
+                .database
+                .sync_index(&files)
+                .map_err(|error| internal_error(error.context("failed to update SQLite index")))?;
+            to_value(stats)
+        }
+        METHOD_SEARCH_NODES => {
+            let params: SearchNodesParams = parse_params(params)?;
+            let nodes = state
+                .database
+                .search_nodes(&params.query, params.normalized_limit())
+                .map_err(|error| internal_error(error.context("failed to query nodes")))?;
+            to_value(SearchNodesResult { nodes })
+        }
+        METHOD_BACKLINKS => {
+            let params: BacklinksParams = parse_params(params)?;
+            let backlinks = state
+                .database
+                .backlinks(&params.node_key, params.normalized_limit())
+                .map_err(|error| internal_error(error.context("failed to query backlinks")))?;
+            to_value(BacklinksResult { backlinks })
+        }
+        _ => Err(JsonRpcError::new(JsonRpcErrorObject::method_not_found(
+            format!("unsupported method: {method}"),
+        ))),
+    }
+}
+
+fn parse_params<T>(params: serde_json::Value) -> Result<T, JsonRpcError>
+where
+    T: DeserializeOwned,
+{
+    let value = if params.is_null() {
+        serde_json::json!({})
+    } else {
+        params
+    };
+
+    serde_json::from_value(value).map_err(|error| {
+        JsonRpcError::new(JsonRpcErrorObject::invalid_request(format!(
+            "invalid request parameters: {error}"
+        )))
+    })
+}
+
+fn to_value<T>(value: T) -> Result<serde_json::Value, JsonRpcError>
+where
+    T: serde::Serialize,
+{
+    serde_json::to_value(value)
+        .map_err(|error| internal_error(anyhow!("failed to serialize JSON-RPC result: {error}")))
+}
+
+fn internal_error(error: anyhow::Error) -> JsonRpcError {
+    JsonRpcError::new(JsonRpcErrorObject::internal_error(error.to_string()))
 }

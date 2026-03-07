@@ -8,6 +8,10 @@ fmt:
 test-rust:
 	cargo test --workspace
 
+.PHONY: lint-rust
+lint-rust:
+	cargo clippy --workspace --all-targets --all-features -- -D warnings
+
 .PHONY: test-elisp
 test-elisp:
 	$(EMACS) -Q --batch -L . -l org-slipbox.el -l tests/test-org-slipbox.el -f ert-run-tests-batch-and-exit

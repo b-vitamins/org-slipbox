@@ -11,3 +11,11 @@ The repository is under active development. Work remains under `Unreleased` unti
 ## Development
 
 Use `make test` for the current Rust and Emacs checks.
+The Rust workspace links against a system SQLite installation.
+
+## Current Capabilities
+
+- Scan an Org directory and build a SQLite index.
+- Search indexed nodes through the Rust query engine.
+- Resolve backlinks for nodes with explicit Org `ID` properties.
+- Connect Emacs to the local daemon over JSON-RPC on stdio.

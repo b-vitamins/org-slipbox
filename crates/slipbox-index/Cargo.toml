@@ -6,3 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+anyhow.workspace = true
+slipbox-core = { path = "../slipbox-core" }
+walkdir.workspace = true
