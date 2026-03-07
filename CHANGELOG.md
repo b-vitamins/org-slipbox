@@ -6,6 +6,9 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 
 ## [Unreleased]
 
+### Changed
+- Split the Emacs client into focused command modules for nodes, links, capture, metadata, and structural editing.
+
 ### Added
 - Initialized the repository as a combined Rust and Emacs Lisp project.
 - Added architectural guardrails, release policy, and verification conventions.
