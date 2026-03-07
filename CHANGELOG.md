@@ -26,3 +26,4 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Added a persistent or dedicated context buffer showing current node metadata, refs, and backlinks.
 - Added title-based org-slipbox links with indexed completion and rewrite-to-`id:` workflows.
 - Added subtree extraction and refile commands plus file-node/subtree promote-demote helpers.
+- Added dedicated-buffer reflink and unlinked-reference discovery sections without putting grep-backed work on the persistent redisplay path.

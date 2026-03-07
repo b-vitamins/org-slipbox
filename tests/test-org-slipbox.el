@@ -181,6 +181,83 @@
                         :line 1))))
           (kill-buffer (current-buffer)))))))
 
+(ert-deftest org-slipbox-test-buffer-unlinked-rg-command-quotes-root ()
+  "Unlinked-reference grep commands should quote the slipbox root."
+  (let ((org-slipbox-directory "/tmp/org slipbox"))
+    (should
+     (equal
+      (org-slipbox-buffer--unlinked-rg-command '("foo" "bar") "/tmp/regex")
+      "rg --follow --only-matching --vimgrep --pcre2 --ignore-case --glob \\*.org --file /tmp/regex /tmp/org\\ slipbox"))))
+
+(ert-deftest org-slipbox-test-buffer-reflink-patterns-expand-citekeys ()
+  "Reflink search should include cite: variants for citekeys."
+  (should
+   (equal
+    (org-slipbox-buffer--reflink-patterns '("@smith2024" "https://example.com"))
+    '("@smith2024" "cite:smith2024" "https://example.com"))))
+
+(ert-deftest org-slipbox-test-buffer-dedicated-render-includes-discovery-sections ()
+  "Dedicated buffers should render expensive discovery sections by default."
+  (let ((org-slipbox-directory "/tmp")
+        (org-slipbox-buffer-expensive-sections 'dedicated))
+    (with-current-buffer (get-buffer-create "*org-slipbox: Note<note.org>*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-current-node
+                        '(:node_key "file:note.org"
+                          :title "Note"
+                          :file_path "note.org"
+                          :line 1
+                          :kind "file"))
+            (cl-letf (((symbol-function 'org-slipbox-buffer--backlinks)
+                       (lambda (_node) nil))
+                      ((symbol-function 'org-slipbox-buffer--reflinks)
+                       (lambda (_node)
+                         '((:file "/tmp/refs.org"
+                            :row 3
+                            :col 7
+                            :preview "cite:smith2024"))))
+                      ((symbol-function 'org-slipbox-buffer--unlinked-references)
+                       (lambda (_node)
+                         '((:file "/tmp/unlinked.org"
+                            :row 9
+                            :col 2
+                            :preview "Note mention")))))
+              (org-slipbox-buffer-render-contents))
+            (should (string-match-p "Reflinks" (buffer-string)))
+            (should (string-match-p "Unlinked References" (buffer-string)))
+            (should (string-match-p "cite:smith2024" (buffer-string)))
+            (should (string-match-p "Note mention" (buffer-string))))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-persistent-render-skips-expensive-sections ()
+  "Persistent buffers should skip expensive discovery sections by default."
+  (let ((org-slipbox-directory "/tmp")
+        (org-slipbox-buffer-expensive-sections 'dedicated)
+        (called nil))
+    (with-current-buffer (get-buffer-create org-slipbox-buffer)
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-current-node
+                        '(:node_key "file:note.org"
+                          :title "Note"
+                          :file_path "note.org"
+                          :line 1
+                          :kind "file"))
+            (cl-letf (((symbol-function 'org-slipbox-buffer--backlinks)
+                       (lambda (_node) nil))
+                      ((symbol-function 'org-slipbox-buffer--reflinks)
+                       (lambda (_node)
+                         (setq called t)
+                         nil))
+                      ((symbol-function 'org-slipbox-buffer--unlinked-references)
+                       (lambda (_node)
+                         (setq called t)
+                         nil)))
+              (org-slipbox-buffer-render-contents))
+            (should-not called))
+        (kill-buffer (current-buffer))))))
+
 (ert-deftest org-slipbox-test-link-replace-at-point-rewrites-slipbox-links ()
   "Title-based org-slipbox links should rewrite to `id:' links."
   (with-temp-buffer
