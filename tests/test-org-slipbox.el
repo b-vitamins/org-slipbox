@@ -53,6 +53,31 @@
      '(:title "Heading" :outline_path "" :tags ["one" "two"] :file_path "notes/foo.org" :line 42))
     "Heading | #one #two | notes/foo.org:42")))
 
+(ert-deftest org-slipbox-test-node-candidate-display-supports-string-template ()
+  "Node candidate templates should interpolate supported fields."
+  (should
+   (equal
+    (org-slipbox--format-node-template
+     "${title:*} ${tags:8} ${file}"
+     '(:title "Heading"
+       :tags ["one" "two"]
+       :file_path "notes/foo.org")
+     30)
+    "Heading #one #tw notes/foo.org")))
+
+(ert-deftest org-slipbox-test-search-node-choices-use-configured-display-template ()
+  "Interactive node choices should use the configured candidate formatter."
+  (let ((org-slipbox-node-display-template
+         (lambda (node)
+           (format "Choice: %s" (plist-get node :title)))))
+    (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
+               (lambda (_query _limit)
+                 '(:nodes [(:title "One" :file_path "one.org" :line 1)]))))
+      (should
+       (equal
+        (org-slipbox--search-node-choices "o")
+        '(("Choice: One" :title "One" :file_path "one.org" :line 1)))))))
+
 (ert-deftest org-slipbox-test-capture-template-expansion ()
   "Capture templates should expand built-in and contextual placeholders."
   (should

@@ -40,6 +40,20 @@
   :type 'integer
   :group 'org-slipbox)
 
+(defcustom org-slipbox-node-display-template #'org-slipbox--node-display
+  "Formatting used for interactive node completion candidates.
+
+When this is a function, it is called with one NODE plist and must
+return the display string.
+
+When this is a string, patterns of the form `${field}' or
+`${field:length}' are expanded from the current node. Supported fields
+include `title', `outline', `olp', `tags', `aliases', `refs', `file', `line',
+and `id'. A `length' of `*' uses the remaining candidate width; an
+integer width pads or truncates the rendered field."
+  :type '(choice function string)
+  :group 'org-slipbox)
+
 (defun org-slipbox-index ()
   "Rebuild the local org-slipbox index from Org files."
   (interactive)
@@ -250,8 +264,87 @@ With prefix argument OTHER-WINDOW, visit it in another window."
   (let* ((response (org-slipbox-rpc-search-nodes query org-slipbox-search-limit))
          (nodes (org-slipbox--plist-sequence (plist-get response :nodes))))
     (mapcar (lambda (node)
-              (cons (org-slipbox--node-display node) node))
+              (cons (org-slipbox--node-candidate-display node) node))
             nodes)))
+
+(defun org-slipbox--node-candidate-display (node)
+  "Return the completion-candidate display string for NODE."
+  (cond
+   ((functionp org-slipbox-node-display-template)
+    (funcall org-slipbox-node-display-template node))
+   ((stringp org-slipbox-node-display-template)
+    (org-slipbox--format-node-template
+     org-slipbox-node-display-template
+     node
+     (frame-width)))
+   (t
+    (org-slipbox--node-display node))))
+
+(defun org-slipbox--format-node-template (template node width)
+  "Format TEMPLATE for NODE within WIDTH columns."
+  (let ((star-width (org-slipbox--node-template-star-width template node width)))
+    (replace-regexp-in-string
+     "\\${\\([^}:]+\\)\\(?::\\([^}]+\\)\\)?}"
+     (lambda (match)
+       (pcase-let* ((`(,field ,length)
+                     (org-slipbox--node-template-placeholder match))
+                    (value (org-slipbox--node-template-value node field))
+                    (target-width (cond
+                                   ((null length) nil)
+                                   ((string-equal length "*") star-width)
+                                   (t (string-to-number length)))))
+         (if target-width
+             (truncate-string-to-width value target-width 0 ?\s)
+           value)))
+     template
+     t
+     t)))
+
+(defun org-slipbox--node-template-star-width (template node width)
+  "Return the width to use for `*' placeholders in TEMPLATE for NODE."
+  (max 0 (- width (org-slipbox--node-template-min-width template node))))
+
+(defun org-slipbox--node-template-min-width (template node)
+  "Return the fixed-width portion of TEMPLATE for NODE."
+  (let ((cursor 0)
+        (total 0))
+    (while (string-match "\\${\\([^}:]+\\)\\(?::\\([^}]+\\)\\)?}" template cursor)
+      (setq total (+ total
+                     (string-width (substring template cursor (match-beginning 0)))))
+      (pcase-let* ((field (match-string 1 template))
+                   (length (match-string 2 template))
+                   (value (org-slipbox--node-template-value node field)))
+        (setq total (+ total
+                       (cond
+                        ((null length) (string-width value))
+                        ((string-equal length "*") 0)
+                        (t (string-to-number length))))))
+      (setq cursor (match-end 0)))
+    (+ total (string-width (substring template cursor)))))
+
+(defun org-slipbox--node-template-placeholder (match)
+  "Return the field and width specifier parsed from MATCH."
+  (when (string-match "\\${\\([^}:]+\\)\\(?::\\([^}]+\\)\\)?}" match)
+    (list (match-string 1 match)
+          (match-string 2 match))))
+
+(defun org-slipbox--node-template-value (node field)
+  "Return NODE rendered for template FIELD."
+  (pcase field
+    ("title" (or (plist-get node :title) ""))
+    ((or "outline" "olp") (or (plist-get node :outline_path) ""))
+    ("tags" (string-join
+             (mapcar (lambda (tag) (format "#%s" tag))
+                     (org-slipbox--plist-sequence (plist-get node :tags)))
+             " "))
+    ("aliases" (string-join (org-slipbox--plist-sequence (plist-get node :aliases)) ", "))
+    ("refs" (string-join (org-slipbox--plist-sequence (plist-get node :refs)) ", "))
+    ("file" (or (plist-get node :file_path) ""))
+    ("line" (if-let ((line (plist-get node :line)))
+                (number-to-string line)
+              ""))
+    ("id" (or (plist-get node :explicit_id) ""))
+    (_ "")))
 
 (defun org-slipbox--title-completion-table (string pred action)
   "Completion table for node titles and aliases using STRING, PRED, and ACTION."

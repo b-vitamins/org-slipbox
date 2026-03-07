@@ -41,3 +41,4 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Added daily-note template support on top of the shared capture-target pipeline while preserving the legacy entry-level flow by default.
 - Added contextual capture-template variables for refs, annotations, links, and protocol-supplied body text.
 - Added an opt-in `org-protocol` mode for `roam-node` and `roam-ref` handlers backed by the shared capture pipeline.
+- Added configurable node completion display templates and function-based candidate formatters.
