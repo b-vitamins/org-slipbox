@@ -35,6 +35,10 @@
   (require 'calendar)
   (require 'org-protocol)
   (should-not (memq #'org-slipbox-sync-current-buffer after-save-hook))
+  (should-not (memq #'org-slipbox--autosync-setup-file-h find-file-hook))
+  (should-not (advice-member-p #'org-slipbox--autosync-rename-file-a 'rename-file))
+  (should-not (advice-member-p #'org-slipbox--autosync-delete-file-a 'delete-file))
+  (should-not (advice-member-p #'org-slipbox--autosync-vc-delete-file-a 'vc-delete-file))
   (should-not (memq #'org-slipbox-buffer--redisplay-h post-command-hook))
   (should-not (memq #'org-slipbox-dailies-calendar-mark-entries
                     calendar-today-visible-hook))
@@ -1478,6 +1482,128 @@
               (should-not (org-slipbox--syncable-buffer-p)))))
       (delete-directory root t)
       (delete-directory outside-root t))))
+
+(ert-deftest org-slipbox-test-autosync-mode-toggles-hooks-and-advices ()
+  "Autosync mode should own its hooks, advices, and buffer-local save hook."
+  (let* ((root (make-temp-file "org-slipbox-sync-" t))
+         (file (expand-file-name "note.org" root))
+         buffer)
+    (unwind-protect
+        (progn
+          (write-region "" nil file nil 'silent)
+          (setq buffer (find-file-noselect file))
+          (let ((org-slipbox-directory root))
+            (unwind-protect
+                (progn
+                  (org-slipbox-autosync-mode 1)
+                  (should (memq #'org-slipbox--autosync-setup-file-h find-file-hook))
+                  (should (advice-member-p #'org-slipbox--autosync-rename-file-a 'rename-file))
+                  (should (advice-member-p #'org-slipbox--autosync-delete-file-a 'delete-file))
+                  (should (advice-member-p #'org-slipbox--autosync-vc-delete-file-a 'vc-delete-file))
+                  (with-current-buffer buffer
+                    (should (memq #'org-slipbox-sync-current-buffer after-save-hook)))
+                  (org-slipbox-autosync-mode -1)
+                  (should-not (memq #'org-slipbox--autosync-setup-file-h find-file-hook))
+                  (should-not (advice-member-p #'org-slipbox--autosync-rename-file-a 'rename-file))
+                  (should-not (advice-member-p #'org-slipbox--autosync-delete-file-a 'delete-file))
+                  (should-not (advice-member-p #'org-slipbox--autosync-vc-delete-file-a 'vc-delete-file))
+                  (with-current-buffer buffer
+                    (should-not (memq #'org-slipbox-sync-current-buffer after-save-hook))))
+              (when org-slipbox-autosync-mode
+                (org-slipbox-autosync-mode -1)))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-autosync-mode-syncs-on-save ()
+  "Autosync mode should sync tracked buffers after save."
+  (let* ((root (make-temp-file "org-slipbox-sync-" t))
+         (file (expand-file-name "note.org" root))
+         buffer
+         calls)
+    (unwind-protect
+        (progn
+          (write-region "Initial\n" nil file nil 'silent)
+          (setq buffer (find-file-noselect file))
+          (let ((org-slipbox-directory root))
+            (cl-letf (((symbol-function 'org-slipbox-rpc-index-file)
+                       (lambda (path)
+                         (push (expand-file-name path) calls))))
+              (unwind-protect
+                  (progn
+                    (org-slipbox-autosync-mode 1)
+                    (with-current-buffer buffer
+                      (goto-char (point-max))
+                      (insert "Updated\n")
+                      (save-buffer))
+                    (should (equal calls (list file))))
+                (when org-slipbox-autosync-mode
+                  (org-slipbox-autosync-mode -1))))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-autosync-rename-updates-old-and-new-paths ()
+  "Autosync mode should remove the old path and sync the renamed file."
+  (let* ((root (make-temp-file "org-slipbox-sync-" t))
+         (old (expand-file-name "old.org" root))
+         (new (expand-file-name "new.org" root))
+         calls)
+    (unwind-protect
+        (progn
+          (write-region "Note\n" nil old nil 'silent)
+          (let ((org-slipbox-directory root))
+            (cl-letf (((symbol-function 'org-slipbox-rpc-index-file)
+                       (lambda (path)
+                         (push (expand-file-name path) calls))))
+              (unwind-protect
+                  (progn
+                    (org-slipbox-autosync-mode 1)
+                    (rename-file old new)
+                    (should (equal (nreverse calls) (list old new))))
+                (when org-slipbox-autosync-mode
+                  (org-slipbox-autosync-mode -1))))))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-autosync-delete-removes-indexed-file ()
+  "Autosync mode should remove deleted files from the index."
+  (let* ((root (make-temp-file "org-slipbox-sync-" t))
+         (file (expand-file-name "delete.org" root))
+         calls)
+    (unwind-protect
+        (progn
+          (write-region "Note\n" nil file nil 'silent)
+          (let ((org-slipbox-directory root))
+            (cl-letf (((symbol-function 'org-slipbox-rpc-index-file)
+                       (lambda (path)
+                         (push (expand-file-name path) calls))))
+              (unwind-protect
+                  (progn
+                    (org-slipbox-autosync-mode 1)
+                    (delete-file file)
+                    (should (equal calls (list file))))
+                (when org-slipbox-autosync-mode
+                  (org-slipbox-autosync-mode -1))))))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-autosync-vc-delete-removes-indexed-file ()
+  "VC delete handling should remove deleted files from the index."
+  (let* ((root (make-temp-file "org-slipbox-sync-" t))
+         (file (expand-file-name "vc-delete.org" root))
+         calls)
+    (unwind-protect
+        (progn
+          (write-region "Note\n" nil file nil 'silent)
+          (let ((org-slipbox-directory root))
+            (cl-letf (((symbol-function 'org-slipbox-rpc-index-file)
+                       (lambda (path)
+                         (push (expand-file-name path) calls))))
+              (org-slipbox--autosync-vc-delete-file-a
+               (lambda (target &rest _args)
+                 (delete-file target))
+               file)
+              (should (equal calls (list file))))))
+      (delete-directory root t))))
 
 (ert-deftest org-slipbox-test-dailies-path-format ()
   "Daily note paths should stay relative to the slipbox root."

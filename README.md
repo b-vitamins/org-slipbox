@@ -51,5 +51,5 @@ The Rust workspace links against a system SQLite installation.
 - Create and visit daily notes, append daily entries, move between existing daily notes, and opt into calendar marking for existing daily files.
 - Insert `id:` links after lazily assigning IDs to existing nodes.
 - Enable optional HTML export support so Org ID-backed targets keep stable exported anchors.
-- Sync saved Org buffers into the index through an explicit file-level RPC.
+- Keep indexed state current across Org file saves, renames, deletes, and VC deletes through an explicit autosync mode.
 - Connect Emacs to the local daemon over JSON-RPC on stdio.
