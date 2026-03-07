@@ -55,5 +55,5 @@ The Rust workspace links against a system SQLite installation.
 - Apply a shared file-discovery policy across indexing, autosync, dailies, and grep-backed discovery, with configurable extensions, exclude regexps, and `.gpg` / `.age` suffix handling.
 - Bridge `org-id` through an explicit compatibility mode so indexed IDs win over stale `org-id-locations`, while valid non-indexed IDs can still be refreshed into `org-id`.
 - Inspect and maintain the index through explicit sync/rebuild commands, node/file diagnostics, file drift reports, and an opt-in SQLite explorer.
-- Export optional global or neighborhood Graphviz graphs from indexed `id:` links, with title shortening, link filtering, DOT output, and rendered file generation.
+- Export optional global or neighborhood Graphviz graphs from indexed `id:` links, with title shortening, link filtering, DOT output, rendered file generation, viewer integration, and optional `org-protocol` node URLs.
 - Connect Emacs to the local daemon over JSON-RPC on stdio.

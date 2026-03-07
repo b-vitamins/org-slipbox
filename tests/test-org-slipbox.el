@@ -1373,6 +1373,8 @@
           (should (equal method "slipbox/graphDot"))
           (should (equal (plist-get params :include_orphans) t))
           (should (equal (plist-get params :shorten_titles) "truncate"))
+          (should (equal (plist-get params :node_url_prefix)
+                         "org-protocol://roam-node?node="))
           (with-temp-buffer
             (insert-file-contents output)
             (should (equal (buffer-string) "digraph \"org-slipbox\" {}\n"))))
@@ -1410,21 +1412,58 @@
       (when (file-exists-p output)
         (delete-file output)))))
 
+(ert-deftest org-slipbox-test-graph-write-file-runs-generation-hook ()
+  "Rendered graph export should run the generation hook on success."
+  (require 'org-slipbox-graph)
+  (let* ((output (make-temp-file "org-slipbox-graph-" nil ".svg"))
+         hook-dot-exists
+         hook-dot
+         hook-output)
+    (unwind-protect
+        (let ((org-slipbox-graph-generation-hook
+               (list
+                (lambda (dot-file graph-file)
+                  (setq hook-dot-exists (file-exists-p dot-file)
+                        hook-dot (when (file-exists-p dot-file)
+                                   (with-temp-buffer
+                                     (insert-file-contents dot-file)
+                                     (buffer-string)))
+                        hook-output graph-file)))))
+          (cl-letf (((symbol-function 'org-slipbox-rpc-graph-dot)
+                     (lambda (_params)
+                       '(:dot "digraph \"org-slipbox\" { \"n\"; }\n")))
+                    ((symbol-function 'executable-find)
+                     (lambda (program)
+                       (and (string= program "dot") "/usr/bin/dot")))
+                    ((symbol-function 'call-process)
+                     (lambda (&rest _args)
+                       (write-region "<svg/>" nil output nil 'silent)
+                       0)))
+            (org-slipbox-graph-write-file nil nil output))
+          (should hook-dot-exists)
+          (should (equal hook-dot "digraph \"org-slipbox\" { \"n\"; }\n"))
+          (should (equal hook-output output)))
+      (when (file-exists-p output)
+        (delete-file output)))))
+
 (ert-deftest org-slipbox-test-graph-command-opens-rendered-output ()
   "Interactive graph rendering should open the generated file."
   (require 'org-slipbox-graph)
-  (let (write-args opened)
-    (cl-letf (((symbol-function 'org-slipbox-graph-write-file)
+  (let (build-args opened)
+    (cl-letf (((symbol-function 'org-slipbox-graph--build-file)
                (lambda (&rest args)
-                 (setq write-args args)
+                 (setq build-args args)
+                 (let ((callback (nth 3 args)))
+                   (when callback
+                     (funcall callback "/tmp/generated.svg")))
                  "/tmp/generated.svg"))
               ((symbol-function 'org-slipbox-graph--open)
                (lambda (file)
                  (setq opened file))))
       (should (equal (org-slipbox-graph '(4) '(:node_key "file:alpha.org"))
                      "/tmp/generated.svg")))
-    (should (equal (car write-args) '(4)))
-    (should (equal (cadr write-args) '(:node_key "file:alpha.org")))
+    (should (equal (car build-args) '(4)))
+    (should (equal (cadr build-args) '(:node_key "file:alpha.org")))
     (should (equal opened "/tmp/generated.svg"))))
 
 (ert-deftest org-slipbox-test-buffer-reflink-patterns-expand-citekeys ()

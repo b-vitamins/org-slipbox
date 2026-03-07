@@ -200,13 +200,36 @@ fn format_graph_node(node: &NodeRecord, params: &GraphParams) -> String {
     } else {
         format!("{}:{} {}", node.file_path, node.line, node.title)
     };
+    let mut attributes = vec![
+        format!("label=\"{}\"", dot_escape(&title)),
+        format!("tooltip=\"{}\"", dot_escape(&tooltip)),
+    ];
+    if let Some(url) = graph_node_url(node, params) {
+        attributes.push(format!("URL=\"{}\"", dot_escape(&url)));
+    }
 
     format!(
-        "  \"{}\" [label=\"{}\", tooltip=\"{}\"];\n",
+        "  \"{}\" [{}];\n",
         dot_escape(&node.node_key),
-        dot_escape(&title),
-        dot_escape(&tooltip)
+        attributes.join(", ")
     )
+}
+
+fn graph_node_url(node: &NodeRecord, params: &GraphParams) -> Option<String> {
+    let prefix = params
+        .node_url_prefix
+        .as_deref()
+        .map(str::trim)
+        .filter(|prefix| !prefix.is_empty())?;
+    let explicit_id = node
+        .explicit_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|explicit_id| !explicit_id.is_empty())?;
+    Some(format!(
+        "{prefix}{}",
+        percent_encode_query_value(explicit_id)
+    ))
 }
 
 fn shorten_title(
@@ -297,4 +320,17 @@ fn dot_escape(value: &str) -> String {
         }
     }
     escaped
+}
+
+fn percent_encode_query_value(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(char::from(byte));
+            }
+            _ => encoded.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    encoded
 }

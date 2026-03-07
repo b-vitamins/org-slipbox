@@ -57,6 +57,18 @@ It may be one of the following:
   :type 'string
   :group 'org-slipbox)
 
+(defcustom org-slipbox-graph-node-url-prefix "org-protocol://roam-node?node="
+  "Prefix used for node URLs embedded in generated graphs.
+
+When non-nil, nodes with explicit IDs receive Graphviz `URL' attributes
+using this prefix plus the percent-encoded ID. This is useful for SVG
+viewers that can hand `org-protocol' links back to Emacs through
+`org-slipbox-protocol-mode'. Set this to nil to omit node URLs."
+  :type '(choice
+          (string :tag "URL prefix")
+          (const :tag "No node URLs" nil))
+  :group 'org-slipbox)
+
 (defcustom org-slipbox-graph-link-hidden-types nil
   "Indexed link types hidden from generated graphs.
 
@@ -81,6 +93,14 @@ Recognized values are the symbols `truncate', `wrap', and nil."
           (const :tag "no" nil))
   :group 'org-slipbox)
 
+(defcustom org-slipbox-graph-generation-hook nil
+  "Hook run after `org-slipbox' graph generation succeeds.
+
+Each function is called with two arguments: the temporary DOT file and
+the rendered graph file."
+  :type 'hook
+  :group 'org-slipbox)
+
 ;;;###autoload
 (defun org-slipbox-graph (&optional arg node)
   "Build and display a graph for NODE.
@@ -93,11 +113,12 @@ ARG steps away."
    (list current-prefix-arg
          (and current-prefix-arg
               (org-slipbox-node-at-point t))))
-  (let* ((output-file (make-temp-file "org-slipbox-graph-" nil
-                                      (concat "." org-slipbox-graph-filetype))))
-    (setq output-file (org-slipbox-graph-write-file arg node output-file))
-    (org-slipbox-graph--open output-file)
-    output-file))
+  (org-slipbox-graph--build-file
+   arg
+   node
+   (make-temp-file "org-slipbox-graph-" nil
+                   (concat "." org-slipbox-graph-filetype))
+   #'org-slipbox-graph--open))
 
 ;;;###autoload
 (defun org-slipbox-graph-write-dot (&optional arg node file)
@@ -130,19 +151,10 @@ ARG follows the same scope rules as `org-slipbox-graph'."
           "Write rendered graph to: "
           nil nil nil
           (format "org-slipbox.%s" org-slipbox-graph-filetype))))
-  (let* ((file (expand-file-name (or file
-                                     (format "org-slipbox.%s"
-                                             org-slipbox-graph-filetype))))
-         (dot-file (make-temp-file "org-slipbox-graph-" nil ".dot")))
-    (unwind-protect
-        (progn
-          (org-slipbox-graph-write-dot arg node dot-file)
-          (org-slipbox-graph--render-dot-file dot-file file)
-          (when (called-interactively-p 'interactive)
-            (message "Wrote graph to %s" file))
-          file)
-      (when (file-exists-p dot-file)
-        (delete-file dot-file)))))
+  (let ((file (org-slipbox-graph--build-file arg node file)))
+    (when (called-interactively-p 'interactive)
+      (message "Wrote graph to %s" file))
+    file))
 
 (defun org-slipbox-graph--dot (arg node)
   "Return graph DOT for ARG and NODE."
@@ -157,7 +169,8 @@ ARG follows the same scope rules as `org-slipbox-graph'."
                :hidden_link_types org-slipbox-graph-link-hidden-types
                :max_title_length org-slipbox-graph-max-title-length
                :shorten_titles (and org-slipbox-graph-shorten-titles
-                                    (symbol-name org-slipbox-graph-shorten-titles)))))
+                                    (symbol-name org-slipbox-graph-shorten-titles))
+               :node_url_prefix org-slipbox-graph-node-url-prefix)))
     (cond
      ((null arg) params)
      ((consp arg)
@@ -174,6 +187,26 @@ ARG follows the same scope rules as `org-slipbox-graph'."
   "Return NODE's key or signal a user error."
   (or (plist-get node :node_key)
       (user-error "Graph scope requires an indexed node")))
+
+(defun org-slipbox-graph--build-file (arg node file &optional callback)
+  "Render ARG and NODE into FILE, then run CALLBACK with the file path.
+
+On successful generation, `org-slipbox-graph-generation-hook' is run
+with the temporary DOT file and final graph FILE."
+  (let* ((file (expand-file-name (or file
+                                     (format "org-slipbox.%s"
+                                             org-slipbox-graph-filetype))))
+         (dot-file (make-temp-file "org-slipbox-graph-" nil ".dot")))
+    (unwind-protect
+        (progn
+          (org-slipbox-graph-write-dot arg node dot-file)
+          (org-slipbox-graph--render-dot-file dot-file file)
+          (when callback
+            (funcall callback file))
+          (run-hook-with-args 'org-slipbox-graph-generation-hook dot-file file)
+          file)
+      (when (file-exists-p dot-file)
+        (delete-file dot-file)))))
 
 (defun org-slipbox-graph--render-dot-file (dot-file output-file)
   "Render DOT-FILE into OUTPUT-FILE using Graphviz."

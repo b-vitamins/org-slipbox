@@ -45,6 +45,8 @@ pub struct GraphParams {
     pub max_title_length: usize,
     #[serde(default)]
     pub shorten_titles: Option<GraphTitleShortening>,
+    #[serde(default)]
+    pub node_url_prefix: Option<String>,
 }
 
 impl GraphParams {

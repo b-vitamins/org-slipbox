@@ -34,6 +34,7 @@ fn generates_global_graph_dot_with_orphan_nodes() -> Result<()> {
         hidden_link_types: Vec::new(),
         max_title_length: 100,
         shorten_titles: None,
+        node_url_prefix: None,
     })?;
 
     assert!(dot.contains("\"file:alpha.org\" -> \"file:beta.org\";"));
@@ -73,6 +74,7 @@ fn generates_neighborhood_graph_with_distance_limit() -> Result<()> {
         hidden_link_types: Vec::new(),
         max_title_length: 100,
         shorten_titles: None,
+        node_url_prefix: None,
     })?;
 
     assert!(dot.contains("\"file:alpha.org\" [label=\"Alpha\""));
@@ -107,6 +109,7 @@ fn shortens_long_titles_in_graph_labels() -> Result<()> {
         hidden_link_types: Vec::new(),
         max_title_length: 12,
         shorten_titles: Some(GraphTitleShortening::Truncate),
+        node_url_prefix: None,
     })?;
 
     assert!(dot.contains("label=\"A Very Lo...\""));
@@ -134,6 +137,7 @@ fn rejects_unsupported_hidden_link_types() -> Result<()> {
             hidden_link_types: vec!["file".to_owned()],
             max_title_length: 100,
             shorten_titles: None,
+            node_url_prefix: None,
         })
         .expect_err("unsupported link type should fail");
 
@@ -141,6 +145,41 @@ fn rejects_unsupported_hidden_link_types() -> Result<()> {
         error
             .to_string()
             .contains("unsupported graph link type filter: file")
+    );
+
+    Ok(())
+}
+
+#[test]
+fn adds_protocol_urls_for_nodes_with_explicit_ids() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    fs::write(
+        root.join("alpha.org"),
+        ":PROPERTIES:\n:ID: alpha id\n:END:\n#+title: Alpha\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let dot = database.graph_dot(&GraphParams {
+        root_node_key: None,
+        max_distance: None,
+        include_orphans: true,
+        hidden_link_types: Vec::new(),
+        max_title_length: 100,
+        shorten_titles: None,
+        node_url_prefix: Some("org-protocol://roam-node?node=".to_owned()),
+    })?;
+
+    assert!(
+        dot.contains(
+            "\"file:alpha.org\" [label=\"Alpha\", tooltip=\"alpha.org\", URL=\"org-protocol://roam-node?node=alpha%20id\"]"
+        )
     );
 
     Ok(())
