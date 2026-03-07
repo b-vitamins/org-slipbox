@@ -25,6 +25,7 @@ The Rust workspace links against a system SQLite installation.
 - Scan an Org directory and build a SQLite index.
 - Search indexed nodes through the Rust query engine.
 - Format interactive node candidates with configurable display templates or functions.
+- Read nodes through a single-step chooser with configurable filter, sort, annotation, and insertion-format hooks.
 - Search nodes by aliases and tags stored in Org metadata.
 - Resolve nodes by exact `ID`, exact title or alias, and current point location.
 - Resolve nodes from indexed refs and citekeys, and edit alias/ref/tag metadata from Emacs.

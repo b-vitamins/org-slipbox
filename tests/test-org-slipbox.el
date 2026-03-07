@@ -73,10 +73,64 @@
     (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
                (lambda (_query _limit)
                  '(:nodes [(:title "One" :file_path "one.org" :line 1)]))))
-      (should
-       (equal
-        (org-slipbox--search-node-choices "o")
-        '(("Choice: One" :title "One" :file_path "one.org" :line 1)))))))
+      (let ((choices (org-slipbox--search-node-choices "o")))
+        (should (equal (mapcar #'substring-no-properties (mapcar #'car choices))
+                       '("Choice: One")))
+        (should (equal (mapcar #'cdr choices)
+                       '((:title "One" :file_path "one.org" :line 1))))))))
+
+(ert-deftest org-slipbox-test-node-read-returns-new-title-when-no-match ()
+  "Node read should return a new-title placeholder when no match is required."
+  (cl-letf (((symbol-function 'org-slipbox-node-read--completions)
+             (lambda (&rest _args) nil))
+            ((symbol-function 'completing-read)
+             (lambda (&rest _args)
+               "Fresh Node")))
+    (should (equal (org-slipbox-node-read) '(:title "Fresh Node")))))
+
+(ert-deftest org-slipbox-test-node-read-applies-default-sort-and-annotation ()
+  "Node read should expose sort and annotation metadata."
+  (let ((org-slipbox-node-default-sort 'title)
+        (org-slipbox-node-annotation-function
+         (lambda (node)
+           (format " [%s]" (plist-get node :file_path))))
+        metadata
+        candidates)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
+               (lambda (_query _limit)
+                 '(:nodes [(:title "Zulu" :file_path "z.org" :line 2)
+                           (:title "Alpha" :file_path "a.org" :line 1)])))
+              ((symbol-function 'completing-read)
+               (lambda (_prompt collection _predicate _require-match _initial-input _history)
+                 (setq candidates (all-completions "" collection nil)
+                       metadata (funcall collection "" nil 'metadata))
+                 (car candidates))))
+      (let* ((node (org-slipbox-node-read))
+             (props (cdr metadata))
+             (annotation (funcall (cdr (assq 'annotation-function props))
+                                  (car candidates))))
+        (should (equal (plist-get node :title) "Alpha"))
+        (should (eq (cdr (assq 'display-sort-function props)) 'identity))
+        (should (equal annotation " [a.org]"))))))
+
+(ert-deftest org-slipbox-test-node-insert-uses-node-formatter ()
+  "Node insertion should honor `org-slipbox-node-formatter'."
+  (with-temp-buffer
+    (let ((org-slipbox-node-formatter "${title} ${todo} ${tags}"))
+      (cl-letf (((symbol-function 'org-slipbox-node-read)
+                 (lambda (&rest _args)
+                   '(:title "Heading"
+                     :file_path "notes/heading.org"
+                     :node_key "file:notes/heading.org"
+                     :line 1
+                     :tags ["one"]
+                     :todo_keyword "TODO")))
+                ((symbol-function 'org-slipbox--ensure-node-id)
+                 (lambda (node)
+                   (plist-put (copy-sequence node) :explicit_id "node-1"))))
+        (org-slipbox-node-insert)
+        (should (equal (buffer-string)
+                       "[[id:node-1][Heading t:TODO #one]]"))))))
 
 (ert-deftest org-slipbox-test-capture-template-expansion ()
   "Capture templates should expand built-in and contextual placeholders."

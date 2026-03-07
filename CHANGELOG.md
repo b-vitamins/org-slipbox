@@ -42,3 +42,4 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Added contextual capture-template variables for refs, annotations, links, and protocol-supplied body text.
 - Added an opt-in `org-protocol` mode for `roam-node` and `roam-ref` handlers backed by the shared capture pipeline.
 - Added configurable node completion display templates and function-based candidate formatters.
+- Added a public `org-slipbox-node-read` chooser with filter, sort, annotation, and insertion-format customization.

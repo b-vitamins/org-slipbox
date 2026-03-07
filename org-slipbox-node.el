@@ -29,14 +29,20 @@
 
 ;;; Code:
 
+(require 'cl-lib)
 (require 'org)
 (require 'seq)
 (require 'subr-x)
 (require 'org-slipbox-rpc)
-(autoload 'org-slipbox--select-or-capture-node "org-slipbox-capture")
+(autoload 'org-slipbox--capture-node "org-slipbox-capture")
 
 (defcustom org-slipbox-search-limit 50
   "Maximum number of nodes to request for interactive search."
+  :type 'integer
+  :group 'org-slipbox)
+
+(defcustom org-slipbox-node-read-limit 200
+  "Maximum number of indexed nodes to request for interactive completion."
   :type 'integer
   :group 'org-slipbox)
 
@@ -48,11 +54,50 @@ return the display string.
 
 When this is a string, patterns of the form `${field}' or
 `${field:length}' are expanded from the current node. Supported fields
-include `title', `outline', `olp', `tags', `aliases', `refs', `file', `line',
-and `id'. A `length' of `*' uses the remaining candidate width; an
+include `title', `outline', `olp', `tags', `aliases', `refs', `todo', `kind',
+`file', `line', and `id'. A `length' of `*' uses the remaining candidate width; an
 integer width pads or truncates the rendered field."
   :type '(choice function string)
   :group 'org-slipbox)
+
+(defcustom org-slipbox-node-default-sort nil
+  "Default sort order for `org-slipbox-node-read'.
+When nil, preserve the Rust query engine ranking."
+  :type '(choice
+          (const :tag "Engine ranking" nil)
+          (const :tag "Title" title)
+          (const :tag "File path" file)
+          (const :tag "File mtime" file-mtime)
+          (const :tag "File atime" file-atime)
+          (function :tag "Custom comparator"))
+  :group 'org-slipbox)
+
+(defcustom org-slipbox-node-annotation-function #'org-slipbox-node-read--annotation
+  "Function used to annotate `org-slipbox-node-read' completion candidates.
+The function receives one NODE plist and must return a string."
+  :type 'function
+  :group 'org-slipbox)
+
+(defcustom org-slipbox-node-formatter nil
+  "Formatting used when inserting link descriptions for nodes.
+When nil, inserted descriptions default to the node title. When this is
+a function, it is called with one NODE plist. When it is a string, it
+uses the same placeholder syntax as `org-slipbox-node-display-template'."
+  :type '(choice
+          (const :tag "Node title" nil)
+          function
+          string)
+  :group 'org-slipbox)
+
+(defcustom org-slipbox-node-template-prefixes
+  '(("tags" . "#")
+    ("todo" . "t:"))
+  "Prefixes used for string-template node fields."
+  :type '(alist :key-type string :value-type string)
+  :group 'org-slipbox)
+
+(defvar org-slipbox-node-history nil
+  "Minibuffer history for `org-slipbox-node-read'.")
 
 (defun org-slipbox-index ()
   "Rebuild the local org-slipbox index from Org files."
@@ -89,12 +134,18 @@ If ASSERT is non-nil, signal a user error when no node is available."
     (or node
         (and assert (user-error "No node at point")))))
 
-(defun org-slipbox-node-find (query)
-  "Find a node matching QUERY and visit it."
-  (interactive (list (read-string "Find node: ")))
-  (let ((node (org-slipbox--select-or-capture-node query)))
+(defun org-slipbox-node-find (&optional initial-input filter-fn other-window)
+  "Find a node, creating it if needed.
+INITIAL-INPUT seeds the minibuffer. FILTER-FN filters indexed nodes.
+With OTHER-WINDOW, visit the result in another window."
+  (interactive (list nil nil current-prefix-arg))
+  (let ((node (org-slipbox-node-read initial-input filter-fn nil nil "Node: ")))
     (when node
-      (org-slipbox--visit-node node))))
+      (if (plist-get node :file_path)
+          (org-slipbox--visit-node node other-window)
+        (org-slipbox--visit-node
+         (org-slipbox--capture-node (plist-get node :title))
+         other-window)))))
 
 ;;;###autoload
 (defun org-slipbox-node-random (&optional other-window)
@@ -108,20 +159,31 @@ With prefix argument OTHER-WINDOW, visit it in another window."
     (org-slipbox--visit-node node other-window)
     node))
 
-(defun org-slipbox-node-insert (query)
-  "Insert an `id:' link to a node selected using QUERY."
-  (interactive (list (read-string "Insert node: ")))
-  (let* ((node (org-slipbox--select-or-capture-node query))
+(defun org-slipbox-node-insert (&optional initial-input filter-fn)
+  "Insert an `id:' link to a selected node.
+INITIAL-INPUT seeds the minibuffer. FILTER-FN filters indexed nodes."
+  (interactive)
+  (let* ((node (org-slipbox-node-read initial-input filter-fn nil nil "Node: "))
+         (node (and node
+                    (if (plist-get node :file_path)
+                        node
+                      (org-slipbox--capture-node (plist-get node :title)))))
          (node-with-id (and node (org-slipbox--ensure-node-id node)))
          (id (and node-with-id (plist-get node-with-id :explicit_id)))
-         (title (and node-with-id (plist-get node-with-id :title))))
+         (title (and node-with-id (org-slipbox-node-formatted node-with-id))))
     (when node-with-id
       (insert (format "[[id:%s][%s]]" id title)))))
 
-(defun org-slipbox-node-backlinks (query)
-  "Show backlinks for a node selected using QUERY."
-  (interactive (list (read-string "Backlinks for: ")))
-  (let* ((node (org-slipbox--select-or-capture-node query))
+(defun org-slipbox-node-backlinks (&optional initial-input filter-fn)
+  "Show backlinks for a selected existing node.
+INITIAL-INPUT seeds the minibuffer. FILTER-FN filters indexed nodes."
+  (interactive)
+  (let* ((node (org-slipbox-node-read
+                initial-input
+                filter-fn
+                nil
+                t
+                "Backlinks for node: "))
          (node-key (plist-get node :node_key))
          (response (and node (org-slipbox-rpc-backlinks node-key 200)))
          (backlinks (and response
@@ -160,6 +222,67 @@ With prefix argument OTHER-WINDOW, visit it in another window."
                    (string-join (mapcar (lambda (tag) (format "#%s" tag)) tags) " "))
                  (format "%s:%s" file line)))
      " | ")))
+
+(defun org-slipbox-node-read (&optional initial-input filter-fn sort-fn require-match prompt)
+  "Read and return an indexed node plist.
+INITIAL-INPUT seeds the minibuffer. FILTER-FN filters indexed nodes.
+SORT-FN sorts completion candidates. REQUIRE-MATCH enforces an indexed
+selection. PROMPT defaults to \"Node: \". When REQUIRE-MATCH is nil and
+the user enters a new title, return a plist with only `:title'."
+  (let* ((prompt (or prompt "Node: "))
+         (sort-fn (org-slipbox--resolve-node-sort-function sort-fn))
+         completions
+         (collection
+          (lambda (string pred action)
+            (if (eq action 'metadata)
+                `(metadata
+                  ,@(when sort-fn
+                      '((display-sort-function . identity)
+                        (cycle-sort-function . identity)))
+                  (annotation-function
+                   . ,(lambda (title)
+                        (org-slipbox--node-completion-annotation title)))
+                  (category . org-slipbox-node))
+              (setq completions
+                    (org-slipbox-node-read--completions string filter-fn sort-fn))
+              (complete-with-action action completions string pred))))
+         (selection (completing-read
+                     prompt
+                     collection
+                     nil
+                     require-match
+                     initial-input
+                     'org-slipbox-node-history))
+         (node (cdr (assoc selection completions))))
+    (cond
+     (node node)
+     ((string-empty-p selection) nil)
+     (t
+      (let ((refreshed (cdr (assoc selection
+                                   (org-slipbox-node-read--completions
+                                    selection
+                                    filter-fn
+                                    sort-fn)))))
+        (or refreshed
+            (and (not require-match)
+                 (list :title selection))))))))
+
+(defun org-slipbox-node-formatted (node)
+  "Return the preferred inserted-link description for NODE."
+  (let ((formatted
+         (cond
+          ((functionp org-slipbox-node-formatter)
+           (funcall org-slipbox-node-formatter node))
+          ((stringp org-slipbox-node-formatter)
+           (org-slipbox--format-node-template
+            org-slipbox-node-formatter
+            node
+            (frame-width)))
+          (t
+           (plist-get node :title)))))
+    (if (string-empty-p (or formatted ""))
+        (plist-get node :title)
+      formatted)))
 
 (defun org-slipbox--plist-sequence (value)
   "Normalize JSON-derived VALUE into an Emacs list."
@@ -246,26 +369,30 @@ With prefix argument OTHER-WINDOW, visit it in another window."
 
 (defun org-slipbox--read-existing-node (prompt)
   "Read and return an existing node using PROMPT."
-  (let* ((query (read-string prompt))
-         (exact (and (not (string-empty-p query))
-                     (condition-case nil
-                         (org-slipbox-node-from-title-or-alias query t)
-                       (error nil)))))
-    (or exact
-        (let* ((choices (org-slipbox--search-node-choices query))
-               (selection (and choices
-                               (completing-read "Node: " choices nil t))))
-          (unless selection
-            (user-error "No nodes match %s" query))
-          (cdr (assoc selection choices))))))
+  (or (org-slipbox-node-read nil nil nil t prompt)
+      (user-error "No node selected")))
+
+(defun org-slipbox-node-read--completions (query &optional filter-fn sort-fn)
+  "Return formatted completion candidates for QUERY.
+FILTER-FN filters indexed nodes. SORT-FN sorts completion candidates."
+  (let* ((response (org-slipbox-rpc-search-nodes query org-slipbox-node-read-limit))
+         (nodes (org-slipbox--plist-sequence (plist-get response :nodes)))
+         (nodes (if filter-fn
+                    (seq-filter filter-fn nodes)
+                  nodes))
+         (completions (mapcar #'org-slipbox--node-completion-candidate nodes)))
+    (if sort-fn
+        (seq-sort sort-fn completions)
+      completions)))
 
 (defun org-slipbox--search-node-choices (query)
   "Return display-to-node choices for QUERY."
-  (let* ((response (org-slipbox-rpc-search-nodes query org-slipbox-search-limit))
-         (nodes (org-slipbox--plist-sequence (plist-get response :nodes))))
-    (mapcar (lambda (node)
-              (cons (org-slipbox--node-candidate-display node) node))
-            nodes)))
+  (org-slipbox-node-read--completions query))
+
+(defun org-slipbox--node-completion-candidate (node)
+  "Return a display-to-node completion pair for NODE."
+  (cons (propertize (org-slipbox--node-candidate-display node) 'node node)
+        node))
 
 (defun org-slipbox--node-candidate-display (node)
   "Return the completion-candidate display string for NODE."
@@ -279,6 +406,12 @@ With prefix argument OTHER-WINDOW, visit it in another window."
      (frame-width)))
    (t
     (org-slipbox--node-display node))))
+
+(defun org-slipbox--node-completion-annotation (candidate)
+  "Return the annotation string for completion CANDIDATE."
+  (if-let ((node (get-text-property 0 'node candidate)))
+      (funcall org-slipbox-node-annotation-function node)
+    ""))
 
 (defun org-slipbox--format-node-template (template node width)
   "Format TEMPLATE for NODE within WIDTH columns."
@@ -333,18 +466,86 @@ With prefix argument OTHER-WINDOW, visit it in another window."
   (pcase field
     ("title" (or (plist-get node :title) ""))
     ((or "outline" "olp") (or (plist-get node :outline_path) ""))
-    ("tags" (string-join
-             (mapcar (lambda (tag) (format "#%s" tag))
-                     (org-slipbox--plist-sequence (plist-get node :tags)))
-             " "))
+    ("tags" (org-slipbox--node-template-list-value
+             "tags"
+             (org-slipbox--plist-sequence (plist-get node :tags))))
     ("aliases" (string-join (org-slipbox--plist-sequence (plist-get node :aliases)) ", "))
     ("refs" (string-join (org-slipbox--plist-sequence (plist-get node :refs)) ", "))
+    ("todo" (org-slipbox--node-template-list-value
+             "todo"
+             (org-slipbox--plist-sequence (plist-get node :todo_keyword))))
+    ("kind" (pcase (plist-get node :kind)
+              ('file "file")
+              ('heading "heading")
+              ((pred stringp) (plist-get node :kind))
+              (_ "")))
     ("file" (or (plist-get node :file_path) ""))
     ("line" (if-let ((line (plist-get node :line)))
                 (number-to-string line)
               ""))
     ("id" (or (plist-get node :explicit_id) ""))
     (_ "")))
+
+(defun org-slipbox--node-template-list-value (field values)
+  "Return VALUES joined for template FIELD."
+  (let ((prefix (or (cdr (assoc field org-slipbox-node-template-prefixes)) "")))
+    (string-join
+     (mapcar (lambda (value)
+               (concat prefix value))
+             values)
+     " ")))
+
+(defun org-slipbox--resolve-node-sort-function (sort-fn)
+  "Return the effective sort function for SORT-FN."
+  (let ((sort-fn (or sort-fn org-slipbox-node-default-sort)))
+    (cond
+     ((functionp sort-fn) sort-fn)
+     ((null sort-fn) nil)
+     ((fboundp (intern-soft (format "org-slipbox-node-read-sort-by-%s" sort-fn)))
+      (intern-soft (format "org-slipbox-node-read-sort-by-%s" sort-fn)))
+     (t
+      (user-error "Unsupported node sort %s" sort-fn)))))
+
+(defun org-slipbox-node-read-sort-by-title (completion-a completion-b)
+  "Sort COMPLETION-A and COMPLETION-B by title."
+  (string-collate-lessp
+   (plist-get (cdr completion-a) :title)
+   (plist-get (cdr completion-b) :title)
+   nil
+   t))
+
+(defun org-slipbox-node-read-sort-by-file (completion-a completion-b)
+  "Sort COMPLETION-A and COMPLETION-B by file path, then line number."
+  (let ((file-a (plist-get (cdr completion-a) :file_path))
+        (file-b (plist-get (cdr completion-b) :file_path)))
+    (if (string-equal file-a file-b)
+        (< (plist-get (cdr completion-a) :line)
+           (plist-get (cdr completion-b) :line))
+      (string-collate-lessp file-a file-b nil t))))
+
+(defun org-slipbox-node-read-sort-by-file-mtime (completion-a completion-b)
+  "Sort COMPLETION-A and COMPLETION-B by descending file modification time."
+  (time-less-p (org-slipbox--node-file-time (cdr completion-b) 'modification)
+               (org-slipbox--node-file-time (cdr completion-a) 'modification)))
+
+(defun org-slipbox-node-read-sort-by-file-atime (completion-a completion-b)
+  "Sort COMPLETION-A and COMPLETION-B by descending file access time."
+  (time-less-p (org-slipbox--node-file-time (cdr completion-b) 'access)
+               (org-slipbox--node-file-time (cdr completion-a) 'access)))
+
+(defun org-slipbox--node-file-time (node attribute)
+  "Return NODE file ATTRIBUTE time, or the epoch when unavailable."
+  (let* ((file (expand-file-name (plist-get node :file_path) org-slipbox-directory))
+         (attributes (and (file-exists-p file)
+                          (file-attributes file 'string))))
+    (or (pcase attribute
+          ('modification (file-attribute-modification-time attributes))
+          ('access (file-attribute-access-time attributes)))
+        '(0 0 0 0))))
+
+(defun org-slipbox-node-read--annotation (_node)
+  "Default empty annotation for node completions."
+  "")
 
 (defun org-slipbox--title-completion-table (string pred action)
   "Completion table for node titles and aliases using STRING, PRED, and ACTION."
