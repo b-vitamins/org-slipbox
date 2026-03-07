@@ -5,14 +5,14 @@ use anyhow::{Context, Result, anyhow};
 use clap::{Parser, Subcommand};
 use serde::de::DeserializeOwned;
 use slipbox_core::{
-    AppendHeadingParams, BacklinksParams, BacklinksResult, CaptureNodeParams, EnsureFileNodeParams,
-    EnsureNodeIdParams, IndexFileParams, NodeRecord, PingInfo, SearchNodesParams,
-    SearchNodesResult,
+    AgendaParams, AgendaResult, AppendHeadingParams, BacklinksParams, BacklinksResult,
+    CaptureNodeParams, EnsureFileNodeParams, EnsureNodeIdParams, IndexFileParams, NodeRecord,
+    PingInfo, SearchNodesParams, SearchNodesResult,
 };
 use slipbox_rpc::{
-    JsonRpcError, JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_APPEND_HEADING,
-    METHOD_BACKLINKS, METHOD_CAPTURE_NODE, METHOD_ENSURE_FILE_NODE, METHOD_ENSURE_NODE_ID,
-    METHOD_INDEX, METHOD_INDEX_FILE, METHOD_PING, METHOD_SEARCH_NODES,
+    JsonRpcError, JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_AGENDA,
+    METHOD_APPEND_HEADING, METHOD_BACKLINKS, METHOD_CAPTURE_NODE, METHOD_ENSURE_FILE_NODE,
+    METHOD_ENSURE_NODE_ID, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_PING, METHOD_SEARCH_NODES,
 };
 use slipbox_store::Database;
 
@@ -189,6 +189,14 @@ fn dispatch_request(
                 .backlinks(&params.node_key, params.normalized_limit())
                 .map_err(|error| internal_error(error.context("failed to query backlinks")))?;
             to_value(BacklinksResult { backlinks })
+        }
+        METHOD_AGENDA => {
+            let params: AgendaParams = parse_params(params)?;
+            let nodes = state
+                .database
+                .agenda_nodes(&params.start, &params.end, params.normalized_limit())
+                .map_err(|error| internal_error(error.context("failed to query agenda")))?;
+            to_value(AgendaResult { nodes })
         }
         METHOD_CAPTURE_NODE => {
             let params: CaptureNodeParams = parse_params(params)?;

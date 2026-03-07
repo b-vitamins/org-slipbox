@@ -7,7 +7,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
 use slipbox_core::{IndexStats, IndexedFile, NodeKind, NodeRecord};
 
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
 
 pub struct Database {
     connection: Connection,
@@ -55,6 +55,10 @@ impl Database {
                         n.outline_path,
                         n.aliases_json,
                         n.tags_json,
+                        n.todo_keyword,
+                        n.scheduled_for,
+                        n.deadline_for,
+                        n.closed_at,
                         n.level,
                         n.line,
                         n.kind
@@ -76,6 +80,10 @@ impl Database {
                         outline_path,
                         aliases_json,
                         tags_json,
+                        todo_keyword,
+                        scheduled_for,
+                        deadline_for,
+                        closed_at,
                         level,
                         line,
                         kind
@@ -115,6 +123,10 @@ impl Database {
                              n.outline_path,
                              n.aliases_json,
                              n.tags_json,
+                             n.todo_keyword,
+                             n.scheduled_for,
+                             n.deadline_for,
+                             n.closed_at,
                              n.level,
                              n.line,
                              n.kind
@@ -132,6 +144,34 @@ impl Database {
             .context("failed to read backlinks")
     }
 
+    pub fn agenda_nodes(&self, start: &str, end: &str, limit: usize) -> Result<Vec<NodeRecord>> {
+        let mut statement = self.connection.prepare(
+            "SELECT node_key,
+                    explicit_id,
+                    file_path,
+                    title,
+                    outline_path,
+                    aliases_json,
+                    tags_json,
+                    todo_keyword,
+                    scheduled_for,
+                    deadline_for,
+                    closed_at,
+                    level,
+                    line,
+                    kind
+               FROM nodes
+              WHERE (scheduled_for IS NOT NULL AND scheduled_for >= ?1 AND scheduled_for <= ?2)
+                 OR (deadline_for IS NOT NULL AND deadline_for >= ?1 AND deadline_for <= ?2)
+              ORDER BY COALESCE(scheduled_for, deadline_for), file_path, line
+              LIMIT ?3",
+        )?;
+        let rows =
+            statement.query_map(params![start, end, limit.clamp(1, 500) as i64], row_to_node)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("failed to read agenda nodes")
+    }
+
     pub fn node_by_key(&self, node_key: &str) -> Result<Option<NodeRecord>> {
         self.connection
             .query_row(
@@ -142,6 +182,10 @@ impl Database {
                         outline_path,
                         aliases_json,
                         tags_json,
+                        todo_keyword,
+                        scheduled_for,
+                        deadline_for,
+                        closed_at,
                         level,
                         line,
                         kind
@@ -205,6 +249,10 @@ impl Database {
                outline_path TEXT NOT NULL,
                aliases_json TEXT NOT NULL,
                tags_json TEXT NOT NULL,
+               todo_keyword TEXT,
+               scheduled_for TEXT,
+               deadline_for TEXT,
+               closed_at TEXT,
                level INTEGER NOT NULL,
                line INTEGER NOT NULL,
                kind TEXT NOT NULL
@@ -236,7 +284,15 @@ impl Database {
              CREATE INDEX IF NOT EXISTS idx_links_destination_explicit_id
                ON links (destination_explicit_id);
 
-             PRAGMA user_version = 2;",
+             CREATE INDEX IF NOT EXISTS idx_nodes_scheduled_for
+               ON nodes (scheduled_for)
+               WHERE scheduled_for IS NOT NULL;
+
+             CREATE INDEX IF NOT EXISTS idx_nodes_deadline_for
+               ON nodes (deadline_for)
+               WHERE deadline_for IS NOT NULL;
+
+             PRAGMA user_version = 3;",
         )?;
         Ok(())
     }
@@ -261,11 +317,15 @@ impl Database {
                    outline_path,
                    aliases_json,
                    tags_json,
+                   todo_keyword,
+                   scheduled_for,
+                   deadline_for,
+                   closed_at,
                    level,
                    line,
                    kind
                  )
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
                 params![
                     node.node_key,
                     node.explicit_id,
@@ -275,6 +335,10 @@ impl Database {
                     serde_json::to_string(&node.aliases)
                         .context("failed to serialize node aliases")?,
                     serde_json::to_string(&node.tags).context("failed to serialize node tags")?,
+                    node.todo_keyword,
+                    node.scheduled_for,
+                    node.deadline_for,
+                    node.closed_at,
                     node.level,
                     node.line,
                     node.kind.as_str(),
@@ -358,7 +422,7 @@ fn delete_file_rows(transaction: &rusqlite::Transaction<'_>, file_path: &str) ->
 }
 
 fn row_to_node(row: &rusqlite::Row<'_>) -> rusqlite::Result<NodeRecord> {
-    let kind_text: String = row.get(9)?;
+    let kind_text: String = row.get(13)?;
     Ok(NodeRecord {
         node_key: row.get(0)?,
         explicit_id: row.get(1)?,
@@ -367,8 +431,12 @@ fn row_to_node(row: &rusqlite::Row<'_>) -> rusqlite::Result<NodeRecord> {
         outline_path: row.get(4)?,
         aliases: parse_string_list(row.get::<_, String>(5)?),
         tags: parse_string_list(row.get::<_, String>(6)?),
-        level: row.get(7)?,
-        line: row.get(8)?,
+        todo_keyword: row.get(7)?,
+        scheduled_for: row.get(8)?,
+        deadline_for: row.get(9)?,
+        closed_at: row.get(10)?,
+        level: row.get(11)?,
+        line: row.get(12)?,
         kind: kind_text.parse().unwrap_or(NodeKind::Heading),
     })
 }

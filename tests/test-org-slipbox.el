@@ -74,6 +74,30 @@
             '(:title "Slip: Sample Title"
               :file_path "notes/2026-sample-title.org")))))
 
+(ert-deftest org-slipbox-test-agenda-day-range ()
+  "Agenda day ranges should cover the full calendar day."
+  (should
+   (equal
+    (org-slipbox-agenda--day-range (encode-time 0 0 0 7 3 2026))
+    '("2026-03-07T00:00:00" . "2026-03-07T23:59:59"))))
+
+(ert-deftest org-slipbox-test-agenda-date-uses-rpc ()
+  "Agenda lookup should go through the indexed agenda RPC."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:nodes nil)))
+              ((symbol-function 'display-buffer)
+               (lambda (&rest _args) nil)))
+      (org-slipbox-agenda-date (encode-time 0 0 0 7 3 2026)))
+    (should (equal method "slipbox/agenda"))
+    (should
+     (equal params
+            '(:start "2026-03-07T00:00:00"
+              :end "2026-03-07T23:59:59")))))
+
 (ert-deftest org-slipbox-test-syncable-buffer-detection ()
   "Autosync should only consider Org files under the configured root."
   (let* ((root (make-temp-file "org-slipbox-test-" t))

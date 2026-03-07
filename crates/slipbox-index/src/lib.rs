@@ -60,6 +60,10 @@ fn parse_document(file_path: &str, mtime_ns: i64, source: &str) -> IndexedFile {
         outline_path: String::new(),
         aliases: file_properties.aliases,
         tags: file_tags.clone(),
+        todo_keyword: None,
+        scheduled_for: None,
+        deadline_for: None,
+        closed_at: None,
         level: 0,
         line: 1,
         kind: NodeKind::File,
@@ -69,20 +73,20 @@ fn parse_document(file_path: &str, mtime_ns: i64, source: &str) -> IndexedFile {
     let mut outline_stack: Vec<String> = Vec::new();
 
     for (index, line) in lines.iter().enumerate() {
-        if let Some((level, title, heading_tags)) = parse_heading(line) {
+        if let Some((level, todo_keyword, title, heading_tags)) = parse_heading(line) {
             outline_stack.truncate(level.saturating_sub(1));
             outline_stack.push(title.clone());
 
             let node_key = format!("heading:{file_path}:{}", index + 1);
             current_source_node_key = node_key.clone();
-            let heading_properties = parse_immediate_properties(&lines, index + 1);
+            let heading_metadata = parse_heading_metadata(&lines, index + 1);
             nodes.push(IndexedNode {
                 node_key,
-                explicit_id: heading_properties.explicit_id,
+                explicit_id: heading_metadata.explicit_id,
                 file_path: file_path.to_owned(),
                 title,
                 outline_path: outline_stack.join(" / "),
-                aliases: heading_properties.aliases,
+                aliases: heading_metadata.aliases,
                 tags: unique_strings(
                     file_tags
                         .iter()
@@ -90,6 +94,10 @@ fn parse_document(file_path: &str, mtime_ns: i64, source: &str) -> IndexedFile {
                         .cloned()
                         .collect(),
                 ),
+                todo_keyword,
+                scheduled_for: heading_metadata.scheduled_for,
+                deadline_for: heading_metadata.deadline_for,
+                closed_at: heading_metadata.closed_at,
                 level: level as u32,
                 line: (index + 1) as u32,
                 kind: NodeKind::Heading,
@@ -168,7 +176,7 @@ fn strip_keyword<'a>(line: &'a str, keyword: &str) -> Option<&'a str> {
     }
 }
 
-fn parse_heading(line: &str) -> Option<(usize, String, Vec<String>)> {
+fn parse_heading(line: &str) -> Option<(usize, Option<String>, String, Vec<String>)> {
     let level = line
         .chars()
         .take_while(|character| *character == '*')
@@ -179,22 +187,12 @@ fn parse_heading(line: &str) -> Option<(usize, String, Vec<String>)> {
 
     let heading_text = line[level + 1..].trim();
     let (title, tags) = split_heading_tags(heading_text);
+    let (todo_keyword, title) = split_todo_keyword(title);
     if title.is_empty() {
         None
     } else {
-        Some((level, title.to_owned(), tags))
+        Some((level, todo_keyword, title.to_owned(), tags))
     }
-}
-
-fn parse_immediate_properties(lines: &[&str], start_index: usize) -> NodeProperties {
-    let Some(start_line) = lines.get(start_index) else {
-        return NodeProperties::default();
-    };
-    if !start_line.trim().eq_ignore_ascii_case(":PROPERTIES:") {
-        return NodeProperties::default();
-    }
-
-    parse_property_drawer(lines, start_index)
 }
 
 fn parse_property_drawer(lines: &[&str], start_index: usize) -> NodeProperties {
@@ -216,6 +214,48 @@ fn parse_property_drawer(lines: &[&str], start_index: usize) -> NodeProperties {
     }
 
     properties
+}
+
+fn parse_heading_metadata(lines: &[&str], start_index: usize) -> HeadingMetadata {
+    let mut metadata = HeadingMetadata::default();
+    let mut in_property_drawer = false;
+
+    for line in &lines[start_index..] {
+        let trimmed = line.trim();
+        if parse_heading(line).is_some() {
+            break;
+        }
+
+        if in_property_drawer {
+            if trimmed.eq_ignore_ascii_case(":END:") {
+                in_property_drawer = false;
+                continue;
+            }
+            if let Some(value) = strip_keyword(trimmed, ":ID:") {
+                let id = value.trim();
+                if !id.is_empty() {
+                    metadata.explicit_id = Some(id.to_owned());
+                }
+            }
+            if let Some(value) = strip_keyword(trimmed, ":ROAM_ALIASES:") {
+                metadata.aliases = parse_aliases(value);
+            }
+            continue;
+        }
+
+        if trimmed.eq_ignore_ascii_case(":PROPERTIES:") {
+            in_property_drawer = true;
+            continue;
+        }
+
+        if parse_planning_line(trimmed, &mut metadata) || trimmed.is_empty() {
+            continue;
+        }
+
+        break;
+    }
+
+    metadata
 }
 
 fn parse_filetags(lines: &[&str]) -> Vec<String> {
@@ -242,6 +282,25 @@ fn split_heading_tags(input: &str) -> (&str, Vec<String>) {
     } else {
         (title.trim_end(), unique_strings(tags))
     }
+}
+
+fn split_todo_keyword(input: &str) -> (Option<String>, &str) {
+    let Some((first, rest)) = input.split_once(' ') else {
+        return (None, input);
+    };
+
+    if looks_like_todo_keyword(first) {
+        (Some(first.to_owned()), rest.trim_start())
+    } else {
+        (None, input)
+    }
+}
+
+fn looks_like_todo_keyword(token: &str) -> bool {
+    matches!(
+        token,
+        "TODO" | "DONE" | "NEXT" | "WAITING" | "STARTED" | "CANCELLED" | "HOLD"
+    )
 }
 
 fn parse_colon_tags(input: &str) -> Vec<String> {
@@ -315,6 +374,65 @@ fn unique_strings(values: Vec<String>) -> Vec<String> {
 struct NodeProperties {
     explicit_id: Option<String>,
     aliases: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct HeadingMetadata {
+    explicit_id: Option<String>,
+    aliases: Vec<String>,
+    scheduled_for: Option<String>,
+    deadline_for: Option<String>,
+    closed_at: Option<String>,
+}
+
+fn parse_planning_line(line: &str, metadata: &mut HeadingMetadata) -> bool {
+    let mut matched = false;
+
+    if let Some(timestamp) = extract_planning_timestamp(line, "SCHEDULED:") {
+        metadata.scheduled_for = Some(timestamp);
+        matched = true;
+    }
+    if let Some(timestamp) = extract_planning_timestamp(line, "DEADLINE:") {
+        metadata.deadline_for = Some(timestamp);
+        matched = true;
+    }
+    if let Some(timestamp) = extract_planning_timestamp(line, "CLOSED:") {
+        metadata.closed_at = Some(timestamp);
+        matched = true;
+    }
+
+    matched
+}
+
+fn extract_planning_timestamp(line: &str, keyword: &str) -> Option<String> {
+    let position = line.find(keyword)?;
+    let value = line[position + keyword.len()..].trim_start();
+    let closing = if value.starts_with('<') {
+        '>'
+    } else if value.starts_with('[') {
+        ']'
+    } else {
+        return None;
+    };
+    let end = value.find(closing)?;
+    parse_org_timestamp(&value[1..end])
+}
+
+fn parse_org_timestamp(value: &str) -> Option<String> {
+    let date = value.split_whitespace().next()?;
+    if date.len() != 10
+        || !date
+            .chars()
+            .enumerate()
+            .all(|(index, character)| match index {
+                4 | 7 => character == '-',
+                _ => character.is_ascii_digit(),
+            })
+    {
+        return None;
+    }
+
+    Some(format!("{date}T00:00:00"))
 }
 
 fn extract_id_links(line: &str, source_node_key: &str, links: &mut Vec<IndexedLink>) {

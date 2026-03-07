@@ -49,6 +49,14 @@ pub struct NodeRecord {
     pub aliases: Vec<String>,
     #[serde(default)]
     pub tags: Vec<String>,
+    #[serde(default)]
+    pub todo_keyword: Option<String>,
+    #[serde(default)]
+    pub scheduled_for: Option<String>,
+    #[serde(default)]
+    pub deadline_for: Option<String>,
+    #[serde(default)]
+    pub closed_at: Option<String>,
     pub level: u32,
     pub line: u32,
     pub kind: NodeKind,
@@ -71,6 +79,10 @@ pub struct IndexedNode {
     pub outline_path: String,
     pub aliases: Vec<String>,
     pub tags: Vec<String>,
+    pub todo_keyword: Option<String>,
+    pub scheduled_for: Option<String>,
+    pub deadline_for: Option<String>,
+    pub closed_at: Option<String>,
     pub level: u32,
     pub line: u32,
     pub kind: NodeKind,
@@ -136,6 +148,26 @@ pub struct BacklinksResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgendaParams {
+    pub start: String,
+    pub end: String,
+    #[serde(default = "default_agenda_limit")]
+    pub limit: usize,
+}
+
+impl AgendaParams {
+    #[must_use]
+    pub fn normalized_limit(&self) -> usize {
+        self.limit.clamp(1, 500)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgendaResult {
+    pub nodes: Vec<NodeRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureNodeParams {
     pub title: String,
     #[serde(default)]
@@ -179,6 +211,10 @@ const fn default_search_limit() -> usize {
 }
 
 const fn default_backlink_limit() -> usize {
+    200
+}
+
+const fn default_agenda_limit() -> usize {
     200
 }
 

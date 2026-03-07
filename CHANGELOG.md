@@ -18,3 +18,4 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Added indexed alias and tag metadata for nodes, including search over those fields.
 - Added daily-note commands backed by generic file-node and heading-append RPCs.
 - Added configurable capture path and title templates backed by unique file-target capture.
+- Added indexed scheduled, deadline, and closed timestamps plus an agenda query command.
