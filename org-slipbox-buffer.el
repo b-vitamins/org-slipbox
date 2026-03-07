@@ -227,21 +227,19 @@
 
 (defun org-slipbox-buffer--insert-backlink-section (backlinks)
   "Insert a backlinks section for BACKLINKS."
-  (insert "Backlinks\n---------\n")
-  (if backlinks
-      (dolist (backlink backlinks)
-        (org-slipbox-buffer--insert-node-button backlink)
-        (insert "\n"))
-    (insert "No backlinks found.\n"))
-  (insert "\n"))
+  (org-slipbox-buffer--insert-occurrence-section
+   "Backlinks"
+   backlinks
+   "No backlinks found."
+   #'org-slipbox-buffer--insert-backlink-entry))
 
-(defun org-slipbox-buffer--insert-result-section (title results empty-message)
-  "Insert result section TITLE using RESULTS or EMPTY-MESSAGE."
+(defun org-slipbox-buffer--insert-occurrence-section (title entries empty-message inserter)
+  "Insert section TITLE using ENTRIES or EMPTY-MESSAGE via INSERTER."
   (insert title "\n")
   (insert (make-string (length title) ?-) "\n")
-  (if results
-      (dolist (entry results)
-        (org-slipbox-buffer--insert-result-button entry)
+  (if entries
+      (dolist (entry entries)
+        (funcall inserter entry)
         (insert "\n"))
     (insert empty-message "\n"))
   (insert "\n"))
@@ -255,29 +253,68 @@
    'action (lambda (_button)
              (org-slipbox--visit-node node))))
 
-(defun org-slipbox-buffer--insert-result-button (entry)
-  "Insert a grep result button for ENTRY."
+(defun org-slipbox-buffer--insert-backlink-entry (entry)
+  "Insert a preview-rich backlink ENTRY."
+  (let* ((source-node (plist-get entry :source_node))
+         (file (plist-get source-node :file_path))
+         (row (plist-get entry :row))
+         (col (plist-get entry :col))
+         (preview (plist-get entry :preview)))
+    (insert-text-button
+     (org-slipbox--node-display source-node)
+     'follow-link t
+     'help-echo "Visit backlink"
+     'action (lambda (_button)
+               (org-slipbox-buffer--visit-location file row col)))
+    (insert " "
+            (propertize (format "%s:%s:%s" file row col) 'face 'shadow)
+            "\n  "
+            preview)))
+
+(defun org-slipbox-buffer--insert-result-section (title results empty-message)
+  "Insert result section TITLE using RESULTS or EMPTY-MESSAGE."
+  (org-slipbox-buffer--insert-occurrence-section
+   title
+   results
+   empty-message
+   #'org-slipbox-buffer--insert-result-entry))
+
+(defun org-slipbox-buffer--insert-result-entry (entry)
+  "Insert a preview-rich grep ENTRY."
   (let* ((file (plist-get entry :file))
          (row (plist-get entry :row))
          (col (plist-get entry :col))
-         (label (format "%s:%s:%s %s"
+         (preview (plist-get entry :preview))
+         (label (format "%s:%s:%s"
                         (file-relative-name file org-slipbox-directory)
                         row
-                        col
-                        (plist-get entry :preview))))
+                        col)))
     (insert-text-button
      label
      'follow-link t
      'help-echo "Visit result"
      'action (lambda (_button)
-               (org-slipbox-buffer--visit-result entry)))))
+               (org-slipbox-buffer--visit-result entry)))
+    (insert "\n  " preview)))
 
 (defun org-slipbox-buffer--visit-result (entry)
   "Visit grep result ENTRY."
-  (find-file (plist-get entry :file))
+  (org-slipbox-buffer--visit-location
+   (plist-get entry :file)
+   (plist-get entry :row)
+   (plist-get entry :col)))
+
+(defun org-slipbox-buffer--visit-location (file row col)
+  "Visit FILE at ROW and COL."
+  (find-file (if (file-name-absolute-p file)
+                 file
+               (expand-file-name file org-slipbox-directory)))
   (goto-char (point-min))
-  (forward-line (1- (plist-get entry :row)))
-  (forward-char (1- (plist-get entry :col))))
+  (forward-line (1- row))
+  (forward-char (1- col))
+  (when (and (fboundp 'org-fold-show-context)
+             (org-invisible-p))
+    (org-fold-show-context)))
 
 (defun org-slipbox-buffer--reflinks (node)
   "Return grep-backed reflink matches for NODE."

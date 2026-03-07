@@ -95,6 +95,9 @@ pub struct IndexedNode {
 pub struct IndexedLink {
     pub source_node_key: String,
     pub destination_explicit_id: String,
+    pub line: u32,
+    pub column: u32,
+    pub preview: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -196,7 +199,15 @@ impl BacklinksParams {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BacklinksResult {
-    pub backlinks: Vec<NodeRecord>,
+    pub backlinks: Vec<BacklinkRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BacklinkRecord {
+    pub source_node: NodeRecord,
+    pub row: u32,
+    pub col: u32,
+    pub preview: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

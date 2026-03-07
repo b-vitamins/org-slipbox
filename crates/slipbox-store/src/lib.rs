@@ -5,9 +5,11 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
-use slipbox_core::{IndexStats, IndexedFile, NodeKind, NodeRecord, RefRecord, normalize_reference};
+use slipbox_core::{
+    BacklinkRecord, IndexStats, IndexedFile, NodeKind, NodeRecord, RefRecord, normalize_reference,
+};
 
-const SCHEMA_VERSION: i32 = 6;
+const SCHEMA_VERSION: i32 = 7;
 
 pub struct Database {
     connection: Connection,
@@ -292,7 +294,7 @@ impl Database {
             .context("failed to fetch node at point")
     }
 
-    pub fn backlinks(&self, node_key: &str, limit: usize) -> Result<Vec<NodeRecord>> {
+    pub fn backlinks(&self, node_key: &str, limit: usize) -> Result<Vec<BacklinkRecord>> {
         let explicit_id = self
             .connection
             .query_row(
@@ -311,30 +313,33 @@ impl Database {
         };
 
         let mut statement = self.connection.prepare(
-            "SELECT DISTINCT n.node_key,
-                             n.explicit_id,
-                             n.file_path,
-                             n.title,
-                             n.outline_path,
-                             n.aliases_json,
-                             n.tags_json,
-                             n.refs_json,
-                             n.todo_keyword,
-                             n.scheduled_for,
-                             n.deadline_for,
-                             n.closed_at,
-                             n.level,
-                             n.line,
-                             n.kind
+            "SELECT n.node_key,
+                    n.explicit_id,
+                    n.file_path,
+                    n.title,
+                    n.outline_path,
+                    n.aliases_json,
+                    n.tags_json,
+                    n.refs_json,
+                    n.todo_keyword,
+                    n.scheduled_for,
+                    n.deadline_for,
+                    n.closed_at,
+                    n.level,
+                    n.line,
+                    n.kind,
+                    l.line,
+                    l.column,
+                    l.preview
                FROM links AS l
                JOIN nodes AS n ON n.node_key = l.source_node_key
               WHERE l.destination_explicit_id = ?1
-              ORDER BY n.file_path, n.line
+              ORDER BY n.file_path, l.line, l.column
               LIMIT ?2",
         )?;
         let rows = statement.query_map(
             params![explicit_id, limit.clamp(1, 1_000) as i64],
-            row_to_node,
+            row_to_backlink,
         )?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .context("failed to read backlinks")
@@ -595,7 +600,10 @@ impl Database {
 
              CREATE TABLE IF NOT EXISTS links (
                source_node_key TEXT NOT NULL,
-               destination_explicit_id TEXT NOT NULL
+               destination_explicit_id TEXT NOT NULL,
+               line INTEGER NOT NULL,
+               column INTEGER NOT NULL,
+               preview TEXT NOT NULL
              );
 
              CREATE INDEX IF NOT EXISTS idx_nodes_file_path
@@ -637,7 +645,7 @@ impl Database {
                ON nodes (deadline_for)
                WHERE deadline_for IS NOT NULL;
 
-             PRAGMA user_version = 6;",
+             PRAGMA user_version = 7;",
         )?;
         Ok(())
     }
@@ -734,9 +742,21 @@ impl Database {
 
         for link in &file.links {
             transaction.execute(
-                "INSERT INTO links (source_node_key, destination_explicit_id)
-                 VALUES (?1, ?2)",
-                params![link.source_node_key, link.destination_explicit_id],
+                "INSERT INTO links (
+                   source_node_key,
+                   destination_explicit_id,
+                   line,
+                   column,
+                   preview
+                 )
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    link.source_node_key,
+                    link.destination_explicit_id,
+                    link.line,
+                    link.column,
+                    link.preview
+                ],
             )?;
         }
 
@@ -845,6 +865,15 @@ fn row_to_ref(row: &rusqlite::Row<'_>) -> rusqlite::Result<RefRecord> {
     Ok(RefRecord {
         reference: row.get(0)?,
         node: row_to_node_with_offset(row, 1)?,
+    })
+}
+
+fn row_to_backlink(row: &rusqlite::Row<'_>) -> rusqlite::Result<BacklinkRecord> {
+    Ok(BacklinkRecord {
+        source_node: row_to_node_with_offset(row, 0)?,
+        row: row.get(15)?,
+        col: row.get(16)?,
+        preview: row.get(17)?,
     })
 }
 

@@ -106,7 +106,12 @@ fn parse_document(file_path: &str, mtime_ns: i64, source: &str) -> IndexedFile {
             });
         }
 
-        extract_id_links(line, &current_source_node_key, &mut links);
+        extract_id_links(
+            line,
+            &current_source_node_key,
+            (index + 1) as u32,
+            &mut links,
+        );
     }
 
     IndexedFile {
@@ -463,21 +468,39 @@ fn parse_org_timestamp(value: &str) -> Option<String> {
     Some(format!("{date}T00:00:00"))
 }
 
-fn extract_id_links(line: &str, source_node_key: &str, links: &mut Vec<IndexedLink>) {
-    let mut rest = line;
-    while let Some(start) = rest.find("[[id:") {
-        let suffix = &rest[start + 5..];
+fn extract_id_links(line: &str, source_node_key: &str, row: u32, links: &mut Vec<IndexedLink>) {
+    let mut offset = 0_usize;
+    while let Some(relative_start) = line[offset..].find("[[") {
+        let start = offset + relative_start;
+        let suffix = &line[start + 2..];
         let Some(end) = suffix.find("]]") else {
             break;
         };
 
-        let destination_id = suffix[..end].trim();
-        if !destination_id.is_empty() {
+        let inner = &suffix[..end];
+        let target = inner
+            .split_once("][")
+            .map_or(inner, |(path, _)| path)
+            .trim();
+        if let Some(destination_id) = target.strip_prefix("id:").map(str::trim)
+            && !destination_id.is_empty()
+        {
             links.push(IndexedLink {
                 source_node_key: source_node_key.to_owned(),
                 destination_explicit_id: destination_id.to_owned(),
+                line: row,
+                column: column_number(line, start),
+                preview: preview_snippet(line),
             });
         }
-        rest = &suffix[end + 2..];
+        offset = start + 2 + end + 2;
     }
+}
+
+fn column_number(line: &str, byte_offset: usize) -> u32 {
+    line[..byte_offset].chars().count() as u32 + 1
+}
+
+fn preview_snippet(line: &str) -> String {
+    line.trim().to_owned()
 }

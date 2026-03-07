@@ -480,16 +480,36 @@
                         :refs ["@smith2024"]))
           (cl-letf (((symbol-function 'org-slipbox-rpc-request)
                      (lambda (_method _params)
-                       '(:backlinks [(:title "Backlink"
-                                     :file_path "other.org"
-                                     :line 10)]))))
+                       '(:backlinks [(:source_node (:title "Backlink"
+                                              :file_path "other.org"
+                                              :line 10)
+                                     :row 12
+                                     :col 4
+                                     :preview "See [[id:heading]].")]))))
             (org-slipbox-buffer-render-contents))
           (should (derived-mode-p 'org-slipbox-buffer-mode))
           (should (string-match-p "Refs" (buffer-string)))
           (should (string-match-p "@smith2024" (buffer-string)))
           (should (string-match-p "Backlinks" (buffer-string)))
-          (should (string-match-p "Backlink" (buffer-string))))
+          (should (string-match-p "Backlink" (buffer-string)))
+          (should (string-match-p "other.org:12:4" (buffer-string)))
+          (should (string-match-p "See \\[\\[id:heading\\]\\]" (buffer-string))))
       (kill-buffer (current-buffer)))))
+
+(ert-deftest org-slipbox-test-buffer-visit-location-moves-to-exact-position ()
+  "Location visits should land on the requested row and column."
+  (let* ((root (make-temp-file "org-slipbox-buffer-visit-" t))
+         (org-slipbox-directory root)
+         (file (expand-file-name "note.org" root)))
+    (unwind-protect
+        (progn
+          (write-region "Line one\nSecond line\nThird line\n" nil file nil 'silent)
+          (org-slipbox-buffer--visit-location "note.org" 2 3)
+          (should (equal (buffer-file-name) file))
+          (should (= (line-number-at-pos) 2))
+          (should (= (current-column) 2))
+          (kill-buffer (current-buffer)))
+      (delete-directory root t))))
 
 (ert-deftest org-slipbox-test-buffer-persistent-redisplay-renders-current-node ()
   "Persistent redisplay should adopt the node at point."

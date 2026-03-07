@@ -13,7 +13,7 @@ fn indexes_nodes_searches_and_returns_backlinks() -> Result<()> {
 
     fs::write(
         root.join("alpha.org"),
-        "#+title: Alpha\n\n* First heading\n:PROPERTIES:\n:ID: alpha-first\n:END:\nSee [[id:beta-target]].\n",
+        "#+title: Alpha\n\n* First heading\n:PROPERTIES:\n:ID: alpha-first\n:END:\nSee [[id:beta-target][Beta]].\n",
     )?;
     fs::write(
         root.join("beta.org"),
@@ -34,7 +34,10 @@ fn indexes_nodes_searches_and_returns_backlinks() -> Result<()> {
 
     let backlinks = database.backlinks(&results[0].node_key, 10)?;
     assert_eq!(backlinks.len(), 1);
-    assert_eq!(backlinks[0].title, "First heading");
+    assert_eq!(backlinks[0].source_node.title, "First heading");
+    assert_eq!(backlinks[0].row, 7);
+    assert_eq!(backlinks[0].col, 5);
+    assert_eq!(backlinks[0].preview, "See [[id:beta-target][Beta]].");
 
     Ok(())
 }

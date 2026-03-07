@@ -197,7 +197,16 @@ INITIAL-INPUT seeds the minibuffer. FILTER-FN filters indexed nodes."
           (insert (format "Backlinks for %s\n\n" (plist-get node :title)))
           (if backlinks
               (dolist (backlink backlinks)
-                (insert (org-slipbox--node-display backlink) "\n"))
+                (insert
+                 (org-slipbox--node-display (plist-get backlink :source_node))
+                 "\n  "
+                 (format "%s:%s:%s"
+                         (plist-get (plist-get backlink :source_node) :file_path)
+                         (plist-get backlink :row)
+                         (plist-get backlink :col))
+                 " "
+                 (plist-get backlink :preview)
+                 "\n"))
             (insert "No backlinks found.\n")))
         (display-buffer (current-buffer))))))
 
