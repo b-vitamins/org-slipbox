@@ -5,20 +5,22 @@ use anyhow::{Context, Result, anyhow};
 use clap::{Parser, Subcommand};
 use serde::de::DeserializeOwned;
 use slipbox_core::{
-    AgendaParams, AgendaResult, AppendHeadingParams, AppendHeadingToNodeParams, BacklinksParams,
-    BacklinksResult, CaptureNodeParams, EnsureFileNodeParams, EnsureNodeIdParams,
-    ExtractSubtreeParams, IndexFileParams, NodeAtPointParams, NodeFromIdParams, NodeFromRefParams,
-    NodeFromTitleOrAliasParams, NodeRecord, PingInfo, RandomNodeResult, RefileSubtreeParams,
-    SearchNodesParams, SearchNodesResult, SearchRefsParams, SearchRefsResult, SearchTagsParams,
-    SearchTagsResult, UpdateNodeMetadataParams,
+    AgendaParams, AgendaResult, AppendHeadingAtOutlinePathParams, AppendHeadingParams,
+    AppendHeadingToNodeParams, BacklinksParams, BacklinksResult, CaptureNodeParams,
+    EnsureFileNodeParams, EnsureNodeIdParams, ExtractSubtreeParams, IndexFileParams,
+    NodeAtPointParams, NodeFromIdParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
+    PingInfo, RandomNodeResult, RefileSubtreeParams, SearchNodesParams, SearchNodesResult,
+    SearchRefsParams, SearchRefsResult, SearchTagsParams, SearchTagsResult,
+    UpdateNodeMetadataParams,
 };
 use slipbox_rpc::{
     JsonRpcError, JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_AGENDA,
-    METHOD_APPEND_HEADING, METHOD_APPEND_HEADING_TO_NODE, METHOD_BACKLINKS, METHOD_CAPTURE_NODE,
-    METHOD_ENSURE_FILE_NODE, METHOD_ENSURE_NODE_ID, METHOD_EXTRACT_SUBTREE, METHOD_INDEX,
-    METHOD_INDEX_FILE, METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_REF,
-    METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_RANDOM_NODE, METHOD_REFILE_SUBTREE,
-    METHOD_SEARCH_NODES, METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS, METHOD_UPDATE_NODE_METADATA,
+    METHOD_APPEND_HEADING, METHOD_APPEND_HEADING_AT_OUTLINE_PATH, METHOD_APPEND_HEADING_TO_NODE,
+    METHOD_BACKLINKS, METHOD_CAPTURE_NODE, METHOD_ENSURE_FILE_NODE, METHOD_ENSURE_NODE_ID,
+    METHOD_EXTRACT_SUBTREE, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_NODE_AT_POINT,
+    METHOD_NODE_FROM_ID, METHOD_NODE_FROM_REF, METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING,
+    METHOD_RANDOM_NODE, METHOD_REFILE_SUBTREE, METHOD_SEARCH_NODES, METHOD_SEARCH_REFS,
+    METHOD_SEARCH_TAGS, METHOD_UPDATE_NODE_METADATA,
 };
 use slipbox_store::Database;
 
@@ -274,12 +276,24 @@ fn dispatch_request(
             let params: CaptureNodeParams = parse_params(params)?;
             let refs = params.normalized_refs();
             let captured = match params.file_path.as_deref() {
-                Some(file_path) => slipbox_write::capture_file_note_at_with_refs(
-                    &state.root,
-                    file_path,
-                    &params.title,
-                    &refs,
-                ),
+                Some(file_path) => {
+                    if let Some(head) = params.head.as_deref() {
+                        slipbox_write::capture_file_note_at_with_head_and_refs(
+                            &state.root,
+                            file_path,
+                            &params.title,
+                            head,
+                            &refs,
+                        )
+                    } else {
+                        slipbox_write::capture_file_note_at_with_refs(
+                            &state.root,
+                            file_path,
+                            &params.title,
+                            &refs,
+                        )
+                    }
+                }
                 None => {
                     slipbox_write::capture_file_note_with_refs(&state.root, &params.title, &refs)
                 }
@@ -329,6 +343,22 @@ fn dispatch_request(
                     .map_err(|error| {
                         internal_error(error.context("failed to append heading to node"))
                     })?;
+            sync_one_path(state, &captured.absolute_path)?;
+            let node = read_required_node(state, &captured.node_key, "captured heading")?;
+            to_value(node)
+        }
+        METHOD_APPEND_HEADING_AT_OUTLINE_PATH => {
+            let params: AppendHeadingAtOutlinePathParams = parse_params(params)?;
+            let captured = slipbox_write::append_heading_at_outline_path(
+                &state.root,
+                &params.file_path,
+                &params.heading,
+                &params.normalized_outline_path(),
+                params.head.as_deref(),
+            )
+            .map_err(|error| {
+                internal_error(error.context("failed to append heading at outline path"))
+            })?;
             sync_one_path(state, &captured.absolute_path)?;
             let node = read_required_node(state, &captured.node_key, "captured heading")?;
             to_value(node)

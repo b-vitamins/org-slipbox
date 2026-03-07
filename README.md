@@ -28,6 +28,7 @@ The Rust workspace links against a system SQLite installation.
 - Resolve nodes by exact `ID`, exact title or alias, and current point location.
 - Resolve nodes from indexed refs and citekeys, and edit alias/ref/tag metadata from Emacs.
 - Capture notes from refs without duplicating existing ref-backed nodes.
+- Expand capture templates into exact file targets, optional file heads, and outline-path targets.
 - Display a persistent or dedicated context buffer for the current node with refs, backlinks, and dedicated-buffer reference discovery sections.
 - Complete and follow title-based org-slipbox links, with optional rewrite to stable `id:` links.
 - Refile subtrees between indexed notes and extract subtrees into new promoted file notes.
@@ -35,6 +36,7 @@ The Rust workspace links against a system SQLite installation.
 - Resolve backlinks for nodes with explicit Org `ID` properties.
 - Visit a random indexed node without materializing the full graph in Emacs.
 - Capture new file notes with explicit IDs and configurable path/title templates.
+- Reuse the same target-template system for daily-note capture when configured.
 - Capture new child headings directly under existing indexed nodes.
 - Create and visit daily notes, append daily entries, move between existing daily notes, and opt into calendar marking for existing daily files.
 - Insert `id:` links after lazily assigning IDs to existing nodes.

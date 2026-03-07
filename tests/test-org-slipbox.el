@@ -84,6 +84,50 @@
             '(:title "Slip: Sample Title"
               :file_path "notes/2026-sample-title.org")))))
 
+(ert-deftest org-slipbox-test-capture-node-uses-outline-path-target ()
+  "Capture should send expanded outline targets through the dedicated RPC."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:title "Meeting" :file_path "daily/2026-03-07.org" :line 8))))
+      (org-slipbox--capture-node
+       "Meeting"
+       '("d" "daily"
+         :target (file+head+olp
+                  "daily/%<%Y-%m-%d>.org"
+                  "#+title: %<%Y-%m-%d>"
+                  ("Inbox")))))
+    (should (equal method "slipbox/appendHeadingAtOutlinePath"))
+    (should
+     (equal params
+            '(:file_path "daily/2026-03-07.org"
+              :heading "Meeting"
+              :outline_path ("Inbox")
+              :head "#+title: 2026-03-07")))))
+
+(ert-deftest org-slipbox-test-capture-node-uses-file-head-target ()
+  "Capture should pass file heads through the file-note capture RPC."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:title "Note" :file_path "notes/note.org" :line 1))))
+      (org-slipbox--capture-node
+       "Note"
+       '("d" "default"
+         :target (file+head
+                  "notes/${slug}.org"
+                  "#+title: ${title}\n#+filetags: :seed:"))))
+    (should (equal method "slipbox/captureNode"))
+    (should
+     (equal params
+            '(:title "Note"
+              :file_path "notes/note.org"
+              :head "#+title: Note\n#+filetags: :seed:")))))
+
 (ert-deftest org-slipbox-test-capture-ref-reuses-existing-node ()
   "Ref capture should reuse an existing indexed ref node."
   (let (visited)
@@ -105,9 +149,9 @@
   "Ref capture should pass the ref through the capture pipeline when missing."
   (let (captured visited)
     (cl-letf (((symbol-function 'org-slipbox-node-from-ref)
-               (lambda (_reference) nil))
+              (lambda (_reference) nil))
               ((symbol-function 'org-slipbox--read-capture-template)
-               (lambda ()
+               (lambda (&rest _args)
                  '("d" "default" :path "notes/${slug}.org" :title "${title}")))
               ((symbol-function 'org-slipbox--capture-node)
                (lambda (title template refs)
@@ -758,6 +802,42 @@
               :heading "Meeting"
               :level 2)))
     (should (equal visited '(:title "Meeting" :file_path "daily/2026-03-07.org" :line 6)))
+    (should hook-ran)))
+
+(ert-deftest org-slipbox-test-dailies-capture-uses-template-targets ()
+  "Daily entry capture should reuse generic capture templates when configured."
+  (let (captured visited hook-ran)
+    (cl-letf (((symbol-function 'org-slipbox--capture-node-at-time)
+               (lambda (heading template refs time)
+                 (setq captured (list :heading heading
+                                      :template template
+                                      :refs refs
+                                      :time time))
+                 '(:title "Meeting" :file_path "daily/2026-03-07.org" :line 8)))
+              ((symbol-function 'org-slipbox--visit-node)
+               (lambda (node)
+                 (setq visited node))))
+      (let ((org-slipbox-dailies-capture-templates
+             '(("d" "default"
+                :target (file+head+olp "daily/%<%Y-%m-%d>.org"
+                                       "#+title: %<%Y-%m-%d>\n"
+                                       ("Inbox"))
+                :title "${title}")))
+            (org-slipbox-dailies-find-file-hook
+             (list (lambda () (setq hook-ran t)))))
+        (org-slipbox-dailies--capture (encode-time 0 0 0 7 3 2026) "Meeting" "d")))
+    (should
+     (equal captured
+            (list :heading "Meeting"
+                  :template
+                  '("d" "default"
+                    :target (file+head+olp "daily/%<%Y-%m-%d>.org"
+                                           "#+title: %<%Y-%m-%d>\n"
+                                           ("Inbox"))
+                    :title "${title}")
+                  :refs nil
+                  :time (encode-time 0 0 0 7 3 2026))))
+    (should (equal visited '(:title "Meeting" :file_path "daily/2026-03-07.org" :line 8)))
     (should hook-ran)))
 
 (ert-deftest org-slipbox-test-dailies-list-files-filters-non-org-noise ()

@@ -5,9 +5,10 @@ use anyhow::Result;
 use slipbox_index::{scan_path, scan_root};
 use slipbox_store::Database;
 use slipbox_write::{
-    MetadataUpdate, RewriteOutcome, append_heading, append_heading_to_node, capture_file_note,
-    capture_file_note_at, capture_file_note_with_refs, ensure_file_note, ensure_node_id,
-    extract_subtree, refile_subtree, update_node_metadata,
+    MetadataUpdate, RewriteOutcome, append_heading, append_heading_at_outline_path,
+    append_heading_to_node, capture_file_note, capture_file_note_at,
+    capture_file_note_at_with_head_and_refs, capture_file_note_with_refs, ensure_file_note,
+    ensure_node_id, extract_subtree, refile_subtree, update_node_metadata,
 };
 use tempfile::tempdir;
 
@@ -123,6 +124,75 @@ fn capture_file_note_at_chooses_unique_path_when_target_exists() -> Result<()> {
     let captured = capture_file_note_at(&root, "projects/sample.org", "Sample")?;
     assert_eq!(captured.node_key, "file:projects/sample-1.org");
     assert!(captured.absolute_path.ends_with("projects/sample-1.org"));
+
+    Ok(())
+}
+
+#[test]
+fn capture_file_note_at_with_head_preserves_head_and_assigns_identity() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(root.join("projects"))?;
+
+    let captured = capture_file_note_at_with_head_and_refs(
+        &root,
+        "projects/seed.org",
+        "Seed",
+        "#+title: Seed\n#+filetags: :seed:",
+        &[String::from("https://example.test/seed")],
+    )?;
+    let indexed = scan_path(&root, &captured.absolute_path)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_file_index(&indexed)?;
+
+    let source = fs::read_to_string(&captured.absolute_path)?;
+    assert!(source.contains("#+title: Seed"));
+    assert!(source.contains("#+filetags: :seed:"));
+    assert!(source.contains(":ID: "));
+    assert!(source.contains(":ROAM_REFS: https://example.test/seed"));
+
+    let node = database
+        .node_by_key(&captured.node_key)?
+        .expect("captured file node should exist");
+    assert_eq!(node.title, "Seed");
+    assert_eq!(node.tags, vec!["seed"]);
+    assert_eq!(node.refs, vec!["https://example.test/seed"]);
+    assert!(node.explicit_id.is_some());
+
+    Ok(())
+}
+
+#[test]
+fn append_heading_at_outline_path_creates_missing_outline_chain() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    let captured = append_heading_at_outline_path(
+        &root,
+        "daily/2026-03-07.org",
+        "Meeting",
+        &[String::from("Inbox"), String::from("Calls")],
+        Some("#+title: 2026-03-07"),
+    )?;
+    let indexed = scan_path(&root, &captured.absolute_path)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_file_index(&indexed)?;
+
+    let source = fs::read_to_string(&captured.absolute_path)?;
+    assert!(source.starts_with("#+title: 2026-03-07\n"));
+    assert!(source.contains("* Inbox"));
+    assert!(source.contains("** Calls"));
+    assert!(source.contains("*** Meeting"));
+
+    let node = database
+        .node_by_key(&captured.node_key)?
+        .expect("captured outline heading should exist");
+    assert_eq!(node.title, "Meeting");
+    assert_eq!(node.outline_path, "Inbox / Calls / Meeting");
+    assert_eq!(node.level, 3);
 
     Ok(())
 }

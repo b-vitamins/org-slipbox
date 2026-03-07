@@ -73,6 +73,7 @@
 (defconst org-slipbox-rpc-method-ensure-file-node "slipbox/ensureFileNode")
 (defconst org-slipbox-rpc-method-append-heading "slipbox/appendHeading")
 (defconst org-slipbox-rpc-method-append-heading-to-node "slipbox/appendHeadingToNode")
+(defconst org-slipbox-rpc-method-append-heading-at-outline-path "slipbox/appendHeadingAtOutlinePath")
 (defconst org-slipbox-rpc-method-ensure-node-id "slipbox/ensureNodeId")
 (defconst org-slipbox-rpc-method-update-node-metadata "slipbox/updateNodeMetadata")
 (defconst org-slipbox-rpc-method-refile-subtree "slipbox/refileSubtree")
@@ -206,6 +207,12 @@ When NOCASE is non-nil, use case-insensitive matching."
   (org-slipbox-rpc-request
    org-slipbox-rpc-method-append-heading-to-node
    `(:node_key ,node-key :heading ,heading)))
+
+(defun org-slipbox-rpc-append-heading-at-outline-path (params)
+  "Append a heading using outline-path capture PARAMS."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-append-heading-at-outline-path
+   params))
 
 (defun org-slipbox-rpc-ensure-node-id (node-key)
   "Ensure the node identified by NODE-KEY has an explicit Org ID."

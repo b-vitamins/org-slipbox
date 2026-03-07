@@ -131,6 +131,49 @@ pub fn append_heading_to_node(
     })
 }
 
+pub fn append_heading_at_outline_path(
+    root: &Path,
+    file_path: &str,
+    heading: &str,
+    outline_path: &[String],
+    head: Option<&str>,
+) -> Result<CaptureOutcome> {
+    let heading = heading.trim();
+    if heading.is_empty() {
+        bail!("capture heading must not be empty");
+    }
+
+    fs::create_dir_all(root)
+        .with_context(|| format!("failed to create root directory {}", root.display()))?;
+
+    let relative_path = normalize_relative_org_path(file_path)?;
+    let absolute_path = root.join(&relative_path);
+    let source = if absolute_path.exists() {
+        fs::read_to_string(&absolute_path)
+            .with_context(|| format!("failed to read {}", absolute_path.display()))?
+    } else {
+        if let Some(parent) = absolute_path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create directory {}", parent.display()))?;
+        }
+        normalized_head_source(head)
+    };
+    let mut document = OrgDocument::from_source(&source);
+    let (rendered, line_number) =
+        if let Some((line_number, level)) = document.ensure_outline_path(outline_path)? {
+            append_heading_under_node(&document.render(), line_number, level, heading)?
+        } else {
+            append_heading_to_source(&document.render(), heading, 1)
+        };
+    fs::write(&absolute_path, rendered)
+        .with_context(|| format!("failed to write {}", absolute_path.display()))?;
+
+    Ok(CaptureOutcome {
+        absolute_path,
+        node_key: format!("heading:{}:{line_number}", relative_path.replace('\\', "/")),
+    })
+}
+
 pub fn ensure_node_id(root: &Path, node: &NodeRecord) -> Result<PathBuf> {
     if node.explicit_id.is_some() {
         return Ok(root.join(&node.file_path));
@@ -147,6 +190,36 @@ pub fn ensure_node_id(root: &Path, node: &NodeRecord) -> Result<PathBuf> {
     fs::write(&absolute_path, updated)
         .with_context(|| format!("failed to write {}", absolute_path.display()))?;
     Ok(absolute_path)
+}
+
+pub fn capture_file_note_at_with_head_and_refs(
+    root: &Path,
+    file_path: &str,
+    title: &str,
+    head: &str,
+    refs: &[String],
+) -> Result<CaptureOutcome> {
+    fs::create_dir_all(root)
+        .with_context(|| format!("failed to create root directory {}", root.display()))?;
+
+    let _ = normalized_title(title)?;
+    let relative_path = next_available_relative_path(root, file_path)?;
+    let absolute_path = root.join(&relative_path);
+    let mut document = OrgDocument::from_source(&normalized_head_source(Some(head)));
+
+    if refs.is_empty() {
+        document.ensure_file_identity()?;
+    } else {
+        document.ensure_file_identity_with_refs(refs)?;
+    }
+
+    fs::write(&absolute_path, document.render())
+        .with_context(|| format!("failed to write {}", absolute_path.display()))?;
+
+    Ok(CaptureOutcome {
+        absolute_path,
+        node_key: format!("file:{}", relative_path.replace('\\', "/")),
+    })
 }
 
 pub fn update_node_metadata(
@@ -897,6 +970,102 @@ impl OrgDocument {
         self.lines[index] = format_heading_line(level, title, tags);
         Ok(())
     }
+
+    fn ensure_file_identity(&mut self) -> Result<()> {
+        self.ensure_file_identity_with_refs(&[])
+    }
+
+    fn ensure_file_identity_with_refs(&mut self, refs: &[String]) -> Result<()> {
+        if file_property_value(&self.lines, "ID").is_none() {
+            self.set_file_property("ID", Some(Uuid::new_v4().to_string()));
+        }
+
+        if !refs.is_empty() {
+            self.set_file_property("ROAM_REFS", property_value(refs));
+        }
+
+        if self.render().is_empty() {
+            bail!("capture file head must not be empty");
+        }
+
+        Ok(())
+    }
+
+    fn ensure_outline_path(&mut self, outline_path: &[String]) -> Result<Option<(usize, usize)>> {
+        if outline_path.is_empty() {
+            return Ok(None);
+        }
+
+        let mut parent_start = 0usize;
+        let mut parent_end = self.lines.len();
+        let mut parent_level = 0usize;
+        let mut current = None;
+
+        for heading in outline_path {
+            let wanted_level = parent_level + 1;
+            let mut found = None;
+
+            for (index, line) in self
+                .lines
+                .iter()
+                .enumerate()
+                .skip(parent_start)
+                .take(parent_end.saturating_sub(parent_start))
+            {
+                if heading_level(line).is_some_and(|candidate| candidate == wanted_level)
+                    && heading_title(line).is_some_and(|title| title == *heading)
+                {
+                    if found.is_some() {
+                        bail!("heading not unique on level {wanted_level}: {heading}");
+                    }
+                    found = Some(index);
+                }
+            }
+
+            let heading_index = if let Some(index) = found {
+                index
+            } else {
+                self.insert_outline_heading(parent_end, wanted_level, heading)
+            };
+            let (_, subtree_end) = self.subtree_range(heading_index + 1)?;
+            parent_start = heading_index;
+            parent_end = subtree_end;
+            parent_level = wanted_level;
+            current = Some((heading_index + 1, wanted_level));
+        }
+
+        Ok(current)
+    }
+
+    fn insert_outline_heading(&mut self, index: usize, level: usize, title: &str) -> usize {
+        let mut insertion = Vec::new();
+        let needs_blank = index > 0
+            && self
+                .lines
+                .get(index - 1)
+                .is_some_and(|line| !line.trim().is_empty());
+        if needs_blank {
+            insertion.push(String::new());
+        }
+        insertion.push(format_heading_line(level, title, &[]));
+        let heading_index = index + usize::from(needs_blank);
+        self.lines.splice(index..index, insertion);
+        heading_index
+    }
+}
+
+fn heading_title(line: &str) -> Option<String> {
+    let level = heading_level(line)?;
+    let trimmed = line.trim_start();
+    let heading_text = trimmed[level + 1..].trim();
+    let (title, _) = split_heading_tags(heading_text);
+    let (_, title) = split_todo_keyword(title);
+    let title = title.trim();
+    if title.is_empty() {
+        None
+    } else {
+        Some(title.to_owned())
+    }
 }
 
 fn remove_file_keyword(lines: &mut Vec<String>, keyword: &str) {
@@ -946,6 +1115,27 @@ fn file_property_drawer_bounds(lines: &[String]) -> Option<(usize, usize)> {
     }
 
     None
+}
+
+fn file_property_value(lines: &[String], property: &str) -> Option<String> {
+    let (start, end) = file_property_drawer_bounds(lines)?;
+    let property_line = format!(":{property}:");
+    (start + 1..end - 1).find_map(|index| {
+        strip_keyword(lines[index].trim(), &property_line).map(|value| value.trim().to_owned())
+    })
+}
+
+fn normalized_head_source(head: Option<&str>) -> String {
+    match head {
+        Some(head) if !head.trim().is_empty() => {
+            let mut source = head.to_owned();
+            if !source.ends_with('\n') {
+                source.push('\n');
+            }
+            source
+        }
+        _ => String::new(),
+    }
 }
 
 fn set_file_property_value(lines: &mut Vec<String>, property: &str, value: Option<String>) {

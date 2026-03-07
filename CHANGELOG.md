@@ -37,3 +37,5 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Added opt-in daily-note calendar marking without installing calendar hooks at load time.
 - Added ref-driven note capture that reuses existing ref nodes and writes refs transactionally for new notes.
 - Added node-target capture for appending new child headings under existing indexed nodes.
+- Added capture-target expansion for exact files, optional file heads, and outline-path targets.
+- Added daily-note template support on top of the shared capture-target pipeline while preserving the legacy entry-level flow by default.

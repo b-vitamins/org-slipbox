@@ -255,6 +255,8 @@ pub struct CaptureNodeParams {
     #[serde(default)]
     pub file_path: Option<String>,
     #[serde(default)]
+    pub head: Option<String>,
+    #[serde(default)]
     pub refs: Vec<String>,
 }
 
@@ -306,6 +308,23 @@ impl AppendHeadingParams {
 pub struct AppendHeadingToNodeParams {
     pub node_key: String,
     pub heading: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppendHeadingAtOutlinePathParams {
+    pub file_path: String,
+    pub heading: String,
+    #[serde(default)]
+    pub outline_path: Vec<String>,
+    #[serde(default)]
+    pub head: Option<String>,
+}
+
+impl AppendHeadingAtOutlinePathParams {
+    #[must_use]
+    pub fn normalized_outline_path(&self) -> Vec<String> {
+        normalize_string_values(&self.outline_path, false)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

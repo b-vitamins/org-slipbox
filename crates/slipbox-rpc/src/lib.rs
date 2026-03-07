@@ -21,6 +21,7 @@ pub const METHOD_CAPTURE_NODE: &str = "slipbox/captureNode";
 pub const METHOD_ENSURE_FILE_NODE: &str = "slipbox/ensureFileNode";
 pub const METHOD_APPEND_HEADING: &str = "slipbox/appendHeading";
 pub const METHOD_APPEND_HEADING_TO_NODE: &str = "slipbox/appendHeadingToNode";
+pub const METHOD_APPEND_HEADING_AT_OUTLINE_PATH: &str = "slipbox/appendHeadingAtOutlinePath";
 pub const METHOD_ENSURE_NODE_ID: &str = "slipbox/ensureNodeId";
 pub const METHOD_UPDATE_NODE_METADATA: &str = "slipbox/updateNodeMetadata";
 pub const METHOD_REFILE_SUBTREE: &str = "slipbox/refileSubtree";

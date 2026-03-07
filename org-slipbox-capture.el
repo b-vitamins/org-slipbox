@@ -36,7 +36,14 @@
 (defcustom org-slipbox-capture-templates
   '(("d" "default" :path "${slug}.org" :title "${title}"))
   "Capture templates for `org-slipbox-capture'.
-Each template is a list of the form (KEY DESCRIPTION [:path STRING] [:title STRING])."
+Each template is a list of the form
+\(KEY DESCRIPTION [:path STRING] [:title STRING] [:target SPEC]\).
+
+When present, SPEC may be one of:
+- (file PATH)
+- (file+head PATH HEAD)
+- (file+olp PATH (OUTLINE ...))
+- (file+head+olp PATH HEAD (OUTLINE ...))"
   :type 'sexp
   :group 'org-slipbox)
 
@@ -45,7 +52,7 @@ Each template is a list of the form (KEY DESCRIPTION [:path STRING] [:title STRI
   "Create a new note with TITLE and visit it."
   (interactive)
   (let* ((title (or title (read-string "Capture title: ")))
-         (template (org-slipbox--read-capture-template)))
+         (template (org-slipbox--read-capture-template org-slipbox-capture-templates)))
     (org-slipbox--visit-node (org-slipbox--capture-node title template))))
 
 ;;;###autoload
@@ -58,7 +65,7 @@ Each template is a list of the form (KEY DESCRIPTION [:path STRING] [:title STRI
   (let ((node (or (org-slipbox-node-from-ref reference)
                   (org-slipbox--capture-node
                    (or title (read-string "Capture title: "))
-                   (org-slipbox--read-capture-template)
+                   (org-slipbox--read-capture-template org-slipbox-capture-templates)
                    (list reference)))))
     (org-slipbox--visit-node node)
     node))
@@ -91,40 +98,99 @@ Each template is a list of the form (KEY DESCRIPTION [:path STRING] [:title STRI
 
 (defun org-slipbox--capture-node (title &optional template refs)
   "Capture a new node with TITLE using TEMPLATE and optional REFS."
+  (org-slipbox--capture-node-at-time title template refs (current-time)))
+
+(defun org-slipbox--capture-node-at-time (title &optional template refs time)
+  "Capture a new node with TITLE using TEMPLATE, REFS, and TIME."
   (let* ((template (or template (org-slipbox--default-capture-template)))
          (template-options (and template (nthcdr 2 template)))
-         (current-time (current-time))
          (capture-title (or (org-slipbox--expand-capture-template
                              (plist-get template-options :title)
                              title
-                             current-time)
+                             time)
                             title))
-         (file-path (org-slipbox--expand-capture-template
-                     (plist-get template-options :path)
-                     title
-                     current-time))
-         (params (if file-path
-                     `(:title ,capture-title :file_path ,file-path)
-                   `(:title ,capture-title))))
-    (when refs
-      (setq params (plist-put params :refs refs)))
-    (org-slipbox-rpc-capture-node params)))
+         (target (org-slipbox--expand-capture-target
+                  template-options
+                  title
+                  time)))
+    (pcase (plist-get target :kind)
+      ('file
+       (let ((params (if-let ((file-path (plist-get target :file_path)))
+                         `(:title ,capture-title :file_path ,file-path)
+                       `(:title ,capture-title))))
+         (when-let ((head (plist-get target :head)))
+           (setq params (plist-put params :head head)))
+         (when refs
+           (setq params (plist-put params :refs refs)))
+         (org-slipbox-rpc-capture-node params)))
+      ('file+olp
+       (org-slipbox-rpc-append-heading-at-outline-path
+        (append
+         (list :file_path (plist-get target :file_path)
+               :heading capture-title
+               :outline_path (plist-get target :outline_path))
+         (when-let ((head (plist-get target :head)))
+           (list :head head)))))
+      (_
+       (user-error "Unsupported capture target")))))
 
 (defun org-slipbox--default-capture-template ()
   "Return the default capture template."
   (car org-slipbox-capture-templates))
 
-(defun org-slipbox--read-capture-template ()
-  "Prompt for a capture template when more than one is configured."
+(defun org-slipbox--expand-capture-target (template-options title time)
+  "Expand TEMPLATE-OPTIONS for TITLE at TIME into a capture target plist."
+  (let ((target (plist-get template-options :target)))
+    (cond
+     (target
+      (pcase target
+        (`(file ,path)
+         `(:kind file
+           :file_path ,(org-slipbox--expand-capture-template path title time)))
+        (`(file+head ,path ,head)
+         `(:kind file
+           :file_path ,(org-slipbox--expand-capture-template path title time)
+           :head ,(org-slipbox--expand-capture-template head title time)))
+        (`(file+olp ,path ,olp)
+         `(:kind file+olp
+           :file_path ,(org-slipbox--expand-capture-template path title time)
+           :outline_path ,(mapcar (lambda (heading)
+                                    (org-slipbox--expand-capture-template heading title time))
+                                  olp)))
+        (`(file+head+olp ,path ,head ,olp)
+         `(:kind file+olp
+           :file_path ,(org-slipbox--expand-capture-template path title time)
+           :head ,(org-slipbox--expand-capture-template head title time)
+           :outline_path ,(mapcar (lambda (heading)
+                                    (org-slipbox--expand-capture-template heading title time))
+                                  olp)))
+        (_
+         (user-error "Unsupported capture target %S" target))))
+     ((plist-get template-options :path)
+      `(:kind file
+        :file_path ,(org-slipbox--expand-capture-template
+                     (plist-get template-options :path)
+                     title
+                     time)))
+     (t
+      '(:kind file)))))
+
+(defun org-slipbox--read-capture-template (templates &optional keys)
+  "Return a capture template from TEMPLATES, optionally selected by KEYS."
   (cond
-   ((null org-slipbox-capture-templates) nil)
-   ((= (length org-slipbox-capture-templates) 1)
-    (car org-slipbox-capture-templates))
+   (keys
+    (or (seq-find (lambda (template)
+                    (equal (car template) keys))
+                  templates)
+        (user-error "No capture template with key %s" keys)))
+   ((null templates) nil)
+   ((= (length templates) 1)
+    (car templates))
    (t
     (let* ((choices (mapcar (lambda (template)
                               (cons (format "%s %s" (car template) (cadr template))
                                     template))
-                            org-slipbox-capture-templates))
+                            templates))
            (selection (completing-read "Template: " choices nil t)))
       (cdr (assoc selection choices))))))
 
