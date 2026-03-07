@@ -4,8 +4,8 @@ use anyhow::Result;
 use slipbox_index::{scan_path, scan_root};
 use slipbox_store::Database;
 use slipbox_write::{
-    append_heading, capture_file_note, capture_file_note_at, capture_file_note_with_refs,
-    ensure_file_note, ensure_node_id,
+    append_heading, append_heading_to_node, capture_file_note, capture_file_note_at,
+    capture_file_note_with_refs, ensure_file_note, ensure_node_id,
 };
 use tempfile::tempdir;
 
@@ -148,6 +148,43 @@ fn capture_with_refs_writes_property_and_indexes_reference() -> Result<()> {
         .node_from_ref("https://example.test/ref")?
         .expect("captured ref node should exist");
     assert_eq!(node.title, "Captured Note");
+
+    Ok(())
+}
+
+#[test]
+fn append_heading_to_existing_node_inserts_child_before_next_sibling() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let note_path = root.join("project.org");
+    fs::write(
+        &note_path,
+        "#+title: Project\n\n* Parent\nBody.\n* Sibling\nSibling body.\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+    let parent = database
+        .search_nodes("parent", 10)?
+        .into_iter()
+        .find(|candidate| candidate.title == "Parent")
+        .expect("parent node should exist");
+
+    let captured = append_heading_to_node(&root, &parent, "Child Task")?;
+    let indexed = scan_path(&root, &captured.absolute_path)?;
+    database.sync_index(&[indexed])?;
+
+    let source = fs::read_to_string(&note_path)?;
+    assert!(source.contains("* Parent\nBody.\n\n** Child Task\n* Sibling"));
+
+    let child = database
+        .node_by_key(&captured.node_key)?
+        .expect("captured child should exist");
+    assert_eq!(child.title, "Child Task");
+    assert_eq!(child.level, 2);
 
     Ok(())
 }

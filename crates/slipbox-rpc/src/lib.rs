@@ -20,6 +20,7 @@ pub const METHOD_NODE_FROM_REF: &str = "slipbox/nodeFromRef";
 pub const METHOD_CAPTURE_NODE: &str = "slipbox/captureNode";
 pub const METHOD_ENSURE_FILE_NODE: &str = "slipbox/ensureFileNode";
 pub const METHOD_APPEND_HEADING: &str = "slipbox/appendHeading";
+pub const METHOD_APPEND_HEADING_TO_NODE: &str = "slipbox/appendHeadingToNode";
 pub const METHOD_ENSURE_NODE_ID: &str = "slipbox/ensureNodeId";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

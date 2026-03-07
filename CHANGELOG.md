@@ -30,3 +30,4 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Added indexed random-node lookup through a dedicated RPC path.
 - Added opt-in daily-note calendar marking without installing calendar hooks at load time.
 - Added ref-driven note capture that reuses existing ref nodes and writes refs transactionally for new notes.
+- Added node-target capture for appending new child headings under existing indexed nodes.

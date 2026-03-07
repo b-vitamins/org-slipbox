@@ -323,6 +323,21 @@ If ASSERT is non-nil, signal a user error when no node is available."
     (org-slipbox--visit-node node)
     node))
 
+;;;###autoload
+(defun org-slipbox-capture-to-node (node heading)
+  "Capture HEADING under existing NODE and visit the captured child."
+  (interactive
+   (list (org-slipbox--read-existing-node "Capture to node: ")
+         (read-string "Heading: ")))
+  (unless node
+    (user-error "No target node selected"))
+  (let ((captured (org-slipbox-rpc-request
+                   "slipbox/appendHeadingToNode"
+                   `(:node_key ,(plist-get node :node_key)
+                     :heading ,heading))))
+    (org-slipbox--visit-node captured)
+    captured))
+
 (defun org-slipbox-node-find (query)
   "Find a node matching QUERY and visit it."
   (interactive (list (read-string "Find node: ")))

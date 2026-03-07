@@ -303,6 +303,12 @@ impl AppendHeadingParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppendHeadingToNodeParams {
+    pub node_key: String,
+    pub heading: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EnsureNodeIdParams {
     pub node_key: String,
 }

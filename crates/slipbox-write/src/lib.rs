@@ -91,6 +91,34 @@ pub fn append_heading(
     })
 }
 
+pub fn append_heading_to_node(
+    root: &Path,
+    node: &NodeRecord,
+    heading: &str,
+) -> Result<CaptureOutcome> {
+    let heading = heading.trim();
+    if heading.is_empty() {
+        bail!("capture heading must not be empty");
+    }
+
+    let absolute_path = root.join(&node.file_path);
+    let source = fs::read_to_string(&absolute_path)
+        .with_context(|| format!("failed to read {}", absolute_path.display()))?;
+    let (updated, line_number) = match node.kind {
+        NodeKind::File => append_heading_to_source(&source, heading, 1),
+        NodeKind::Heading => {
+            append_heading_under_node(&source, node.line as usize, node.level as usize, heading)?
+        }
+    };
+    fs::write(&absolute_path, updated)
+        .with_context(|| format!("failed to write {}", absolute_path.display()))?;
+
+    Ok(CaptureOutcome {
+        absolute_path,
+        node_key: format!("heading:{}:{line_number}", node.file_path),
+    })
+}
+
 pub fn ensure_node_id(root: &Path, node: &NodeRecord) -> Result<PathBuf> {
     if node.explicit_id.is_some() {
         return Ok(root.join(&node.file_path));
@@ -228,6 +256,40 @@ fn append_heading_to_source(source: &str, heading: &str, level: usize) -> (Strin
     (render_lines(&lines, source.ends_with('\n')), line_number)
 }
 
+fn append_heading_under_node(
+    source: &str,
+    line_number: usize,
+    level: usize,
+    heading: &str,
+) -> Result<(String, usize)> {
+    let mut lines = source.lines().map(ToOwned::to_owned).collect::<Vec<_>>();
+    if line_number == 0 || line_number > lines.len() {
+        bail!("heading line {line_number} is out of range");
+    }
+
+    let heading_index = line_number - 1;
+    let mut insert_index = lines.len();
+    for (index, line) in lines.iter().enumerate().skip(heading_index + 1) {
+        if heading_level(line).is_some_and(|candidate| candidate <= level) {
+            insert_index = index;
+            break;
+        }
+    }
+
+    if insert_index > 0 && !lines[insert_index - 1].trim().is_empty() {
+        lines.insert(insert_index, String::new());
+        insert_index += 1;
+    }
+
+    let line_number = insert_index + 1;
+    lines.insert(
+        insert_index,
+        format!("{} {}", "*".repeat(level + 1), heading),
+    );
+
+    Ok((render_lines(&lines, source.ends_with('\n')), line_number))
+}
+
 fn normalized_title(title: &str) -> Result<&str> {
     let title = title.trim();
     if title.is_empty() {
@@ -349,4 +411,21 @@ fn format_property_values(values: &[String]) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn heading_level(line: &str) -> Option<usize> {
+    let trimmed = line.trim_start();
+    let stars = trimmed
+        .chars()
+        .take_while(|character| *character == '*')
+        .count();
+    if stars == 0
+        || !trimmed
+            .chars()
+            .nth(stars)
+            .is_some_and(|character| character.is_whitespace())
+    {
+        return None;
+    }
+    Some(stars)
 }

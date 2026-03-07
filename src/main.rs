@@ -5,18 +5,19 @@ use anyhow::{Context, Result, anyhow};
 use clap::{Parser, Subcommand};
 use serde::de::DeserializeOwned;
 use slipbox_core::{
-    AgendaParams, AgendaResult, AppendHeadingParams, BacklinksParams, BacklinksResult,
-    CaptureNodeParams, EnsureFileNodeParams, EnsureNodeIdParams, IndexFileParams,
+    AgendaParams, AgendaResult, AppendHeadingParams, AppendHeadingToNodeParams, BacklinksParams,
+    BacklinksResult, CaptureNodeParams, EnsureFileNodeParams, EnsureNodeIdParams, IndexFileParams,
     NodeAtPointParams, NodeFromIdParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
     PingInfo, RandomNodeResult, SearchNodesParams, SearchNodesResult, SearchRefsParams,
     SearchRefsResult, SearchTagsParams, SearchTagsResult,
 };
 use slipbox_rpc::{
     JsonRpcError, JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_AGENDA,
-    METHOD_APPEND_HEADING, METHOD_BACKLINKS, METHOD_CAPTURE_NODE, METHOD_ENSURE_FILE_NODE,
-    METHOD_ENSURE_NODE_ID, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_NODE_AT_POINT,
-    METHOD_NODE_FROM_ID, METHOD_NODE_FROM_REF, METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING,
-    METHOD_RANDOM_NODE, METHOD_SEARCH_NODES, METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS,
+    METHOD_APPEND_HEADING, METHOD_APPEND_HEADING_TO_NODE, METHOD_BACKLINKS, METHOD_CAPTURE_NODE,
+    METHOD_ENSURE_FILE_NODE, METHOD_ENSURE_NODE_ID, METHOD_INDEX, METHOD_INDEX_FILE,
+    METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_REF,
+    METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_RANDOM_NODE, METHOD_SEARCH_NODES,
+    METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS,
 };
 use slipbox_store::Database;
 
@@ -306,6 +307,27 @@ fn dispatch_request(
                 params.normalized_level(),
             )
             .map_err(|error| internal_error(error.context("failed to append heading")))?;
+            sync_one_path(state, &captured.absolute_path)?;
+            let node = read_required_node(state, &captured.node_key, "captured heading")?;
+            to_value(node)
+        }
+        METHOD_APPEND_HEADING_TO_NODE => {
+            let params: AppendHeadingToNodeParams = parse_params(params)?;
+            let target = state
+                .database
+                .node_by_key(&params.node_key)
+                .map_err(|error| internal_error(error.context("failed to fetch target node")))?
+                .ok_or_else(|| {
+                    JsonRpcError::new(JsonRpcErrorObject::invalid_request(format!(
+                        "unknown node: {}",
+                        params.node_key
+                    )))
+                })?;
+            let captured =
+                slipbox_write::append_heading_to_node(&state.root, &target, &params.heading)
+                    .map_err(|error| {
+                        internal_error(error.context("failed to append heading to node"))
+                    })?;
             sync_one_path(state, &captured.absolute_path)?;
             let node = read_required_node(state, &captured.node_key, "captured heading")?;
             to_value(node)

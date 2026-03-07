@@ -116,6 +116,28 @@
      (equal visited
             '(:title "New" :file_path "new.org" :line 1)))))
 
+(ert-deftest org-slipbox-test-capture-to-node-uses-rpc ()
+  "Node-target capture should use the dedicated append-to-node RPC."
+  (let (method params visited)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:title "Child" :file_path "project.org" :line 8)))
+              ((symbol-function 'org-slipbox--visit-node)
+               (lambda (node &optional _other-window)
+                 (setq visited node))))
+      (org-slipbox-capture-to-node
+       '(:node_key "heading:project.org:3" :title "Parent")
+       "Child"))
+    (should (equal method "slipbox/appendHeadingToNode"))
+    (should
+     (equal params
+            '(:node_key "heading:project.org:3" :heading "Child")))
+    (should
+     (equal visited
+            '(:title "Child" :file_path "project.org" :line 8)))))
+
 (ert-deftest org-slipbox-test-node-from-id-uses-rpc ()
   "Exact ID lookup should call the dedicated RPC."
   (let (method params)
