@@ -37,6 +37,7 @@ The Rust workspace links against a system SQLite installation.
 - Display a persistent or dedicated context buffer for the current node with refs, backlinks, and dedicated-buffer reference discovery sections.
 - Complete and follow title-based org-slipbox links, with optional rewrite to stable `id:` links.
 - Refile subtrees between indexed notes and extract subtrees into new promoted file notes.
+- Promote a single root-heading note into a file node, or demote a file node into a single root heading, through Rust-backed rewrite commands.
 - Query indexed agenda entries from scheduled and deadline planning lines.
 - Resolve backlinks for nodes with explicit Org `ID` properties.
 - Visit a random indexed node without materializing the full graph in Emacs.
@@ -46,5 +47,6 @@ The Rust workspace links against a system SQLite installation.
 - Capture new child headings directly under existing indexed nodes.
 - Create and visit daily notes, append daily entries, move between existing daily notes, and opt into calendar marking for existing daily files.
 - Insert `id:` links after lazily assigning IDs to existing nodes.
+- Enable optional HTML export support so Org ID-backed targets keep stable exported anchors.
 - Sync saved Org buffers into the index through an explicit file-level RPC.
 - Connect Emacs to the local daemon over JSON-RPC on stdio.

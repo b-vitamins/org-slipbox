@@ -68,6 +68,7 @@
 ;;;###autoload(autoload 'org-slipbox-extract-subtree "org-slipbox-edit" nil t)
 ;;;###autoload(autoload 'org-slipbox-link-replace-all "org-slipbox-link" nil t)
 ;;;###autoload(autoload 'org-slipbox-completion-mode "org-slipbox-link" nil t)
+;;;###autoload(autoload 'org-slipbox-export-mode "org-slipbox-export" nil t)
 ;;;###autoload(autoload 'org-slipbox-buffer-refresh "org-slipbox-buffer" nil t)
 ;;;###autoload(autoload 'org-slipbox-buffer-display-dedicated "org-slipbox-buffer" nil t)
 ;;;###autoload(autoload 'org-slipbox-buffer-toggle "org-slipbox-buffer" nil t)

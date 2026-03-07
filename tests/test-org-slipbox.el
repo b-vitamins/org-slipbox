@@ -16,6 +16,20 @@
   "The package entry feature should load cleanly."
   (should (featurep 'org-slipbox)))
 
+(ert-deftest org-slipbox-test-export-mode-preserves-id-html-targets ()
+  "Optional export support should keep HTML IDs aligned with `id:' links."
+  (require 'org-slipbox-export)
+  (let ((org-slipbox-export-mode nil))
+    (unwind-protect
+        (progn
+          (org-slipbox-export-mode 1)
+          (let ((html (org-export-string-as
+                       "* Heading\n:PROPERTIES:\n:ID: heading-id\n:END:\nSee [[id:heading-id][Jump]].\n"
+                       'html t)))
+            (should (string-match-p "href=\"#ID-heading-id\"" html))
+            (should (string-match-p "id=\"ID-heading-id\"" html))))
+      (org-slipbox-export-mode -1))))
+
 (ert-deftest org-slipbox-test-package-load-has-no-global-side-effects ()
   "Loading the package should not install global hooks."
   (require 'calendar)
