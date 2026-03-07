@@ -282,6 +282,78 @@ impl CaptureNodeParams {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptureContentType {
+    Plain,
+    Entry,
+    Item,
+    Checkitem,
+    TableLine,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaptureTemplateParams {
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub file_path: Option<String>,
+    #[serde(default)]
+    pub node_key: Option<String>,
+    #[serde(default)]
+    pub head: Option<String>,
+    #[serde(default)]
+    pub outline_path: Vec<String>,
+    pub capture_type: CaptureContentType,
+    #[serde(default)]
+    pub content: String,
+    #[serde(default)]
+    pub refs: Vec<String>,
+    #[serde(default)]
+    pub prepend: bool,
+    #[serde(default)]
+    pub empty_lines_before: u32,
+    #[serde(default)]
+    pub empty_lines_after: u32,
+}
+
+impl CaptureTemplateParams {
+    #[must_use]
+    pub fn normalized_outline_path(&self) -> Vec<String> {
+        normalize_string_values(&self.outline_path, false)
+    }
+
+    #[must_use]
+    pub fn normalized_refs(&self) -> Vec<String> {
+        let mut refs: Vec<String> = Vec::new();
+
+        for reference in &self.refs {
+            for normalized in normalize_reference(reference) {
+                if normalized.is_empty()
+                    || refs
+                        .iter()
+                        .any(|existing| existing.eq_ignore_ascii_case(&normalized))
+                {
+                    continue;
+                }
+                refs.push(normalized);
+            }
+        }
+
+        refs
+    }
+
+    #[must_use]
+    pub fn normalized_empty_lines_before(&self) -> usize {
+        self.empty_lines_before.min(8) as usize
+    }
+
+    #[must_use]
+    pub fn normalized_empty_lines_after(&self) -> usize {
+        self.empty_lines_after.min(8) as usize
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EnsureFileNodeParams {
     pub file_path: String,

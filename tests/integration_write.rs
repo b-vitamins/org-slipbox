@@ -2,13 +2,14 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::Result;
+use slipbox_core::{CaptureContentType, CaptureTemplateParams};
 use slipbox_index::{scan_path, scan_root};
 use slipbox_store::Database;
 use slipbox_write::{
     MetadataUpdate, RewriteOutcome, append_heading, append_heading_at_outline_path,
     append_heading_to_node, capture_file_note, capture_file_note_at,
-    capture_file_note_at_with_head_and_refs, capture_file_note_with_refs, ensure_file_note,
-    ensure_node_id, extract_subtree, refile_subtree, update_node_metadata,
+    capture_file_note_at_with_head_and_refs, capture_file_note_with_refs, capture_template,
+    ensure_file_note, ensure_node_id, extract_subtree, refile_subtree, update_node_metadata,
 };
 use tempfile::tempdir;
 
@@ -220,6 +221,150 @@ fn capture_with_refs_writes_property_and_indexes_reference() -> Result<()> {
         .node_from_ref("https://example.test/ref")?
         .expect("captured ref node should exist");
     assert_eq!(node.title, "Captured Note");
+
+    Ok(())
+}
+
+#[test]
+fn capture_template_entry_inserts_child_under_outline_target() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    let captured = capture_template(
+        &root,
+        None,
+        &CaptureTemplateParams {
+            title: String::from("Meeting"),
+            file_path: Some(String::from("daily/2026-03-07.org")),
+            node_key: None,
+            head: Some(String::from("#+title: 2026-03-07")),
+            outline_path: vec![String::from("Inbox")],
+            capture_type: CaptureContentType::Entry,
+            content: String::from("* Meeting\nCaptured.\n"),
+            refs: Vec::new(),
+            prepend: false,
+            empty_lines_before: 0,
+            empty_lines_after: 0,
+        },
+    )?;
+
+    let indexed = scan_path(&root, &captured.absolute_path)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_file_index(&indexed)?;
+
+    let source = fs::read_to_string(&captured.absolute_path)?;
+    assert!(source.starts_with("#+title: 2026-03-07\n"));
+    assert!(source.contains("* Inbox"));
+    assert!(source.contains("** Meeting\nCaptured.\n"));
+
+    let node = database
+        .node_by_key(&captured.node_key)?
+        .expect("captured entry should exist");
+    assert_eq!(node.title, "Meeting");
+    assert_eq!(node.level, 2);
+    assert_eq!(node.outline_path, "Inbox / Meeting");
+
+    Ok(())
+}
+
+#[test]
+fn capture_template_item_appends_inside_existing_list_body() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let note_path = root.join("project.org");
+    fs::write(
+        &note_path,
+        "#+title: Project\n\n* Parent\n- First\n- Second\n\n** Child\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let parent = database
+        .search_nodes("parent", 10)?
+        .into_iter()
+        .find(|candidate| candidate.title == "Parent")
+        .expect("parent node should exist");
+
+    let captured = capture_template(
+        &root,
+        Some(&parent),
+        &CaptureTemplateParams {
+            title: String::new(),
+            file_path: None,
+            node_key: Some(parent.node_key.clone()),
+            head: None,
+            outline_path: Vec::new(),
+            capture_type: CaptureContentType::Item,
+            content: String::from("Third"),
+            refs: Vec::new(),
+            prepend: false,
+            empty_lines_before: 0,
+            empty_lines_after: 0,
+        },
+    )?;
+
+    let indexed = scan_path(&root, &captured.absolute_path)?;
+    database.sync_file_index(&indexed)?;
+
+    let source = fs::read_to_string(&note_path)?;
+    assert!(source.contains("* Parent\n- First\n- Second\n- Third\n\n** Child"));
+    assert_eq!(captured.node_key, parent.node_key);
+
+    Ok(())
+}
+
+#[test]
+fn capture_template_table_line_uses_existing_table_block() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let note_path = root.join("project.org");
+    fs::write(
+        &note_path,
+        "#+title: Project\n\n* Parent\n| Name | Value |\n|------+-------|\n| One  | 1     |\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let parent = database
+        .search_nodes("parent", 10)?
+        .into_iter()
+        .find(|candidate| candidate.title == "Parent")
+        .expect("parent node should exist");
+
+    let captured = capture_template(
+        &root,
+        Some(&parent),
+        &CaptureTemplateParams {
+            title: String::new(),
+            file_path: None,
+            node_key: Some(parent.node_key.clone()),
+            head: None,
+            outline_path: Vec::new(),
+            capture_type: CaptureContentType::TableLine,
+            content: String::from("Two | 2"),
+            refs: Vec::new(),
+            prepend: false,
+            empty_lines_before: 0,
+            empty_lines_after: 0,
+        },
+    )?;
+
+    let indexed = scan_path(&root, &captured.absolute_path)?;
+    database.sync_file_index(&indexed)?;
+
+    let source = fs::read_to_string(&note_path)?;
+    assert!(source.contains("| One  | 1     |\n| Two | 2 |\n"));
+    assert_eq!(captured.node_key, parent.node_key);
 
     Ok(())
 }

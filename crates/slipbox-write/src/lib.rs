@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use slipbox_core::{NodeKind, NodeRecord};
+use slipbox_core::{CaptureContentType, CaptureTemplateParams, NodeKind, NodeRecord};
 use uuid::Uuid;
 
 pub struct CaptureOutcome {
@@ -20,6 +20,19 @@ pub struct RewriteOutcome {
     pub changed_paths: Vec<PathBuf>,
     pub removed_paths: Vec<PathBuf>,
     pub explicit_id: String,
+}
+
+enum CaptureTargetSelection {
+    File {
+        relative_path: String,
+        node_key: String,
+    },
+    Heading {
+        relative_path: String,
+        line_number: usize,
+        level: usize,
+        node_key: String,
+    },
 }
 
 pub fn capture_file_note(root: &Path, title: &str) -> Result<CaptureOutcome> {
@@ -56,6 +69,110 @@ pub fn capture_file_note_at_with_refs(
     let title = normalized_title(title)?;
     let relative_path = next_available_relative_path(root, file_path)?;
     create_file_note(root, &relative_path, title, refs)
+}
+
+pub fn capture_template(
+    root: &Path,
+    target_node: Option<&NodeRecord>,
+    params: &CaptureTemplateParams,
+) -> Result<CaptureOutcome> {
+    fs::create_dir_all(root)
+        .with_context(|| format!("failed to create root directory {}", root.display()))?;
+
+    let refs = params.normalized_refs();
+    let relative_path = resolve_template_relative_path(root, target_node, params)?;
+    let absolute_path = root.join(&relative_path);
+    let existed = absolute_path.exists();
+    let source = if existed {
+        fs::read_to_string(&absolute_path)
+            .with_context(|| format!("failed to read {}", absolute_path.display()))?
+    } else {
+        normalized_head_source(params.head.as_deref())
+    };
+    let mut document = OrgDocument::from_source(&source);
+
+    if !existed {
+        if params.head.is_none() {
+            document.set_file_keyword(
+                "title",
+                Some(default_capture_file_title(&relative_path, &params.title)),
+            );
+        }
+        document.ensure_file_identity_with_refs(&refs)?;
+    }
+
+    let target = resolve_capture_target(&mut document, &relative_path, target_node, params)?;
+    let node_key = match params.capture_type {
+        CaptureContentType::Entry => capture_entry(
+            &mut document,
+            &target,
+            &params.content,
+            &params.title,
+            params.prepend,
+            params.normalized_empty_lines_before(),
+            params.normalized_empty_lines_after(),
+        )?,
+        CaptureContentType::Plain => {
+            capture_body(
+                &mut document,
+                &target,
+                &params.content,
+                CaptureContentType::Plain,
+                params.prepend,
+                params.normalized_empty_lines_before(),
+                params.normalized_empty_lines_after(),
+            )?;
+            capture_target_node_key(&target)
+        }
+        CaptureContentType::Item => {
+            capture_body(
+                &mut document,
+                &target,
+                &params.content,
+                CaptureContentType::Item,
+                params.prepend,
+                params.normalized_empty_lines_before(),
+                params.normalized_empty_lines_after(),
+            )?;
+            capture_target_node_key(&target)
+        }
+        CaptureContentType::Checkitem => {
+            capture_body(
+                &mut document,
+                &target,
+                &params.content,
+                CaptureContentType::Checkitem,
+                params.prepend,
+                params.normalized_empty_lines_before(),
+                params.normalized_empty_lines_after(),
+            )?;
+            capture_target_node_key(&target)
+        }
+        CaptureContentType::TableLine => {
+            capture_body(
+                &mut document,
+                &target,
+                &params.content,
+                CaptureContentType::TableLine,
+                params.prepend,
+                params.normalized_empty_lines_before(),
+                params.normalized_empty_lines_after(),
+            )?;
+            capture_target_node_key(&target)
+        }
+    };
+
+    if let Some(parent) = absolute_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create directory {}", parent.display()))?;
+    }
+    fs::write(&absolute_path, document.render())
+        .with_context(|| format!("failed to write {}", absolute_path.display()))?;
+
+    Ok(CaptureOutcome {
+        absolute_path,
+        node_key,
+    })
 }
 
 pub fn ensure_file_note(root: &Path, file_path: &str, title: &str) -> Result<CaptureOutcome> {
@@ -172,6 +289,275 @@ pub fn append_heading_at_outline_path(
         absolute_path,
         node_key: format!("heading:{}:{line_number}", relative_path.replace('\\', "/")),
     })
+}
+
+fn resolve_template_relative_path(
+    root: &Path,
+    target_node: Option<&NodeRecord>,
+    params: &CaptureTemplateParams,
+) -> Result<String> {
+    if let Some(target) = target_node {
+        return Ok(target.file_path.clone());
+    }
+
+    if let Some(file_path) = params.file_path.as_deref() {
+        return normalize_relative_org_path(file_path);
+    }
+
+    let title = params.title.trim();
+    let slug = if title.is_empty() {
+        "note".to_owned()
+    } else {
+        slugify(title)
+    };
+    Ok(next_available_path(root, &slug))
+}
+
+fn resolve_capture_target(
+    document: &mut OrgDocument,
+    relative_path: &str,
+    target_node: Option<&NodeRecord>,
+    params: &CaptureTemplateParams,
+) -> Result<CaptureTargetSelection> {
+    if let Some(target) = target_node {
+        return Ok(match target.kind {
+            NodeKind::File => CaptureTargetSelection::File {
+                relative_path: relative_path.to_owned(),
+                node_key: target.node_key.clone(),
+            },
+            NodeKind::Heading => CaptureTargetSelection::Heading {
+                relative_path: relative_path.to_owned(),
+                line_number: target.line as usize,
+                level: target.level as usize,
+                node_key: target.node_key.clone(),
+            },
+        });
+    }
+
+    let outline_path = params.normalized_outline_path();
+    if let Some((line_number, level)) = document.ensure_outline_path(&outline_path)? {
+        Ok(CaptureTargetSelection::Heading {
+            relative_path: relative_path.to_owned(),
+            line_number,
+            level,
+            node_key: format!("heading:{}:{line_number}", relative_path.replace('\\', "/")),
+        })
+    } else {
+        Ok(CaptureTargetSelection::File {
+            relative_path: relative_path.to_owned(),
+            node_key: format!("file:{}", relative_path.replace('\\', "/")),
+        })
+    }
+}
+
+fn capture_target_node_key(target: &CaptureTargetSelection) -> String {
+    match target {
+        CaptureTargetSelection::File { node_key, .. }
+        | CaptureTargetSelection::Heading { node_key, .. } => node_key.clone(),
+    }
+}
+
+fn default_capture_file_title(relative_path: &str, title: &str) -> String {
+    let title = title.trim();
+    if !title.is_empty() {
+        return title.to_owned();
+    }
+
+    Path::new(relative_path)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .map(|stem| stem.replace('-', " "))
+        .filter(|stem| !stem.trim().is_empty())
+        .unwrap_or_else(|| String::from("Note"))
+}
+
+fn capture_entry(
+    document: &mut OrgDocument,
+    target: &CaptureTargetSelection,
+    content: &str,
+    title: &str,
+    prepend: bool,
+    empty_lines_before: usize,
+    empty_lines_after: usize,
+) -> Result<String> {
+    let desired_level = match target {
+        CaptureTargetSelection::File { .. } => 1,
+        CaptureTargetSelection::Heading { level, .. } => level + 1,
+    };
+    let block = entry_capture_lines(content, title, desired_level)?;
+    let insert_index = match target {
+        CaptureTargetSelection::File { .. } => document.file_entry_insert_index(prepend),
+        CaptureTargetSelection::Heading {
+            line_number, level, ..
+        } => document.heading_entry_insert_index(*line_number, *level, prepend)?,
+    };
+    let base_before = usize::from(
+        insert_index > 0
+            && document
+                .lines
+                .get(insert_index - 1)
+                .is_some_and(|line| !line.trim().is_empty()),
+    );
+    let line_number = document.insert_block(
+        insert_index,
+        block,
+        empty_lines_before.max(base_before),
+        empty_lines_after,
+    );
+
+    Ok(format!(
+        "heading:{}:{line_number}",
+        capture_target_relative_path(target).replace('\\', "/")
+    ))
+}
+
+fn capture_body(
+    document: &mut OrgDocument,
+    target: &CaptureTargetSelection,
+    content: &str,
+    capture_type: CaptureContentType,
+    prepend: bool,
+    empty_lines_before: usize,
+    empty_lines_after: usize,
+) -> Result<()> {
+    let mut block = body_capture_lines(content, capture_type);
+    if block.is_empty() {
+        return Ok(());
+    }
+
+    let (body_start, body_end) = match target {
+        CaptureTargetSelection::File { .. } => document.file_body_bounds(),
+        CaptureTargetSelection::Heading {
+            line_number, level, ..
+        } => document.heading_body_bounds(*line_number, *level)?,
+    };
+    let index = match capture_type {
+        CaptureContentType::Plain => {
+            if prepend {
+                body_start
+            } else {
+                body_end
+            }
+        }
+        CaptureContentType::Item | CaptureContentType::Checkitem => {
+            if let Some((list_start, list_end)) = document.list_bounds(body_start, body_end) {
+                if prepend { list_start } else { list_end }
+            } else if prepend {
+                body_start
+            } else {
+                body_end
+            }
+        }
+        CaptureContentType::TableLine => {
+            if let Some((table_start, table_end)) = document.table_bounds(body_start, body_end) {
+                if prepend { table_start } else { table_end }
+            } else if prepend {
+                body_start
+            } else {
+                body_end
+            }
+        }
+        CaptureContentType::Entry => unreachable!("entry capture uses capture_entry"),
+    };
+
+    if matches!(capture_type, CaptureContentType::TableLine)
+        && index > 0
+        && document
+            .lines
+            .get(index - 1)
+            .is_some_and(|line| line.trim_start().starts_with('|'))
+        && block.len() == 1
+        && !block[0].trim_start().starts_with('|')
+    {
+        block[0] = format!("| {} |", block[0].trim());
+    }
+
+    document.insert_block(index, block, empty_lines_before, empty_lines_after);
+    Ok(())
+}
+
+fn capture_target_relative_path(target: &CaptureTargetSelection) -> &str {
+    match target {
+        CaptureTargetSelection::File { relative_path, .. }
+        | CaptureTargetSelection::Heading { relative_path, .. } => relative_path,
+    }
+}
+
+fn entry_capture_lines(content: &str, title: &str, desired_level: usize) -> Result<Vec<String>> {
+    let mut lines = trimmed_capture_lines(content);
+    if lines.is_empty() {
+        lines.push(format!(
+            "{} {}",
+            "*".repeat(desired_level),
+            normalized_title(title)?
+        ));
+        return Ok(lines);
+    }
+
+    if let Some(current_level) = heading_level(&lines[0]) {
+        let delta = desired_level as isize - current_level as isize;
+        for line in &mut lines {
+            if let Some(level) = heading_level(line) {
+                let trimmed = line.trim_start();
+                let shifted = (level as isize + delta).max(1) as usize;
+                *line = format!("{}{}", "*".repeat(shifted), &trimmed[level..]);
+            }
+        }
+        Ok(lines)
+    } else {
+        let mut entry = vec![format!(
+            "{} {}",
+            "*".repeat(desired_level),
+            normalized_title(title)?
+        )];
+        entry.extend(lines);
+        Ok(entry)
+    }
+}
+
+fn body_capture_lines(content: &str, capture_type: CaptureContentType) -> Vec<String> {
+    let mut lines = trimmed_capture_lines(content);
+    if lines.is_empty() {
+        return match capture_type {
+            CaptureContentType::Plain => Vec::new(),
+            CaptureContentType::Item => vec![String::from("- ")],
+            CaptureContentType::Checkitem => vec![String::from("- [ ] ")],
+            CaptureContentType::TableLine => vec![String::from("|  |")],
+            CaptureContentType::Entry => Vec::new(),
+        };
+    }
+
+    match capture_type {
+        CaptureContentType::Item => {
+            if !looks_like_list_item(&lines[0]) {
+                lines[0] = format!("- {}", lines[0].trim_start());
+            }
+        }
+        CaptureContentType::Checkitem => {
+            if !looks_like_checkitem(&lines[0]) {
+                lines[0] = format!("- [ ] {}", lines[0].trim_start());
+            }
+        }
+        CaptureContentType::TableLine => {
+            if !lines[0].trim_start().starts_with('|') {
+                lines[0] = format!("| {} |", lines[0].trim());
+            }
+        }
+        CaptureContentType::Plain | CaptureContentType::Entry => {}
+    }
+
+    lines
+}
+
+fn trimmed_capture_lines(content: &str) -> Vec<String> {
+    let mut lines = content.lines().map(ToOwned::to_owned).collect::<Vec<_>>();
+    while lines.first().is_some_and(|line| line.trim().is_empty()) {
+        lines.remove(0);
+    }
+    while lines.last().is_some_and(|line| line.trim().is_empty()) {
+        lines.pop();
+    }
+    lines
 }
 
 pub fn ensure_node_id(root: &Path, node: &NodeRecord) -> Result<PathBuf> {
@@ -721,6 +1107,31 @@ fn looks_like_todo_keyword(token: &str) -> bool {
     )
 }
 
+fn is_heading_planning_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.starts_with("SCHEDULED:")
+        || trimmed.starts_with("DEADLINE:")
+        || trimmed.starts_with("CLOSED:")
+}
+
+fn looks_like_list_item(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    looks_like_checkitem(trimmed)
+        || trimmed.starts_with("- ")
+        || trimmed.starts_with("+ ")
+        || trimmed.starts_with("* ")
+        || trimmed
+            .chars()
+            .next()
+            .is_some_and(|character| character.is_ascii_digit())
+            && (trimmed.contains(". ") || trimmed.contains(") "))
+}
+
+fn looks_like_checkitem(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.starts_with("- [") || trimmed.starts_with("+ [") || trimmed.starts_with("* [")
+}
+
 fn parse_colon_tags(input: &str) -> Vec<String> {
     let trimmed = input.trim();
     if !trimmed.starts_with(':') || !trimmed.ends_with(':') {
@@ -891,6 +1302,150 @@ impl OrgDocument {
         }
     }
 
+    fn file_entry_insert_index(&self, prepend: bool) -> usize {
+        if !prepend {
+            return self.lines.len();
+        }
+
+        let (_, body_end) = self.file_body_bounds();
+        self.lines
+            .iter()
+            .enumerate()
+            .skip(body_end)
+            .find_map(|(index, line)| heading_level(line).map(|_| index))
+            .unwrap_or(self.lines.len())
+    }
+
+    fn heading_entry_insert_index(
+        &self,
+        line_number: usize,
+        level: usize,
+        prepend: bool,
+    ) -> Result<usize> {
+        let (_, subtree_end) = self.subtree_range(line_number)?;
+        if !prepend {
+            return Ok(subtree_end);
+        }
+
+        let (body_start, _) = self.heading_body_bounds(line_number, level)?;
+        Ok(self
+            .lines
+            .iter()
+            .enumerate()
+            .skip(body_start)
+            .take(subtree_end.saturating_sub(body_start))
+            .find_map(|(index, line)| {
+                heading_level(line).and_then(|candidate| (candidate > level).then_some(index))
+            })
+            .unwrap_or(subtree_end))
+    }
+
+    fn file_body_bounds(&self) -> (usize, usize) {
+        let start = self.file_body_start_index();
+        let end = self
+            .lines
+            .iter()
+            .enumerate()
+            .skip(start)
+            .find_map(|(index, line)| heading_level(line).map(|_| index))
+            .unwrap_or(self.lines.len());
+        (start, end)
+    }
+
+    fn heading_body_bounds(&self, line_number: usize, level: usize) -> Result<(usize, usize)> {
+        let start = self.heading_body_start_index(line_number)?;
+        let (subtree_start, subtree_end) = self.subtree_range(line_number)?;
+        let search_start = start.max(subtree_start + 1);
+        let end = self
+            .lines
+            .iter()
+            .enumerate()
+            .skip(search_start)
+            .take(subtree_end.saturating_sub(search_start))
+            .find_map(|(index, line)| {
+                heading_level(line).and_then(|candidate| (candidate > level).then_some(index))
+            })
+            .unwrap_or(subtree_end);
+        Ok((start, end))
+    }
+
+    fn list_bounds(&self, start: usize, end: usize) -> Option<(usize, usize)> {
+        let mut list_start = None;
+        for index in start..end {
+            let line = self.lines.get(index)?;
+            if looks_like_list_item(line) {
+                list_start = Some(index);
+                break;
+            }
+        }
+
+        let start = list_start?;
+        let mut end_index = end;
+        for index in start + 1..end {
+            let line = self.lines.get(index)?;
+            let trimmed = line.trim_start();
+            if trimmed.is_empty() {
+                end_index = index;
+                break;
+            }
+            if looks_like_list_item(trimmed) || line.starts_with(' ') || line.starts_with('\t') {
+                continue;
+            }
+            end_index = index;
+            break;
+        }
+
+        Some((start, end_index))
+    }
+
+    fn table_bounds(&self, start: usize, end: usize) -> Option<(usize, usize)> {
+        let mut table_start = None;
+        for index in start..end {
+            let line = self.lines.get(index)?;
+            if line.trim_start().starts_with('|') {
+                table_start = Some(index);
+                break;
+            }
+        }
+
+        let start = table_start?;
+        let mut end_index = end;
+        for index in start + 1..end {
+            let line = self.lines.get(index)?;
+            if line.trim().is_empty() {
+                end_index = index;
+                break;
+            }
+            if line.trim_start().starts_with('|') {
+                continue;
+            }
+            end_index = index;
+            break;
+        }
+
+        Some((start, end_index))
+    }
+
+    fn insert_block(
+        &mut self,
+        index: usize,
+        block: Vec<String>,
+        blank_lines_before: usize,
+        blank_lines_after: usize,
+    ) -> usize {
+        let before_existing = self.count_blank_lines_before(index);
+        let after_existing = self.count_blank_lines_after(index);
+        let add_before = blank_lines_before.saturating_sub(before_existing);
+        let add_after = blank_lines_after.saturating_sub(after_existing);
+        let content_index = index + add_before;
+        let mut insertion = Vec::new();
+        insertion.extend(std::iter::repeat_n(String::new(), add_before));
+        insertion.extend(block);
+        insertion.extend(std::iter::repeat_n(String::new(), add_after));
+        self.lines.splice(index..index, insertion);
+        content_index + 1
+    }
+
     fn remove_range(&mut self, start: usize, end: usize) {
         self.lines.drain(start..end);
     }
@@ -1035,6 +1590,70 @@ impl OrgDocument {
         }
 
         Ok(current)
+    }
+
+    fn file_body_start_index(&self) -> usize {
+        let mut index = file_property_drawer_bounds(&self.lines)
+            .map(|(_, end)| end)
+            .unwrap_or_else(|| file_property_insert_index(&self.lines));
+        while index < self.lines.len() && self.lines[index].trim().is_empty() {
+            index += 1;
+        }
+        index
+    }
+
+    fn heading_body_start_index(&self, line_number: usize) -> Result<usize> {
+        let mut index = self.heading_index(line_number)? + 1;
+        if self
+            .lines
+            .get(index)
+            .is_some_and(|line| line.trim().eq_ignore_ascii_case(":PROPERTIES:"))
+        {
+            index += 1;
+            while index < self.lines.len()
+                && !self.lines[index].trim().eq_ignore_ascii_case(":END:")
+            {
+                index += 1;
+            }
+            if index < self.lines.len() {
+                index += 1;
+            }
+        }
+        while index < self.lines.len() && is_heading_planning_line(&self.lines[index]) {
+            index += 1;
+        }
+        while index < self.lines.len() && self.lines[index].trim().is_empty() {
+            index += 1;
+        }
+        Ok(index)
+    }
+
+    fn count_blank_lines_before(&self, index: usize) -> usize {
+        let mut blanks = 0;
+        let mut cursor = index;
+        while cursor > 0 {
+            cursor -= 1;
+            if self.lines[cursor].trim().is_empty() {
+                blanks += 1;
+            } else {
+                break;
+            }
+        }
+        blanks
+    }
+
+    fn count_blank_lines_after(&self, index: usize) -> usize {
+        let mut blanks = 0;
+        let mut cursor = index;
+        while cursor < self.lines.len() {
+            if self.lines[cursor].trim().is_empty() {
+                blanks += 1;
+                cursor += 1;
+            } else {
+                break;
+            }
+        }
+        blanks
     }
 
     fn insert_outline_heading(&mut self, index: usize, level: usize, title: &str) -> usize {

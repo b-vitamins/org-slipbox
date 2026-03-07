@@ -7,20 +7,20 @@ use serde::de::DeserializeOwned;
 use slipbox_core::{
     AgendaParams, AgendaResult, AppendHeadingAtOutlinePathParams, AppendHeadingParams,
     AppendHeadingToNodeParams, BacklinksParams, BacklinksResult, CaptureNodeParams,
-    EnsureFileNodeParams, EnsureNodeIdParams, ExtractSubtreeParams, IndexFileParams,
-    NodeAtPointParams, NodeFromIdParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
-    PingInfo, RandomNodeResult, RefileSubtreeParams, SearchNodesParams, SearchNodesResult,
-    SearchRefsParams, SearchRefsResult, SearchTagsParams, SearchTagsResult,
-    UpdateNodeMetadataParams,
+    CaptureTemplateParams, EnsureFileNodeParams, EnsureNodeIdParams, ExtractSubtreeParams,
+    IndexFileParams, NodeAtPointParams, NodeFromIdParams, NodeFromRefParams,
+    NodeFromTitleOrAliasParams, NodeRecord, PingInfo, RandomNodeResult, RefileSubtreeParams,
+    SearchNodesParams, SearchNodesResult, SearchRefsParams, SearchRefsResult, SearchTagsParams,
+    SearchTagsResult, UpdateNodeMetadataParams,
 };
 use slipbox_rpc::{
     JsonRpcError, JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_AGENDA,
     METHOD_APPEND_HEADING, METHOD_APPEND_HEADING_AT_OUTLINE_PATH, METHOD_APPEND_HEADING_TO_NODE,
-    METHOD_BACKLINKS, METHOD_CAPTURE_NODE, METHOD_ENSURE_FILE_NODE, METHOD_ENSURE_NODE_ID,
-    METHOD_EXTRACT_SUBTREE, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_NODE_AT_POINT,
-    METHOD_NODE_FROM_ID, METHOD_NODE_FROM_REF, METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING,
-    METHOD_RANDOM_NODE, METHOD_REFILE_SUBTREE, METHOD_SEARCH_NODES, METHOD_SEARCH_REFS,
-    METHOD_SEARCH_TAGS, METHOD_UPDATE_NODE_METADATA,
+    METHOD_BACKLINKS, METHOD_CAPTURE_NODE, METHOD_CAPTURE_TEMPLATE, METHOD_ENSURE_FILE_NODE,
+    METHOD_ENSURE_NODE_ID, METHOD_EXTRACT_SUBTREE, METHOD_INDEX, METHOD_INDEX_FILE,
+    METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_REF,
+    METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_RANDOM_NODE, METHOD_REFILE_SUBTREE,
+    METHOD_SEARCH_NODES, METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS, METHOD_UPDATE_NODE_METADATA,
 };
 use slipbox_store::Database;
 
@@ -301,6 +301,26 @@ fn dispatch_request(
             .map_err(|error| internal_error(error.context("failed to capture node")))?;
             sync_one_path(state, &captured.absolute_path)?;
             let node = read_required_node(state, &captured.node_key, "captured node")?;
+            to_value(node)
+        }
+        METHOD_CAPTURE_TEMPLATE => {
+            let mut params: CaptureTemplateParams = parse_params(params)?;
+            if let Some(file_path) = params.file_path.as_deref() {
+                let (relative_path, _) =
+                    resolve_index_path(&state.root, file_path).map_err(|error| {
+                        internal_error(error.context("failed to resolve file path"))
+                    })?;
+                params.file_path = Some(relative_path);
+            }
+            let target = match params.node_key.as_deref() {
+                Some(node_key) => Some(read_known_node(state, node_key, "target node")?),
+                None => None,
+            };
+            let captured =
+                slipbox_write::capture_template(&state.root, target.as_ref(), &params)
+                    .map_err(|error| internal_error(error.context("failed to capture template")))?;
+            sync_one_path(state, &captured.absolute_path)?;
+            let node = read_required_node(state, &captured.node_key, "captured template")?;
             to_value(node)
         }
         METHOD_ENSURE_FILE_NODE => {
