@@ -31,6 +31,14 @@
      '(:title "Heading" :outline_path "" :file_path "notes/foo.org" :line 42))
     "Heading | notes/foo.org:42")))
 
+(ert-deftest org-slipbox-test-node-display-includes-tags ()
+  "Display strings should surface node tags."
+  (should
+   (equal
+    (org-slipbox--node-display
+     '(:title "Heading" :outline_path "" :tags ["one" "two"] :file_path "notes/foo.org" :line 42))
+    "Heading | #one #two | notes/foo.org:42")))
+
 (ert-deftest org-slipbox-test-syncable-buffer-detection ()
   "Autosync should only consider Org files under the configured root."
   (let* ((root (make-temp-file "org-slipbox-test-" t))

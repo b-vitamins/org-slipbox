@@ -49,14 +49,17 @@ fn parse_path(root: &Path, path: &Path) -> Result<IndexedFile> {
 fn parse_document(file_path: &str, mtime_ns: i64, source: &str) -> IndexedFile {
     let lines = source.lines().collect::<Vec<_>>();
     let file_title = parse_file_title(&lines).unwrap_or_else(|| default_file_title(file_path));
-    let file_id = parse_file_id(&lines);
+    let file_properties = parse_file_properties(&lines);
+    let file_tags = parse_filetags(&lines);
     let file_node_key = format!("file:{file_path}");
     let mut nodes = vec![IndexedNode {
         node_key: file_node_key.clone(),
-        explicit_id: file_id,
+        explicit_id: file_properties.explicit_id,
         file_path: file_path.to_owned(),
         title: file_title,
         outline_path: String::new(),
+        aliases: file_properties.aliases,
+        tags: file_tags.clone(),
         level: 0,
         line: 1,
         kind: NodeKind::File,
@@ -66,18 +69,27 @@ fn parse_document(file_path: &str, mtime_ns: i64, source: &str) -> IndexedFile {
     let mut outline_stack: Vec<String> = Vec::new();
 
     for (index, line) in lines.iter().enumerate() {
-        if let Some((level, title)) = parse_heading(line) {
+        if let Some((level, title, heading_tags)) = parse_heading(line) {
             outline_stack.truncate(level.saturating_sub(1));
             outline_stack.push(title.clone());
 
             let node_key = format!("heading:{file_path}:{}", index + 1);
             current_source_node_key = node_key.clone();
+            let heading_properties = parse_immediate_properties(&lines, index + 1);
             nodes.push(IndexedNode {
                 node_key,
-                explicit_id: parse_immediate_id(&lines, index + 1),
+                explicit_id: heading_properties.explicit_id,
                 file_path: file_path.to_owned(),
                 title,
                 outline_path: outline_stack.join(" / "),
+                aliases: heading_properties.aliases,
+                tags: unique_strings(
+                    file_tags
+                        .iter()
+                        .chain(heading_tags.iter())
+                        .cloned()
+                        .collect(),
+                ),
                 level: level as u32,
                 line: (index + 1) as u32,
                 kind: NodeKind::Heading,
@@ -117,7 +129,7 @@ fn parse_file_title(lines: &[&str]) -> Option<String> {
     })
 }
 
-fn parse_file_id(lines: &[&str]) -> Option<String> {
+fn parse_file_properties(lines: &[&str]) -> NodeProperties {
     let mut index = 0;
     while let Some(line) = lines.get(index) {
         let trimmed = line.trim();
@@ -127,23 +139,12 @@ fn parse_file_id(lines: &[&str]) -> Option<String> {
         }
 
         if trimmed.eq_ignore_ascii_case(":PROPERTIES:") {
-            for property_line in &lines[index + 1..] {
-                let property = property_line.trim();
-                if property.eq_ignore_ascii_case(":END:") {
-                    break;
-                }
-                if let Some(value) = strip_keyword(property, ":ID:") {
-                    let id = value.trim();
-                    if !id.is_empty() {
-                        return Some(id.to_owned());
-                    }
-                }
-            }
+            return parse_property_drawer(lines, index);
         }
         break;
     }
 
-    None
+    NodeProperties::default()
 }
 
 fn default_file_title(file_path: &str) -> String {
@@ -167,7 +168,7 @@ fn strip_keyword<'a>(line: &'a str, keyword: &str) -> Option<&'a str> {
     }
 }
 
-fn parse_heading(line: &str) -> Option<(usize, String)> {
+fn parse_heading(line: &str) -> Option<(usize, String, Vec<String>)> {
     let level = line
         .chars()
         .take_while(|character| *character == '*')
@@ -176,20 +177,28 @@ fn parse_heading(line: &str) -> Option<(usize, String)> {
         return None;
     }
 
-    let title = line[level + 1..].trim();
+    let heading_text = line[level + 1..].trim();
+    let (title, tags) = split_heading_tags(heading_text);
     if title.is_empty() {
         None
     } else {
-        Some((level, title.to_owned()))
+        Some((level, title.to_owned(), tags))
     }
 }
 
-fn parse_immediate_id(lines: &[&str], start_index: usize) -> Option<String> {
-    let start_line = lines.get(start_index)?.trim();
-    if !start_line.eq_ignore_ascii_case(":PROPERTIES:") {
-        return None;
+fn parse_immediate_properties(lines: &[&str], start_index: usize) -> NodeProperties {
+    let Some(start_line) = lines.get(start_index) else {
+        return NodeProperties::default();
+    };
+    if !start_line.trim().eq_ignore_ascii_case(":PROPERTIES:") {
+        return NodeProperties::default();
     }
 
+    parse_property_drawer(lines, start_index)
+}
+
+fn parse_property_drawer(lines: &[&str], start_index: usize) -> NodeProperties {
+    let mut properties = NodeProperties::default();
     for line in &lines[start_index + 1..] {
         let trimmed = line.trim();
         if trimmed.eq_ignore_ascii_case(":END:") {
@@ -198,12 +207,114 @@ fn parse_immediate_id(lines: &[&str], start_index: usize) -> Option<String> {
         if let Some(value) = strip_keyword(trimmed, ":ID:") {
             let id = value.trim();
             if !id.is_empty() {
-                return Some(id.to_owned());
+                properties.explicit_id = Some(id.to_owned());
             }
+        }
+        if let Some(value) = strip_keyword(trimmed, ":ROAM_ALIASES:") {
+            properties.aliases = parse_aliases(value);
         }
     }
 
-    None
+    properties
+}
+
+fn parse_filetags(lines: &[&str]) -> Vec<String> {
+    lines
+        .iter()
+        .find_map(|line| {
+            strip_keyword(line, "#+filetags:")
+                .or_else(|| strip_keyword(line, "#+FILETAGS:"))
+                .map(parse_colon_tags)
+        })
+        .map(unique_strings)
+        .unwrap_or_default()
+}
+
+fn split_heading_tags(input: &str) -> (&str, Vec<String>) {
+    let Some(position) = input.rfind(" :") else {
+        return (input.trim(), Vec::new());
+    };
+    let title = &input[..position];
+    let suffix = &input[position + 1..];
+    let tags = parse_colon_tags(suffix);
+    if tags.is_empty() {
+        (input.trim(), Vec::new())
+    } else {
+        (title.trim_end(), unique_strings(tags))
+    }
+}
+
+fn parse_colon_tags(input: &str) -> Vec<String> {
+    let trimmed = input.trim();
+    if !trimmed.starts_with(':') || !trimmed.ends_with(':') {
+        return Vec::new();
+    }
+
+    let tags = trimmed
+        .split(':')
+        .filter(|part| !part.is_empty())
+        .filter(|part| !part.chars().any(char::is_whitespace))
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+
+    if tags.is_empty() { Vec::new() } else { tags }
+}
+
+fn parse_aliases(input: &str) -> Vec<String> {
+    let mut aliases = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+
+    for character in input.chars() {
+        match character {
+            '"' => {
+                if in_quotes {
+                    if !current.is_empty() {
+                        aliases.push(std::mem::take(&mut current));
+                    }
+                    in_quotes = false;
+                } else {
+                    if !current.trim().is_empty() {
+                        aliases.extend(current.split_whitespace().map(str::to_owned));
+                        current.clear();
+                    }
+                    in_quotes = true;
+                }
+            }
+            character if character.is_whitespace() && !in_quotes => {
+                if !current.is_empty() {
+                    aliases.push(std::mem::take(&mut current));
+                }
+            }
+            _ => current.push(character),
+        }
+    }
+
+    if !current.trim().is_empty() {
+        if in_quotes {
+            aliases.push(current.trim().to_owned());
+        } else {
+            aliases.extend(current.split_whitespace().map(str::to_owned));
+        }
+    }
+
+    unique_strings(aliases)
+}
+
+fn unique_strings(values: Vec<String>) -> Vec<String> {
+    let mut unique = Vec::new();
+    for value in values {
+        if !value.is_empty() && !unique.contains(&value) {
+            unique.push(value);
+        }
+    }
+    unique
+}
+
+#[derive(Debug, Clone, Default)]
+struct NodeProperties {
+    explicit_id: Option<String>,
+    aliases: Vec<String>,
 }
 
 fn extract_id_links(line: &str, source_node_key: &str, links: &mut Vec<IndexedLink>) {

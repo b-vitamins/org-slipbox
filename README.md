@@ -17,6 +17,7 @@ The Rust workspace links against a system SQLite installation.
 
 - Scan an Org directory and build a SQLite index.
 - Search indexed nodes through the Rust query engine.
+- Search nodes by aliases and tags stored in Org metadata.
 - Resolve backlinks for nodes with explicit Org `ID` properties.
 - Capture new file notes with explicit IDs.
 - Insert `id:` links after lazily assigning IDs to existing nodes.

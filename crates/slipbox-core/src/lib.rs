@@ -45,6 +45,10 @@ pub struct NodeRecord {
     pub file_path: String,
     pub title: String,
     pub outline_path: String,
+    #[serde(default)]
+    pub aliases: Vec<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
     pub level: u32,
     pub line: u32,
     pub kind: NodeKind,
@@ -65,6 +69,8 @@ pub struct IndexedNode {
     pub file_path: String,
     pub title: String,
     pub outline_path: String,
+    pub aliases: Vec<String>,
+    pub tags: Vec<String>,
     pub level: u32,
     pub line: u32,
     pub kind: NodeKind,

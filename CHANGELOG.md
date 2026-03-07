@@ -15,3 +15,4 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Added note capture and lazy ID assignment through the Rust write pipeline.
 - Added Emacs commands for note capture and `id:` link insertion.
 - Added a file-level sync RPC and an Emacs autosync mode driven by buffer saves.
+- Added indexed alias and tag metadata for nodes, including search over those fields.

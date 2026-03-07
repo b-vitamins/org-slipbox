@@ -125,14 +125,25 @@
   "Return a display string for NODE."
   (let ((title (plist-get node :title))
         (outline (plist-get node :outline_path))
+        (tags (org-slipbox--plist-sequence (plist-get node :tags)))
         (file (plist-get node :file_path))
         (line (plist-get node :line)))
     (string-join
      (delq nil
            (list title
                  (unless (string-empty-p outline) outline)
+                 (unless (null tags)
+                   (string-join (mapcar (lambda (tag) (format "#%s" tag)) tags) " "))
                  (format "%s:%s" file line)))
      " | ")))
+
+(defun org-slipbox--plist-sequence (value)
+  "Normalize JSON-derived VALUE into an Emacs list."
+  (cond
+   ((null value) nil)
+   ((vectorp value) (append value nil))
+   ((listp value) value)
+   (t (list value))))
 
 (defun org-slipbox--visit-node (node)
   "Visit NODE in its source file."

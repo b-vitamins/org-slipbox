@@ -4,9 +4,10 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
+use serde_json::Value;
 use slipbox_core::{IndexStats, IndexedFile, NodeKind, NodeRecord};
 
-const SCHEMA_VERSION: i32 = 1;
+const SCHEMA_VERSION: i32 = 2;
 
 pub struct Database {
     connection: Connection,
@@ -52,13 +53,15 @@ impl Database {
                         n.file_path,
                         n.title,
                         n.outline_path,
+                        n.aliases_json,
+                        n.tags_json,
                         n.level,
                         n.line,
                         n.kind
                    FROM node_fts
                    JOIN nodes AS n ON n.id = node_fts.rowid
                   WHERE node_fts MATCH ?1
-                  ORDER BY bm25(node_fts, 1.0, 0.4, 0.2), n.file_path, n.line
+                  ORDER BY bm25(node_fts, 1.0, 0.3, 0.2, 0.8, 0.4), n.file_path, n.line
                   LIMIT ?2",
             )?;
             let rows = statement.query_map(params![fts_query, limit], row_to_node)?;
@@ -71,6 +74,8 @@ impl Database {
                         file_path,
                         title,
                         outline_path,
+                        aliases_json,
+                        tags_json,
                         level,
                         line,
                         kind
@@ -108,6 +113,8 @@ impl Database {
                              n.file_path,
                              n.title,
                              n.outline_path,
+                             n.aliases_json,
+                             n.tags_json,
                              n.level,
                              n.line,
                              n.kind
@@ -133,6 +140,8 @@ impl Database {
                         file_path,
                         title,
                         outline_path,
+                        aliases_json,
+                        tags_json,
                         level,
                         line,
                         kind
@@ -194,6 +203,8 @@ impl Database {
                file_path TEXT NOT NULL,
                title TEXT NOT NULL,
                outline_path TEXT NOT NULL,
+               aliases_json TEXT NOT NULL,
+               tags_json TEXT NOT NULL,
                level INTEGER NOT NULL,
                line INTEGER NOT NULL,
                kind TEXT NOT NULL
@@ -202,7 +213,9 @@ impl Database {
              CREATE VIRTUAL TABLE IF NOT EXISTS node_fts USING fts5(
                title,
                outline_path,
-               file_path
+               file_path,
+               alias_text,
+               tag_text
              );
 
              CREATE TABLE IF NOT EXISTS links (
@@ -223,7 +236,7 @@ impl Database {
              CREATE INDEX IF NOT EXISTS idx_links_destination_explicit_id
                ON links (destination_explicit_id);
 
-             PRAGMA user_version = 1;",
+             PRAGMA user_version = 2;",
         )?;
         Ok(())
     }
@@ -246,17 +259,22 @@ impl Database {
                    file_path,
                    title,
                    outline_path,
+                   aliases_json,
+                   tags_json,
                    level,
                    line,
                    kind
                  )
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     node.node_key,
                     node.explicit_id,
                     node.file_path,
                     node.title,
                     node.outline_path,
+                    serde_json::to_string(&node.aliases)
+                        .context("failed to serialize node aliases")?,
+                    serde_json::to_string(&node.tags).context("failed to serialize node tags")?,
                     node.level,
                     node.line,
                     node.kind.as_str(),
@@ -265,9 +283,16 @@ impl Database {
 
             let row_id = transaction.last_insert_rowid();
             transaction.execute(
-                "INSERT INTO node_fts (rowid, title, outline_path, file_path)
-                 VALUES (?1, ?2, ?3, ?4)",
-                params![row_id, node.title, node.outline_path, node.file_path],
+                "INSERT INTO node_fts (rowid, title, outline_path, file_path, alias_text, tag_text)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    row_id,
+                    node.title,
+                    node.outline_path,
+                    node.file_path,
+                    node.aliases.join(" "),
+                    node.tags.join(" ")
+                ],
             )?;
         }
 
@@ -333,17 +358,32 @@ fn delete_file_rows(transaction: &rusqlite::Transaction<'_>, file_path: &str) ->
 }
 
 fn row_to_node(row: &rusqlite::Row<'_>) -> rusqlite::Result<NodeRecord> {
-    let kind_text: String = row.get(7)?;
+    let kind_text: String = row.get(9)?;
     Ok(NodeRecord {
         node_key: row.get(0)?,
         explicit_id: row.get(1)?,
         file_path: row.get(2)?,
         title: row.get(3)?,
         outline_path: row.get(4)?,
-        level: row.get(5)?,
-        line: row.get(6)?,
+        aliases: parse_string_list(row.get::<_, String>(5)?),
+        tags: parse_string_list(row.get::<_, String>(6)?),
+        level: row.get(7)?,
+        line: row.get(8)?,
         kind: kind_text.parse().unwrap_or(NodeKind::Heading),
     })
+}
+
+fn parse_string_list(value: String) -> Vec<String> {
+    match serde_json::from_str::<Value>(&value) {
+        Ok(Value::Array(items)) => items
+            .into_iter()
+            .filter_map(|item| match item {
+                Value::String(string) if !string.is_empty() => Some(string),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 fn build_fts_query(input: &str) -> Option<String> {
