@@ -129,6 +129,21 @@ pub struct BacklinksResult {
     pub backlinks: Vec<NodeRecord>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaptureNodeParams {
+    pub title: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnsureNodeIdParams {
+    pub node_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IndexFileParams {
+    pub file_path: String,
+}
+
 const fn default_search_limit() -> usize {
     50
 }

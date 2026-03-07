@@ -27,6 +27,10 @@ pub fn scan_root(root: &Path) -> Result<Vec<IndexedFile>> {
         .collect()
 }
 
+pub fn scan_path(root: &Path, path: &Path) -> Result<IndexedFile> {
+    parse_path(root, path)
+}
+
 fn parse_path(root: &Path, path: &Path) -> Result<IndexedFile> {
     let source =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
@@ -45,10 +49,11 @@ fn parse_path(root: &Path, path: &Path) -> Result<IndexedFile> {
 fn parse_document(file_path: &str, mtime_ns: i64, source: &str) -> IndexedFile {
     let lines = source.lines().collect::<Vec<_>>();
     let file_title = parse_file_title(&lines).unwrap_or_else(|| default_file_title(file_path));
+    let file_id = parse_file_id(&lines);
     let file_node_key = format!("file:{file_path}");
     let mut nodes = vec![IndexedNode {
         node_key: file_node_key.clone(),
-        explicit_id: None,
+        explicit_id: file_id,
         file_path: file_path.to_owned(),
         title: file_title,
         outline_path: String::new(),
@@ -110,6 +115,35 @@ fn parse_file_title(lines: &[&str]) -> Option<String> {
             .filter(|title| !title.is_empty())
             .map(ToOwned::to_owned)
     })
+}
+
+fn parse_file_id(lines: &[&str]) -> Option<String> {
+    let mut index = 0;
+    while let Some(line) = lines.get(index) {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("#+") {
+            index += 1;
+            continue;
+        }
+
+        if trimmed.eq_ignore_ascii_case(":PROPERTIES:") {
+            for property_line in &lines[index + 1..] {
+                let property = property_line.trim();
+                if property.eq_ignore_ascii_case(":END:") {
+                    break;
+                }
+                if let Some(value) = strip_keyword(property, ":ID:") {
+                    let id = value.trim();
+                    if !id.is_empty() {
+                        return Some(id.to_owned());
+                    }
+                }
+            }
+        }
+        break;
+    }
+
+    None
 }
 
 fn default_file_title(file_path: &str) -> String {

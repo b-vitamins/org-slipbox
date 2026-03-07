@@ -5,11 +5,13 @@ use anyhow::{Context, Result, anyhow};
 use clap::{Parser, Subcommand};
 use serde::de::DeserializeOwned;
 use slipbox_core::{
-    BacklinksParams, BacklinksResult, PingInfo, SearchNodesParams, SearchNodesResult,
+    BacklinksParams, BacklinksResult, CaptureNodeParams, EnsureNodeIdParams, IndexFileParams,
+    PingInfo, SearchNodesParams, SearchNodesResult,
 };
 use slipbox_rpc::{
     JsonRpcError, JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_BACKLINKS,
-    METHOD_INDEX, METHOD_PING, METHOD_SEARCH_NODES,
+    METHOD_CAPTURE_NODE, METHOD_ENSURE_NODE_ID, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_PING,
+    METHOD_SEARCH_NODES,
 };
 use slipbox_store::Database;
 
@@ -187,6 +189,70 @@ fn dispatch_request(
                 .map_err(|error| internal_error(error.context("failed to query backlinks")))?;
             to_value(BacklinksResult { backlinks })
         }
+        METHOD_CAPTURE_NODE => {
+            let params: CaptureNodeParams = parse_params(params)?;
+            let captured = slipbox_write::capture_file_note(&state.root, &params.title)
+                .map_err(|error| internal_error(error.context("failed to capture node")))?;
+            sync_one_path(state, &captured.absolute_path)?;
+            let node = state
+                .database
+                .node_by_key(&captured.node_key)
+                .map_err(|error| internal_error(error.context("failed to fetch captured node")))?
+                .ok_or_else(|| {
+                    internal_error(anyhow!(
+                        "captured node {} was not found after indexing",
+                        captured.node_key
+                    ))
+                })?;
+            to_value(node)
+        }
+        METHOD_ENSURE_NODE_ID => {
+            let params: EnsureNodeIdParams = parse_params(params)?;
+            let node = state
+                .database
+                .node_by_key(&params.node_key)
+                .map_err(|error| internal_error(error.context("failed to fetch node")))?
+                .ok_or_else(|| {
+                    JsonRpcError::new(JsonRpcErrorObject::invalid_request(format!(
+                        "unknown node: {}",
+                        params.node_key
+                    )))
+                })?;
+
+            if node.explicit_id.is_none() {
+                let updated_path = slipbox_write::ensure_node_id(&state.root, &node)
+                    .map_err(|error| internal_error(error.context("failed to assign node ID")))?;
+                sync_one_path(state, &updated_path)?;
+            }
+
+            let refreshed = state
+                .database
+                .node_by_key(&params.node_key)
+                .map_err(|error| internal_error(error.context("failed to read refreshed node")))?
+                .ok_or_else(|| {
+                    internal_error(anyhow!(
+                        "node {} disappeared after ID update",
+                        params.node_key
+                    ))
+                })?;
+            to_value(refreshed)
+        }
+        METHOD_INDEX_FILE => {
+            let params: IndexFileParams = parse_params(params)?;
+            let (relative_path, absolute_path) = resolve_index_path(&state.root, &params.file_path)
+                .map_err(|error| internal_error(error.context("failed to resolve file path")))?;
+            if absolute_path.exists() {
+                sync_one_path(state, &absolute_path)?;
+            } else {
+                state
+                    .database
+                    .remove_file_index(&relative_path)
+                    .map_err(|error| {
+                        internal_error(error.context("failed to remove file from SQLite index"))
+                    })?;
+            }
+            to_value(serde_json::json!({ "file_path": relative_path }))
+        }
         _ => Err(JsonRpcError::new(JsonRpcErrorObject::method_not_found(
             format!("unsupported method: {method}"),
         ))),
@@ -220,4 +286,31 @@ where
 
 fn internal_error(error: anyhow::Error) -> JsonRpcError {
     JsonRpcError::new(JsonRpcErrorObject::internal_error(error.to_string()))
+}
+
+fn sync_one_path(state: &mut ServerState, path: &std::path::Path) -> Result<(), JsonRpcError> {
+    let indexed_file = slipbox_index::scan_path(&state.root, path)
+        .map_err(|error| internal_error(error.context("failed to scan updated file")))?;
+    state
+        .database
+        .sync_index(&[indexed_file])
+        .map_err(|error| {
+            internal_error(error.context("failed to sync updated file into SQLite"))
+        })?;
+    Ok(())
+}
+
+fn resolve_index_path(root: &std::path::Path, file_path: &str) -> Result<(String, PathBuf)> {
+    let candidate = PathBuf::from(file_path);
+    let absolute = if candidate.is_absolute() {
+        candidate
+    } else {
+        root.join(candidate)
+    };
+    let relative = absolute
+        .strip_prefix(root)
+        .map_err(|_| anyhow!("{} is not under {}", absolute.display(), root.display()))?
+        .to_string_lossy()
+        .replace('\\', "/");
+    Ok((relative, absolute))
 }

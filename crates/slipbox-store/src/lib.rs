@@ -123,6 +123,33 @@ impl Database {
             .context("failed to read backlinks")
     }
 
+    pub fn node_by_key(&self, node_key: &str) -> Result<Option<NodeRecord>> {
+        self.connection
+            .query_row(
+                "SELECT node_key,
+                        explicit_id,
+                        file_path,
+                        title,
+                        outline_path,
+                        level,
+                        line,
+                        kind
+                   FROM nodes
+                  WHERE node_key = ?1",
+                params![node_key],
+                row_to_node,
+            )
+            .optional()
+            .context("failed to fetch node by key")
+    }
+
+    pub fn remove_file_index(&mut self, file_path: &str) -> Result<()> {
+        let transaction = self.connection.transaction()?;
+        delete_file_rows(&transaction, file_path)?;
+        transaction.commit()?;
+        Ok(())
+    }
+
     fn initialize(&self) -> Result<()> {
         self.connection.execute_batch(
             "PRAGMA journal_mode = WAL;
@@ -149,8 +176,7 @@ impl Database {
              CREATE VIRTUAL TABLE IF NOT EXISTS node_fts USING fts5(
                title,
                outline_path,
-               file_path,
-               content = ''
+               file_path
              );
 
              CREATE TABLE IF NOT EXISTS links (

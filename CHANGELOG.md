@@ -12,3 +12,6 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Added a JSON-RPC daemon scaffold and an Emacs client scaffold.
 - Added transactional SQLite indexing for Org files, node search, and backlink queries.
 - Added interactive Elisp commands for indexing, node lookup, and backlink inspection.
+- Added note capture and lazy ID assignment through the Rust write pipeline.
+- Added Emacs commands for note capture and `id:` link insertion.
+- Added a file-level sync RPC and an Emacs autosync mode driven by buffer saves.

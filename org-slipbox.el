@@ -33,6 +33,7 @@
 
 (require 'org-slipbox-node)
 (require 'org-slipbox-rpc)
+(require 'org-slipbox-sync)
 
 ;;;###autoload
 (defun org-slipbox-ping ()
@@ -45,8 +46,11 @@
     response))
 
 ;;;###autoload(autoload 'org-slipbox-index "org-slipbox-node" nil t)
+;;;###autoload(autoload 'org-slipbox-capture "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-node-find "org-slipbox-node" nil t)
+;;;###autoload(autoload 'org-slipbox-node-insert "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-node-backlinks "org-slipbox-node" nil t)
+;;;###autoload(autoload 'org-slipbox-autosync-mode "org-slipbox-sync" nil t)
 
 (provide 'org-slipbox)
 
