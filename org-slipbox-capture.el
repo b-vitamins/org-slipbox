@@ -47,6 +47,18 @@ When present, SPEC may be one of:
   :type 'sexp
   :group 'org-slipbox)
 
+(defcustom org-slipbox-capture-ref-templates
+  '(("r" "ref"
+     :target (file+head
+              "${slug}.org"
+              "#+title: ${title}\n\n- source :: ${ref}\n\n${body}")
+     :title "${title}"))
+  "Capture templates used by ref-oriented capture workflows.
+These templates use the same syntax as `org-slipbox-capture-templates'
+and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
+  :type 'sexp
+  :group 'org-slipbox)
+
 ;;;###autoload
 (defun org-slipbox-capture (&optional title)
   "Create a new note with TITLE and visit it."
@@ -56,17 +68,20 @@ When present, SPEC may be one of:
     (org-slipbox--visit-node (org-slipbox--capture-node title template))))
 
 ;;;###autoload
-(defun org-slipbox-capture-ref (reference &optional title)
+(defun org-slipbox-capture-ref (reference &optional title templates keys variables)
   "Visit the node for REFERENCE, or capture a new note with REFERENCE attached."
   (interactive (list (read-string "Ref: ")))
   (setq reference (string-trim reference))
   (when (string-empty-p reference)
     (user-error "Ref must not be empty"))
-  (let ((node (or (org-slipbox-node-from-ref reference)
-                  (org-slipbox--capture-node
-                   (or title (read-string "Capture title: "))
-                   (org-slipbox--read-capture-template org-slipbox-capture-templates)
-                   (list reference)))))
+  (let* ((templates (or templates org-slipbox-capture-templates))
+         (variables (plist-put (copy-sequence variables) :ref reference))
+         (node (or (org-slipbox-node-from-ref reference)
+                   (org-slipbox--capture-node
+                    (or title (read-string "Capture title: "))
+                    (org-slipbox--read-capture-template templates keys)
+                    (list reference)
+                    variables))))
     (org-slipbox--visit-node node)
     node))
 
@@ -96,23 +111,25 @@ When present, SPEC may be one of:
      (choice choice)
      (t nil))))
 
-(defun org-slipbox--capture-node (title &optional template refs)
-  "Capture a new node with TITLE using TEMPLATE and optional REFS."
-  (org-slipbox--capture-node-at-time title template refs (current-time)))
+(defun org-slipbox--capture-node (title &optional template refs variables)
+  "Capture a new node with TITLE using TEMPLATE, REFS, and VARIABLES."
+  (org-slipbox--capture-node-at-time title template refs (current-time) variables))
 
-(defun org-slipbox--capture-node-at-time (title &optional template refs time)
-  "Capture a new node with TITLE using TEMPLATE, REFS, and TIME."
+(defun org-slipbox--capture-node-at-time (title &optional template refs time variables)
+  "Capture a new node with TITLE using TEMPLATE, REFS, TIME, and VARIABLES."
   (let* ((template (or template (org-slipbox--default-capture-template)))
          (template-options (and template (nthcdr 2 template)))
          (capture-title (or (org-slipbox--expand-capture-template
                              (plist-get template-options :title)
                              title
-                             time)
+                             time
+                             variables)
                             title))
          (target (org-slipbox--expand-capture-target
                   template-options
                   title
-                  time)))
+                  time
+                  variables)))
     (pcase (plist-get target :kind)
       ('file
        (let ((params (if-let ((file-path (plist-get target :file_path)))
@@ -138,7 +155,7 @@ When present, SPEC may be one of:
   "Return the default capture template."
   (car org-slipbox-capture-templates))
 
-(defun org-slipbox--expand-capture-target (template-options title time)
+(defun org-slipbox--expand-capture-target (template-options title time &optional variables)
   "Expand TEMPLATE-OPTIONS for TITLE at TIME into a capture target plist."
   (let ((target (plist-get template-options :target)))
     (cond
@@ -146,23 +163,25 @@ When present, SPEC may be one of:
       (pcase target
         (`(file ,path)
          `(:kind file
-           :file_path ,(org-slipbox--expand-capture-template path title time)))
+           :file_path ,(org-slipbox--expand-capture-template path title time variables)))
         (`(file+head ,path ,head)
          `(:kind file
-           :file_path ,(org-slipbox--expand-capture-template path title time)
-           :head ,(org-slipbox--expand-capture-template head title time)))
+           :file_path ,(org-slipbox--expand-capture-template path title time variables)
+           :head ,(org-slipbox--expand-capture-template head title time variables)))
         (`(file+olp ,path ,olp)
          `(:kind file+olp
-           :file_path ,(org-slipbox--expand-capture-template path title time)
+           :file_path ,(org-slipbox--expand-capture-template path title time variables)
            :outline_path ,(mapcar (lambda (heading)
-                                    (org-slipbox--expand-capture-template heading title time))
+                                    (org-slipbox--expand-capture-template
+                                     heading title time variables))
                                   olp)))
         (`(file+head+olp ,path ,head ,olp)
          `(:kind file+olp
-           :file_path ,(org-slipbox--expand-capture-template path title time)
-           :head ,(org-slipbox--expand-capture-template head title time)
+           :file_path ,(org-slipbox--expand-capture-template path title time variables)
+           :head ,(org-slipbox--expand-capture-template head title time variables)
            :outline_path ,(mapcar (lambda (heading)
-                                    (org-slipbox--expand-capture-template heading title time))
+                                    (org-slipbox--expand-capture-template
+                                     heading title time variables))
                                   olp)))
         (_
          (user-error "Unsupported capture target %S" target))))
@@ -171,7 +190,8 @@ When present, SPEC may be one of:
         :file_path ,(org-slipbox--expand-capture-template
                      (plist-get template-options :path)
                      title
-                     time)))
+                     time
+                     variables)))
      (t
       '(:kind file)))))
 
@@ -194,30 +214,47 @@ When present, SPEC may be one of:
            (selection (completing-read "Template: " choices nil t)))
       (cdr (assoc selection choices))))))
 
-(defun org-slipbox--expand-capture-template (template title time)
-  "Expand TEMPLATE for TITLE using TIME."
+(defun org-slipbox--expand-capture-template (template title time &optional variables)
+  "Expand TEMPLATE for TITLE using TIME and VARIABLES."
   (when template
-    (let ((expanded (replace-regexp-in-string
-                     "%<\\([^>]+\\)>"
-                     (lambda (match)
-                       (format-time-string
-                        (substring match 2 -1)
-                        time))
-                     template
-                     t)))
-      (setq expanded
-            (replace-regexp-in-string
-             (regexp-quote "${title}")
-             title
-             expanded
-             t
-             t))
+    (let* ((context (org-slipbox--capture-template-context title variables))
+           (expanded (replace-regexp-in-string
+                      "%<\\([^>]+\\)>"
+                      (lambda (match)
+                        (format-time-string
+                         (substring match 2 -1)
+                         time))
+                      template
+                      t)))
       (replace-regexp-in-string
-       (regexp-quote "${slug}")
-       (org-slipbox--slugify title)
+       "\\${\\([^}]+\\)}"
+       (lambda (match)
+         (if-let ((value (org-slipbox--capture-template-variable context match)))
+             value
+           match))
        expanded
        t
        t))))
+
+(defun org-slipbox--capture-template-context (title variables)
+  "Return template expansion variables for TITLE merged with VARIABLES."
+  (let ((context (list :title title
+                       :slug (org-slipbox--slugify title)
+                       :ref ""
+                       :body ""
+                       :annotation ""
+                       :link "")))
+    (while variables
+      (setq context (plist-put context (car variables) (cadr variables))
+            variables (cddr variables)))
+    context))
+
+(defun org-slipbox--capture-template-variable (context match)
+  "Return the replacement from CONTEXT for placeholder MATCH, or nil."
+  (when (string-match "\\${\\([^}]+\\)}" match)
+    (let ((key (intern (concat ":" (match-string 1 match)))))
+      (when (plist-member context key)
+        (format "%s" (or (plist-get context key) ""))))))
 
 (defun org-slipbox--slugify (title)
   "Convert TITLE into a stable file-name slug."

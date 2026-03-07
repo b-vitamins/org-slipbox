@@ -38,6 +38,7 @@
 (require 'org-slipbox-link)
 (require 'org-slipbox-metadata)
 (require 'org-slipbox-node)
+(require 'org-slipbox-protocol)
 (require 'org-slipbox-rpc)
 (require 'org-slipbox-dailies)
 (require 'org-slipbox-sync)
@@ -89,6 +90,7 @@
 ;;;###autoload(autoload 'org-slipbox-dailies-find-directory "org-slipbox-dailies" nil t)
 ;;;###autoload(autoload 'org-slipbox-dailies-calendar-mark-entries "org-slipbox-dailies" nil t)
 ;;;###autoload(autoload 'org-slipbox-dailies-calendar-mode "org-slipbox-dailies" nil t)
+;;;###autoload(autoload 'org-slipbox-protocol-mode "org-slipbox-protocol" nil t)
 ;;;###autoload(autoload 'org-slipbox-autosync-mode "org-slipbox-sync" nil t)
 
 (provide 'org-slipbox)

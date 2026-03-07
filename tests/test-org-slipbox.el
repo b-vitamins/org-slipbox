@@ -19,12 +19,15 @@
 (ert-deftest org-slipbox-test-package-load-has-no-global-side-effects ()
   "Loading the package should not install global hooks."
   (require 'calendar)
+  (require 'org-protocol)
   (should-not (memq #'org-slipbox-sync-current-buffer after-save-hook))
   (should-not (memq #'org-slipbox-buffer--redisplay-h post-command-hook))
   (should-not (memq #'org-slipbox-dailies-calendar-mark-entries
                     calendar-today-visible-hook))
   (should-not (memq #'org-slipbox-dailies-calendar-mark-entries
-                    calendar-today-invisible-hook)))
+                    calendar-today-invisible-hook))
+  (should-not (assoc "org-slipbox-ref" org-protocol-protocol-alist))
+  (should-not (assoc "org-slipbox-node" org-protocol-protocol-alist)))
 
 (ert-deftest org-slipbox-test-node-display-includes-file-and-line ()
   "Node display strings should be stable and informative."
@@ -51,7 +54,7 @@
     "Heading | #one #two | notes/foo.org:42")))
 
 (ert-deftest org-slipbox-test-capture-template-expansion ()
-  "Capture templates should expand slug, title, and time placeholders."
+  "Capture templates should expand built-in and contextual placeholders."
   (should
    (equal
     (org-slipbox--expand-capture-template
@@ -65,7 +68,16 @@
      "Slip: ${title}"
      "Sample Title"
      (encode-time 0 0 0 7 3 2026))
-    "Slip: Sample Title")))
+    "Slip: Sample Title"))
+  (should
+   (equal
+    (org-slipbox--expand-capture-template
+     "Source ${ref}\n${body}"
+     "Sample Title"
+     (encode-time 0 0 0 7 3 2026)
+     '(:ref "https://example.test/article"
+       :body "Quoted text"))
+    "Source https://example.test/article\nQuoted text")))
 
 (ert-deftest org-slipbox-test-capture-node-uses-template-path ()
   "Capture should send expanded file targets through the RPC layer."
@@ -154,8 +166,8 @@
                (lambda (&rest _args)
                  '("d" "default" :path "notes/${slug}.org" :title "${title}")))
               ((symbol-function 'org-slipbox--capture-node)
-               (lambda (title template refs)
-                 (setq captured (list title template refs))
+               (lambda (title template refs variables)
+                 (setq captured (list title template refs variables))
                  '(:title "New" :file_path "new.org" :line 1)))
               ((symbol-function 'org-slipbox--visit-node)
                (lambda (node &optional _other-window)
@@ -165,7 +177,8 @@
      (equal captured
             '("New"
               ("d" "default" :path "notes/${slug}.org" :title "${title}")
-              ("cite:smith2024"))))
+              ("cite:smith2024")
+              (:ref "cite:smith2024"))))
     (should
      (equal visited
             '(:title "New" :file_path "new.org" :line 1)))))
@@ -965,6 +978,79 @@
           (should-not (memq #'org-slipbox-dailies-calendar-mark-entries
                             calendar-today-invisible-hook)))
       (setq org-slipbox-dailies-calendar-mode nil))))
+
+(ert-deftest org-slipbox-test-protocol-mode-toggles-handlers ()
+  "Protocol mode should register and remove handlers explicitly."
+  (require 'org-protocol)
+  (let ((org-protocol-protocol-alist nil))
+    (unwind-protect
+        (progn
+          (org-slipbox-protocol-mode 1)
+          (should (assoc "org-slipbox-ref" org-protocol-protocol-alist))
+          (should (assoc "org-slipbox-node" org-protocol-protocol-alist))
+          (org-slipbox-protocol-mode 0)
+          (should-not (assoc "org-slipbox-ref" org-protocol-protocol-alist))
+          (should-not (assoc "org-slipbox-node" org-protocol-protocol-alist)))
+      (org-slipbox-protocol-mode 0))))
+
+(ert-deftest org-slipbox-test-protocol-open-node-visits-indexed-node ()
+  "Node protocol should resolve and visit the indexed node."
+  (let (id visited raised)
+    (cl-letf (((symbol-function 'org-slipbox-node-from-id)
+               (lambda (node-id)
+                 (setq id node-id)
+                 '(:title "Node" :file_path "node.org" :line 3)))
+              ((symbol-function 'org-slipbox--visit-node)
+               (lambda (node &optional _other-window)
+                 (setq visited node)))
+              ((symbol-function 'raise-frame)
+               (lambda ()
+                 (setq raised t))))
+      (org-slipbox-protocol-open-node '(:node "abc%20123")))
+    (should (equal id "abc 123"))
+    (should (equal visited '(:title "Node" :file_path "node.org" :line 3)))
+    (should raised)))
+
+(ert-deftest org-slipbox-test-protocol-open-ref-uses-ref-capture-templates ()
+  "Ref protocol should reuse ref capture templates and protocol context."
+  (let (captured stored-props raised)
+    (require 'org-protocol)
+    (let ((org-slipbox-protocol-store-links t)
+          (org-stored-links nil))
+      (cl-letf (((symbol-function 'org-slipbox-capture-ref)
+                 (lambda (reference title templates keys variables)
+                   (setq captured (list :reference reference
+                                        :title title
+                                        :templates templates
+                                        :keys keys
+                                        :variables variables))
+                   '(:title "Article" :file_path "article.org" :line 1)))
+                ((symbol-function 'org-link-store-props)
+                 (lambda (&rest props)
+                   (setq stored-props props)))
+                ((symbol-function 'raise-frame)
+                 (lambda ()
+                   (setq raised t))))
+        (org-slipbox-protocol-open-ref
+         '(:template "r"
+           :ref "https%3A%2F%2Fexample.test%2Farticle"
+           :title "An%20Article"
+           :body "Selected%20text")))
+      (should raised)
+      (should (equal org-stored-links '(("https://example.test/article" "An Article"))))
+      (should
+       (equal captured
+              (list :reference "https://example.test/article"
+                    :title "An Article"
+                    :templates org-slipbox-capture-ref-templates
+                    :keys "r"
+                    :variables
+                    '(:ref "https://example.test/article"
+                      :body "Selected text"
+                      :annotation "[[https://example.test/article][An Article]]"
+                      :link "https://example.test/article"))))
+      (should (equal (plist-get stored-props :link) "https://example.test/article"))
+      (should (equal (plist-get stored-props :initial) "Selected text")))))
 
 (provide 'test-org-slipbox)
 

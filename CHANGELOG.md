@@ -39,3 +39,5 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Added node-target capture for appending new child headings under existing indexed nodes.
 - Added capture-target expansion for exact files, optional file heads, and outline-path targets.
 - Added daily-note template support on top of the shared capture-target pipeline while preserving the legacy entry-level flow by default.
+- Added contextual capture-template variables for refs, annotations, links, and protocol-supplied body text.
+- Added an opt-in `org-protocol` mode for `roam-node` and `roam-ref` handlers backed by the shared capture pipeline.
