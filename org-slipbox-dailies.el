@@ -61,6 +61,29 @@
   :type 'hook
   :group 'org-slipbox)
 
+(defface org-slipbox-dailies-calendar-note
+  '((t :inherit org-link :underline nil))
+  "Face used for calendar dates with an existing daily note."
+  :group 'org-slipbox)
+
+(define-minor-mode org-slipbox-dailies-calendar-mode
+  "Mark visible calendar dates for existing daily notes.
+
+This mode adds and removes calendar hooks explicitly instead of
+installing them at load time."
+  :global t
+  :group 'org-slipbox
+  (if org-slipbox-dailies-calendar-mode
+      (progn
+        (add-hook 'calendar-today-visible-hook
+                  #'org-slipbox-dailies-calendar-mark-entries)
+        (add-hook 'calendar-today-invisible-hook
+                  #'org-slipbox-dailies-calendar-mark-entries))
+    (remove-hook 'calendar-today-visible-hook
+                 #'org-slipbox-dailies-calendar-mark-entries)
+    (remove-hook 'calendar-today-invisible-hook
+                 #'org-slipbox-dailies-calendar-mark-entries)))
+
 ;;;###autoload
 (defun org-slipbox-dailies-capture-today (heading)
   "Capture HEADING into today's daily note."
@@ -157,6 +180,30 @@ forward."
   (let ((directory (expand-file-name org-slipbox-dailies-directory org-slipbox-directory)))
     (make-directory directory t)
     (find-file directory)))
+
+(defun org-slipbox-dailies-calendar--file-to-date (file)
+  "Return FILE as a calendar date list, or nil when it is not parseable."
+  (ignore-errors
+    (let* ((parts (org-parse-time-string
+                   (file-name-sans-extension
+                    (file-name-nondirectory file))))
+           (day (nth 3 parts))
+           (month (nth 4 parts))
+           (year (nth 5 parts)))
+      (and day month year (list month day year)))))
+
+;;;###autoload
+(defun org-slipbox-dailies-calendar-mark-entries ()
+  "Mark visible calendar dates for existing daily notes.
+
+Daily-note file names must remain parseable by `org-parse-time-string'."
+  (interactive)
+  (require 'calendar)
+  (dolist (date (delq nil
+                      (mapcar #'org-slipbox-dailies-calendar--file-to-date
+                              (org-slipbox-dailies--list-files))))
+    (when (calendar-date-is-visible-p date)
+      (calendar-mark-visible-date date 'org-slipbox-dailies-calendar-note))))
 
 (defun org-slipbox-dailies--goto (time)
   "Visit the daily note for TIME, creating it if needed."

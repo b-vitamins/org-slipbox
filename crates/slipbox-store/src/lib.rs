@@ -99,6 +99,53 @@ impl Database {
         }
     }
 
+    pub fn random_node(&self) -> Result<Option<NodeRecord>> {
+        let Some((min_id, max_id)) = self
+            .connection
+            .query_row(
+                "SELECT MIN(id), MAX(id)
+                   FROM nodes",
+                [],
+                |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, Option<i64>>(1)?)),
+            )
+            .optional()
+            .context("failed to determine node ID bounds")?
+        else {
+            return Ok(None);
+        };
+
+        let (Some(min_id), Some(max_id)) = (min_id, max_id) else {
+            return Ok(None);
+        };
+
+        self.connection
+            .query_row(
+                "SELECT node_key,
+                        explicit_id,
+                        file_path,
+                        title,
+                        outline_path,
+                        aliases_json,
+                        tags_json,
+                        refs_json,
+                        todo_keyword,
+                        scheduled_for,
+                        deadline_for,
+                        closed_at,
+                        level,
+                        line,
+                        kind
+                   FROM nodes
+                  WHERE id >= ((ABS(random()) % (?2 - ?1 + 1)) + ?1)
+                  ORDER BY id
+                  LIMIT 1",
+                params![min_id, max_id],
+                row_to_node,
+            )
+            .optional()
+            .context("failed to fetch random node")
+    }
+
     pub fn search_tags(&self, query: &str, limit: usize) -> Result<Vec<String>> {
         let limit = limit.clamp(1, 1_000) as i64;
         if query.trim().is_empty() {

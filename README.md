@@ -25,8 +25,9 @@ The Rust workspace links against a system SQLite installation.
 - Refile subtrees between indexed notes and extract subtrees into new promoted file notes.
 - Query indexed agenda entries from scheduled and deadline planning lines.
 - Resolve backlinks for nodes with explicit Org `ID` properties.
+- Visit a random indexed node without materializing the full graph in Emacs.
 - Capture new file notes with explicit IDs and configurable path/title templates.
-- Create and visit daily notes, append daily entries, and move between existing daily notes.
+- Create and visit daily notes, append daily entries, move between existing daily notes, and opt into calendar marking for existing daily files.
 - Insert `id:` links after lazily assigning IDs to existing nodes.
 - Sync saved Org buffers into the index through an explicit file-level RPC.
 - Connect Emacs to the local daemon over JSON-RPC on stdio.

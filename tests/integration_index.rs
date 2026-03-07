@@ -63,3 +63,23 @@ fn indexes_and_queries_distinct_tags() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn selects_a_random_node_from_the_index() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    fs::write(root.join("alpha.org"), "#+title: Alpha\n")?;
+    fs::write(root.join("beta.org"), "#+title: Beta\n")?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let node = database.random_node()?.expect("expected indexed node");
+    assert!(matches!(node.title.as_str(), "Alpha" | "Beta"));
+
+    Ok(())
+}

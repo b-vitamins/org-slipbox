@@ -51,6 +51,7 @@
 ;;;###autoload(autoload 'org-slipbox-index "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-capture "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-node-find "org-slipbox-node" nil t)
+;;;###autoload(autoload 'org-slipbox-node-random "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-node-insert "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-node-backlinks "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-refile "org-slipbox-node" nil t)
@@ -80,6 +81,8 @@
 ;;;###autoload(autoload 'org-slipbox-dailies-goto-next-note "org-slipbox-dailies" nil t)
 ;;;###autoload(autoload 'org-slipbox-dailies-goto-previous-note "org-slipbox-dailies" nil t)
 ;;;###autoload(autoload 'org-slipbox-dailies-find-directory "org-slipbox-dailies" nil t)
+;;;###autoload(autoload 'org-slipbox-dailies-calendar-mark-entries "org-slipbox-dailies" nil t)
+;;;###autoload(autoload 'org-slipbox-dailies-calendar-mode "org-slipbox-dailies" nil t)
 ;;;###autoload(autoload 'org-slipbox-autosync-mode "org-slipbox-sync" nil t)
 
 (provide 'org-slipbox)

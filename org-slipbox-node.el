@@ -315,6 +315,18 @@ If ASSERT is non-nil, signal a user error when no node is available."
     (when node
       (org-slipbox--visit-node node))))
 
+;;;###autoload
+(defun org-slipbox-node-random (&optional other-window)
+  "Visit a random indexed node.
+With prefix argument OTHER-WINDOW, visit it in another window."
+  (interactive "P")
+  (let* ((response (org-slipbox-rpc-request "slipbox/randomNode"))
+         (node (plist-get response :node)))
+    (unless node
+      (user-error "No indexed nodes available"))
+    (org-slipbox--visit-node node other-window)
+    node))
+
 (defun org-slipbox-node-insert (query)
   "Insert an `id:' link to a node selected using QUERY."
   (interactive (list (read-string "Insert node: ")))
@@ -1077,9 +1089,11 @@ When VALUE is nil, remove KEYWORD."
         (line-beginning-position)
       (point-max))))
 
-(defun org-slipbox--visit-node (node)
-  "Visit NODE in its source file."
-  (find-file (expand-file-name (plist-get node :file_path) org-slipbox-directory))
+(defun org-slipbox--visit-node (node &optional other-window)
+  "Visit NODE in its source file.
+With OTHER-WINDOW, visit it in another window."
+  (funcall (if other-window #'find-file-other-window #'find-file)
+           (expand-file-name (plist-get node :file_path) org-slipbox-directory))
   (goto-char (point-min))
   (forward-line (1- (plist-get node :line))))
 

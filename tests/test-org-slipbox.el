@@ -104,6 +104,24 @@
     (should (equal method "slipbox/nodeFromTitleOrAlias"))
     (should (equal params '(:title_or_alias "batman" :nocase t)))))
 
+(ert-deftest org-slipbox-test-node-random-uses-rpc ()
+  "Random node selection should use the dedicated RPC."
+  (let (method params visited)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method &optional request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:node (:title "Random" :file_path "random.org" :line 4))))
+              ((symbol-function 'org-slipbox--visit-node)
+               (lambda (node &optional other-window)
+                 (setq visited (list node other-window)))))
+      (org-slipbox-node-random t))
+    (should (equal method "slipbox/randomNode"))
+    (should (null params))
+    (should
+     (equal visited
+            '((:title "Random" :file_path "random.org" :line 4) t)))))
+
 (ert-deftest org-slipbox-test-node-at-point-syncs-modified-buffer ()
   "Point-based lookup should sync modified buffers before querying."
   (let* ((root (make-temp-file "org-slipbox-node-" t))
@@ -719,6 +737,61 @@
           (should (equal visited (cons newer current)))
           (should (= hook-ran 2)))
       (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-dailies-calendar-file-to-date ()
+  "Daily file names should map onto calendar date triples."
+  (should
+   (equal
+    (org-slipbox-dailies-calendar--file-to-date "/tmp/daily/2026-03-07.org")
+    '(3 7 2026)))
+  (should-not
+   (org-slipbox-dailies-calendar--file-to-date "/tmp/daily/not-a-date.org")))
+
+(ert-deftest org-slipbox-test-dailies-calendar-mark-entries-marks-visible-dates ()
+  "Calendar marking should only mark parseable visible daily notes."
+  (require 'calendar)
+  (let* ((root (make-temp-file "org-slipbox-dailies-" t))
+         (daily-dir (expand-file-name "daily" root))
+         marks)
+    (unwind-protect
+        (progn
+          (make-directory daily-dir t)
+          (write-region "" nil (expand-file-name "2026-03-07.org" daily-dir) nil 'silent)
+          (write-region "" nil (expand-file-name "2026-03-08.org" daily-dir) nil 'silent)
+          (write-region "" nil (expand-file-name "scratch.org" daily-dir) nil 'silent)
+          (let ((org-slipbox-directory root)
+                (org-slipbox-dailies-directory "daily/"))
+            (cl-letf (((symbol-function 'calendar-date-is-visible-p)
+                       (lambda (date)
+                         (equal date '(3 7 2026))))
+                      ((symbol-function 'calendar-mark-visible-date)
+                       (lambda (date face)
+                         (push (list date face) marks))))
+              (org-slipbox-dailies-calendar-mark-entries)))
+          (should
+           (equal marks
+                  '(((3 7 2026) org-slipbox-dailies-calendar-note)))))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-dailies-calendar-mode-toggles-hooks ()
+  "Calendar integration should be opt-in rather than installed at load time."
+  (require 'calendar)
+  (let ((calendar-today-visible-hook nil)
+        (calendar-today-invisible-hook nil)
+        (org-slipbox-dailies-calendar-mode nil))
+    (unwind-protect
+        (progn
+          (org-slipbox-dailies-calendar-mode 1)
+          (should (memq #'org-slipbox-dailies-calendar-mark-entries
+                        calendar-today-visible-hook))
+          (should (memq #'org-slipbox-dailies-calendar-mark-entries
+                        calendar-today-invisible-hook))
+          (org-slipbox-dailies-calendar-mode -1)
+          (should-not (memq #'org-slipbox-dailies-calendar-mark-entries
+                            calendar-today-visible-hook))
+          (should-not (memq #'org-slipbox-dailies-calendar-mark-entries
+                            calendar-today-invisible-hook)))
+      (setq org-slipbox-dailies-calendar-mode nil))))
 
 (provide 'test-org-slipbox)
 

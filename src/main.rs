@@ -8,15 +8,15 @@ use slipbox_core::{
     AgendaParams, AgendaResult, AppendHeadingParams, BacklinksParams, BacklinksResult,
     CaptureNodeParams, EnsureFileNodeParams, EnsureNodeIdParams, IndexFileParams,
     NodeAtPointParams, NodeFromIdParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
-    PingInfo, SearchNodesParams, SearchNodesResult, SearchRefsParams, SearchRefsResult,
-    SearchTagsParams, SearchTagsResult,
+    PingInfo, RandomNodeResult, SearchNodesParams, SearchNodesResult, SearchRefsParams,
+    SearchRefsResult, SearchTagsParams, SearchTagsResult,
 };
 use slipbox_rpc::{
     JsonRpcError, JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_AGENDA,
     METHOD_APPEND_HEADING, METHOD_BACKLINKS, METHOD_CAPTURE_NODE, METHOD_ENSURE_FILE_NODE,
     METHOD_ENSURE_NODE_ID, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_NODE_AT_POINT,
     METHOD_NODE_FROM_ID, METHOD_NODE_FROM_REF, METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING,
-    METHOD_SEARCH_NODES, METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS,
+    METHOD_RANDOM_NODE, METHOD_SEARCH_NODES, METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS,
 };
 use slipbox_store::Database;
 
@@ -185,6 +185,13 @@ fn dispatch_request(
                 .search_nodes(&params.query, params.normalized_limit())
                 .map_err(|error| internal_error(error.context("failed to query nodes")))?;
             to_value(SearchNodesResult { nodes })
+        }
+        METHOD_RANDOM_NODE => {
+            let node = state
+                .database
+                .random_node()
+                .map_err(|error| internal_error(error.context("failed to query random node")))?;
+            to_value(RandomNodeResult { node })
         }
         METHOD_SEARCH_TAGS => {
             let params: SearchTagsParams = parse_params(params)?;

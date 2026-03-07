@@ -132,6 +132,11 @@ pub struct SearchNodesResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RandomNodeResult {
+    pub node: Option<NodeRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchTagsParams {
     pub query: String,
     #[serde(default = "default_tag_limit")]
