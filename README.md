@@ -20,6 +20,7 @@ The Rust workspace links against a system SQLite installation.
 - Search nodes by aliases and tags stored in Org metadata.
 - Resolve nodes by exact `ID`, exact title or alias, and current point location.
 - Resolve nodes from indexed refs and citekeys, and edit alias/ref/tag metadata from Emacs.
+- Display a persistent or dedicated context buffer for the current node with refs and backlinks.
 - Query indexed agenda entries from scheduled and deadline planning lines.
 - Resolve backlinks for nodes with explicit Org `ID` properties.
 - Capture new file notes with explicit IDs and configurable path/title templates.

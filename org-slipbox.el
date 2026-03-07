@@ -32,6 +32,7 @@
 ;;; Code:
 
 (require 'org-slipbox-agenda)
+(require 'org-slipbox-buffer)
 (require 'org-slipbox-node)
 (require 'org-slipbox-rpc)
 (require 'org-slipbox-dailies)
@@ -52,6 +53,9 @@
 ;;;###autoload(autoload 'org-slipbox-node-find "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-node-insert "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-node-backlinks "org-slipbox-node" nil t)
+;;;###autoload(autoload 'org-slipbox-buffer-refresh "org-slipbox-buffer" nil t)
+;;;###autoload(autoload 'org-slipbox-buffer-display-dedicated "org-slipbox-buffer" nil t)
+;;;###autoload(autoload 'org-slipbox-buffer-toggle "org-slipbox-buffer" nil t)
 ;;;###autoload(autoload 'org-slipbox-ref-find "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-ref-add "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-ref-remove "org-slipbox-node" nil t)

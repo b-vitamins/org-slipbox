@@ -133,6 +133,54 @@
             '("slipbox/indexFile" "slipbox/nodeAtPoint"))))
       (delete-directory root t))))
 
+(ert-deftest org-slipbox-test-buffer-render-includes-refs-and-backlinks ()
+  "Context buffer rendering should include refs and backlinks."
+  (with-current-buffer (get-buffer-create "*org-slipbox test*")
+    (unwind-protect
+        (progn
+          (setq-local org-slipbox-buffer-current-node
+                      '(:node_key "heading:note.org:3"
+                        :title "Heading"
+                        :file_path "note.org"
+                        :line 3
+                        :refs ["@smith2024"]))
+          (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                     (lambda (_method _params)
+                       '(:backlinks [(:title "Backlink"
+                                     :file_path "other.org"
+                                     :line 10)]))))
+            (org-slipbox-buffer-render-contents))
+          (should (derived-mode-p 'org-slipbox-buffer-mode))
+          (should (string-match-p "Refs" (buffer-string)))
+          (should (string-match-p "@smith2024" (buffer-string)))
+          (should (string-match-p "Backlinks" (buffer-string)))
+          (should (string-match-p "Backlink" (buffer-string))))
+      (kill-buffer (current-buffer)))))
+
+(ert-deftest org-slipbox-test-buffer-persistent-redisplay-renders-current-node ()
+  "Persistent redisplay should adopt the node at point."
+  (let (rendered)
+    (cl-letf (((symbol-function 'org-slipbox-node-at-point)
+               (lambda (&optional _assert)
+                 '(:node_key "file:note.org"
+                   :title "Note"
+                   :file_path "note.org"
+                   :line 1)))
+              ((symbol-function 'org-slipbox-buffer-render-contents)
+               (lambda ()
+                 (setq rendered org-slipbox-buffer-current-node))))
+      (with-current-buffer (get-buffer-create org-slipbox-buffer)
+        (unwind-protect
+            (progn
+              (org-slipbox-buffer-persistent-redisplay)
+              (should
+               (equal rendered
+                      '(:node_key "file:note.org"
+                        :title "Note"
+                        :file_path "note.org"
+                        :line 1))))
+          (kill-buffer (current-buffer)))))))
+
 (ert-deftest org-slipbox-test-ref-find-uses-rpc ()
   "Ref lookup should query the dedicated ref RPC."
   (let (method params visited)
