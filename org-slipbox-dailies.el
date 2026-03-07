@@ -34,6 +34,7 @@
 (require 'seq)
 (require 'subr-x)
 (require 'org-slipbox-capture)
+(require 'org-slipbox-files)
 (require 'org-slipbox-node)
 (require 'org-slipbox-rpc)
 
@@ -199,8 +200,7 @@ forward."
   "Return FILE as a calendar date list, or nil when it is not parseable."
   (ignore-errors
     (let* ((parts (org-parse-time-string
-                   (file-name-sans-extension
-                    (file-name-nondirectory file))))
+                   (org-slipbox--file-name-stem file)))
            (day (nth 3 parts))
            (month (nth 4 parts))
            (year (nth 5 parts)))
@@ -274,7 +274,9 @@ When KEYS is non-nil, use the matching daily capture template."
                (or (string-prefix-p "." name)
                    (auto-save-file-name-p name)
                    (backup-file-name-p name))))
-           (directory-files-recursively directory "\\.org\\'"))
+           (seq-filter (lambda (file)
+                         (file-in-directory-p file directory))
+                       (org-slipbox-list-files)))
           #'string-lessp)
        nil)
      extra-files)))
@@ -284,7 +286,7 @@ When KEYS is non-nil, use the matching daily capture template."
   (when-let* ((candidate (or file (org-slipbox-dailies--current-file)))
               (path (expand-file-name candidate))
               (directory (expand-file-name org-slipbox-dailies-directory org-slipbox-directory)))
-    (and (string-equal (downcase (or (file-name-extension path) "")) "org")
+    (and (org-slipbox-file-p path)
          (file-in-directory-p path directory))))
 
 (defun org-slipbox-dailies--path (time)

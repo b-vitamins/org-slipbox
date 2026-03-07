@@ -34,6 +34,7 @@
 (require 'org)
 (require 'seq)
 (require 'subr-x)
+(require 'org-slipbox-files)
 (require 'org-slipbox-node)
 (require 'org-slipbox-rpc)
 
@@ -368,18 +369,25 @@
 (defun org-slipbox-buffer--reflinks-rg-command (_patterns pattern-file)
   "Return ripgrep command for reflinks using PATTERN-FILE."
   (format
-   "rg --follow --only-matching --vimgrep --ignore-case --fixed-strings --glob %s --file %s %s"
-   (shell-quote-argument "*.org")
+   "rg --follow --only-matching --vimgrep --ignore-case --fixed-strings %s --file %s %s"
+   (org-slipbox-buffer--rg-glob-arguments)
    (shell-quote-argument pattern-file)
    (shell-quote-argument (expand-file-name org-slipbox-directory))))
 
 (defun org-slipbox-buffer--unlinked-rg-command (_titles pattern-file)
   "Return ripgrep command for unlinked references using PATTERN-FILE."
   (format
-   "rg --follow --only-matching --vimgrep --pcre2 --ignore-case --glob %s --file %s %s"
-   (shell-quote-argument "*.org")
+   "rg --follow --only-matching --vimgrep --pcre2 --ignore-case %s --file %s %s"
+   (org-slipbox-buffer--rg-glob-arguments)
    (shell-quote-argument pattern-file)
    (shell-quote-argument (expand-file-name org-slipbox-directory))))
+
+(defun org-slipbox-buffer--rg-glob-arguments ()
+  "Return shell-quoted ripgrep glob arguments for eligible files."
+  (mapconcat (lambda (glob)
+               (format "--glob %s" (shell-quote-argument glob)))
+             (org-slipbox--file-globs)
+             " "))
 
 (defun org-slipbox-buffer--grep-results (command node)
   "Run grep COMMAND and return filtered results for NODE."

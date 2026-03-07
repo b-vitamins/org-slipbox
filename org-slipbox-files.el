@@ -1,0 +1,110 @@
+;;; org-slipbox-files.el --- File discovery policy for org-slipbox -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2026 org-slipbox contributors
+
+;; Author: org-slipbox contributors <maintainers@example.invalid>
+;; Maintainer: org-slipbox contributors <maintainers@example.invalid>
+;; Version: 0.0.0
+;; Package-Requires: ((emacs "29.1") (jsonrpc "1.0.27"))
+;; Keywords: outlines, files, convenience
+
+;; This file is not part of GNU Emacs.
+
+;; org-slipbox is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+;;
+;; org-slipbox is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+;;
+;; You should have received a copy of the GNU General Public License
+;; along with org-slipbox.  If not, see <https://www.gnu.org/licenses/>.
+
+;;; Commentary:
+
+;; Public file-discovery helpers for `org-slipbox'.
+
+;;; Code:
+
+(require 'seq)
+(require 'subr-x)
+(require 'org-slipbox-rpc)
+
+;;;###autoload
+(defun org-slipbox-file-p (file &optional root)
+  "Return non-nil when FILE is eligible under the current discovery policy.
+
+When ROOT is non-nil, evaluate eligibility relative to that root.
+Otherwise use `org-slipbox-directory'."
+  (when-let* ((root (or root org-slipbox-directory))
+              (expanded-root (file-name-as-directory (expand-file-name root)))
+              (expanded-file (expand-file-name file))
+              ((file-in-directory-p expanded-file expanded-root))
+              (relative-path (file-relative-name expanded-file expanded-root))
+              (extension (org-slipbox--file-base-extension expanded-file)))
+    (and (member extension (org-slipbox-rpc--normalized-file-extensions))
+         (not (org-slipbox--excluded-relative-path-p relative-path)))))
+
+;;;###autoload
+(defun org-slipbox-list-files (&optional root)
+  "Return eligible files under ROOT, or `org-slipbox-directory' when nil."
+  (when-let* ((root (or root org-slipbox-directory))
+              (expanded-root (file-name-as-directory (expand-file-name root)))
+              ((file-directory-p expanded-root)))
+    (let ((case-fold-search t))
+      (sort
+       (seq-filter
+        (lambda (file)
+          (and (file-regular-p file)
+               (file-readable-p file)
+               (org-slipbox-file-p file expanded-root)))
+        (directory-files-recursively expanded-root (org-slipbox--file-recursive-regexp)))
+       #'string-lessp))))
+
+(defun org-slipbox--file-recursive-regexp ()
+  "Return the recursive listing regexp for eligible files."
+  (format "\\.%s\\(?:\\.gpg\\|\\.age\\)?\\'"
+          (regexp-opt (org-slipbox-rpc--normalized-file-extensions))))
+
+(defun org-slipbox--file-base-extension (file)
+  "Return FILE's base extension, stripping outer encrypted suffixes."
+  (let ((extension (downcase (or (file-name-extension file) ""))))
+    (cond
+     ((member extension '("gpg" "age"))
+      (when-let ((inner (file-name-sans-extension file)))
+        (org-slipbox--file-base-extension inner)))
+     ((string-empty-p extension) nil)
+     (t extension))))
+
+(defun org-slipbox--file-name-stem (file)
+  "Return FILE's stem, stripping one encrypted suffix when present."
+  (let* ((outer-extension (downcase (or (file-name-extension file) "")))
+         (candidate (if (member outer-extension '("gpg" "age"))
+                        (file-name-sans-extension file)
+                      file)))
+    (file-name-sans-extension (file-name-nondirectory candidate))))
+
+(defun org-slipbox--excluded-relative-path-p (relative-path)
+  "Return non-nil when RELATIVE-PATH is excluded by the current policy."
+  (seq-some
+   (lambda (pattern)
+     (string-match-p pattern relative-path))
+   (org-slipbox-rpc--normalized-file-exclude-regexp)))
+
+(defun org-slipbox--file-globs ()
+  "Return ripgrep glob patterns for eligible files."
+  (delete-dups
+   (apply #'append
+          (mapcar
+           (lambda (extension)
+             (list (format "*.%s" extension)
+                   (format "*.%s.gpg" extension)
+                   (format "*.%s.age" extension)))
+           (org-slipbox-rpc--normalized-file-extensions)))))
+
+(provide 'org-slipbox-files)
+
+;;; org-slipbox-files.el ends here

@@ -8,17 +8,18 @@ use std::io::{self, BufReader};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use slipbox_index::DiscoveryPolicy;
 use slipbox_rpc::{JsonRpcErrorObject, JsonRpcResponse};
 
 use self::dispatch::handle_request;
 use self::framing::{read_request, write_response};
 use self::state::ServerState;
 
-pub(crate) fn serve(root: PathBuf, db: PathBuf) -> Result<()> {
+pub(crate) fn serve(root: PathBuf, db: PathBuf, discovery: DiscoveryPolicy) -> Result<()> {
     let root = root
         .canonicalize()
         .with_context(|| format!("failed to canonicalize root {}", root.display()))?;
-    let mut state = ServerState::new(root, db)?;
+    let mut state = ServerState::new(root, db, discovery)?;
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut reader = BufReader::new(stdin.lock());

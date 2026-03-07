@@ -33,6 +33,7 @@
 (require 'org)
 (require 'seq)
 (require 'subr-x)
+(require 'org-slipbox-files)
 (require 'org-slipbox-rpc)
 (autoload 'org-slipbox--capture-node "org-slipbox-capture")
 (defvar org-slipbox-post-node-insert-hook)
@@ -420,10 +421,7 @@ the user enters a new title, return a plist with only `:title'."
   "Return non-nil when the current buffer can resolve indexed nodes."
   (let ((file (org-slipbox--current-node-buffer-file)))
     (and file
-         org-slipbox-directory
-         (string-suffix-p ".org" file)
-         (file-in-directory-p (expand-file-name file)
-                              (expand-file-name org-slipbox-directory)))))
+         (org-slipbox-file-p file))))
 
 (defun org-slipbox--current-node-buffer-file ()
   "Return the current base buffer file path."

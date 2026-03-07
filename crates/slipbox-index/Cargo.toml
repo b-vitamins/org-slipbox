@@ -7,5 +7,6 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+regex.workspace = true
 slipbox-core = { path = "../slipbox-core" }
 walkdir.workspace = true

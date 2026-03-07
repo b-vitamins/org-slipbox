@@ -47,6 +47,26 @@
   :type 'directory
   :group 'org-slipbox)
 
+(defcustom org-slipbox-file-extensions '("org")
+  "File extensions eligible for discovery and indexing.
+
+These extensions are matched case-insensitively.  Encrypted files
+with an outer `.gpg' or `.age' suffix remain eligible when their base
+extension matches this list."
+  :type '(repeat string)
+  :group 'org-slipbox)
+
+(defcustom org-slipbox-file-exclude-regexp nil
+  "Relative-path regexp or regexps excluded from discovery.
+
+When this is a string, it is applied as one regexp.  When it is a
+list, each element must be a regexp string."
+  :type '(choice
+          (const :tag "No exclusions" nil)
+          (regexp :tag "One regexp")
+          (repeat :tag "Regexp list" regexp))
+  :group 'org-slipbox)
+
 (defcustom org-slipbox-database-file
   (expand-file-name "org-slipbox.sqlite" user-emacs-directory)
   "Path to the local org-slipbox SQLite database."
@@ -55,6 +75,9 @@
 
 (defvar org-slipbox--connection nil
   "Live JSON-RPC connection to the local org-slipbox process.")
+
+(defvar org-slipbox--connection-config nil
+  "Configuration used to start `org-slipbox--connection'.")
 
 (defconst org-slipbox-rpc-method-ping "slipbox/ping")
 (defconst org-slipbox-rpc-method-index "slipbox/index")
@@ -87,31 +110,90 @@
   (and org-slipbox--connection
        (jsonrpc-running-p org-slipbox--connection)))
 
+(defun org-slipbox-rpc--normalized-file-extensions ()
+  "Return normalized discovery extensions."
+  (or (delete-dups
+       (delq nil
+             (mapcar
+              (lambda (extension)
+                (let ((extension (string-trim (or extension ""))))
+                  (unless (string-empty-p extension)
+                    (downcase (string-remove-prefix "." extension)))))
+              org-slipbox-file-extensions)))
+      '("org")))
+
+(defun org-slipbox-rpc--normalized-file-exclude-regexp ()
+  "Return normalized discovery exclusion regexps."
+  (let ((patterns (cond
+                   ((null org-slipbox-file-exclude-regexp) nil)
+                   ((stringp org-slipbox-file-exclude-regexp)
+                    (list org-slipbox-file-exclude-regexp))
+                   ((listp org-slipbox-file-exclude-regexp)
+                    org-slipbox-file-exclude-regexp)
+                   (t
+                    (user-error
+                     "`org-slipbox-file-exclude-regexp' must be nil, a string, or a list of strings")))))
+    (delq nil
+          (mapcar
+           (lambda (pattern)
+             (let ((pattern (string-trim (or pattern ""))))
+               (unless (string-empty-p pattern)
+                 pattern)))
+           patterns))))
+
+(defun org-slipbox-rpc--command ()
+  "Return the daemon command for the current configuration."
+  (append
+   (list org-slipbox-server-program
+         "serve"
+         "--root" (expand-file-name org-slipbox-directory)
+         "--db" (expand-file-name org-slipbox-database-file))
+   (apply #'append
+          (mapcar (lambda (extension)
+                    (list "--file-extension" extension))
+                  (org-slipbox-rpc--normalized-file-extensions)))
+   (apply #'append
+          (mapcar (lambda (pattern)
+                    (list "--exclude-regexp" pattern))
+                  (org-slipbox-rpc--normalized-file-exclude-regexp)))))
+
+(defun org-slipbox-rpc--connection-config ()
+  "Return the normalized connection configuration."
+  (list :program org-slipbox-server-program
+        :root (expand-file-name org-slipbox-directory)
+        :db (expand-file-name org-slipbox-database-file)
+        :file-extensions (org-slipbox-rpc--normalized-file-extensions)
+        :exclude-regexp (org-slipbox-rpc--normalized-file-exclude-regexp)))
+
 (defun org-slipbox-rpc-ensure ()
   "Start and return the org-slipbox JSON-RPC connection."
   (unless (file-directory-p org-slipbox-directory)
     (user-error "`org-slipbox-directory' must name an existing directory"))
-  (unless (org-slipbox-rpc-live-p)
-    (setq org-slipbox--connection
-          (make-instance
-           'jsonrpc-process-connection
-           :name "org-slipbox"
-           :events-buffer-config '(:size 200 :format full)
-           :process (lambda ()
-                      (make-process
-                       :name "org-slipbox"
-                       :command (list org-slipbox-server-program
-                                      "serve"
-                                      "--root" (expand-file-name org-slipbox-directory)
-                                      "--db" (expand-file-name org-slipbox-database-file))
-                       :connection-type 'pipe
-                       :coding 'binary
-                       :noquery t
-                       :stderr (get-buffer-create "*org-slipbox stderr*")))
-           :notification-dispatcher #'ignore
-           :request-dispatcher #'ignore
-           :on-shutdown (lambda (_conn)
-                          (setq org-slipbox--connection nil)))))
+  (let ((config (org-slipbox-rpc--connection-config)))
+    (when (and (org-slipbox-rpc-live-p)
+               (not (equal config org-slipbox--connection-config)))
+      (jsonrpc-shutdown org-slipbox--connection)
+      (setq org-slipbox--connection nil))
+    (unless (org-slipbox-rpc-live-p)
+      (setq org-slipbox--connection
+            (make-instance
+             'jsonrpc-process-connection
+             :name "org-slipbox"
+             :events-buffer-config '(:size 200 :format full)
+             :process (lambda ()
+                        (make-process
+                         :name "org-slipbox"
+                         :command (org-slipbox-rpc--command)
+                         :connection-type 'pipe
+                         :coding 'binary
+                         :noquery t
+                         :stderr (get-buffer-create "*org-slipbox stderr*")))
+             :notification-dispatcher #'ignore
+             :request-dispatcher #'ignore
+             :on-shutdown (lambda (_conn)
+                            (setq org-slipbox--connection nil
+                                  org-slipbox--connection-config nil))))
+      (setq org-slipbox--connection-config config)))
   org-slipbox--connection)
 
 (defun org-slipbox-rpc-request (method &optional params)

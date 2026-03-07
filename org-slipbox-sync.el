@@ -30,6 +30,7 @@
 ;;; Code:
 
 (require 'subr-x)
+(require 'org-slipbox-files)
 (require 'org-slipbox-rpc)
 
 (declare-function vc-delete-file "vc" (&optional file))
@@ -85,14 +86,9 @@
 (defun org-slipbox--syncable-file-p (file)
   "Return non-nil when FILE belongs to the configured slipbox root."
   (and file
-       org-slipbox-directory
-       (string-suffix-p ".org" file)
        (not (auto-save-file-name-p file))
        (not (backup-file-name-p file))
-       (let ((expanded-file (expand-file-name file))
-             (expanded-root (file-name-as-directory
-                             (expand-file-name org-slipbox-directory))))
-         (string-prefix-p expanded-root expanded-file))))
+       (org-slipbox-file-p file)))
 
 (defun org-slipbox--autosync-sync-file (file context)
   "Sync FILE into the index for lifecycle CONTEXT."

@@ -18,7 +18,7 @@ pub(crate) fn ping(state: &ServerState) -> Result<serde_json::Value, JsonRpcErro
 }
 
 pub(crate) fn index(state: &mut ServerState) -> Result<serde_json::Value, JsonRpcError> {
-    let files = slipbox_index::scan_root(&state.root)
+    let files = slipbox_index::scan_root_with_policy(&state.root, &state.discovery)
         .map_err(|error| internal_error(error.context("failed to scan Org files")))?;
     let stats = state
         .database
@@ -159,7 +159,7 @@ pub(crate) fn index_file(
     let (relative_path, absolute_path) = state
         .resolve_index_path(&params.file_path)
         .map_err(|error| internal_error(error.context("failed to resolve file path")))?;
-    if absolute_path.exists() {
+    if absolute_path.exists() && state.discovery.matches_path(&state.root, &absolute_path) {
         state.sync_path(&absolute_path)?;
     } else {
         state

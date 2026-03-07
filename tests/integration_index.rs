@@ -1,7 +1,9 @@
 use std::fs;
 
 use anyhow::Result;
-use slipbox_index::{scan_path, scan_root};
+use slipbox_index::{
+    DiscoveryPolicy, scan_path, scan_path_with_policy, scan_root, scan_root_with_policy,
+};
 use slipbox_store::Database;
 use tempfile::tempdir;
 
@@ -120,6 +122,47 @@ fn incremental_file_sync_keeps_unrelated_files_indexed() -> Result<()> {
             .expect("beta node should still exist")
             .title,
         "Beta"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn scan_root_respects_configured_discovery_policy() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(root.join("archive"))?;
+
+    fs::write(root.join("alpha.md"), "#+title: Alpha\n")?;
+    fs::write(root.join("archive").join("hidden.md"), "#+title: Hidden\n")?;
+    fs::write(root.join("beta.org"), "#+title: Beta\n")?;
+
+    let policy = DiscoveryPolicy::new(["md"], ["^archive/"])?;
+    let files = scan_root_with_policy(&root, &policy)?;
+
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].file_path, "alpha.md");
+    assert_eq!(files[0].nodes[0].title, "Alpha");
+
+    Ok(())
+}
+
+#[test]
+fn scan_path_rejects_files_excluded_by_discovery_policy() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    let archived = root.join("archive").join("hidden.org");
+    fs::create_dir_all(archived.parent().expect("archive parent"))?;
+    fs::write(&archived, "#+title: Hidden\n")?;
+
+    let policy = DiscoveryPolicy::new(["org"], ["^archive/"])?;
+    let error = scan_path_with_policy(&root, &archived, &policy)
+        .expect_err("excluded file should not be scanned");
+
+    assert!(
+        error
+            .to_string()
+            .contains("excluded by the current discovery policy")
     );
 
     Ok(())

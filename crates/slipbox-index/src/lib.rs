@@ -1,40 +1,49 @@
+mod discovery;
+
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 use std::time::UNIX_EPOCH;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use slipbox_core::{IndexedFile, IndexedLink, IndexedNode, NodeKind, normalize_reference};
-use walkdir::WalkDir;
+
+pub use discovery::DiscoveryPolicy;
 
 pub fn scan_root(root: &Path) -> Result<Vec<IndexedFile>> {
-    let mut paths = WalkDir::new(root)
-        .follow_links(false)
-        .sort_by_file_name()
-        .into_iter()
-        .filter_map(|entry| match entry {
-            Ok(entry) if entry.file_type().is_file() && is_org_file(entry.path()) => {
-                Some(Ok(entry.into_path()))
-            }
-            Ok(_) => None,
-            Err(error) => Some(Err(error)),
-        })
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .context("failed while traversing Org files")?;
-    paths.sort();
-    paths
+    scan_root_with_policy(root, &DiscoveryPolicy::default())
+}
+
+pub fn scan_root_with_policy(root: &Path, policy: &DiscoveryPolicy) -> Result<Vec<IndexedFile>> {
+    policy
+        .list_files(root)?
         .into_iter()
         .map(|path| parse_path(root, &path))
         .collect()
 }
 
 pub fn scan_path(root: &Path, path: &Path) -> Result<IndexedFile> {
+    scan_path_with_policy(root, path, &DiscoveryPolicy::default())
+}
+
+pub fn scan_path_with_policy(
+    root: &Path,
+    path: &Path,
+    policy: &DiscoveryPolicy,
+) -> Result<IndexedFile> {
+    if !policy.matches_path(root, path) {
+        return Err(anyhow!(
+            "{} is excluded by the current discovery policy",
+            path.display()
+        ));
+    }
     parse_path(root, path)
 }
 
 fn parse_path(root: &Path, path: &Path) -> Result<IndexedFile> {
-    let source =
-        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
-    let file_path = relative_path(root, path)?;
+    let source = read_source(path)?;
+    let file_path = discovery::relative_path(root, path)
+        .with_context(|| format!("{} is not under {}", path.display(), root.display()))?;
     let metadata =
         fs::metadata(path).with_context(|| format!("failed to stat {}", path.display()))?;
     let mtime_ns = metadata
@@ -122,17 +131,37 @@ fn parse_document(file_path: &str, mtime_ns: i64, source: &str) -> IndexedFile {
     }
 }
 
-fn is_org_file(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("org"))
+fn read_source(path: &Path) -> Result<String> {
+    match discovery::envelope_extension(path).as_deref() {
+        Some("gpg") => read_encrypted_source(path, "gpg", &["--quiet", "--batch", "--decrypt"]),
+        Some("age") => read_age_source(path),
+        _ => fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display())),
+    }
 }
 
-fn relative_path(root: &Path, path: &Path) -> Result<String> {
-    let relative = path
-        .strip_prefix(root)
-        .with_context(|| format!("{} is not under {}", path.display(), root.display()))?;
-    Ok(relative.to_string_lossy().replace('\\', "/"))
+fn read_age_source(path: &Path) -> Result<String> {
+    read_encrypted_source(path, "age", &["--decrypt"])
+        .or_else(|_| read_encrypted_source(path, "rage", &["--decrypt"]))
+        .with_context(|| format!("failed to decrypt {}", path.display()))
+}
+
+fn read_encrypted_source(path: &Path, program: &str, args: &[&str]) -> Result<String> {
+    let output = Command::new(program)
+        .args(args)
+        .arg(path)
+        .output()
+        .with_context(|| format!("failed to execute {program} for {}", path.display()))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        let message = if stderr.is_empty() {
+            format!("{program} exited with {}", output.status)
+        } else {
+            stderr
+        };
+        return Err(anyhow!("failed to decrypt {}: {}", path.display(), message));
+    }
+    String::from_utf8(output.stdout)
+        .with_context(|| format!("failed to decode decrypted output from {}", path.display()))
 }
 
 fn parse_file_title(lines: &[&str]) -> Option<String> {
@@ -163,11 +192,7 @@ fn parse_file_properties(lines: &[&str]) -> NodeProperties {
 }
 
 fn default_file_title(file_path: &str) -> String {
-    Path::new(file_path)
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or(file_path)
-        .to_owned()
+    discovery::default_file_stem(Path::new(file_path)).unwrap_or_else(|| file_path.to_owned())
 }
 
 fn strip_keyword<'a>(line: &'a str, keyword: &str) -> Option<&'a str> {

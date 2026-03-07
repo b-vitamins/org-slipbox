@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
 use slipbox_core::NodeRecord;
+use slipbox_index::DiscoveryPolicy;
 use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
 use slipbox_store::Database;
 use slipbox_write::{CaptureOutcome, RewriteOutcome};
@@ -11,15 +12,17 @@ use crate::server::rpc::internal_error;
 pub(super) struct ServerState {
     pub(super) root: PathBuf,
     pub(super) db_path: PathBuf,
+    pub(super) discovery: DiscoveryPolicy,
     pub(super) database: Database,
 }
 
 impl ServerState {
-    pub(super) fn new(root: PathBuf, db_path: PathBuf) -> Result<Self> {
+    pub(super) fn new(root: PathBuf, db_path: PathBuf, discovery: DiscoveryPolicy) -> Result<Self> {
         let database = Database::open(&db_path)?;
         Ok(Self {
             root,
             db_path,
+            discovery,
             database,
         })
     }
@@ -46,7 +49,7 @@ impl ServerState {
     }
 
     pub(super) fn sync_path(&mut self, path: &Path) -> Result<(), JsonRpcError> {
-        let indexed_file = slipbox_index::scan_path(&self.root, path)
+        let indexed_file = slipbox_index::scan_path_with_policy(&self.root, path, &self.discovery)
             .map_err(|error| internal_error(error.context("failed to scan updated file")))?;
         self.database
             .sync_file_index(&indexed_file)

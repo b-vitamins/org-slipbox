@@ -12,6 +12,11 @@
 (require 'ert)
 (require 'org-slipbox)
 
+(defun org-slipbox-test--write-literal-file (file &optional content)
+  "Write CONTENT to FILE without invoking special file-name handlers."
+  (let (file-name-handler-alist)
+    (write-region (or content "") nil file nil 'silent)))
+
 (ert-deftest org-slipbox-test-feature-provided ()
   "The package entry feature should load cleanly."
   (should (featurep 'org-slipbox)))
@@ -46,6 +51,82 @@
                     calendar-today-invisible-hook))
   (should-not (assoc "org-slipbox-ref" org-protocol-protocol-alist))
   (should-not (assoc "org-slipbox-node" org-protocol-protocol-alist)))
+
+(ert-deftest org-slipbox-test-file-p-respects-discovery-policy ()
+  "File eligibility should honor extensions, encrypted suffixes, and exclusions."
+  (let* ((root (make-temp-file "org-slipbox-files-" t))
+         (archive (expand-file-name "archive" root))
+         (plain (expand-file-name "note.org" root))
+         (gpg (expand-file-name "secret.org.gpg" root))
+         (age (expand-file-name "locked.org.age" root))
+         (archived (expand-file-name "skip.org" archive))
+         (markdown (expand-file-name "readme.md" root))
+         (outside-root (make-temp-file "org-slipbox-outside-" t))
+         (outside (expand-file-name "outside.org" outside-root)))
+    (unwind-protect
+        (progn
+          (make-directory archive t)
+          (write-region "" nil plain nil 'silent)
+          (org-slipbox-test--write-literal-file gpg)
+          (org-slipbox-test--write-literal-file age)
+          (write-region "" nil archived nil 'silent)
+          (write-region "" nil markdown nil 'silent)
+          (write-region "" nil outside nil 'silent)
+          (let ((org-slipbox-directory root)
+                (org-slipbox-file-extensions '("org"))
+                (org-slipbox-file-exclude-regexp "^archive/"))
+            (should (org-slipbox-file-p plain))
+            (should (org-slipbox-file-p gpg))
+            (should (org-slipbox-file-p age))
+            (should-not (org-slipbox-file-p archived))
+            (should-not (org-slipbox-file-p markdown))
+            (should-not (org-slipbox-file-p outside))))
+      (delete-directory root t)
+      (delete-directory outside-root t))))
+
+(ert-deftest org-slipbox-test-list-files-respects-discovery-policy ()
+  "File listing should use relative exclusions and configured extensions."
+  (let* ((root (make-temp-file "org-slipbox-files-root-" t))
+         (archive (expand-file-name "archive" root))
+         (basename-regexp (regexp-quote (file-name-nondirectory root)))
+         (org-file (expand-file-name "note.org" root))
+         (md-file (expand-file-name "readme.md" root))
+         (gpg-file (expand-file-name "secret.md.gpg" root))
+         (archived (expand-file-name "skip.md" archive)))
+    (unwind-protect
+        (progn
+          (make-directory archive t)
+          (write-region "" nil org-file nil 'silent)
+          (write-region "" nil md-file nil 'silent)
+          (org-slipbox-test--write-literal-file gpg-file)
+          (write-region "" nil archived nil 'silent)
+          (let ((org-slipbox-directory root)
+                (org-slipbox-file-extensions '("org" ".md"))
+                (org-slipbox-file-exclude-regexp (list "^archive/" basename-regexp)))
+            (should
+             (equal
+              (mapcar #'file-name-nondirectory (org-slipbox-list-files))
+              '("note.org" "readme.md" "secret.md.gpg")))))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-rpc-command-includes-discovery-policy ()
+  "Daemon startup should include the configured discovery policy."
+  (let ((org-slipbox-server-program "/tmp/slipbox")
+        (org-slipbox-directory "/tmp/notes")
+        (org-slipbox-database-file "/tmp/org-slipbox.sqlite")
+        (org-slipbox-file-extensions '("org" ".md"))
+        (org-slipbox-file-exclude-regexp '("^archive/" "\\.cache/")))
+    (should
+     (equal
+      (org-slipbox-rpc--command)
+      '("/tmp/slipbox"
+        "serve"
+        "--root" "/tmp/notes"
+        "--db" "/tmp/org-slipbox.sqlite"
+        "--file-extension" "org"
+        "--file-extension" "md"
+        "--exclude-regexp" "^archive/"
+        "--exclude-regexp" "\\.cache/")))))
 
 (ert-deftest org-slipbox-test-node-display-includes-file-and-line ()
   "Node display strings should be stable and informative."
@@ -994,7 +1075,10 @@
     (should
      (equal
       (org-slipbox-buffer--unlinked-rg-command '("foo" "bar") "/tmp/regex")
-      "rg --follow --only-matching --vimgrep --pcre2 --ignore-case --glob \\*.org --file /tmp/regex /tmp/org\\ slipbox"))))
+      (concat
+       "rg --follow --only-matching --vimgrep --pcre2 --ignore-case "
+       "--glob \\*.org --glob \\*.org.gpg --glob \\*.org.age "
+       "--file /tmp/regex /tmp/org\\ slipbox")))))
 
 (ert-deftest org-slipbox-test-buffer-reflink-patterns-expand-citekeys ()
   "Reflink search should include cite: variants for citekeys."
@@ -1466,18 +1550,22 @@
       (delete-directory root t))))
 
 (ert-deftest org-slipbox-test-syncable-buffer-detection ()
-  "Autosync should only consider Org files under the configured root."
+  "Autosync should only consider eligible files under the configured root."
   (let* ((root (make-temp-file "org-slipbox-test-" t))
          (inside (expand-file-name "note.org" root))
+         (inside-encrypted (expand-file-name "secret.org.gpg" root))
          (outside-root (make-temp-file "org-slipbox-outside-" t))
          (outside (expand-file-name "note.org" outside-root)))
     (unwind-protect
         (progn
           (write-region "" nil inside nil 'silent)
+          (org-slipbox-test--write-literal-file inside-encrypted)
           (write-region "" nil outside nil 'silent)
           (let ((org-slipbox-directory root)
                 (buffer-file-name inside))
             (should (org-slipbox--syncable-buffer-p))
+            (let ((buffer-file-name inside-encrypted))
+              (should (org-slipbox--syncable-buffer-p)))
             (let ((buffer-file-name outside))
               (should-not (org-slipbox--syncable-buffer-p)))))
       (delete-directory root t)
@@ -1714,6 +1802,8 @@
           (make-directory daily t)
           (write-region "" nil (expand-file-name "2026-03-07.org" daily) nil 'silent)
           (write-region "" nil (expand-file-name "2026-03-08.org" daily) nil 'silent)
+          (org-slipbox-test--write-literal-file
+           (expand-file-name "2026-03-09.org.gpg" daily))
           (write-region "" nil (expand-file-name ".hidden.org" daily) nil 'silent)
           (write-region "" nil (expand-file-name "#2026-03-09.org#" daily) nil 'silent)
           (write-region "" nil (expand-file-name "2026-03-10.org~" daily) nil 'silent)
@@ -1722,7 +1812,7 @@
             (should
              (equal
               (mapcar #'file-name-nondirectory (org-slipbox-dailies--list-files))
-              '("2026-03-07.org" "2026-03-08.org")))))
+              '("2026-03-07.org" "2026-03-08.org" "2026-03-09.org.gpg")))))
       (delete-directory root t))))
 
 (ert-deftest org-slipbox-test-dailies-daily-note-p-detects-daily-files ()
@@ -1781,6 +1871,10 @@
   (should
    (equal
     (org-slipbox-dailies-calendar--file-to-date "/tmp/daily/2026-03-07.org")
+    '(3 7 2026)))
+  (should
+   (equal
+    (org-slipbox-dailies-calendar--file-to-date "/tmp/daily/2026-03-07.org.gpg")
     '(3 7 2026)))
   (should-not
    (org-slipbox-dailies-calendar--file-to-date "/tmp/daily/not-a-date.org")))
