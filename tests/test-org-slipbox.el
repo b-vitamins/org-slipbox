@@ -132,6 +132,53 @@
         (should (equal (buffer-string)
                        "[[id:node-1][Heading t:TODO #one]]"))))))
 
+(ert-deftest org-slipbox-test-node-insert-replaces-active-region ()
+  "Node insertion should use the active region as the link description."
+  (with-temp-buffer
+    (org-mode)
+    (transient-mark-mode 1)
+    (insert "Selected text")
+    (goto-char (point-min))
+    (set-mark (point-max))
+    (activate-mark)
+    (cl-letf (((symbol-function 'org-slipbox-node-read)
+               (lambda (&rest _args)
+                 '(:title "Heading"
+                   :file_path "notes/heading.org"
+                   :node_key "file:notes/heading.org"
+                   :line 1)))
+              ((symbol-function 'org-slipbox--ensure-node-id)
+               (lambda (node)
+                 (plist-put (copy-sequence node) :explicit_id "node-1"))))
+      (org-slipbox-node-insert)
+      (should (equal (buffer-string)
+                     "[[id:node-1][Selected text]]")))))
+
+(ert-deftest org-slipbox-test-node-insert-captures-and-replaces-active-region ()
+  "Region-aware insertion should keep the selected text when capturing a node."
+  (with-temp-buffer
+    (org-mode)
+    (transient-mark-mode 1)
+    (insert "Fresh title")
+    (goto-char (point-min))
+    (set-mark (point-max))
+    (activate-mark)
+    (cl-letf (((symbol-function 'org-slipbox-node-read)
+               (lambda (&rest _args)
+                 '(:title "Fresh title")))
+              ((symbol-function 'org-slipbox--capture-node)
+               (lambda (_title &optional _template _refs _variables)
+                 '(:title "Fresh title"
+                   :file_path "fresh.org"
+                   :node_key "file:fresh.org"
+                   :line 1)))
+              ((symbol-function 'org-slipbox--ensure-node-id)
+               (lambda (node)
+                 (plist-put (copy-sequence node) :explicit_id "fresh-1"))))
+      (org-slipbox-node-insert)
+      (should (equal (buffer-string)
+                     "[[id:fresh-1][Fresh title]]")))))
+
 (ert-deftest org-slipbox-test-capture-template-expansion ()
   "Capture templates should expand built-in and contextual placeholders."
   (should

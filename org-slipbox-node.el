@@ -163,16 +163,23 @@ With prefix argument OTHER-WINDOW, visit it in another window."
   "Insert an `id:' link to a selected node.
 INITIAL-INPUT seeds the minibuffer. FILTER-FN filters indexed nodes."
   (interactive)
-  (let* ((node (org-slipbox-node-read initial-input filter-fn nil nil "Node: "))
+  (let* ((region (org-slipbox--node-insert-region))
+         (initial-input (or initial-input (plist-get region :text)))
+         (node (org-slipbox-node-read initial-input filter-fn nil nil "Node: "))
          (node (and node
                     (if (plist-get node :file_path)
                         node
                       (org-slipbox--capture-node (plist-get node :title)))))
          (node-with-id (and node (org-slipbox--ensure-node-id node)))
          (id (and node-with-id (plist-get node-with-id :explicit_id)))
-         (title (and node-with-id (org-slipbox-node-formatted node-with-id))))
+         (title (and node-with-id
+                     (or (plist-get region :text)
+                         (org-slipbox-node-formatted node-with-id)))))
     (when node-with-id
-      (insert (format "[[id:%s][%s]]" id title)))))
+      (org-slipbox--replace-node-insert-region
+       region
+       (format "[[id:%s][%s]]" id title))
+      node-with-id)))
 
 (defun org-slipbox-node-backlinks (&optional initial-input filter-fn)
   "Show backlinks for a selected existing node.
@@ -215,6 +222,28 @@ INITIAL-INPUT seeds the minibuffer. FILTER-FN filters indexed nodes."
   (if (plist-get node :explicit_id)
       node
     (org-slipbox-rpc-ensure-node-id (plist-get node :node_key))))
+
+(defun org-slipbox--node-insert-region ()
+  "Return the active region details for node insertion, or nil."
+  (when (use-region-p)
+    (let ((beg (set-marker (make-marker) (region-beginning)))
+          (end (set-marker (make-marker) (region-end))))
+      (list :beg beg
+            :end end
+            :text (org-link-display-format
+                   (buffer-substring-no-properties beg end))))))
+
+(defun org-slipbox--replace-node-insert-region (region link)
+  "Replace REGION with LINK, or insert LINK at point when REGION is nil."
+  (unwind-protect
+      (progn
+        (when region
+          (goto-char (plist-get region :beg))
+          (delete-region (plist-get region :beg) (plist-get region :end)))
+        (insert link))
+    (when region
+      (set-marker (plist-get region :beg) nil)
+      (set-marker (plist-get region :end) nil))))
 
 (defun org-slipbox--node-display (node)
   "Return a display string for NODE."
