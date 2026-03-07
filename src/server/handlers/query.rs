@@ -110,7 +110,7 @@ pub(crate) fn backlinks(
     let params: BacklinksParams = parse_params(params)?;
     let backlinks = state
         .database
-        .backlinks(&params.node_key, params.normalized_limit())
+        .backlinks(&params.node_key, params.normalized_limit(), params.unique)
         .map_err(|error| internal_error(error.context("failed to query backlinks")))?;
     to_value(BacklinksResult { backlinks })
 }

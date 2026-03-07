@@ -188,6 +188,8 @@ pub struct BacklinksParams {
     pub node_key: String,
     #[serde(default = "default_backlink_limit")]
     pub limit: usize,
+    #[serde(default)]
+    pub unique: bool,
 }
 
 impl BacklinksParams {

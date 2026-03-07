@@ -34,12 +34,54 @@ fn indexes_nodes_searches_and_returns_backlinks() -> Result<()> {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].title, "Target heading");
 
-    let backlinks = database.backlinks(&results[0].node_key, 10)?;
+    let backlinks = database.backlinks(&results[0].node_key, 10, false)?;
     assert_eq!(backlinks.len(), 1);
     assert_eq!(backlinks[0].source_node.title, "First heading");
     assert_eq!(backlinks[0].row, 7);
     assert_eq!(backlinks[0].col, 5);
     assert_eq!(backlinks[0].preview, "See [[id:beta-target][Beta]].");
+
+    Ok(())
+}
+
+#[test]
+fn backlinks_support_unique_sources() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    fs::write(
+        root.join("alpha.org"),
+        "#+title: Alpha\n\n* First heading\n:PROPERTIES:\n:ID: alpha-first\n:END:\nSee [[id:beta-target][Beta]].\nSee [[id:beta-target][Beta again]].\n",
+    )?;
+    fs::write(
+        root.join("gamma.org"),
+        "#+title: Gamma\n\n* Second heading\n:PROPERTIES:\n:ID: gamma-second\n:END:\nSee [[id:beta-target][Beta third]].\n",
+    )?;
+    fs::write(
+        root.join("beta.org"),
+        "#+title: Beta\n\n* Target heading\n:PROPERTIES:\n:ID: beta-target\n:END:\nTarget body.\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let target = database
+        .search_nodes("target", 10)?
+        .into_iter()
+        .next()
+        .expect("expected target node");
+
+    let backlinks = database.backlinks(&target.node_key, 10, false)?;
+    assert_eq!(backlinks.len(), 3);
+
+    let unique_backlinks = database.backlinks(&target.node_key, 10, true)?;
+    assert_eq!(unique_backlinks.len(), 2);
+    assert_eq!(unique_backlinks[0].source_node.title, "First heading");
+    assert_eq!(unique_backlinks[0].row, 7);
+    assert_eq!(unique_backlinks[1].source_node.title, "Second heading");
 
     Ok(())
 }

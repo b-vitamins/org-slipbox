@@ -37,7 +37,7 @@ The Rust workspace links against a system SQLite installation.
 - Support org-roam-style typed capture templates with `entry`, `plain`, `item`, `checkitem`, and `table-line` content, including explicit `:table-line-pos` placement.
 - Honor capture lifecycle actions such as `:finalize`, `:jump-to-captured`, `:immediate-finish`, and template finalize handlers, while rejecting unsupported lifecycle keys explicitly.
 - Capture into datetree targets and existing indexed nodes through the shared Rust write pipeline.
-- Display a persistent or dedicated context buffer for the current node with refs, backlinks, and dedicated-buffer reference discovery sections.
+- Display a persistent or dedicated context buffer for the current node with configurable ordered sections, postrender hooks, unique-backlink variants, and dedicated-buffer reference discovery sections.
 - Complete and follow title-based org-slipbox links, with optional rewrite to stable `id:` links.
 - Refile either the active region or the current subtree between indexed notes, and extract subtrees into new promoted file notes.
 - Promote a single root-heading note into a file node, or demote a file node into a single root heading, through Rust-backed rewrite commands.

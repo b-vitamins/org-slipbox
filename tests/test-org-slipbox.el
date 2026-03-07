@@ -1188,6 +1188,69 @@
           (should (string-match-p "See \\[\\[id:heading\\]\\]" (buffer-string))))
       (kill-buffer (current-buffer)))))
 
+(ert-deftest org-slipbox-test-buffer-render-honors-section-order-and-postrender-hook ()
+  "Configured sections should render in order and support postrender hooks."
+  (let ((org-slipbox-buffer-sections
+         '((org-slipbox-buffer-backlinks-section
+            :unique t
+            :section-heading "Unique Backlinks")
+           org-slipbox-buffer-refs-section))
+        (org-slipbox-buffer-postrender-functions
+         (list (lambda ()
+                 (insert "Postrender marker\n"))))
+        rpc-args)
+    (with-current-buffer (get-buffer-create "*org-slipbox section test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-current-node
+                        '(:node_key "heading:note.org:3"
+                          :title "Heading"
+                          :file_path "note.org"
+                          :line 3
+                          :refs ["@smith2024"]))
+            (cl-letf (((symbol-function 'org-slipbox-rpc-backlinks)
+                       (lambda (node-key &optional limit unique)
+                         (setq rpc-args (list node-key limit unique))
+                         '(:backlinks [(:source_node (:title "Backlink"
+                                                :file_path "other.org"
+                                                :line 10)
+                                       :row 12
+                                       :col 4
+                                       :preview "See [[id:heading]].")]))))
+              (org-slipbox-buffer-render-contents))
+            (let ((contents (buffer-string)))
+              (should (< (string-match-p "Unique Backlinks" contents)
+                         (string-match-p "Refs" contents)))
+              (should (equal rpc-args '("heading:note.org:3" 200 t)))
+              (should (string-match-p "Postrender marker" contents))))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-section-filter-skips-selected-sections ()
+  "Section filters should be able to suppress configured sections."
+  (let ((org-slipbox-buffer-sections
+         '(org-slipbox-buffer-node-section
+           org-slipbox-buffer-refs-section
+           org-slipbox-buffer-backlinks-section))
+        (org-slipbox-buffer-section-filter-function
+         (lambda (section _node)
+           (not (eq section 'org-slipbox-buffer-refs-section)))))
+    (with-current-buffer (get-buffer-create "*org-slipbox filter test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-current-node
+                        '(:node_key "heading:note.org:3"
+                          :title "Heading"
+                          :file_path "note.org"
+                          :line 3
+                          :refs ["@smith2024"]))
+            (cl-letf (((symbol-function 'org-slipbox-rpc-backlinks)
+                       (lambda (&rest _args)
+                         '(:backlinks []))))
+              (org-slipbox-buffer-render-contents))
+            (should-not (string-match-p "\nRefs\n----\n" (buffer-string)))
+            (should (string-match-p "\nBacklinks\n---------\n" (buffer-string))))
+        (kill-buffer (current-buffer))))))
+
 (ert-deftest org-slipbox-test-buffer-visit-location-moves-to-exact-position ()
   "Location visits should land on the requested row and column."
   (let* ((root (make-temp-file "org-slipbox-buffer-visit-" t))
@@ -1259,7 +1322,7 @@
                           :line 1
                           :kind "file"))
             (cl-letf (((symbol-function 'org-slipbox-buffer--backlinks)
-                       (lambda (_node) nil))
+                       (lambda (&rest _args) nil))
                       ((symbol-function 'org-slipbox-buffer--reflinks)
                        (lambda (_node)
                          '((:file "/tmp/refs.org"
@@ -1294,7 +1357,7 @@
                           :line 1
                           :kind "file"))
             (cl-letf (((symbol-function 'org-slipbox-buffer--backlinks)
-                       (lambda (_node) nil))
+                       (lambda (&rest _args) nil))
                       ((symbol-function 'org-slipbox-buffer--reflinks)
                        (lambda (_node)
                          (setq called t)

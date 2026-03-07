@@ -254,11 +254,13 @@ When NOCASE is non-nil, use case-insensitive matching."
    org-slipbox-rpc-method-node-at-point
    `(:file_path ,(expand-file-name file-path) :line ,line)))
 
-(defun org-slipbox-rpc-backlinks (node-key &optional limit)
-  "Return backlinks for NODE-KEY, optionally capped by LIMIT."
+(defun org-slipbox-rpc-backlinks (node-key &optional limit unique)
+  "Return backlinks for NODE-KEY, optionally capped by LIMIT.
+When UNIQUE is non-nil, only return the first backlink occurrence
+per source node."
   (org-slipbox-rpc-request
    org-slipbox-rpc-method-backlinks
-   `(:node_key ,node-key :limit ,(or limit 200))))
+   `(:node_key ,node-key :limit ,(or limit 200) :unique ,(and unique t))))
 
 (defun org-slipbox-rpc-agenda (start end)
   "Return indexed agenda entries between START and END."
