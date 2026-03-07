@@ -24,3 +24,4 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Added daily-note discovery and next/previous navigation commands.
 - Added exact node lookup helpers for IDs, exact title/alias matches, and point-based resolution.
 - Added a persistent or dedicated context buffer showing current node metadata, refs, and backlinks.
+- Added title-based org-slipbox links with indexed completion and rewrite-to-`id:` workflows.

@@ -44,12 +44,45 @@
   :type 'integer
   :group 'org-slipbox)
 
+(defcustom org-slipbox-link-type "slipbox"
+  "Org link type used for title-based org-slipbox links."
+  :type 'string
+  :group 'org-slipbox)
+
+(defcustom org-slipbox-link-auto-replace nil
+  "When non-nil, replace `org-slipbox-link-type' links with `id:' links on save."
+  :type 'boolean
+  :group 'org-slipbox)
+
+(defcustom org-slipbox-completion-everywhere nil
+  "When non-nil, complete words at point into org-slipbox links."
+  :type 'boolean
+  :group 'org-slipbox)
+
 (defcustom org-slipbox-capture-templates
   '(("d" "default" :path "${slug}.org" :title "${title}"))
   "Capture templates for `org-slipbox-capture'.
 Each template is a list of the form (KEY DESCRIPTION [:path STRING] [:title STRING])."
   :type 'sexp
   :group 'org-slipbox)
+
+(org-link-set-parameters org-slipbox-link-type :follow #'org-slipbox-link-follow-link)
+
+(defconst org-slipbox-bracket-completion-re
+  "\\[\\[\\(\\(?:slipbox:\\)?\\)\\([^]]*\\)]]"
+  "Regexp for completion within Org bracket links.")
+
+(define-minor-mode org-slipbox-completion-mode
+  "Enable org-slipbox completion and link replacement in the current buffer."
+  :lighter " Slipbox"
+  (if org-slipbox-completion-mode
+      (progn
+        (add-hook 'completion-at-point-functions #'org-slipbox-complete-link-at-point nil t)
+        (add-hook 'completion-at-point-functions #'org-slipbox-complete-everywhere nil t)
+        (add-hook 'before-save-hook #'org-slipbox--replace-slipbox-links-on-save-h nil t))
+    (remove-hook 'completion-at-point-functions #'org-slipbox-complete-link-at-point t)
+    (remove-hook 'completion-at-point-functions #'org-slipbox-complete-everywhere t)
+    (remove-hook 'before-save-hook #'org-slipbox--replace-slipbox-links-on-save-h t)))
 
 (defun org-slipbox-index ()
   "Rebuild the local org-slipbox index from Org files."
@@ -84,6 +117,79 @@ If ASSERT is non-nil, signal a user error when no node is available."
                         :line ,(line-number-at-pos)))))))
     (or node
         (and assert (user-error "No node at point")))))
+
+(defun org-slipbox-link-follow-link (title-or-alias)
+  "Visit the node named by TITLE-OR-ALIAS."
+  (let ((node (or (org-slipbox-node-from-title-or-alias title-or-alias)
+                  (org-slipbox--capture-node title-or-alias))))
+    (when org-slipbox-link-auto-replace
+      (org-slipbox-link-replace-at-point))
+    (org-mark-ring-push)
+    (org-slipbox--visit-node node)))
+
+(defun org-slipbox-link-replace-at-point (&optional link)
+  "Replace `org-slipbox-link-type' LINK at point with an `id:' link."
+  (save-excursion
+    (save-match-data
+      (let* ((link (or link (org-element-context)))
+             (type (org-element-property :type link))
+             (path (org-element-property :path link))
+             (description (and (org-element-property :contents-begin link)
+                               (org-element-property :contents-end link)
+                               (buffer-substring-no-properties
+                                (org-element-property :contents-begin link)
+                                (org-element-property :contents-end link))))
+             node)
+        (goto-char (org-element-property :begin link))
+        (when (and (org-in-regexp org-link-any-re 1)
+                   (string-equal type org-slipbox-link-type)
+                   (setq node (save-match-data
+                                (org-slipbox-node-from-title-or-alias path))))
+          (let* ((node-with-id (org-slipbox--ensure-node-id node))
+                 (explicit-id (plist-get node-with-id :explicit_id)))
+            (replace-match (org-link-make-string
+                            (concat "id:" explicit-id)
+                            (or description path)))))))))
+
+(defun org-slipbox-link-replace-all ()
+  "Replace all `org-slipbox-link-type' links in the current buffer."
+  (interactive)
+  (org-with-point-at 1
+    (while (search-forward (format "[[%s:" org-slipbox-link-type) nil t)
+      (org-slipbox-link-replace-at-point))))
+
+(defun org-slipbox-complete-link-at-point ()
+  "Complete `org-slipbox-link-type' links at point."
+  (let (slipbox-p start end)
+    (when (org-in-regexp org-slipbox-bracket-completion-re 1)
+      (setq slipbox-p (not (or (org-in-src-block-p)
+                               (string-blank-p (match-string 1))))
+            start (match-beginning 2)
+            end (match-end 2))
+      (list start end
+            #'org-slipbox--title-completion-table
+            :exit-function
+            (lambda (string &rest _)
+              (delete-char (- (length string)))
+              (insert (concat (unless slipbox-p
+                                (concat org-slipbox-link-type ":"))
+                              string))
+              (forward-char 2))))))
+
+(defun org-slipbox-complete-everywhere ()
+  "Complete words at point into org-slipbox links."
+  (when (and org-slipbox-completion-everywhere
+             (thing-at-point 'word)
+             (not (org-in-src-block-p))
+             (not (save-match-data (org-in-regexp org-link-any-re))))
+    (let ((bounds (bounds-of-thing-at-point 'word)))
+      (list (car bounds) (cdr bounds)
+            #'org-slipbox--title-completion-table
+            :exit-function
+            (lambda (string _status)
+              (delete-char (- (length string)))
+              (insert "[[" org-slipbox-link-type ":" string "]]"))
+            :exclusive 'no))))
 
 (defun org-slipbox-capture (&optional title)
   "Create a new note with TITLE and visit it."
@@ -566,6 +672,38 @@ When PREFIX is non-nil, only return tags matching PREFIX."
 (defun org-slipbox--current-node-buffer-file ()
   "Return the current base buffer file path."
   (buffer-file-name (or (buffer-base-buffer) (current-buffer))))
+
+(defun org-slipbox--replace-slipbox-links-on-save-h ()
+  "Replace title-based org-slipbox links before saving when configured."
+  (when org-slipbox-link-auto-replace
+    (org-slipbox-link-replace-all)))
+
+(defun org-slipbox--title-completion-table (string pred action)
+  "Completion table for node titles and aliases using STRING, PRED, and ACTION."
+  (if (eq action 'metadata)
+      '(metadata (category . org-slipbox-node))
+    (complete-with-action
+     action
+     (org-slipbox--title-completion-candidates string)
+     string
+     pred)))
+
+(defun org-slipbox--title-completion-candidates (query)
+  "Return title and alias candidates matching QUERY."
+  (let* ((response (org-slipbox-rpc-request
+                    "slipbox/searchNodes"
+                    `(:query ,query :limit ,org-slipbox-search-limit)))
+         (nodes (org-slipbox--plist-sequence (plist-get response :nodes)))
+         candidates)
+    (dolist (node nodes)
+      (dolist (candidate (delete-dups
+                          (append (list (plist-get node :title))
+                                  (org-slipbox--plist-sequence (plist-get node :aliases)))))
+        (when (and (stringp candidate)
+                   (or (string-empty-p query)
+                       (string-prefix-p query candidate completion-ignore-case)))
+          (push candidate candidates))))
+    (delete-dups (nreverse candidates))))
 
 (defun org-slipbox--tag-completion-table (string pred action)
   "Completion table for tags using STRING, PRED, and ACTION."

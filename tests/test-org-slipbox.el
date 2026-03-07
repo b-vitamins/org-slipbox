@@ -181,6 +181,59 @@
                         :line 1))))
           (kill-buffer (current-buffer)))))))
 
+(ert-deftest org-slipbox-test-link-replace-at-point-rewrites-slipbox-links ()
+  "Title-based org-slipbox links should rewrite to `id:' links."
+  (with-temp-buffer
+    (org-mode)
+    (insert "[[slipbox:Heading]]")
+    (goto-char (point-min))
+    (search-forward "slipbox:Heading")
+    (cl-letf (((symbol-function 'org-slipbox-node-from-title-or-alias)
+               (lambda (_title-or-alias &optional _nocase)
+                 '(:title "Heading" :file_path "note.org" :line 1)))
+              ((symbol-function 'org-slipbox--ensure-node-id)
+               (lambda (_node)
+                 '(:title "Heading" :explicit_id "abc123"))))
+      (org-slipbox-link-replace-at-point))
+    (should (equal (buffer-string) "[[id:abc123][Heading]]"))))
+
+(ert-deftest org-slipbox-test-link-replace-all-only-rewrites-slipbox-links ()
+  "Bulk replacement should only touch org-slipbox links."
+  (with-temp-buffer
+    (org-mode)
+    (insert "[[file:test.org][File]]\n[[slipbox:Heading]]\n[[https://example.com][Web]]")
+    (let ((replace-count 0)
+          (original-fn (symbol-function 'org-slipbox-link-replace-at-point)))
+      (cl-letf (((symbol-function 'org-slipbox-link-replace-at-point)
+                 (lambda ()
+                   (cl-incf replace-count)
+                   (funcall original-fn)))
+                ((symbol-function 'org-slipbox-node-from-title-or-alias)
+                 (lambda (_title-or-alias &optional _nocase)
+                   '(:title "Heading" :file_path "note.org" :line 1)))
+                ((symbol-function 'org-slipbox--ensure-node-id)
+                 (lambda (_node)
+                   '(:title "Heading" :explicit_id "abc123"))))
+        (org-slipbox-link-replace-all)
+        (should (= replace-count 1))
+        (should (string-match-p "\\[\\[id:abc123\\]\\[Heading\\]\\]" (buffer-string)))))))
+
+(ert-deftest org-slipbox-test-title-completion-candidates-use-indexed-search ()
+  "Link completions should come from the indexed node search."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:nodes [(:title "Heading"
+                           :aliases ["Head" "Alias"])
+                          (:title "Other"
+                           :aliases ["Hidden"])]))))
+      (should (equal (org-slipbox--title-completion-candidates "He")
+                     '("Heading" "Head"))))
+    (should (equal method "slipbox/searchNodes"))
+    (should (equal params '(:query "He" :limit 50)))))
+
 (ert-deftest org-slipbox-test-ref-find-uses-rpc ()
   "Ref lookup should query the dedicated ref RPC."
   (let (method params visited)
