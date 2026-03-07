@@ -35,6 +35,7 @@
 (require 'subr-x)
 (require 'org-slipbox-rpc)
 (autoload 'org-slipbox--capture-node "org-slipbox-capture")
+(defvar org-slipbox-post-node-insert-hook)
 
 (defcustom org-slipbox-search-limit 50
   "Maximum number of nodes to request for interactive search."
@@ -163,23 +164,31 @@ With prefix argument OTHER-WINDOW, visit it in another window."
   "Insert an `id:' link to a selected node.
 INITIAL-INPUT seeds the minibuffer. FILTER-FN filters indexed nodes."
   (interactive)
-  (let* ((region (org-slipbox--node-insert-region))
-         (initial-input (or initial-input (plist-get region :text)))
-         (node (org-slipbox-node-read initial-input filter-fn nil nil "Node: "))
-         (node (and node
-                    (if (plist-get node :file_path)
-                        node
-                      (org-slipbox--capture-node (plist-get node :title)))))
-         (node-with-id (and node (org-slipbox--ensure-node-id node)))
-         (id (and node-with-id (plist-get node-with-id :explicit_id)))
-         (title (and node-with-id
-                     (or (plist-get region :text)
-                         (org-slipbox-node-formatted node-with-id)))))
-    (when node-with-id
-      (org-slipbox--replace-node-insert-region
-       region
-       (format "[[id:%s][%s]]" id title))
-      node-with-id)))
+  (unwind-protect
+      (atomic-change-group
+        (let* ((region (org-slipbox--node-insert-region))
+               (description (plist-get region :text))
+               (initial-input (or initial-input description))
+               (node (org-slipbox-node-read initial-input filter-fn nil nil "Node: ")))
+          (when node
+            (if (plist-get node :file_path)
+                (let* ((node-with-id (org-slipbox--ensure-node-id node))
+                       (description (or description
+                                        (org-slipbox-node-formatted node-with-id))))
+                  (org-slipbox--insert-node-link node-with-id description region)
+                  node-with-id)
+              (org-slipbox--capture-node
+               (plist-get node :title)
+               nil
+               nil
+               nil
+               `(:finalize insert-link
+                 :call-location ,(point-marker)
+                 :link-description ,description
+                 :region ,(and region
+                               (cons (plist-get region :beg)
+                                     (plist-get region :end)))))))))
+    (deactivate-mark)))
 
 (defun org-slipbox-node-backlinks (&optional initial-input filter-fn)
   "Show backlinks for a selected existing node.
@@ -244,6 +253,14 @@ INITIAL-INPUT seeds the minibuffer. FILTER-FN filters indexed nodes."
     (when region
       (set-marker (plist-get region :beg) nil)
       (set-marker (plist-get region :end) nil))))
+
+(defun org-slipbox--insert-node-link (node description &optional region)
+  "Insert a link to NODE using DESCRIPTION, replacing REGION when present."
+  (let ((id (plist-get node :explicit_id)))
+    (org-slipbox--replace-node-insert-region
+     region
+     (format "[[id:%s][%s]]" id description))
+    (run-hook-with-args 'org-slipbox-post-node-insert-hook id description)))
 
 (defun org-slipbox--node-display (node)
   "Return a display string for NODE."

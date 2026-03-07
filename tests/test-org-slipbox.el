@@ -181,14 +181,14 @@
                (lambda (&rest _args)
                  '(:title "Fresh title")))
               ((symbol-function 'org-slipbox--capture-node)
-               (lambda (_title &optional _template _refs _variables)
-                 '(:title "Fresh title"
-                   :file_path "fresh.org"
-                   :node_key "file:fresh.org"
-                   :line 1)))
-              ((symbol-function 'org-slipbox--ensure-node-id)
-               (lambda (node)
-                 (plist-put (copy-sequence node) :explicit_id "fresh-1"))))
+               (lambda (_title &optional _template _refs _variables session)
+                 (let ((node '(:title "Fresh title"
+                               :file_path "fresh.org"
+                               :node_key "file:fresh.org"
+                               :line 1
+                               :explicit_id "fresh-1")))
+                   (org-slipbox--capture-finalize-insert-link node session)
+                   node))))
       (org-slipbox-node-insert)
       (should (equal (buffer-string)
                      "[[id:fresh-1][Fresh title]]")))))
@@ -306,9 +306,11 @@
                (lambda (&rest _args)
                  '("d" "default" :path "notes/${slug}.org" :title "${title}")))
               ((symbol-function 'org-slipbox--capture-node)
-               (lambda (title template refs variables)
-                 (setq captured (list title template refs variables))
-                 '(:title "New" :file_path "new.org" :line 1)))
+               (lambda (title template refs variables &optional session)
+                 (setq captured (list title template refs variables session))
+                 (let ((node '(:title "New" :file_path "new.org" :line 1)))
+                   (org-slipbox--visit-node node)
+                   node)))
               ((symbol-function 'org-slipbox--visit-node)
                (lambda (node &optional _other-window)
                  (setq visited node))))
@@ -318,10 +320,43 @@
             '("New"
               ("d" "default" :path "notes/${slug}.org" :title "${title}")
               ("cite:smith2024")
-              (:ref "cite:smith2024"))))
+              (:ref "cite:smith2024")
+              (:default-finalize find-file))))
     (should
      (equal visited
             '(:title "New" :file_path "new.org" :line 1)))))
+
+(ert-deftest org-slipbox-test-capture-finalize-insert-link-runs-hook ()
+  "Insert-link finalization should replace the region and run the insert hook."
+  (with-temp-buffer
+    (org-mode)
+    (transient-mark-mode 1)
+    (insert "Selected text")
+    (goto-char (point-min))
+    (set-mark (point-max))
+    (activate-mark)
+    (let ((region (cons (copy-marker (region-beginning))
+                        (copy-marker (region-end))))
+          (marker (point-marker))
+          hook-args)
+      (goto-char (point-min))
+      (cl-letf (((symbol-function 'org-slipbox--ensure-node-id)
+                 (lambda (node)
+                   node))
+                ((symbol-function 'run-hook-with-args)
+                 (lambda (_hook id description)
+                   (setq hook-args (list id description)))))
+        (org-slipbox--capture-finalize-insert-link
+         '(:title "Note"
+           :file_path "note.org"
+           :line 1
+           :explicit_id "note-1")
+         `(:call-location ,marker
+           :region ,region
+           :link-description "Selected text")))
+      (should (equal (buffer-string)
+                     "[[id:note-1][Selected text]]"))
+      (should (equal hook-args '("note-1" "Selected text"))))))
 
 (ert-deftest org-slipbox-test-capture-to-node-uses-rpc ()
   "Node-target capture should use the dedicated append-to-node RPC."
@@ -409,6 +444,24 @@
               :empty_lines_before 0
               :empty_lines_after 0
               :node_key "heading:project.org:3")))))
+
+(ert-deftest org-slipbox-test-typed-capture-template-jumps-to-captured-node ()
+  "Typed templates should honor `:jump-to-captured'."
+  (let (visited)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (&rest _args)
+                 '(:title "Note" :file_path "notes/note.org" :line 5)))
+              ((symbol-function 'org-slipbox--visit-node)
+               (lambda (node &optional _other-window)
+                 (setq visited node))))
+      (org-slipbox--capture-node-at-time
+       "Note"
+       '("d" "default" entry "* ${title}"
+         :target (file "notes/${slug}.org")
+         :jump-to-captured t)
+       nil
+       (encode-time 0 0 0 7 3 2026)))
+    (should (equal visited '(:title "Note" :file_path "notes/note.org" :line 5)))))
 
 (ert-deftest org-slipbox-test-capture-datetree-target-expands-outline-path ()
   "Datetree targets should expand to deterministic outline paths."

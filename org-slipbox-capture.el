@@ -39,6 +39,10 @@
 (defconst org-slipbox--capture-types '(plain entry item checkitem table-line)
   "Org-roam-style capture content types supported by org-slipbox.")
 
+(defvar org-slipbox-post-node-insert-hook nil
+  "Hook run after `org-slipbox' inserts a new `id:' link.
+Hook functions receive two arguments: the inserted ID and description.")
+
 (defcustom org-slipbox-capture-templates
   '(("d" "default" :path "${slug}.org" :title "${title}"))
   "Capture templates for `org-slipbox-capture'.
@@ -59,7 +63,15 @@ TYPE may be one of `plain', `entry', `item', `checkitem', or
 `table-line'. Typed templates follow the org-roam capture model:
 `:target' selects an existing or created location and TYPE/TEMPLATE
 describe the content inserted there. The older shorthand template
-syntax is preserved for compatibility."
+syntax is preserved for compatibility.
+
+In addition to target and content options, typed templates may carry
+the lifecycle keys `:finalize' and `:jump-to-captured'. Compatibility
+keys from `org-capture', including `:immediate-finish', `:kill-buffer',
+`:no-save', `:unnarrowed', `:clock-in', `:clock-resume', and
+`:clock-keep', are accepted so org-roam-style templates can be reused,
+but org-slipbox does not create a transient capture buffer, so the
+runtime effect is driven by the post-success finalize action."
   :type 'sexp
   :group 'org-slipbox)
 
@@ -81,7 +93,11 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
   (interactive)
   (let* ((title (or title (read-string "Capture title: ")))
          (template (org-slipbox--read-capture-template org-slipbox-capture-templates)))
-    (org-slipbox--visit-node (org-slipbox--capture-node title template))))
+    (org-slipbox--capture-node
+     title
+     template
+     nil
+     '(:default-finalize find-file))))
 
 ;;;###autoload
 (defun org-slipbox-capture-ref (reference &optional title templates keys variables)
@@ -90,15 +106,18 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
   (setq reference (string-trim reference))
   (when (string-empty-p reference)
     (user-error "Ref must not be empty"))
-  (let* ((templates (or templates org-slipbox-capture-templates))
+  (let* ((existing (org-slipbox-node-from-ref reference))
+         (templates (or templates org-slipbox-capture-templates))
          (variables (plist-put (copy-sequence variables) :ref reference))
-         (node (or (org-slipbox-node-from-ref reference)
+         (node (or existing
                    (org-slipbox--capture-node
                     (or title (read-string "Capture title: "))
                     (org-slipbox--read-capture-template templates keys)
                     (list reference)
-                    variables))))
-    (org-slipbox--visit-node node)
+                    variables
+                    '(:default-finalize find-file)))))
+    (when existing
+      (org-slipbox--visit-node existing))
     node))
 
 ;;;###autoload
@@ -127,18 +146,23 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
      (choice choice)
      (t nil))))
 
-(defun org-slipbox--capture-node (title &optional template refs variables)
-  "Capture a new node with TITLE using TEMPLATE, REFS, and VARIABLES."
-  (org-slipbox--capture-node-at-time title template refs nil variables))
+(defun org-slipbox--capture-node (title &optional template refs variables session)
+  "Capture a new node with TITLE using TEMPLATE, REFS, VARIABLES, and SESSION."
+  (org-slipbox--capture-node-at-time title template refs nil variables session))
 
-(defun org-slipbox--capture-node-at-time (title &optional template refs time variables)
-  "Capture a new node with TITLE using TEMPLATE, REFS, TIME, and VARIABLES."
+(defun org-slipbox--capture-node-at-time
+    (title &optional template refs time variables session)
+  "Capture a new node with TITLE using TEMPLATE, REFS, TIME, VARIABLES, and SESSION."
   (let* ((template (or template (org-slipbox--default-capture-template)))
          (template-options (org-slipbox--capture-template-options template))
+         (session (copy-sequence session))
          (time (org-slipbox--capture-template-time time template-options)))
-    (if (org-slipbox--typed-capture-template-p template)
-        (org-slipbox--capture-typed-template title template refs time variables)
-      (org-slipbox--capture-shorthand-template title template refs time variables))))
+    (org-slipbox--capture-run-lifecycle
+     (if (org-slipbox--typed-capture-template-p template)
+         (org-slipbox--capture-typed-template title template refs time variables)
+       (org-slipbox--capture-shorthand-template title template refs time variables))
+     template-options
+     session)))
 
 (defun org-slipbox--default-capture-template ()
   "Return the default capture template."
@@ -464,6 +488,64 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
   (or (org-slipbox-node-from-id query)
       (org-slipbox-node-from-title-or-alias query t)
       (user-error "No existing node matches %s" query)))
+
+(defun org-slipbox--capture-run-lifecycle (node template-options session)
+  "Apply template and caller lifecycle settings for NODE."
+  (let ((finalize (org-slipbox--capture-resolve-finalize template-options session)))
+    (when finalize
+      (org-slipbox--capture-call-finalizer finalize node session))
+    node))
+
+(defun org-slipbox--capture-resolve-finalize (template-options session)
+  "Resolve the effective finalize action for TEMPLATE-OPTIONS and SESSION."
+  (or (plist-get session :finalize)
+      (plist-get template-options :finalize)
+      (and (plist-get template-options :jump-to-captured) 'find-file)
+      (plist-get session :default-finalize)))
+
+(defun org-slipbox--capture-call-finalizer (finalize node session)
+  "Run FINALIZE for NODE with SESSION."
+  (cond
+   ((symbolp finalize)
+    (let ((function (intern-soft
+                     (format "org-slipbox--capture-finalize-%s" finalize))))
+      (unless (functionp function)
+        (user-error "Unsupported capture finalize action %S" finalize))
+      (funcall function node session)))
+   ((functionp finalize)
+    (funcall finalize node session))
+   (t
+    (user-error "Unsupported capture finalize action %S" finalize))))
+
+(defun org-slipbox--capture-finalize-find-file (node _session)
+  "Visit NODE after capture."
+  (org-slipbox--visit-node node))
+
+(defun org-slipbox--capture-finalize-insert-link (node session)
+  "Insert a link to NODE using SESSION caller context."
+  (let ((marker (plist-get session :call-location)))
+    (unless marker
+      (user-error "No caller location available for insert-link finalize"))
+    (let ((buffer (marker-buffer marker)))
+      (unless (buffer-live-p buffer)
+        (user-error "The caller buffer for insert-link is no longer live"))
+      (with-current-buffer buffer
+        (goto-char marker)
+        (when-let ((region (plist-get session :region)))
+          (delete-region (car region) (cdr region))
+          (goto-char (car region))
+          (set-marker (car region) nil)
+          (set-marker (cdr region) nil))
+        (let* ((node-with-id (org-slipbox--ensure-node-id node))
+               (description (or (plist-get session :link-description)
+                                (org-slipbox-node-formatted node-with-id))))
+          (insert (format "[[id:%s][%s]]"
+                          (plist-get node-with-id :explicit_id)
+                          description))
+          (run-hook-with-args 'org-slipbox-post-node-insert-hook
+                              (plist-get node-with-id :explicit_id)
+                              description))
+        (set-marker marker nil)))))
 
 (defun org-slipbox--slugify (title)
   "Convert TITLE into a stable file-name slug."
