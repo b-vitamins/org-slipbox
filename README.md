@@ -28,7 +28,7 @@ The Rust workspace links against a system SQLite installation.
 - Read nodes through a single-step chooser with configurable filter, sort, annotation, and insertion-format hooks.
 - Search nodes by aliases and tags stored in Org metadata.
 - Resolve nodes by exact `ID`, exact title or alias, and current point location.
-- Resolve nodes from indexed refs and citekeys, and edit alias/ref/tag metadata from Emacs.
+- Resolve nodes from indexed refs and citekeys through a dedicated ref chooser, and edit alias/ref/tag metadata from Emacs.
 - Capture notes from refs without duplicating existing ref-backed nodes.
 - Expand capture templates into exact file targets, optional file heads, and outline-path targets.
 - Prepare capture targets consistently across exact files, file heads, outline paths, datetrees, and existing indexed nodes.

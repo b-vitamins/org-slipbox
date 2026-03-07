@@ -40,24 +40,60 @@
   :type 'integer
   :group 'org-slipbox)
 
+(defcustom org-slipbox-ref-read-limit 200
+  "Maximum number of indexed refs to request for interactive completion."
+  :type 'integer
+  :group 'org-slipbox)
+
+(defcustom org-slipbox-ref-annotation-function #'org-slipbox-ref-read--annotation
+  "Function used to annotate `org-slipbox-ref-read' completion candidates.
+The function receives one ref ENTRY plist and must return a string."
+  :type 'function
+  :group 'org-slipbox)
+
+(defvar org-slipbox-ref-history nil
+  "Minibuffer history for `org-slipbox-ref-read'.")
+
 ;;;###autoload
-(defun org-slipbox-ref-find (query)
-  "Find a node by reference QUERY and visit it."
-  (interactive (list (read-string "Find ref: ")))
-  (let* ((response (org-slipbox-rpc-search-refs query org-slipbox-search-limit))
-         (refs (org-slipbox--plist-sequence (plist-get response :refs)))
-         (choices (mapcar (lambda (entry)
-                            (cons (org-slipbox--ref-display entry) entry))
-                          refs)))
-    (cond
-     ((null refs)
-      (user-error "No ref matches %s" query))
-     ((= (length refs) 1)
-      (org-slipbox--visit-node (plist-get (car refs) :node)))
-     (t
-      (let* ((selection (completing-read "Ref: " choices nil t))
-             (entry (cdr (assoc selection choices))))
-        (org-slipbox--visit-node (plist-get entry :node)))))))
+(defun org-slipbox-ref-read (&optional initial-input filter-fn prompt)
+  "Read and return an indexed node selected through its ref.
+INITIAL-INPUT seeds the minibuffer. FILTER-FN filters nodes attached
+to refs. PROMPT defaults to \"Ref: \"."
+  (let* ((prompt (or prompt "Ref: "))
+         completions
+         (collection
+          (lambda (string pred action)
+            (if (eq action 'metadata)
+                `(metadata
+                  (annotation-function
+                   . ,(lambda (candidate)
+                        (org-slipbox--ref-completion-annotation candidate)))
+                  (category . org-slipbox-ref))
+              (setq completions
+                    (org-slipbox-ref-read--completions string filter-fn))
+              (complete-with-action action completions string pred))))
+         (selection
+          (completing-read
+           prompt
+           collection
+           nil
+           t
+           initial-input
+           'org-slipbox-ref-history))
+         (node (cdr (assoc selection completions))))
+    (or node
+        (cdr (assoc selection
+                    (org-slipbox-ref-read--completions selection filter-fn))))))
+
+;;;###autoload
+(defun org-slipbox-ref-find (&optional initial-input filter-fn prompt)
+  "Find and visit a node selected through its ref.
+INITIAL-INPUT seeds the minibuffer. FILTER-FN filters nodes attached
+to refs. PROMPT defaults to \"Ref: \"."
+  (interactive)
+  (let ((node (org-slipbox-ref-read initial-input filter-fn prompt)))
+    (when node
+      (org-slipbox--visit-node node))))
 
 ;;;###autoload
 (defun org-slipbox-ref-add (reference)
@@ -178,11 +214,50 @@ When PREFIX is non-nil, only return tags matching PREFIX."
   "Return KEY values from NODE as a list."
   (org-slipbox--plist-sequence (plist-get node key)))
 
-(defun org-slipbox--ref-display (entry)
-  "Return a display string for reference ENTRY."
-  (format "%s | %s"
-          (plist-get entry :reference)
-          (org-slipbox--node-display (plist-get entry :node))))
+(defun org-slipbox-ref-read--completions (query &optional filter-fn)
+  "Return formatted ref completion candidates for QUERY.
+FILTER-FN filters nodes attached to refs."
+  (let* ((response (org-slipbox-rpc-search-refs query org-slipbox-ref-read-limit))
+         (refs (org-slipbox--plist-sequence (plist-get response :refs)))
+         (refs (if filter-fn
+                   (seq-filter
+                    (lambda (entry)
+                      (funcall filter-fn (plist-get entry :node)))
+                    refs)
+                 refs)))
+    (mapcar #'org-slipbox--ref-completion-candidate refs)))
+
+(defun org-slipbox-ref-read--annotation (entry)
+  "Return the default completion annotation for ref ENTRY."
+  (let* ((node (plist-get entry :node))
+         (title (plist-get node :title)))
+    (if (string-empty-p (or title ""))
+        ""
+      (format " %s" title))))
+
+(defun org-slipbox--ref-completion-candidate (entry)
+  "Return a completion candidate pair for ref ENTRY."
+  (let* ((node (plist-get entry :node))
+         (visible
+          (propertize
+           (plist-get entry :reference)
+           'org-slipbox-ref-entry entry
+           'org-slipbox-ref-node node))
+         (hidden
+          (propertize
+           (or (plist-get node :node_key)
+               (plist-get node :explicit_id)
+               (format "%s:%s"
+                       (plist-get node :file_path)
+                       (plist-get node :line)))
+           'invisible t)))
+    (cons (concat visible hidden) node)))
+
+(defun org-slipbox--ref-completion-annotation (candidate)
+  "Return the annotation string for ref completion CANDIDATE."
+  (if-let ((entry (get-text-property 0 'org-slipbox-ref-entry candidate)))
+      (funcall org-slipbox-ref-annotation-function entry)
+    ""))
 
 (defun org-slipbox--tag-completion-table (string pred action)
   "Completion table for tags using STRING, PRED, and ACTION."

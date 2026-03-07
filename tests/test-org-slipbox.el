@@ -307,6 +307,69 @@
         (should (eq (cdr (assq 'display-sort-function props)) 'identity))
         (should (equal annotation " [a.org]"))))))
 
+(ert-deftest org-slipbox-test-ref-read-exposes-dedicated-chooser-metadata ()
+  "Ref read should expose annotation metadata, history, and duplicate refs."
+  (let ((org-slipbox-ref-annotation-function
+         (lambda (entry)
+           (format " [%s]" (plist-get (plist-get entry :node) :title))))
+        method
+        params
+        prompt
+        history
+        metadata
+        candidates)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:refs [(:reference "@smith2024"
+                           :node (:title "Paper A"
+                                  :file_path "a.org"
+                                  :line 1
+                                  :node_key "file:a.org"))
+                          (:reference "@smith2024"
+                           :node (:title "Paper B"
+                                  :file_path "b.org"
+                                  :line 2
+                                  :node_key "file:b.org"))])))
+              ((symbol-function 'completing-read)
+               (lambda (read-prompt collection _predicate _require-match _initial-input read-history)
+                 (setq prompt read-prompt
+                       history read-history
+                       candidates (all-completions "" collection nil)
+                       metadata (funcall collection "" nil 'metadata))
+                 (cadr candidates))))
+      (let* ((node (org-slipbox-ref-read nil nil "Choose ref: "))
+             (props (cdr metadata))
+             (annotation (funcall (cdr (assq 'annotation-function props))
+                                  (cadr candidates))))
+        (should (equal method "slipbox/searchRefs"))
+        (should (equal params '(:query "" :limit 200)))
+        (should (equal prompt "Choose ref: "))
+        (should (eq history 'org-slipbox-ref-history))
+        (should (= (length candidates) 2))
+        (should (equal (plist-get node :title) "Paper B"))
+        (should (equal annotation " [Paper B]"))))))
+
+(ert-deftest org-slipbox-test-ref-read-applies-filter-function ()
+  "Ref read should filter candidate nodes before completion."
+  (let (candidates)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-search-refs)
+               (lambda (_query _limit)
+                 '(:refs [(:reference "@alpha"
+                           :node (:title "Alpha" :file_path "alpha.org" :line 1))
+                          (:reference "@beta"
+                           :node (:title "Beta" :file_path "beta.org" :line 2))])))
+              ((symbol-function 'completing-read)
+               (lambda (_prompt collection _predicate _require-match _initial-input _history)
+                 (setq candidates (all-completions "" collection nil))
+                 (car candidates))))
+      (let ((node (org-slipbox-ref-read nil
+                                        (lambda (node)
+                                          (string-prefix-p "B" (plist-get node :title))))))
+        (should (= (length candidates) 1))
+        (should (equal (plist-get node :title) "Beta"))))))
+
 (ert-deftest org-slipbox-test-node-insert-uses-node-formatter ()
   "Node insertion should honor `org-slipbox-node-formatter'."
   (with-temp-buffer
@@ -1502,23 +1565,20 @@
           (should (equal refresh-calls (list file))))
       (delete-directory root t))))
 
-(ert-deftest org-slipbox-test-ref-find-uses-rpc ()
-  "Ref lookup should query the dedicated ref RPC."
-  (let (method params visited)
-    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
-               (lambda (request-method request-params)
-                 (setq method request-method
-                       params request-params)
-                 '(:refs [(:reference "@smith2024"
-                           :node (:title "Paper"
-                                  :file_path "paper.org"
-                                  :line 1))])))
+(ert-deftest org-slipbox-test-ref-find-uses-ref-read-and-visits-node ()
+  "Ref lookup should use `org-slipbox-ref-read' and visit the result."
+  (let (read-args visited)
+    (cl-letf (((symbol-function 'org-slipbox-ref-read)
+               (lambda (&rest args)
+                 (setq read-args args)
+                 '(:title "Paper" :file_path "paper.org" :line 1)))
               ((symbol-function 'org-slipbox--visit-node)
                (lambda (node)
                  (setq visited node))))
-      (org-slipbox-ref-find "smith"))
-    (should (equal method "slipbox/searchRefs"))
-    (should (equal params '(:query "smith" :limit 50)))
+      (org-slipbox-ref-find "smith" #'identity "Lookup ref: "))
+    (should (equal (car read-args) "smith"))
+    (should (eq (cadr read-args) #'identity))
+    (should (equal (caddr read-args) "Lookup ref: "))
     (should (equal visited '(:title "Paper" :file_path "paper.org" :line 1)))))
 
 (ert-deftest org-slipbox-test-tag-completions-merge-indexed-and-org-tags ()

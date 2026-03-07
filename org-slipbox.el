@@ -78,6 +78,7 @@
 ;;;###autoload(autoload 'org-slipbox-buffer-refresh "org-slipbox-buffer" nil t)
 ;;;###autoload(autoload 'org-slipbox-buffer-display-dedicated "org-slipbox-buffer" nil t)
 ;;;###autoload(autoload 'org-slipbox-buffer-toggle "org-slipbox-buffer" nil t)
+;;;###autoload(autoload 'org-slipbox-ref-read "org-slipbox-metadata" nil t)
 ;;;###autoload(autoload 'org-slipbox-ref-find "org-slipbox-metadata" nil t)
 ;;;###autoload(autoload 'org-slipbox-ref-add "org-slipbox-metadata" nil t)
 ;;;###autoload(autoload 'org-slipbox-ref-remove "org-slipbox-metadata" nil t)
