@@ -16,6 +16,16 @@
   "The package entry feature should load cleanly."
   (should (featurep 'org-slipbox)))
 
+(ert-deftest org-slipbox-test-package-load-has-no-global-side-effects ()
+  "Loading the package should not install global hooks."
+  (require 'calendar)
+  (should-not (memq #'org-slipbox-sync-current-buffer after-save-hook))
+  (should-not (memq #'org-slipbox-buffer--redisplay-h post-command-hook))
+  (should-not (memq #'org-slipbox-dailies-calendar-mark-entries
+                    calendar-today-visible-hook))
+  (should-not (memq #'org-slipbox-dailies-calendar-mark-entries
+                    calendar-today-invisible-hook)))
+
 (ert-deftest org-slipbox-test-node-display-includes-file-and-line ()
   "Node display strings should be stable and informative."
   (should

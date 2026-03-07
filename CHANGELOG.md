@@ -10,6 +10,7 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Split the Emacs client into focused command modules for nodes, links, capture, metadata, and structural editing.
 - Centralized all JSON-RPC method names in `org-slipbox-rpc.el` and routed client calls through named RPC helpers.
 - Moved metadata edits, subtree refile and extract, and single-file incremental reindexing behind Rust RPCs so the Emacs client only coordinates sync and buffer refresh.
+- Codified runtime guardrails for load-time hooks, persistent-buffer discovery costs, and incremental file sync semantics.
 
 ### Added
 - Initialized the repository as a combined Rust and Emacs Lisp project.

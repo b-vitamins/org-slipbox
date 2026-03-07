@@ -7,9 +7,12 @@
 
 ## Guardrails
 - Keep hot paths out of Emacs Lisp. Parsing, indexing, ranking, and query execution belong in Rust.
+- Keep structural and metadata writes out of Emacs Lisp. The client may coordinate buffers, but file mutation belongs behind Rust RPCs.
 - Do not let hidden global state decide correctness. The daemon must expose freshness explicitly and writes must have read-your-writes semantics.
+- Use dedicated incremental index updates for changed files. Do not route file-level sync through full-root prune logic.
 - Do not introduce circular crate or feature dependencies. Domain types stay in `slipbox-core`; transport types stay in `slipbox-rpc`.
 - Avoid load-time side effects in Elisp. User-facing commands may start the daemon, but simply loading the package must not mutate user state.
+- Keep expensive discovery off the persistent redisplay path. Grep-backed sections belong in dedicated buffers or explicit refresh flows.
 - Treat capture, search, backlinks, refs, and agenda as first-class product surfaces. Do not bolt them on through incidental internals.
 - Do not add competitive copy, migration pressure, or dismissive comparisons to any documentation or code comments.
 - Keep documentation tight. Use `README.md`, `CHANGELOG.md`, and code comments; do not create ad hoc planning markdown files.

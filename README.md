@@ -13,6 +13,13 @@ The repository is under active development. Work remains under `Unreleased` unti
 Use `make test` for the current Rust and Emacs checks.
 The Rust workspace links against a system SQLite installation.
 
+## Guardrails
+
+- Emacs Lisp is the client, not the engine: parsing, indexing, ranking, and structural writes stay behind Rust RPCs.
+- Persistent context-buffer redisplay must stay cheap; grep-backed discovery belongs only in dedicated or explicit paths.
+- File-level incremental sync must update one file without pruning unrelated indexed notes.
+- Loading the package must not install global hooks; optional modes own their hook lifecycles explicitly.
+
 ## Current Capabilities
 
 - Scan an Org directory and build a SQLite index.

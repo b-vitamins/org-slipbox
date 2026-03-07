@@ -1,7 +1,7 @@
 use std::fs;
 
 use anyhow::Result;
-use slipbox_index::scan_root;
+use slipbox_index::{scan_path, scan_root};
 use slipbox_store::Database;
 use tempfile::tempdir;
 
@@ -80,6 +80,44 @@ fn selects_a_random_node_from_the_index() -> Result<()> {
 
     let node = database.random_node()?.expect("expected indexed node");
     assert!(matches!(node.title.as_str(), "Alpha" | "Beta"));
+
+    Ok(())
+}
+
+#[test]
+fn incremental_file_sync_keeps_unrelated_files_indexed() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let alpha = root.join("alpha.org");
+    let beta = root.join("beta.org");
+
+    fs::write(&alpha, "#+title: Alpha\n")?;
+    fs::write(&beta, "#+title: Beta\n")?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    fs::write(&alpha, "#+title: Alpha Updated\n")?;
+    let indexed = scan_path(&root, &alpha)?;
+    database.sync_file_index(&indexed)?;
+
+    assert_eq!(
+        database
+            .node_by_key("file:alpha.org")?
+            .expect("alpha node should still exist")
+            .title,
+        "Alpha Updated"
+    );
+    assert_eq!(
+        database
+            .node_by_key("file:beta.org")?
+            .expect("beta node should still exist")
+            .title,
+        "Beta"
+    );
 
     Ok(())
 }
