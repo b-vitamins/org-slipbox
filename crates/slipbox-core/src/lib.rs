@@ -254,6 +254,30 @@ pub struct CaptureNodeParams {
     pub title: String,
     #[serde(default)]
     pub file_path: Option<String>,
+    #[serde(default)]
+    pub refs: Vec<String>,
+}
+
+impl CaptureNodeParams {
+    #[must_use]
+    pub fn normalized_refs(&self) -> Vec<String> {
+        let mut refs: Vec<String> = Vec::new();
+
+        for reference in &self.refs {
+            for normalized in normalize_reference(reference) {
+                if normalized.is_empty()
+                    || refs
+                        .iter()
+                        .any(|existing| existing.eq_ignore_ascii_case(&normalized))
+                {
+                    continue;
+                }
+                refs.push(normalized);
+            }
+        }
+
+        refs
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -403,7 +427,7 @@ fn is_cite_key_char(character: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_reference;
+    use super::{CaptureNodeParams, normalize_reference};
 
     #[test]
     fn normalizes_common_reference_forms() {
@@ -416,6 +440,24 @@ mod tests {
         assert_eq!(
             normalize_reference("[[https://example.test/path][Example]]"),
             vec!["https://example.test/path"]
+        );
+    }
+
+    #[test]
+    fn capture_params_normalize_and_deduplicate_refs() {
+        let params = CaptureNodeParams {
+            title: "Note".to_owned(),
+            file_path: None,
+            refs: vec![
+                "cite:smith2024".to_owned(),
+                "@smith2024".to_owned(),
+                "https://example.test".to_owned(),
+            ],
+        };
+
+        assert_eq!(
+            params.normalized_refs(),
+            vec!["@smith2024".to_owned(), "https://example.test".to_owned()]
         );
     }
 }

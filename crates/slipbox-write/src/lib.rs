@@ -11,22 +11,39 @@ pub struct CaptureOutcome {
 }
 
 pub fn capture_file_note(root: &Path, title: &str) -> Result<CaptureOutcome> {
+    capture_file_note_with_refs(root, title, &[])
+}
+
+pub fn capture_file_note_with_refs(
+    root: &Path,
+    title: &str,
+    refs: &[String],
+) -> Result<CaptureOutcome> {
     fs::create_dir_all(root)
         .with_context(|| format!("failed to create root directory {}", root.display()))?;
 
     let title = normalized_title(title)?;
     let slug = slugify(title);
     let relative_path = next_available_path(root, &slug);
-    create_file_note(root, &relative_path, title)
+    create_file_note(root, &relative_path, title, refs)
 }
 
 pub fn capture_file_note_at(root: &Path, file_path: &str, title: &str) -> Result<CaptureOutcome> {
+    capture_file_note_at_with_refs(root, file_path, title, &[])
+}
+
+pub fn capture_file_note_at_with_refs(
+    root: &Path,
+    file_path: &str,
+    title: &str,
+    refs: &[String],
+) -> Result<CaptureOutcome> {
     fs::create_dir_all(root)
         .with_context(|| format!("failed to create root directory {}", root.display()))?;
 
     let title = normalized_title(title)?;
     let relative_path = next_available_relative_path(root, file_path)?;
-    create_file_note(root, &relative_path, title)
+    create_file_note(root, &relative_path, title, refs)
 }
 
 pub fn ensure_file_note(root: &Path, file_path: &str, title: &str) -> Result<CaptureOutcome> {
@@ -37,7 +54,7 @@ pub fn ensure_file_note(root: &Path, file_path: &str, title: &str) -> Result<Cap
     let relative_path = normalize_relative_org_path(file_path)?;
     let absolute_path = root.join(&relative_path);
     if !absolute_path.exists() {
-        write_file_note(&absolute_path, title)?;
+        write_file_note(&absolute_path, title, &[])?;
     }
 
     Ok(CaptureOutcome {
@@ -168,10 +185,15 @@ fn render_lines(lines: &[String], had_trailing_newline: bool) -> String {
     rendered
 }
 
-fn create_file_note(root: &Path, file_path: &str, title: &str) -> Result<CaptureOutcome> {
+fn create_file_note(
+    root: &Path,
+    file_path: &str,
+    title: &str,
+    refs: &[String],
+) -> Result<CaptureOutcome> {
     let relative_path = normalize_relative_org_path(file_path)?;
     let absolute_path = root.join(&relative_path);
-    write_file_note(&absolute_path, title)?;
+    write_file_note(&absolute_path, title, refs)?;
 
     Ok(CaptureOutcome {
         absolute_path,
@@ -179,14 +201,18 @@ fn create_file_note(root: &Path, file_path: &str, title: &str) -> Result<Capture
     })
 }
 
-fn write_file_note(path: &Path, title: &str) -> Result<()> {
+fn write_file_note(path: &Path, title: &str, refs: &[String]) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("failed to create directory {}", parent.display()))?;
     }
 
     let explicit_id = Uuid::new_v4().to_string();
-    let content = format!("#+title: {title}\n:PROPERTIES:\n:ID: {explicit_id}\n:END:\n\n");
+    let mut content = format!("#+title: {title}\n:PROPERTIES:\n:ID: {explicit_id}\n");
+    if !refs.is_empty() {
+        content.push_str(&format!(":ROAM_REFS: {}\n", format_property_values(refs)));
+    }
+    content.push_str(":END:\n\n");
     fs::write(path, content).with_context(|| format!("failed to write {}", path.display()))
 }
 
@@ -306,4 +332,21 @@ fn slugify(title: &str) -> String {
     } else {
         trimmed.to_owned()
     }
+}
+
+fn format_property_values(values: &[String]) -> String {
+    values
+        .iter()
+        .map(|value| {
+            if value
+                .chars()
+                .any(|character| character.is_whitespace() || character == '"')
+            {
+                format!("{value:?}")
+            } else {
+                value.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }

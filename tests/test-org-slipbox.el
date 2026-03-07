@@ -74,6 +74,48 @@
             '(:title "Slip: Sample Title"
               :file_path "notes/2026-sample-title.org")))))
 
+(ert-deftest org-slipbox-test-capture-ref-reuses-existing-node ()
+  "Ref capture should reuse an existing indexed ref node."
+  (let (visited)
+    (cl-letf (((symbol-function 'org-slipbox-node-from-ref)
+               (lambda (_reference)
+                 '(:title "Existing" :file_path "existing.org" :line 2)))
+              ((symbol-function 'org-slipbox--capture-node)
+               (lambda (&rest _args)
+                 (ert-fail "capture should not run when ref already exists")))
+              ((symbol-function 'org-slipbox--visit-node)
+               (lambda (node &optional _other-window)
+                 (setq visited node))))
+      (org-slipbox-capture-ref "@smith2024"))
+    (should
+     (equal visited
+            '(:title "Existing" :file_path "existing.org" :line 2)))))
+
+(ert-deftest org-slipbox-test-capture-ref-creates-node-with-ref ()
+  "Ref capture should pass the ref through the capture pipeline when missing."
+  (let (captured visited)
+    (cl-letf (((symbol-function 'org-slipbox-node-from-ref)
+               (lambda (_reference) nil))
+              ((symbol-function 'org-slipbox--read-capture-template)
+               (lambda ()
+                 '("d" "default" :path "notes/${slug}.org" :title "${title}")))
+              ((symbol-function 'org-slipbox--capture-node)
+               (lambda (title template refs)
+                 (setq captured (list title template refs))
+                 '(:title "New" :file_path "new.org" :line 1)))
+              ((symbol-function 'org-slipbox--visit-node)
+               (lambda (node &optional _other-window)
+                 (setq visited node))))
+      (org-slipbox-capture-ref "cite:smith2024" "New"))
+    (should
+     (equal captured
+            '("New"
+              ("d" "default" :path "notes/${slug}.org" :title "${title}")
+              ("cite:smith2024"))))
+    (should
+     (equal visited
+            '(:title "New" :file_path "new.org" :line 1)))))
+
 (ert-deftest org-slipbox-test-node-from-id-uses-rpc ()
   "Exact ID lookup should call the dedicated RPC."
   (let (method params)

@@ -308,6 +308,21 @@ If ASSERT is non-nil, signal a user error when no node is available."
          (template (org-slipbox--read-capture-template)))
     (org-slipbox--visit-node (org-slipbox--capture-node title template))))
 
+;;;###autoload
+(defun org-slipbox-capture-ref (reference &optional title)
+  "Visit the node for REFERENCE, or capture a new note with REFERENCE attached."
+  (interactive (list (read-string "Ref: ")))
+  (setq reference (string-trim reference))
+  (when (string-empty-p reference)
+    (user-error "Ref must not be empty"))
+  (let ((node (or (org-slipbox-node-from-ref reference)
+                  (org-slipbox--capture-node
+                   (or title (read-string "Capture title: "))
+                   (org-slipbox--read-capture-template)
+                   (list reference)))))
+    (org-slipbox--visit-node node)
+    node))
+
 (defun org-slipbox-node-find (query)
   "Find a node matching QUERY and visit it."
   (interactive (list (read-string "Find node: ")))
@@ -479,8 +494,8 @@ When PREFIX is non-nil, only return tags matching PREFIX."
           (plist-get entry :reference)
           (org-slipbox--node-display (plist-get entry :node))))
 
-(defun org-slipbox--capture-node (title &optional template)
-  "Capture a new node with TITLE using TEMPLATE."
+(defun org-slipbox--capture-node (title &optional template refs)
+  "Capture a new node with TITLE using TEMPLATE and optional REFS."
   (let* ((template (or template (org-slipbox--default-capture-template)))
          (template-options (and template (nthcdr 2 template)))
          (current-time (current-time))
@@ -492,12 +507,15 @@ When PREFIX is non-nil, only return tags matching PREFIX."
          (file-path (org-slipbox--expand-capture-template
                      (plist-get template-options :path)
                      title
-                     current-time)))
+                     current-time))
+         (params (if file-path
+                     `(:title ,capture-title :file_path ,file-path)
+                   `(:title ,capture-title))))
+    (when refs
+      (setq params (plist-put params :refs refs)))
     (org-slipbox-rpc-request
      "slipbox/captureNode"
-     (if file-path
-         `(:title ,capture-title :file_path ,file-path)
-       `(:title ,capture-title)))))
+     params)))
 
 (defun org-slipbox--ensure-node-id (node)
   "Return NODE with an explicit ID, assigning one if needed."

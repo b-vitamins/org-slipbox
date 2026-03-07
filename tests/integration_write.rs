@@ -4,7 +4,8 @@ use anyhow::Result;
 use slipbox_index::{scan_path, scan_root};
 use slipbox_store::Database;
 use slipbox_write::{
-    append_heading, capture_file_note, capture_file_note_at, ensure_file_note, ensure_node_id,
+    append_heading, capture_file_note, capture_file_note_at, capture_file_note_with_refs,
+    ensure_file_note, ensure_node_id,
 };
 use tempfile::tempdir;
 
@@ -120,6 +121,33 @@ fn capture_file_note_at_chooses_unique_path_when_target_exists() -> Result<()> {
     let captured = capture_file_note_at(&root, "projects/sample.org", "Sample")?;
     assert_eq!(captured.node_key, "file:projects/sample-1.org");
     assert!(captured.absolute_path.ends_with("projects/sample-1.org"));
+
+    Ok(())
+}
+
+#[test]
+fn capture_with_refs_writes_property_and_indexes_reference() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    let captured = capture_file_note_with_refs(
+        &root,
+        "Captured Note",
+        &[String::from("https://example.test/ref")],
+    )?;
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let source = fs::read_to_string(&captured.absolute_path)?;
+    assert!(source.contains(":ROAM_REFS: https://example.test/ref"));
+
+    let node = database
+        .node_from_ref("https://example.test/ref")?
+        .expect("captured ref node should exist");
+    assert_eq!(node.title, "Captured Note");
 
     Ok(())
 }

@@ -50,6 +50,7 @@
 
 ;;;###autoload(autoload 'org-slipbox-index "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-capture "org-slipbox-node" nil t)
+;;;###autoload(autoload 'org-slipbox-capture-ref "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-node-find "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-node-random "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-node-insert "org-slipbox-node" nil t)

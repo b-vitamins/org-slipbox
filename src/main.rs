@@ -270,11 +270,17 @@ fn dispatch_request(
         }
         METHOD_CAPTURE_NODE => {
             let params: CaptureNodeParams = parse_params(params)?;
+            let refs = params.normalized_refs();
             let captured = match params.file_path.as_deref() {
-                Some(file_path) => {
-                    slipbox_write::capture_file_note_at(&state.root, file_path, &params.title)
+                Some(file_path) => slipbox_write::capture_file_note_at_with_refs(
+                    &state.root,
+                    file_path,
+                    &params.title,
+                    &refs,
+                ),
+                None => {
+                    slipbox_write::capture_file_note_with_refs(&state.root, &params.title, &refs)
                 }
-                None => slipbox_write::capture_file_note(&state.root, &params.title),
             }
             .map_err(|error| internal_error(error.context("failed to capture node")))?;
             sync_one_path(state, &captured.absolute_path)?;
