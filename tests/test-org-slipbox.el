@@ -312,6 +312,77 @@
     (should (equal visited '(:title "Meeting" :file_path "daily/2026-03-07.org" :line 6)))
     (should hook-ran)))
 
+(ert-deftest org-slipbox-test-dailies-list-files-filters-non-org-noise ()
+  "Daily file listing should ignore dotfiles, autosaves, and backups."
+  (let* ((root (make-temp-file "org-slipbox-dailies-" t))
+         (daily (expand-file-name "daily" root)))
+    (unwind-protect
+        (progn
+          (make-directory daily t)
+          (write-region "" nil (expand-file-name "2026-03-07.org" daily) nil 'silent)
+          (write-region "" nil (expand-file-name "2026-03-08.org" daily) nil 'silent)
+          (write-region "" nil (expand-file-name ".hidden.org" daily) nil 'silent)
+          (write-region "" nil (expand-file-name "#2026-03-09.org#" daily) nil 'silent)
+          (write-region "" nil (expand-file-name "2026-03-10.org~" daily) nil 'silent)
+          (let ((org-slipbox-directory root)
+                (org-slipbox-dailies-directory "daily/"))
+            (should
+             (equal
+              (mapcar #'file-name-nondirectory (org-slipbox-dailies--list-files))
+              '("2026-03-07.org" "2026-03-08.org")))))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-dailies-daily-note-p-detects-daily-files ()
+  "Daily file detection should be constrained to the dailies directory."
+  (let* ((root (make-temp-file "org-slipbox-dailies-" t))
+         (daily (expand-file-name "daily" root))
+         (daily-file (expand-file-name "2026-03-07.org" daily))
+         (other-file (expand-file-name "notes.org" root)))
+    (unwind-protect
+        (progn
+          (make-directory daily t)
+          (write-region "" nil daily-file nil 'silent)
+          (write-region "" nil other-file nil 'silent)
+          (let ((org-slipbox-directory root)
+                (org-slipbox-dailies-directory "daily/"))
+            (should (org-slipbox-dailies--daily-note-p daily-file))
+            (should-not (org-slipbox-dailies--daily-note-p other-file))))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-dailies-goto-next-and-previous-note ()
+  "Daily navigation should move across existing daily note files."
+  (let* ((root (make-temp-file "org-slipbox-dailies-" t))
+         (daily (expand-file-name "daily" root))
+         (older (expand-file-name "2026-03-07.org" daily))
+         (current (expand-file-name "2026-03-08.org" daily))
+         (newer (expand-file-name "2026-03-09.org" daily))
+         (visited nil)
+         (hook-ran 0))
+    (unwind-protect
+        (progn
+          (make-directory daily t)
+          (write-region "#+title: 2026-03-07\n" nil older nil 'silent)
+          (write-region "#+title: 2026-03-08\n" nil current nil 'silent)
+          (write-region "#+title: 2026-03-09\n" nil newer nil 'silent)
+          (with-current-buffer (find-file-noselect current)
+            (let ((org-slipbox-directory root)
+                  (org-slipbox-dailies-directory "daily/")
+                  (org-slipbox-dailies-find-file-hook
+                   (list (lambda () (setq hook-ran (1+ hook-ran))))))
+              (org-slipbox-dailies-goto-next-note)
+              (setq visited (buffer-file-name))
+              (org-slipbox-dailies-goto-previous-note)
+              (setq visited (cons visited (buffer-file-name))))
+            (mapc (lambda (buffer)
+                    (when (buffer-live-p buffer)
+                      (kill-buffer buffer)))
+                  (list (current-buffer)
+                        (find-buffer-visiting older)
+                        (find-buffer-visiting newer))))
+          (should (equal visited (cons newer current)))
+          (should (= hook-ran 2)))
+      (delete-directory root t))))
+
 (provide 'test-org-slipbox)
 
 ;;; test-org-slipbox.el ends here

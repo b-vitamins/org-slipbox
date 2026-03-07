@@ -22,7 +22,7 @@ The Rust workspace links against a system SQLite installation.
 - Query indexed agenda entries from scheduled and deadline planning lines.
 - Resolve backlinks for nodes with explicit Org `ID` properties.
 - Capture new file notes with explicit IDs and configurable path/title templates.
-- Create and visit daily notes, and append daily entries through the Rust write pipeline.
+- Create and visit daily notes, append daily entries, and move between existing daily notes.
 - Insert `id:` links after lazily assigning IDs to existing nodes.
 - Sync saved Org buffers into the index through an explicit file-level RPC.
 - Connect Emacs to the local daemon over JSON-RPC on stdio.

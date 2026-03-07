@@ -69,6 +69,8 @@
 ;;;###autoload(autoload 'org-slipbox-dailies-goto-yesterday "org-slipbox-dailies" nil t)
 ;;;###autoload(autoload 'org-slipbox-dailies-capture-date "org-slipbox-dailies" nil t)
 ;;;###autoload(autoload 'org-slipbox-dailies-goto-date "org-slipbox-dailies" nil t)
+;;;###autoload(autoload 'org-slipbox-dailies-goto-next-note "org-slipbox-dailies" nil t)
+;;;###autoload(autoload 'org-slipbox-dailies-goto-previous-note "org-slipbox-dailies" nil t)
 ;;;###autoload(autoload 'org-slipbox-dailies-find-directory "org-slipbox-dailies" nil t)
 ;;;###autoload(autoload 'org-slipbox-autosync-mode "org-slipbox-sync" nil t)
 

@@ -29,7 +29,9 @@
 
 ;;; Code:
 
+(require 'cl-lib)
 (require 'org)
+(require 'seq)
 (require 'subr-x)
 (require 'org-slipbox-node)
 (require 'org-slipbox-rpc)
@@ -117,6 +119,38 @@ With prefix argument PREFER-FUTURE, `org-read-date' prefers future dates."
    (org-slipbox-dailies--read-date "Find daily note: " prefer-future)))
 
 ;;;###autoload
+(defun org-slipbox-dailies-goto-next-note (&optional n)
+  "Visit the next daily note.
+With numeric argument N, move N daily notes forward. Negative N moves
+backward."
+  (interactive "p")
+  (unless (org-slipbox-dailies--daily-note-p)
+    (user-error "Not in a daily note"))
+  (let* ((n (or n 1))
+         (dailies (org-slipbox-dailies--list-files))
+         (current-file (org-slipbox-dailies--current-file))
+         (position (cl-position current-file dailies :test #'string-equal))
+         (target-index (and position (+ position n)))
+         (note (and target-index (nth target-index dailies))))
+    (unless position
+      (user-error "Can't find current daily note file"))
+    (unless note
+      (if (>= n 0)
+          (user-error "Already at newest note")
+        (user-error "Already at oldest note")))
+    (find-file note)
+    (run-hooks 'org-slipbox-dailies-find-file-hook)
+    note))
+
+;;;###autoload
+(defun org-slipbox-dailies-goto-previous-note (&optional n)
+  "Visit the previous daily note.
+With numeric argument N, move N daily notes backward. Negative N moves
+forward."
+  (interactive "p")
+  (org-slipbox-dailies-goto-next-note (- (or n 1))))
+
+;;;###autoload
 (defun org-slipbox-dailies-find-directory ()
   "Visit `org-slipbox-dailies-directory'."
   (interactive)
@@ -149,9 +183,34 @@ With prefix argument PREFER-FUTURE, `org-read-date' prefers future dates."
 (defun org-slipbox-dailies--ensure-note (time)
   "Return the daily note node for TIME."
   (org-slipbox-rpc-request
-   "slipbox/ensureFileNode"
-   `(:file_path ,(org-slipbox-dailies--path time)
-     :title ,(org-slipbox-dailies--title time))))
+  "slipbox/ensureFileNode"
+  `(:file_path ,(org-slipbox-dailies--path time)
+    :title ,(org-slipbox-dailies--title time))))
+
+(defun org-slipbox-dailies--list-files (&rest extra-files)
+  "Return daily note files, appending EXTRA-FILES."
+  (let ((directory (expand-file-name org-slipbox-dailies-directory org-slipbox-directory)))
+    (append
+     (if (file-directory-p directory)
+         (sort
+          (seq-remove
+           (lambda (file)
+             (let ((name (file-name-nondirectory file)))
+               (or (string-prefix-p "." name)
+                   (auto-save-file-name-p name)
+                   (backup-file-name-p name))))
+           (directory-files-recursively directory "\\.org\\'"))
+          #'string-lessp)
+       nil)
+     extra-files)))
+
+(defun org-slipbox-dailies--daily-note-p (&optional file)
+  "Return non-nil when FILE is a daily note."
+  (when-let* ((candidate (or file (org-slipbox-dailies--current-file)))
+              (path (expand-file-name candidate))
+              (directory (expand-file-name org-slipbox-dailies-directory org-slipbox-directory)))
+    (and (string-equal (downcase (or (file-name-extension path) "")) "org")
+         (file-in-directory-p path directory))))
 
 (defun org-slipbox-dailies--path (time)
   "Return the relative daily note path for TIME."
@@ -174,6 +233,10 @@ With prefix argument PREFER-FUTURE, `org-read-date' prefers future dates."
 When PREFER-FUTURE is non-nil, prefer future dates."
   (let ((org-read-date-prefer-future prefer-future))
     (org-read-date nil t nil prompt)))
+
+(defun org-slipbox-dailies--current-file ()
+  "Return the current base buffer file name."
+  (buffer-file-name (buffer-base-buffer)))
 
 (provide 'org-slipbox-dailies)
 
