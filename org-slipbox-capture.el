@@ -69,9 +69,10 @@ In addition to target and content options, typed templates may carry
 the lifecycle keys `:finalize' and `:jump-to-captured'. Compatibility
 keys from `org-capture', including `:immediate-finish', `:kill-buffer',
 `:no-save', `:unnarrowed', `:clock-in', `:clock-resume', and
-`:clock-keep', are accepted so org-roam-style templates can be reused,
-but org-slipbox does not create a transient capture buffer, so the
-runtime effect is driven by the post-success finalize action."
+`:clock-keep', are parsed so org-roam-style templates can be reused.
+Unsupported lifecycle keys currently signal a clear user error instead
+of being accepted silently. Every capture starts in a transient draft
+buffer and only writes through the Rust RPC layer on finalize."
   :type 'sexp
   :group 'org-slipbox)
 
@@ -86,6 +87,48 @@ These templates use the same syntax as `org-slipbox-capture-templates'
 and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
   :type 'sexp
   :group 'org-slipbox)
+
+(defconst org-slipbox--capture-unsupported-lifecycle-keys
+  '(:immediate-finish :kill-buffer :no-save :unnarrowed
+    :clock-in :clock-resume :clock-keep)
+  "Template lifecycle keys reserved for later capture-parity work.")
+
+(cl-defstruct (org-slipbox-capture-session
+               (:constructor org-slipbox--make-capture-session))
+  "Transient org-slipbox capture-session metadata."
+  title
+  capture-title
+  template
+  template-options
+  refs
+  time
+  target
+  target-preview
+  draft-kind
+  capture-type
+  initial-content
+  caller-session)
+
+(defvar-local org-slipbox-capture--session nil
+  "Buffer-local org-slipbox capture session object.")
+
+(defvar-local org-slipbox-capture--body-start nil
+  "Marker pointing at the editable body of the current capture draft.")
+
+(defvar org-slipbox-capture-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c C-c") #'org-slipbox-capture-finalize)
+    (define-key map (kbd "C-c C-k") #'org-slipbox-capture-abort)
+    map)
+  "Keymap used by `org-slipbox-capture-mode'.")
+
+(define-derived-mode org-slipbox-capture-mode org-mode "Slipbox-Capture"
+  "Major mode for transient org-slipbox capture drafts."
+  (setq-local buffer-offer-save nil)
+  (setq-local header-line-format
+              '("org-slipbox draft  "
+                "[C-c C-c] finalize  "
+                "[C-c C-k] abort")))
 
 ;;;###autoload
 (defun org-slipbox-capture (&optional title)
@@ -147,22 +190,23 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
      (t nil))))
 
 (defun org-slipbox--capture-node (title &optional template refs variables session)
-  "Capture a new node with TITLE using TEMPLATE, REFS, VARIABLES, and SESSION."
+  "Start a capture draft for TITLE using TEMPLATE, REFS, VARIABLES, and SESSION."
   (org-slipbox--capture-node-at-time title template refs nil variables session))
 
 (defun org-slipbox--capture-node-at-time
     (title &optional template refs time variables session)
-  "Capture a new node with TITLE using TEMPLATE, REFS, TIME, VARIABLES, and SESSION."
+  "Start a capture draft for TITLE using TEMPLATE, REFS, TIME, VARIABLES, and SESSION."
   (let* ((template (or template (org-slipbox--default-capture-template)))
          (template-options (org-slipbox--capture-template-options template))
          (session (copy-sequence session))
          (time (org-slipbox--capture-template-time time template-options)))
-    (org-slipbox--capture-run-lifecycle
+    (org-slipbox--capture-validate-template-options template-options)
+    (org-slipbox--open-capture-session
      (if (org-slipbox--typed-capture-template-p template)
-         (org-slipbox--capture-typed-template title template refs time variables)
-       (org-slipbox--capture-shorthand-template title template refs time variables))
-     template-options
-     session)))
+         (org-slipbox--prepare-typed-capture-session
+          title template refs time variables session)
+       (org-slipbox--prepare-shorthand-capture-session
+        title template refs time variables session)))))
 
 (defun org-slipbox--default-capture-template ()
   "Return the default capture template."
@@ -191,8 +235,16 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
            (org-read-date nil t nil "Capture date: "))
       (current-time)))
 
-(defun org-slipbox--capture-shorthand-template (title template refs time variables)
-  "Capture TITLE with shorthand TEMPLATE using REFS, TIME, and VARIABLES."
+(defun org-slipbox--capture-validate-template-options (template-options)
+  "Signal a clear error for unsupported keys in TEMPLATE-OPTIONS."
+  (dolist (key org-slipbox--capture-unsupported-lifecycle-keys)
+    (when (plist-member template-options key)
+      (user-error "Capture option %S is not implemented yet" key))))
+
+(defun org-slipbox--prepare-shorthand-capture-session
+    (title template refs time variables session)
+  "Return a shorthand capture session for TITLE with TEMPLATE.
+REFS, TIME, VARIABLES, and SESSION describe the session state."
   (let* ((template-options (org-slipbox--capture-template-options template))
          (capture-title (or (org-slipbox--expand-capture-template
                              (plist-get template-options :title)
@@ -205,29 +257,24 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
                   title
                   time
                   variables)))
-    (pcase (plist-get target :kind)
-      ('file
-       (let ((params (if-let ((file-path (plist-get target :file_path)))
-                         `(:title ,capture-title :file_path ,file-path)
-                       `(:title ,capture-title))))
-         (when-let ((head (plist-get target :head)))
-           (setq params (plist-put params :head head)))
-         (when refs
-           (setq params (plist-put params :refs refs)))
-         (org-slipbox-rpc-capture-node params)))
-      ('file+olp
-       (org-slipbox-rpc-append-heading-at-outline-path
-        (append
-         (list :file_path (plist-get target :file_path)
-               :heading capture-title
-               :outline_path (plist-get target :outline_path))
-         (when-let ((head (plist-get target :head)))
-           (list :head head)))))
-      (_
-       (user-error "Unsupported capture target")))))
+    (org-slipbox--make-capture-session
+     :title title
+     :capture-title capture-title
+     :template template
+     :template-options template-options
+     :refs refs
+     :time time
+     :target target
+     :target-preview (plist-get target :head)
+     :draft-kind 'shorthand
+     :capture-type (org-slipbox--capture-shorthand-type target)
+     :initial-content ""
+     :caller-session session)))
 
-(defun org-slipbox--capture-typed-template (title template refs time variables)
-  "Capture TITLE using explicit typed TEMPLATE, REFS, TIME, and VARIABLES."
+(defun org-slipbox--prepare-typed-capture-session
+    (title template refs time variables session)
+  "Return an explicit typed capture session for TITLE with TEMPLATE.
+REFS, TIME, VARIABLES, and SESSION describe the session state."
   (let* ((template-options (org-slipbox--capture-template-options template))
          (capture-title (or (org-slipbox--expand-capture-template
                              (plist-get template-options :title)
@@ -246,31 +293,210 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
                    capture-type
                    capture-title
                    time
-                   variables))
-         (empty-lines (org-slipbox--capture-template-empty-lines template-options))
-         (params (append
-                  (list :title capture-title
-                        :capture_type (symbol-name capture-type)
-                        :content content
-                        :prepend (and (plist-get template-options :prepend) t)
-                        :empty_lines_before (plist-get empty-lines :before)
-                        :empty_lines_after (plist-get empty-lines :after))
-                  (when refs
-                    (list :refs refs))
-                  (pcase (plist-get target :kind)
-                    ((or 'file 'file+olp)
-                     (append
-                      (when-let ((file-path (plist-get target :file_path)))
-                        (list :file_path file-path))
-                      (when-let ((head (plist-get target :head)))
-                        (list :head head))
-                      (when-let ((outline-path (plist-get target :outline_path)))
-                        (list :outline_path outline-path))))
-                    ('node
-                     (list :node_key (plist-get target :node_key)))
-                    (_
-                     (user-error "Unsupported capture target"))))))
-    (org-slipbox-rpc-capture-template params)))
+                   variables)))
+    (org-slipbox--make-capture-session
+     :title title
+     :capture-title capture-title
+     :template template
+     :template-options template-options
+     :refs refs
+     :time time
+     :target target
+     :target-preview (plist-get target :head)
+     :draft-kind 'typed
+     :capture-type capture-type
+     :initial-content content
+     :caller-session session)))
+
+(defun org-slipbox--capture-shorthand-type (target)
+  "Return the generic RPC capture type for shorthand TARGET."
+  (if (or (plist-get target :outline_path)
+          (eq (plist-get target :kind) 'file+olp)
+          (eq (plist-get target :kind) 'node))
+      'entry
+    'plain))
+
+(defun org-slipbox--open-capture-session (capture-session)
+  "Display a draft buffer for CAPTURE-SESSION and return that buffer."
+  (let ((buffer (generate-new-buffer
+                 (format "*org-slipbox capture: %s*"
+                         (org-slipbox-capture-session-capture-title capture-session)))))
+    (with-current-buffer buffer
+      (org-slipbox-capture-mode)
+      (setq-local org-slipbox-capture--session capture-session)
+      (let ((inhibit-read-only t))
+        (org-slipbox--capture-insert-session-header capture-session)
+        (setq-local org-slipbox--capture-body-start (point-marker))
+        (insert (org-slipbox-capture-session-initial-content capture-session)))
+      (goto-char (if (string-empty-p (org-slipbox-capture-session-initial-content capture-session))
+                     org-slipbox--capture-body-start
+                   (point-max)))
+      (set-buffer-modified-p nil))
+    (pop-to-buffer buffer)
+    buffer))
+
+(defun org-slipbox--capture-insert-session-header (capture-session)
+  "Insert a read-only metadata header for CAPTURE-SESSION."
+  (let* ((header-start (point))
+         (header (org-slipbox--capture-session-header capture-session)))
+    (insert header)
+    (add-text-properties
+     header-start
+     (point)
+     '(read-only t
+       front-sticky t
+       rear-nonsticky (read-only)
+       face shadow))))
+
+(defun org-slipbox--capture-session-header (capture-session)
+  "Return the read-only header text for CAPTURE-SESSION."
+  (string-join
+   (append
+    (list "# org-slipbox capture draft"
+          "# C-c C-c finalize  C-c C-k abort"
+          (format "# Title: %s"
+                  (org-slipbox-capture-session-capture-title capture-session))
+          (format "# Target: %s"
+                  (org-slipbox--capture-target-summary
+                   (org-slipbox-capture-session-target capture-session)))
+          (format "# Type: %s"
+                  (symbol-name
+                   (org-slipbox-capture-session-capture-type capture-session))))
+    (when-let ((refs (org-slipbox-capture-session-refs capture-session)))
+      (list (format "# Refs: %s" (string-join refs ", "))))
+    (let ((finalize
+           (org-slipbox--capture-resolve-finalize
+            (org-slipbox-capture-session-template-options capture-session)
+            (org-slipbox-capture-session-caller-session capture-session))))
+      (list (format "# Finalize: %s"
+                    (org-slipbox--capture-finalize-summary finalize))))
+    (when-let ((preview (org-slipbox-capture-session-target-preview capture-session)))
+      (append
+       '("# Preview:")
+       (mapcar (lambda (line)
+                 (if (string-empty-p line)
+                     "#"
+                   (format "#   %s" line)))
+               (split-string preview "\n"))
+       '("#")))
+    '(""))
+   "\n"))
+
+(defun org-slipbox--capture-target-summary (target)
+  "Return a human-readable summary for capture TARGET."
+  (pcase (plist-get target :kind)
+    ('node
+     (format "node %s" (plist-get target :node_key)))
+    ((or 'file 'file+olp)
+     (let ((file (or (plist-get target :file_path) "<auto>"))
+           (outline-path (plist-get target :outline_path)))
+       (if outline-path
+           (format "%s :: %s" file (string-join outline-path " / "))
+         file)))
+    (_
+     (format "%S" target))))
+
+(defun org-slipbox--capture-finalize-summary (finalize)
+  "Return a human-readable summary for FINALIZE."
+  (cond
+   ((null finalize) "none")
+   ((symbolp finalize) (symbol-name finalize))
+   ((functionp finalize) "custom")
+   (t (format "%S" finalize))))
+
+;;;###autoload
+(defun org-slipbox-capture-finalize ()
+  "Commit the current org-slipbox draft through the Rust RPC layer."
+  (interactive)
+  (unless (org-slipbox-capture-session-p org-slipbox-capture--session)
+    (user-error "Not in an org-slipbox capture draft"))
+  (let* ((capture-session org-slipbox-capture--session)
+         (node (org-slipbox--capture-commit-session
+                capture-session
+                (buffer-substring-no-properties org-slipbox--capture-body-start
+                                                (point-max))))
+         (buffer (current-buffer)))
+    (org-slipbox--capture-kill-buffer buffer)
+    (unwind-protect
+        (org-slipbox--capture-run-lifecycle
+         node
+         (org-slipbox-capture-session-template-options capture-session)
+         (org-slipbox-capture-session-caller-session capture-session))
+      (org-slipbox--capture-cleanup-session
+       (org-slipbox-capture-session-caller-session capture-session)))
+    node))
+
+;;;###autoload
+(defun org-slipbox-capture-abort ()
+  "Abort the current org-slipbox draft without mutating target files."
+  (interactive)
+  (unless (org-slipbox-capture-session-p org-slipbox-capture--session)
+    (user-error "Not in an org-slipbox capture draft"))
+  (let ((capture-session org-slipbox-capture--session))
+    (org-slipbox--capture-cleanup-session
+     (org-slipbox-capture-session-caller-session capture-session))
+    (org-slipbox--capture-kill-buffer (current-buffer))
+    (message "Aborted org-slipbox capture")
+    nil))
+
+(defun org-slipbox--capture-kill-buffer (buffer)
+  "Kill BUFFER without save prompts."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (set-buffer-modified-p nil)
+      (let ((kill-buffer-query-functions nil))
+        (kill-buffer buffer)))))
+
+(defun org-slipbox--capture-cleanup-session (session)
+  "Release transient marker state owned by SESSION."
+  (when-let ((cleanup (plist-get session :cleanup)))
+    (funcall cleanup session))
+  (when-let ((marker (plist-get session :call-location)))
+    (when (markerp marker)
+      (set-marker marker nil)))
+  (when-let ((region (plist-get session :region)))
+    (when (markerp (car region))
+      (set-marker (car region) nil))
+    (when (markerp (cdr region))
+      (set-marker (cdr region) nil))))
+
+(defun org-slipbox--capture-commit-session (capture-session content)
+  "Commit CAPTURE-SESSION with editable CONTENT through the generic RPC."
+  (org-slipbox-rpc-capture-template
+   (org-slipbox--capture-session-params capture-session content)))
+
+(defun org-slipbox--capture-session-params (capture-session content)
+  "Return generic capture RPC params for CAPTURE-SESSION and CONTENT."
+  (let* ((template-options (org-slipbox-capture-session-template-options capture-session))
+         (target (org-slipbox-capture-session-target capture-session))
+         (empty-lines (org-slipbox--capture-template-empty-lines template-options)))
+    (append
+     (list :title (org-slipbox-capture-session-capture-title capture-session)
+           :capture_type
+           (symbol-name (org-slipbox-capture-session-capture-type capture-session))
+           :content content
+           :prepend (and (plist-get template-options :prepend) t)
+           :empty_lines_before (plist-get empty-lines :before)
+           :empty_lines_after (plist-get empty-lines :after))
+     (when-let ((refs (org-slipbox-capture-session-refs capture-session)))
+       (list :refs refs))
+     (org-slipbox--capture-target-params target))))
+
+(defun org-slipbox--capture-target-params (target)
+  "Return generic capture RPC params for TARGET."
+  (pcase (plist-get target :kind)
+    ((or 'file 'file+olp)
+     (append
+      (when-let ((file-path (plist-get target :file_path)))
+        (list :file_path file-path))
+      (when-let ((head (plist-get target :head)))
+        (list :head head))
+      (when-let ((outline-path (plist-get target :outline_path)))
+        (list :outline_path outline-path))))
+    ('node
+     (list :node_key (plist-get target :node_key)))
+    (_
+     (user-error "Unsupported capture target"))))
 
 (defun org-slipbox--expand-capture-target (template-options title time &optional variables)
   "Expand TEMPLATE-OPTIONS for TITLE at TIME into a capture target plist."

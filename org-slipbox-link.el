@@ -70,12 +70,36 @@
 
 (defun org-slipbox-link-follow-link (title-or-alias)
   "Visit the node named by TITLE-OR-ALIAS."
-  (let ((node (or (org-slipbox-node-from-title-or-alias title-or-alias)
-                  (org-slipbox--capture-node title-or-alias))))
-    (when org-slipbox-link-auto-replace
-      (org-slipbox-link-replace-at-point))
+  (let ((node (org-slipbox-node-from-title-or-alias title-or-alias)))
     (org-mark-ring-push)
-    (org-slipbox--visit-node node)))
+    (if node
+        (progn
+          (when org-slipbox-link-auto-replace
+            (org-slipbox-link-replace-at-point))
+          (org-slipbox--visit-node node))
+      (let ((marker (point-marker))
+            (auto-replace org-slipbox-link-auto-replace))
+        (org-slipbox--capture-node
+         title-or-alias
+         nil
+         nil
+         nil
+         `(:default-finalize
+           ,(lambda (captured _session)
+              (unwind-protect
+                  (progn
+                    (when (and auto-replace
+                               (buffer-live-p (marker-buffer marker)))
+                      (with-current-buffer (marker-buffer marker)
+                        (save-excursion
+                          (goto-char marker)
+                          (org-slipbox-link-replace-at-point))))
+                    (org-slipbox--visit-node captured))
+                (set-marker marker nil)))
+           :cleanup
+           ,(lambda (_session)
+              (when (markerp marker)
+                (set-marker marker nil)))))))))
 
 (defun org-slipbox-link-replace-at-point (&optional link)
   "Replace `org-slipbox-link-type' LINK at point with an `id:' link."

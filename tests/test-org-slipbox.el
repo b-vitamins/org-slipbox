@@ -219,69 +219,130 @@
        :body "Quoted text"))
     "Source https://example.test/article\nQuoted text")))
 
-(ert-deftest org-slipbox-test-capture-node-uses-template-path ()
-  "Capture should send expanded file targets through the RPC layer."
-  (let (method params)
-    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
-               (lambda (request-method request-params)
-                 (setq method request-method
-                       params request-params)
-                 '(:title "Slip: Sample Title" :file_path "notes/2026-sample-title.org" :line 1))))
-      (org-slipbox--capture-node
-       "Sample Title"
-       '("d" "default" :path "notes/%<%Y>-${slug}.org" :title "Slip: ${title}")))
-    (should (equal method "slipbox/captureNode"))
-    (should
-     (equal params
-            '(:title "Slip: Sample Title"
-              :file_path "notes/2026-sample-title.org")))))
+(ert-deftest org-slipbox-test-capture-node-opens-shorthand-draft ()
+  "Capture should open a transient shorthand draft before writing."
+  (let (buffer)
+    (unwind-protect
+        (progn
+          (setq buffer
+                (org-slipbox--capture-node
+                 "Sample Title"
+                 '("d" "default" :path "notes/%<%Y>-${slug}.org" :title "Slip: ${title}")))
+          (should (buffer-live-p buffer))
+          (with-current-buffer buffer
+            (should (derived-mode-p 'org-slipbox-capture-mode))
+            (should (org-slipbox-capture-session-p org-slipbox-capture--session))
+            (should
+             (equal
+              (org-slipbox-capture-session-capture-title org-slipbox-capture--session)
+              "Slip: Sample Title"))
+            (should
+             (equal
+              (org-slipbox-capture-session-target org-slipbox-capture--session)
+              '(:kind file :file_path "notes/2026-sample-title.org")))
+            (should
+             (equal
+              (buffer-substring-no-properties org-slipbox--capture-body-start (point-max))
+              ""))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
 
-(ert-deftest org-slipbox-test-capture-node-uses-outline-path-target ()
-  "Capture should send expanded outline targets through the dedicated RPC."
-  (let (method params)
-    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
-               (lambda (request-method request-params)
-                 (setq method request-method
-                       params request-params)
-                 '(:title "Meeting" :file_path "daily/2026-03-07.org" :line 8)))
-              ((symbol-function 'current-time)
-               (lambda ()
-                 (encode-time 0 0 0 7 3 2026))))
-      (org-slipbox--capture-node
-       "Meeting"
-       '("d" "daily"
-         :target (file+head+olp
-                  "daily/%<%Y-%m-%d>.org"
-                  "#+title: %<%Y-%m-%d>"
-                  ("Inbox")))))
-    (should (equal method "slipbox/appendHeadingAtOutlinePath"))
-    (should
-     (equal params
-            '(:file_path "daily/2026-03-07.org"
-              :heading "Meeting"
-              :outline_path ("Inbox")
-              :head "#+title: 2026-03-07")))))
+(ert-deftest org-slipbox-test-capture-finalize-commits-shorthand-draft ()
+  "Finalizing a shorthand draft should write through the generic capture RPC."
+  (let (buffer method params)
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                     (lambda (request-method request-params)
+                       (setq method request-method
+                             params request-params)
+                       '(:title "Slip: Sample Title"
+                         :file_path "notes/2026-sample-title.org"
+                         :line 1))))
+            (setq buffer
+                  (org-slipbox--capture-node
+                   "Sample Title"
+                   '("d" "default"
+                     :path "notes/%<%Y>-${slug}.org"
+                     :title "Slip: ${title}")))
+            (with-current-buffer buffer
+              (goto-char (point-max))
+              (insert "Body text")
+              (org-slipbox-capture-finalize)))
+          (should-not (buffer-live-p buffer))
+          (should (equal method "slipbox/captureTemplate"))
+          (should
+           (equal params
+                  '(:title "Slip: Sample Title"
+                    :capture_type "plain"
+                    :content "Body text"
+                    :prepend nil
+                    :empty_lines_before 0
+                    :empty_lines_after 0
+                    :file_path "notes/2026-sample-title.org"))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
 
-(ert-deftest org-slipbox-test-capture-node-uses-file-head-target ()
-  "Capture should pass file heads through the file-note capture RPC."
-  (let (method params)
-    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
-               (lambda (request-method request-params)
-                 (setq method request-method
-                       params request-params)
-                 '(:title "Note" :file_path "notes/note.org" :line 1))))
-      (org-slipbox--capture-node
-       "Note"
-       '("d" "default"
-         :target (file+head
-                  "notes/${slug}.org"
-                  "#+title: ${title}\n#+filetags: :seed:"))))
-    (should (equal method "slipbox/captureNode"))
-    (should
-     (equal params
-            '(:title "Note"
-              :file_path "notes/note.org"
-              :head "#+title: Note\n#+filetags: :seed:")))))
+(ert-deftest org-slipbox-test-capture-finalize-commits-outline-path-draft ()
+  "Outline-path shorthand drafts should resolve to entry capture params."
+  (let (buffer method params)
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                     (lambda (request-method request-params)
+                       (setq method request-method
+                             params request-params)
+                       '(:title "Meeting" :file_path "daily/2026-03-07.org" :line 8)))
+                    ((symbol-function 'current-time)
+                     (lambda ()
+                       (encode-time 0 0 0 7 3 2026))))
+            (setq buffer
+                  (org-slipbox--capture-node
+                   "Meeting"
+                   '("d" "daily"
+                     :target (file+head+olp
+                              "daily/%<%Y-%m-%d>.org"
+                              "#+title: %<%Y-%m-%d>"
+                              ("Inbox")))))
+            (with-current-buffer buffer
+              (goto-char (point-max))
+              (insert "Discuss roadmap")
+              (org-slipbox-capture-finalize)))
+          (should-not (buffer-live-p buffer))
+          (should (equal method "slipbox/captureTemplate"))
+          (should
+           (equal params
+                  '(:title "Meeting"
+                    :capture_type "entry"
+                    :content "Discuss roadmap"
+                    :prepend nil
+                    :empty_lines_before 0
+                    :empty_lines_after 0
+                    :file_path "daily/2026-03-07.org"
+                    :head "#+title: 2026-03-07"
+                    :outline_path ("Inbox")))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest org-slipbox-test-capture-node-shows-file-head-preview ()
+  "Draft buffers should show target metadata previews without mutating files."
+  (let (buffer)
+    (unwind-protect
+        (progn
+          (setq buffer
+                (org-slipbox--capture-node
+                 "Note"
+                 '("d" "default"
+                   :target (file+head
+                            "notes/${slug}.org"
+                            "#+title: ${title}\n#+filetags: :seed:"))))
+          (with-current-buffer buffer
+            (should (string-match-p "^# Target: notes/note.org$" (buffer-string)))
+            (should (string-match-p "^# Preview:$" (buffer-string)))
+            (should (string-match-p "^#   #\\+title: Note$" (buffer-string)))
+            (should (string-match-p "^#   #\\+filetags: :seed:$" (buffer-string)))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
 
 (ert-deftest org-slipbox-test-capture-ref-reuses-existing-node ()
   "Ref capture should reuse an existing indexed ref node."
@@ -383,88 +444,153 @@
      (equal visited
             '(:title "Child" :file_path "project.org" :line 8)))))
 
-(ert-deftest org-slipbox-test-typed-capture-template-uses-generic-rpc ()
-  "Typed templates should route through the generic capture RPC."
-  (let (method params)
-    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
-               (lambda (request-method request-params)
-                 (setq method request-method
-                       params request-params)
-                 '(:title "Note" :file_path "notes/note.org" :line 5))))
-      (org-slipbox--capture-node-at-time
-       "Note"
-       '("d" "default" entry "* ${title}\n${body}"
-         :target (file+head+olp
-                  "notes/${slug}.org"
-                  "#+title: ${title}"
-                  ("Inbox"))
-         :prepend t
-         :empty-lines 1)
-       '("https://example.test/ref")
-       (encode-time 0 0 0 7 3 2026)
-       '(:body "Body text")))
-    (should (equal method "slipbox/captureTemplate"))
-    (should
-     (equal params
-            '(:title "Note"
-              :capture_type "entry"
-              :content "* Note\nBody text"
-              :prepend t
-              :empty_lines_before 1
-              :empty_lines_after 1
-              :refs ("https://example.test/ref")
-              :file_path "notes/note.org"
-              :head "#+title: Note"
-              :outline_path ("Inbox"))))))
+(ert-deftest org-slipbox-test-capture-finalize-commits-typed-draft ()
+  "Typed templates should render into an editable draft and commit through RPC."
+  (let (buffer method params)
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                     (lambda (request-method request-params)
+                       (setq method request-method
+                             params request-params)
+                       '(:title "Note" :file_path "notes/note.org" :line 5))))
+            (setq buffer
+                  (org-slipbox--capture-node-at-time
+                   "Note"
+                   '("d" "default" entry "* ${title}\n${body}"
+                     :target (file+head+olp
+                              "notes/${slug}.org"
+                              "#+title: ${title}"
+                              ("Inbox"))
+                     :prepend t
+                     :empty-lines 1)
+                   '("https://example.test/ref")
+                   (encode-time 0 0 0 7 3 2026)
+                   '(:body "Body text")))
+            (with-current-buffer buffer
+              (should
+               (equal
+                (buffer-substring-no-properties org-slipbox--capture-body-start (point-max))
+                "* Note\nBody text"))
+              (goto-char (point-max))
+              (insert "\nMore")
+              (org-slipbox-capture-finalize)))
+          (should-not (buffer-live-p buffer))
+          (should (equal method "slipbox/captureTemplate"))
+          (should
+           (equal params
+                  '(:title "Note"
+                    :capture_type "entry"
+                    :content "* Note\nBody text\nMore"
+                    :prepend t
+                    :empty_lines_before 1
+                    :empty_lines_after 1
+                    :refs ("https://example.test/ref")
+                    :file_path "notes/note.org"
+                    :head "#+title: Note"
+                    :outline_path ("Inbox")))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
 
 (ert-deftest org-slipbox-test-typed-capture-target-node-resolves-existing-node ()
-  "Typed templates should resolve `(node ...)' targets through the index."
-  (let (method params)
-    (cl-letf (((symbol-function 'org-slipbox-node-from-id)
-               (lambda (_id) nil))
-              ((symbol-function 'org-slipbox-node-from-title-or-alias)
-               (lambda (query _nocase)
-                 (should (equal query "Parent"))
-                 '(:node_key "heading:project.org:3" :title "Parent")))
-              ((symbol-function 'org-slipbox-rpc-request)
-               (lambda (request-method request-params)
-                 (setq method request-method
-                       params request-params)
-                 '(:title "Parent" :file_path "project.org" :line 3))))
-      (org-slipbox--capture-node-at-time
-       "Follow up"
-       '("n" "node item" item "${title}"
-         :target (node "Parent"))
-       nil
-       (encode-time 0 0 0 7 3 2026)))
-    (should (equal method "slipbox/captureTemplate"))
-    (should
-     (equal params
-            '(:title "Follow up"
-              :capture_type "item"
-              :content "Follow up"
-              :prepend nil
-              :empty_lines_before 0
-              :empty_lines_after 0
-              :node_key "heading:project.org:3")))))
+  "Typed templates should resolve `(node ...)' targets before draft creation."
+  (let (buffer method params)
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'org-slipbox-node-from-id)
+                     (lambda (_id) nil))
+                    ((symbol-function 'org-slipbox-node-from-title-or-alias)
+                     (lambda (query _nocase)
+                       (should (equal query "Parent"))
+                       '(:node_key "heading:project.org:3" :title "Parent")))
+                    ((symbol-function 'org-slipbox-rpc-request)
+                     (lambda (request-method request-params)
+                       (setq method request-method
+                             params request-params)
+                       '(:title "Parent" :file_path "project.org" :line 3))))
+            (setq buffer
+                  (org-slipbox--capture-node-at-time
+                   "Follow up"
+                   '("n" "node item" item "${title}"
+                     :target (node "Parent"))
+                   nil
+                   (encode-time 0 0 0 7 3 2026)))
+            (with-current-buffer buffer
+              (should
+               (equal
+                (plist-get
+                 (org-slipbox-capture-session-target org-slipbox-capture--session)
+                 :node_key)
+                "heading:project.org:3"))
+              (org-slipbox-capture-finalize)))
+          (should (equal method "slipbox/captureTemplate"))
+          (should
+           (equal params
+                  '(:title "Follow up"
+                    :capture_type "item"
+                    :content "Follow up"
+                    :prepend nil
+                    :empty_lines_before 0
+                    :empty_lines_after 0
+                    :node_key "heading:project.org:3"))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
 
 (ert-deftest org-slipbox-test-typed-capture-template-jumps-to-captured-node ()
-  "Typed templates should honor `:jump-to-captured'."
-  (let (visited)
-    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
-               (lambda (&rest _args)
-                 '(:title "Note" :file_path "notes/note.org" :line 5)))
-              ((symbol-function 'org-slipbox--visit-node)
-               (lambda (node &optional _other-window)
-                 (setq visited node))))
-      (org-slipbox--capture-node-at-time
-       "Note"
-       '("d" "default" entry "* ${title}"
-         :target (file "notes/${slug}.org")
-         :jump-to-captured t)
-       nil
-       (encode-time 0 0 0 7 3 2026)))
-    (should (equal visited '(:title "Note" :file_path "notes/note.org" :line 5)))))
+  "Typed templates should honor `:jump-to-captured' after draft finalization."
+  (let (buffer visited)
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                     (lambda (&rest _args)
+                       '(:title "Note" :file_path "notes/note.org" :line 5)))
+                    ((symbol-function 'org-slipbox--visit-node)
+                     (lambda (node &optional _other-window)
+                       (setq visited node))))
+            (setq buffer
+                  (org-slipbox--capture-node-at-time
+                   "Note"
+                   '("d" "default" entry "* ${title}"
+                     :target (file "notes/${slug}.org")
+                     :jump-to-captured t)
+                   nil
+                   (encode-time 0 0 0 7 3 2026)))
+            (with-current-buffer buffer
+              (org-slipbox-capture-finalize)))
+          (should-not (buffer-live-p buffer))
+          (should (equal visited '(:title "Note" :file_path "notes/note.org" :line 5))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest org-slipbox-test-capture-abort-skips-rpc-writes ()
+  "Aborting a draft should not call any capture RPC or mutate targets."
+  (let (buffer called)
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                     (lambda (&rest _args)
+                       (setq called t)
+                       (ert-fail "capture RPC should not run on abort"))))
+            (setq buffer
+                  (org-slipbox--capture-node
+                   "Abort Me"
+                   '("d" "default" :path "notes/${slug}.org")))
+            (with-current-buffer buffer
+              (goto-char (point-max))
+              (insert "Transient text")
+              (org-slipbox-capture-abort)))
+          (should-not called)
+          (should-not (buffer-live-p buffer)))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest org-slipbox-test-capture-unsupported-lifecycle-option-errors ()
+  "Unsupported org-capture lifecycle keys should error clearly."
+  (should-error
+   (org-slipbox--capture-node
+    "Note"
+    '("d" "default" :path "notes/${slug}.org" :immediate-finish t))
+   :type 'error))
 
 (ert-deftest org-slipbox-test-capture-datetree-target-expands-outline-path ()
   "Datetree targets should expand to deterministic outline paths."
@@ -1200,40 +1326,52 @@
     (should hook-ran)))
 
 (ert-deftest org-slipbox-test-dailies-capture-uses-template-targets ()
-  "Daily entry capture should reuse generic capture templates when configured."
-  (let (captured visited hook-ran)
-    (cl-letf (((symbol-function 'org-slipbox--capture-node-at-time)
-               (lambda (heading template refs time)
-                 (setq captured (list :heading heading
-                                      :template template
-                                      :refs refs
-                                      :time time))
-                 '(:title "Meeting" :file_path "daily/2026-03-07.org" :line 8)))
-              ((symbol-function 'org-slipbox--visit-node)
-               (lambda (node)
-                 (setq visited node))))
-      (let ((org-slipbox-dailies-capture-templates
-             '(("d" "default"
-                :target (file+head+olp "daily/%<%Y-%m-%d>.org"
-                                       "#+title: %<%Y-%m-%d>\n"
-                                       ("Inbox"))
-                :title "${title}")))
-            (org-slipbox-dailies-find-file-hook
-             (list (lambda () (setq hook-ran t)))))
-        (org-slipbox-dailies--capture (encode-time 0 0 0 7 3 2026) "Meeting" "d")))
-    (should
-     (equal captured
-            (list :heading "Meeting"
-                  :template
-                  '("d" "default"
-                    :target (file+head+olp "daily/%<%Y-%m-%d>.org"
-                                           "#+title: %<%Y-%m-%d>\n"
-                                           ("Inbox"))
-                    :title "${title}")
-                  :refs nil
-                  :time (encode-time 0 0 0 7 3 2026))))
-    (should (equal visited '(:title "Meeting" :file_path "daily/2026-03-07.org" :line 8)))
-    (should hook-ran)))
+  "Daily entry capture should open a draft and visit on finalize."
+  (let (buffer method params visited hook-ran)
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                     (lambda (request-method request-params)
+                       (setq method request-method
+                             params request-params)
+                       '(:title "Meeting" :file_path "daily/2026-03-07.org" :line 8)))
+                    ((symbol-function 'org-slipbox--visit-node)
+                     (lambda (node)
+                       (setq visited node))))
+            (let ((org-slipbox-dailies-capture-templates
+                   '(("d" "default"
+                      :target (file+head+olp "daily/%<%Y-%m-%d>.org"
+                                             "#+title: %<%Y-%m-%d>\n"
+                                             ("Inbox"))
+                      :title "${title}")))
+                  (org-slipbox-dailies-find-file-hook
+                   (list (lambda () (setq hook-ran t)))))
+              (setq buffer
+                    (org-slipbox-dailies--capture
+                     (encode-time 0 0 0 7 3 2026)
+                     "Meeting"
+                     "d"))
+              (with-current-buffer buffer
+                (goto-char (point-max))
+                (insert "Agenda review")
+                (org-slipbox-capture-finalize))))
+          (should-not (buffer-live-p buffer))
+          (should (equal method "slipbox/captureTemplate"))
+          (should
+           (equal params
+                  '(:title "Meeting"
+                    :capture_type "entry"
+                    :content "Agenda review"
+                    :prepend nil
+                    :empty_lines_before 0
+                    :empty_lines_after 0
+                    :file_path "daily/2026-03-07.org"
+                    :head "#+title: 2026-03-07"
+                    :outline_path ("Inbox"))))
+          (should (equal visited '(:title "Meeting" :file_path "daily/2026-03-07.org" :line 8)))
+          (should hook-ran))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
 
 (ert-deftest org-slipbox-test-dailies-list-files-filters-non-org-noise ()
   "Daily file listing should ignore dotfiles, autosaves, and backups."

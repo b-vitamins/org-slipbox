@@ -140,13 +140,20 @@ If ASSERT is non-nil, signal a user error when no node is available."
 INITIAL-INPUT seeds the minibuffer. FILTER-FN filters indexed nodes.
 With OTHER-WINDOW, visit the result in another window."
   (interactive (list nil nil current-prefix-arg))
-  (let ((node (org-slipbox-node-read initial-input filter-fn nil nil "Node: ")))
+  (let* ((node (org-slipbox-node-read initial-input filter-fn nil nil "Node: "))
+         (finalize (if other-window
+                       (lambda (captured _session)
+                         (org-slipbox--visit-node captured t))
+                     'find-file)))
     (when node
       (if (plist-get node :file_path)
           (org-slipbox--visit-node node other-window)
-        (org-slipbox--visit-node
-         (org-slipbox--capture-node (plist-get node :title))
-         other-window)))))
+        (org-slipbox--capture-node
+         (plist-get node :title)
+         nil
+         nil
+         nil
+         `(:default-finalize ,finalize))))))
 
 ;;;###autoload
 (defun org-slipbox-node-random (&optional other-window)

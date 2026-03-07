@@ -236,14 +236,24 @@ When KEYS is non-nil, use the matching daily capture template."
                     (let ((template (org-slipbox--read-capture-template
                                      org-slipbox-dailies-capture-templates
                                      keys)))
-                      (org-slipbox--capture-node-at-time heading template nil time))
+                      (org-slipbox--capture-node-at-time
+                       heading
+                       template
+                       nil
+                       time
+                       nil
+                       `(:default-finalize
+                         ,(lambda (captured _session)
+                            (org-slipbox--visit-node captured)
+                            (run-hooks 'org-slipbox-dailies-find-file-hook)))))
                   (org-slipbox-rpc-append-heading
                    (org-slipbox-dailies--path time)
                    (org-slipbox-dailies--title time)
                    heading
                    org-slipbox-dailies-entry-level))))
-      (org-slipbox--visit-node node)
-      (run-hooks 'org-slipbox-dailies-find-file-hook)
+      (when (plist-get node :file_path)
+        (org-slipbox--visit-node node)
+        (run-hooks 'org-slipbox-dailies-find-file-hook))
       node)))
 
 (defun org-slipbox-dailies--ensure-note (time)

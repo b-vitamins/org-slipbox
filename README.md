@@ -32,6 +32,7 @@ The Rust workspace links against a system SQLite installation.
 - Capture notes from refs without duplicating existing ref-backed nodes.
 - Expand capture templates into exact file targets, optional file heads, and outline-path targets.
 - Expand capture templates with contextual variables such as refs and protocol-supplied body text.
+- Start note capture in a transient draft buffer and only write through Rust RPC on finalize or jump-to-captured flows.
 - Support org-roam-style typed capture templates with `entry`, `plain`, `item`, `checkitem`, and `table-line` content.
 - Honor capture post-success actions such as `:finalize` and `:jump-to-captured`, including insert-link flows.
 - Capture into datetree targets and existing indexed nodes through the shared Rust write pipeline.

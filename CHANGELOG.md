@@ -50,3 +50,4 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Added whole-buffer file-node promote and demote commands through Rust-backed rewrite RPCs.
 - Added an opt-in HTML export module so Org ID targets round-trip correctly during export.
 - Added capture finalizers, jump-to-captured support, and insert-link lifecycle handling for org-roam-style templates.
+- Added transient capture-session drafts with finalize and abort flows, while keeping all target writes behind the Rust capture RPC.
