@@ -22,6 +22,7 @@ The Rust workspace links against a system SQLite installation.
 - Resolve nodes from indexed refs and citekeys, and edit alias/ref/tag metadata from Emacs.
 - Display a persistent or dedicated context buffer for the current node with refs and backlinks.
 - Complete and follow title-based org-slipbox links, with optional rewrite to stable `id:` links.
+- Refile subtrees between indexed notes and extract subtrees into new promoted file notes.
 - Query indexed agenda entries from scheduled and deadline planning lines.
 - Resolve backlinks for nodes with explicit Org `ID` properties.
 - Capture new file notes with explicit IDs and configurable path/title templates.

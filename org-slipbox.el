@@ -53,6 +53,8 @@
 ;;;###autoload(autoload 'org-slipbox-node-find "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-node-insert "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-node-backlinks "org-slipbox-node" nil t)
+;;;###autoload(autoload 'org-slipbox-refile "org-slipbox-node" nil t)
+;;;###autoload(autoload 'org-slipbox-extract-subtree "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-link-replace-all "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-completion-mode "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-buffer-refresh "org-slipbox-buffer" nil t)

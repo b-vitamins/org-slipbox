@@ -234,6 +234,106 @@
     (should (equal method "slipbox/searchNodes"))
     (should (equal params '(:query "He" :limit 50)))))
 
+(ert-deftest org-slipbox-test-refile-moves-subtree-to-target-node ()
+  "Refile should move the current subtree under the target node."
+  (let* ((root (make-temp-file "org-slipbox-refile-" t))
+         (source (expand-file-name "source.org" root))
+         (target (expand-file-name "target.org" root))
+         sync-calls)
+    (unwind-protect
+        (progn
+          (write-region "#+title: Source\n\n* Move Me\nBody\n" nil source nil 'silent)
+          (write-region "#+title: Target\n\n* Parent\n" nil target nil 'silent)
+          (with-current-buffer (find-file-noselect source)
+            (goto-char (point-min))
+            (search-forward "* Move Me")
+            (let ((org-slipbox-directory root)
+                  (org-auto-align-tags nil))
+              (cl-letf (((symbol-function 'org-slipbox-node-at-point)
+                         (lambda (&optional _assert)
+                           '(:node_key "heading:source.org:3"
+                             :file_path "source.org"
+                             :line 3
+                             :kind "heading"
+                             :title "Move Me")))
+                        ((symbol-function 'org-slipbox-rpc-request)
+                         (lambda (method params)
+                           (push (list method params) sync-calls)
+                           nil)))
+                (org-slipbox-refile
+                 '(:node_key "heading:target.org:3"
+                   :file_path "target.org"
+                   :line 3
+                   :kind "heading"
+                   :title "Parent"))))
+            (kill-buffer (current-buffer)))
+          (should
+           (equal
+            (with-temp-buffer
+              (insert-file-contents source)
+              (buffer-string))
+            "#+title: Source\n\n"))
+          (should
+           (equal
+            (with-temp-buffer
+              (insert-file-contents target)
+              (buffer-string))
+            "#+title: Target\n\n* Parent\n** Move Me\nBody\n"))
+          (should
+           (equal
+            (sort (mapcar (lambda (entry) (plist-get (cadr entry) :file_path)) sync-calls)
+                  #'string-lessp)
+            (sort (list source target) #'string-lessp))))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-extract-subtree-creates-file-note ()
+  "Extracting a subtree should create a promoted file note."
+  (let* ((root (make-temp-file "org-slipbox-extract-" t))
+         (source (expand-file-name "source.org" root))
+         (target (expand-file-name "moved.org" root))
+         sync-calls)
+    (unwind-protect
+        (progn
+         (write-region
+           "#+title: Source\n\n* Move Me :tag:\nBody\n** Child\nMore\n"
+           nil
+           source
+           nil
+           'silent)
+          (write-region "" nil (expand-file-name ".org-id-locations" root) nil 'silent)
+          (with-current-buffer (find-file-noselect source)
+            (goto-char (point-min))
+            (search-forward "* Move Me")
+            (let ((org-slipbox-directory root)
+                  (org-auto-align-tags nil)
+                  (org-id-locations-file (expand-file-name ".org-id-locations" root))
+                  (org-id-track-globally nil))
+              (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                         (lambda (method params)
+                           (push (list method params) sync-calls)
+                           nil)))
+                (org-slipbox-extract-subtree target)))
+            (kill-buffer (current-buffer)))
+          (should
+           (equal
+            (with-temp-buffer
+              (insert-file-contents source)
+              (buffer-string))
+            "#+title: Source\n\n"))
+          (let ((content (with-temp-buffer
+                           (insert-file-contents target)
+                           (buffer-string))))
+            (should (string-match-p "^#\\+TITLE: Move Me\n" content))
+            (should (string-match-p "^#\\+FILETAGS: :tag:\n" content))
+            (should (string-match-p "^:PROPERTIES:\n:ID: " content))
+            (should (string-match-p "\nBody\n\\* Child\nMore\n\\'" content)))
+          (should
+           (equal
+            (sort (mapcar (lambda (entry) (plist-get (cadr entry) :file_path)) sync-calls)
+                  #'string-lessp)
+            (sort (list source target) #'string-lessp))))
+      (delete-directory root t))))
+
 (ert-deftest org-slipbox-test-ref-find-uses-rpc ()
   "Ref lookup should query the dedicated ref RPC."
   (let (method params visited)
