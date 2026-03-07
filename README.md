@@ -53,4 +53,5 @@ The Rust workspace links against a system SQLite installation.
 - Enable optional HTML export support so Org ID-backed targets keep stable exported anchors.
 - Keep indexed state current across Org file saves, renames, deletes, and VC deletes through an explicit autosync mode.
 - Apply a shared file-discovery policy across indexing, autosync, dailies, and grep-backed discovery, with configurable extensions, exclude regexps, and `.gpg` / `.age` suffix handling.
+- Bridge `org-id` through an explicit compatibility mode so indexed IDs win over stale `org-id-locations`, while valid non-indexed IDs can still be refreshed into `org-id`.
 - Connect Emacs to the local daemon over JSON-RPC on stdio.

@@ -54,15 +54,12 @@ Otherwise use `org-slipbox-directory'."
   (when-let* ((root (or root org-slipbox-directory))
               (expanded-root (file-name-as-directory (expand-file-name root)))
               ((file-directory-p expanded-root)))
-    (let ((case-fold-search t))
-      (sort
-       (seq-filter
-        (lambda (file)
-          (and (file-regular-p file)
-               (file-readable-p file)
-               (org-slipbox-file-p file expanded-root)))
-        (directory-files-recursively expanded-root (org-slipbox--file-recursive-regexp)))
-       #'string-lessp))))
+    (sort
+     (seq-filter
+      (lambda (file)
+        (org-slipbox-file-p file expanded-root))
+      (org-slipbox--list-supported-files expanded-root))
+     #'string-lessp)))
 
 (defun org-slipbox--file-recursive-regexp ()
   "Return the recursive listing regexp for eligible files."
@@ -79,6 +76,11 @@ Otherwise use `org-slipbox-directory'."
      ((string-empty-p extension) nil)
      (t extension))))
 
+(defun org-slipbox--supported-file-p (file)
+  "Return non-nil when FILE has a supported base extension."
+  (when-let ((extension (org-slipbox--file-base-extension file)))
+    (member extension (org-slipbox-rpc--normalized-file-extensions))))
+
 (defun org-slipbox--file-name-stem (file)
   "Return FILE's stem, stripping one encrypted suffix when present."
   (let* ((outer-extension (downcase (or (file-name-extension file) "")))
@@ -93,6 +95,17 @@ Otherwise use `org-slipbox-directory'."
    (lambda (pattern)
      (string-match-p pattern relative-path))
    (org-slipbox-rpc--normalized-file-exclude-regexp)))
+
+(defun org-slipbox--list-supported-files (root)
+  "Return supported files under ROOT, ignoring exclusion regexps."
+  (let ((case-fold-search t)
+        (expanded-root (file-name-as-directory (expand-file-name root))))
+    (seq-filter
+     (lambda (file)
+       (and (file-regular-p file)
+            (file-readable-p file)
+            (org-slipbox--supported-file-p file)))
+     (directory-files-recursively expanded-root (org-slipbox--file-recursive-regexp)))))
 
 (defun org-slipbox--file-globs ()
   "Return ripgrep glob patterns for eligible files."

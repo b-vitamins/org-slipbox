@@ -38,12 +38,14 @@
 (ert-deftest org-slipbox-test-package-load-has-no-global-side-effects ()
   "Loading the package should not install global hooks."
   (require 'calendar)
+  (require 'org-id)
   (require 'org-protocol)
   (should-not (memq #'org-slipbox-sync-current-buffer after-save-hook))
   (should-not (memq #'org-slipbox--autosync-setup-file-h find-file-hook))
   (should-not (advice-member-p #'org-slipbox--autosync-rename-file-a 'rename-file))
   (should-not (advice-member-p #'org-slipbox--autosync-delete-file-a 'delete-file))
   (should-not (advice-member-p #'org-slipbox--autosync-vc-delete-file-a 'vc-delete-file))
+  (should-not (advice-member-p #'org-slipbox-id-find 'org-id-find))
   (should-not (memq #'org-slipbox-buffer--redisplay-h post-command-hook))
   (should-not (memq #'org-slipbox-dailies-calendar-mark-entries
                     calendar-today-visible-hook))
@@ -51,6 +53,99 @@
                     calendar-today-invisible-hook))
   (should-not (assoc "org-slipbox-ref" org-protocol-protocol-alist))
   (should-not (assoc "org-slipbox-node" org-protocol-protocol-alist)))
+
+(ert-deftest org-slipbox-test-id-mode-toggles-org-id-find-advice ()
+  "The org-id bridge mode should own its advice explicitly."
+  (require 'org-id)
+  (let ((org-slipbox-id-mode nil))
+    (unwind-protect
+        (progn
+          (org-slipbox-id-mode 1)
+          (should (advice-member-p #'org-slipbox-id-find 'org-id-find))
+          (org-slipbox-id-mode -1)
+          (should-not (advice-member-p #'org-slipbox-id-find 'org-id-find)))
+      (when org-slipbox-id-mode
+        (org-slipbox-id-mode -1)))))
+
+(ert-deftest org-slipbox-test-org-id-find-prefers-indexed-location-over-stale-org-id-cache ()
+  "The org-id bridge should let indexed truth win over stale org-id-locations."
+  (require 'org-id)
+  (let* ((root (make-temp-file "org-slipbox-id-" t))
+         (note (expand-file-name "note.org" root))
+         (stale (expand-file-name "stale.org" root))
+         (org-directory nil)
+         (org-id-track-globally t)
+         (org-id-locations (make-hash-table :test 'equal))
+         (org-id-files nil)
+         (org-id-locations-file (expand-file-name ".org-id-locations" root))
+         (org-id--locations-checksum nil))
+    (unwind-protect
+        (progn
+          (write-region "* Heading\n:PROPERTIES:\n:ID: note-id\n:END:\n" nil note nil 'silent)
+          (write-region "* Stale\n" nil stale nil 'silent)
+          (puthash "note-id" (abbreviate-file-name stale) org-id-locations)
+          (let ((org-slipbox-directory root))
+            (cl-letf (((symbol-function 'org-slipbox-node-from-id)
+                       (lambda (id)
+                         (and (string= id "note-id")
+                              '(:file_path "note.org" :line 1)))))
+              (unwind-protect
+                  (progn
+                    (org-slipbox-id-mode 1)
+                    (let ((location (org-id-find "note-id")))
+                      (should (equal (car location) note))
+                      (with-temp-buffer
+                        (insert-file-contents note)
+                        (goto-char (cdr location))
+                        (should (= (line-number-at-pos) 1)))))
+                (when org-slipbox-id-mode
+                  (org-slipbox-id-mode -1))))))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-org-id-find-falls-back-to-org-id-locations-for-excluded-files ()
+  "The org-id bridge should preserve valid excluded ID targets via fallback."
+  (require 'org-id)
+  (let* ((root (make-temp-file "org-slipbox-id-" t))
+         (archive (expand-file-name "archive" root))
+         (excluded (expand-file-name "excluded.org" archive))
+         (extra-dir (make-temp-file "org-slipbox-extra-id-" t))
+         (extra-file (expand-file-name "extra.org" extra-dir))
+         (org-directory nil)
+         (org-id-track-globally t)
+         (org-id-locations nil)
+         (org-id-files nil)
+         (org-id-locations-file (expand-file-name ".org-id-locations" root))
+         (org-id-extra-files nil)
+         (org-agenda-files nil)
+         (org-id--locations-checksum nil))
+    (unwind-protect
+        (progn
+          (make-directory archive t)
+          (write-region "* Excluded\n:PROPERTIES:\n:ID: excluded-id\n:END:\n"
+                        nil excluded nil 'silent)
+          (write-region "* Extra\n:PROPERTIES:\n:ID: extra-id\n:END:\n"
+                        nil extra-file nil 'silent)
+          (let ((org-slipbox-directory root)
+                (org-slipbox-file-exclude-regexp "^archive/"))
+            (org-slipbox-update-org-id-locations extra-dir)
+            (should (equal (gethash "excluded-id" org-id-locations)
+                           (abbreviate-file-name excluded)))
+            (should (equal (gethash "extra-id" org-id-locations)
+                           (abbreviate-file-name extra-file)))
+            (cl-letf (((symbol-function 'org-slipbox-node-from-id) (lambda (_id) nil)))
+              (unwind-protect
+                  (progn
+                    (org-slipbox-id-mode 1)
+                    (let ((location (org-id-find "excluded-id")))
+                      (should (equal (car location) (abbreviate-file-name excluded)))
+                      (with-temp-buffer
+                        (insert-file-contents excluded)
+                        (goto-char (cdr location))
+                        (should (= (line-number-at-pos) 1)))))
+                (when org-slipbox-id-mode
+                  (org-slipbox-id-mode -1))))))
+      (delete-directory root t)
+      (delete-directory extra-dir t))))
 
 (ert-deftest org-slipbox-test-file-p-respects-discovery-policy ()
   "File eligibility should honor extensions, encrypted suffixes, and exclusions."
