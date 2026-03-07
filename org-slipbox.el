@@ -33,6 +33,7 @@
 
 (require 'org-slipbox-node)
 (require 'org-slipbox-rpc)
+(require 'org-slipbox-dailies)
 (require 'org-slipbox-sync)
 
 ;;;###autoload
@@ -50,6 +51,15 @@
 ;;;###autoload(autoload 'org-slipbox-node-find "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-node-insert "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-node-backlinks "org-slipbox-node" nil t)
+;;;###autoload(autoload 'org-slipbox-dailies-capture-today "org-slipbox-dailies" nil t)
+;;;###autoload(autoload 'org-slipbox-dailies-goto-today "org-slipbox-dailies" nil t)
+;;;###autoload(autoload 'org-slipbox-dailies-capture-tomorrow "org-slipbox-dailies" nil t)
+;;;###autoload(autoload 'org-slipbox-dailies-goto-tomorrow "org-slipbox-dailies" nil t)
+;;;###autoload(autoload 'org-slipbox-dailies-capture-yesterday "org-slipbox-dailies" nil t)
+;;;###autoload(autoload 'org-slipbox-dailies-goto-yesterday "org-slipbox-dailies" nil t)
+;;;###autoload(autoload 'org-slipbox-dailies-capture-date "org-slipbox-dailies" nil t)
+;;;###autoload(autoload 'org-slipbox-dailies-goto-date "org-slipbox-dailies" nil t)
+;;;###autoload(autoload 'org-slipbox-dailies-find-directory "org-slipbox-dailies" nil t)
 ;;;###autoload(autoload 'org-slipbox-autosync-mode "org-slipbox-sync" nil t)
 
 (provide 'org-slipbox)

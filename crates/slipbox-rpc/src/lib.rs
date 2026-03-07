@@ -10,6 +10,8 @@ pub const METHOD_INDEX_FILE: &str = "slipbox/indexFile";
 pub const METHOD_SEARCH_NODES: &str = "slipbox/searchNodes";
 pub const METHOD_BACKLINKS: &str = "slipbox/backlinks";
 pub const METHOD_CAPTURE_NODE: &str = "slipbox/captureNode";
+pub const METHOD_ENSURE_FILE_NODE: &str = "slipbox/ensureFileNode";
+pub const METHOD_APPEND_HEADING: &str = "slipbox/appendHeading";
 pub const METHOD_ENSURE_NODE_ID: &str = "slipbox/ensureNodeId";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

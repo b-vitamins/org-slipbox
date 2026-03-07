@@ -5,13 +5,14 @@ use anyhow::{Context, Result, anyhow};
 use clap::{Parser, Subcommand};
 use serde::de::DeserializeOwned;
 use slipbox_core::{
-    BacklinksParams, BacklinksResult, CaptureNodeParams, EnsureNodeIdParams, IndexFileParams,
-    PingInfo, SearchNodesParams, SearchNodesResult,
+    AppendHeadingParams, BacklinksParams, BacklinksResult, CaptureNodeParams, EnsureFileNodeParams,
+    EnsureNodeIdParams, IndexFileParams, NodeRecord, PingInfo, SearchNodesParams,
+    SearchNodesResult,
 };
 use slipbox_rpc::{
-    JsonRpcError, JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_BACKLINKS,
-    METHOD_CAPTURE_NODE, METHOD_ENSURE_NODE_ID, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_PING,
-    METHOD_SEARCH_NODES,
+    JsonRpcError, JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_APPEND_HEADING,
+    METHOD_BACKLINKS, METHOD_CAPTURE_NODE, METHOD_ENSURE_FILE_NODE, METHOD_ENSURE_NODE_ID,
+    METHOD_INDEX, METHOD_INDEX_FILE, METHOD_PING, METHOD_SEARCH_NODES,
 };
 use slipbox_store::Database;
 
@@ -194,16 +195,30 @@ fn dispatch_request(
             let captured = slipbox_write::capture_file_note(&state.root, &params.title)
                 .map_err(|error| internal_error(error.context("failed to capture node")))?;
             sync_one_path(state, &captured.absolute_path)?;
-            let node = state
-                .database
-                .node_by_key(&captured.node_key)
-                .map_err(|error| internal_error(error.context("failed to fetch captured node")))?
-                .ok_or_else(|| {
-                    internal_error(anyhow!(
-                        "captured node {} was not found after indexing",
-                        captured.node_key
-                    ))
-                })?;
+            let node = read_required_node(state, &captured.node_key, "captured node")?;
+            to_value(node)
+        }
+        METHOD_ENSURE_FILE_NODE => {
+            let params: EnsureFileNodeParams = parse_params(params)?;
+            let ensured =
+                slipbox_write::ensure_file_note(&state.root, &params.file_path, &params.title)
+                    .map_err(|error| internal_error(error.context("failed to ensure file node")))?;
+            sync_one_path(state, &ensured.absolute_path)?;
+            let node = read_required_node(state, &ensured.node_key, "ensured file node")?;
+            to_value(node)
+        }
+        METHOD_APPEND_HEADING => {
+            let params: AppendHeadingParams = parse_params(params)?;
+            let captured = slipbox_write::append_heading(
+                &state.root,
+                &params.file_path,
+                &params.title,
+                &params.heading,
+                params.normalized_level(),
+            )
+            .map_err(|error| internal_error(error.context("failed to append heading")))?;
+            sync_one_path(state, &captured.absolute_path)?;
+            let node = read_required_node(state, &captured.node_key, "captured heading")?;
             to_value(node)
         }
         METHOD_ENSURE_NODE_ID => {
@@ -298,6 +313,22 @@ fn sync_one_path(state: &mut ServerState, path: &std::path::Path) -> Result<(), 
             internal_error(error.context("failed to sync updated file into SQLite"))
         })?;
     Ok(())
+}
+
+fn read_required_node(
+    state: &mut ServerState,
+    node_key: &str,
+    description: &str,
+) -> Result<NodeRecord, JsonRpcError> {
+    state
+        .database
+        .node_by_key(node_key)
+        .map_err(|error| internal_error(error.context(format!("failed to fetch {description}"))))?
+        .ok_or_else(|| {
+            internal_error(anyhow!(
+                "{description} {node_key} was not found after indexing"
+            ))
+        })
 }
 
 fn resolve_index_path(root: &std::path::Path, file_path: &str) -> Result<(String, PathBuf)> {

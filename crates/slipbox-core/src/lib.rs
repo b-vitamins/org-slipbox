@@ -141,6 +141,28 @@ pub struct CaptureNodeParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnsureFileNodeParams {
+    pub file_path: String,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppendHeadingParams {
+    pub file_path: String,
+    pub title: String,
+    pub heading: String,
+    #[serde(default = "default_heading_level")]
+    pub level: u32,
+}
+
+impl AppendHeadingParams {
+    #[must_use]
+    pub fn normalized_level(&self) -> usize {
+        self.level.clamp(1, 32) as usize
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EnsureNodeIdParams {
     pub node_key: String,
 }
@@ -156,4 +178,8 @@ const fn default_search_limit() -> usize {
 
 const fn default_backlink_limit() -> usize {
     200
+}
+
+const fn default_heading_level() -> u32 {
+    1
 }

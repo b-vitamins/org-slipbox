@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use slipbox_core::{NodeKind, NodeRecord};
@@ -11,25 +11,57 @@ pub struct CaptureOutcome {
 }
 
 pub fn capture_file_note(root: &Path, title: &str) -> Result<CaptureOutcome> {
-    let title = title.trim();
-    if title.is_empty() {
-        bail!("capture title must not be empty");
-    }
-
     fs::create_dir_all(root)
         .with_context(|| format!("failed to create root directory {}", root.display()))?;
 
+    let title = normalized_title(title)?;
     let slug = slugify(title);
     let relative_path = next_available_path(root, &slug);
+    create_file_note(root, &relative_path, title)
+}
+
+pub fn ensure_file_note(root: &Path, file_path: &str, title: &str) -> Result<CaptureOutcome> {
+    fs::create_dir_all(root)
+        .with_context(|| format!("failed to create root directory {}", root.display()))?;
+
+    let title = normalized_title(title)?;
+    let relative_path = normalize_relative_org_path(file_path)?;
     let absolute_path = root.join(&relative_path);
-    let explicit_id = Uuid::new_v4().to_string();
-    let content = format!("#+title: {title}\n:PROPERTIES:\n:ID: {explicit_id}\n:END:\n\n");
-    fs::write(&absolute_path, content)
-        .with_context(|| format!("failed to write {}", absolute_path.display()))?;
+    if !absolute_path.exists() {
+        write_file_note(&absolute_path, title)?;
+    }
 
     Ok(CaptureOutcome {
         absolute_path,
         node_key: format!("file:{}", relative_path.replace('\\', "/")),
+    })
+}
+
+pub fn append_heading(
+    root: &Path,
+    file_path: &str,
+    title: &str,
+    heading: &str,
+    level: usize,
+) -> Result<CaptureOutcome> {
+    let heading = heading.trim();
+    if heading.is_empty() {
+        bail!("capture heading must not be empty");
+    }
+
+    let file_note = ensure_file_note(root, file_path, title)?;
+    let source = fs::read_to_string(&file_note.absolute_path)
+        .with_context(|| format!("failed to read {}", file_note.absolute_path.display()))?;
+    let (updated, line_number) = append_heading_to_source(&source, heading, level.max(1));
+    fs::write(&file_note.absolute_path, updated)
+        .with_context(|| format!("failed to write {}", file_note.absolute_path.display()))?;
+
+    Ok(CaptureOutcome {
+        absolute_path: file_note.absolute_path,
+        node_key: format!(
+            "heading:{}:{line_number}",
+            file_note.node_key.trim_start_matches("file:")
+        ),
     })
 }
 
@@ -125,6 +157,76 @@ fn render_lines(lines: &[String], had_trailing_newline: bool) -> String {
         rendered.push('\n');
     }
     rendered
+}
+
+fn create_file_note(root: &Path, file_path: &str, title: &str) -> Result<CaptureOutcome> {
+    let relative_path = normalize_relative_org_path(file_path)?;
+    let absolute_path = root.join(&relative_path);
+    write_file_note(&absolute_path, title)?;
+
+    Ok(CaptureOutcome {
+        absolute_path,
+        node_key: format!("file:{}", relative_path.replace('\\', "/")),
+    })
+}
+
+fn write_file_note(path: &Path, title: &str) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create directory {}", parent.display()))?;
+    }
+
+    let explicit_id = Uuid::new_v4().to_string();
+    let content = format!("#+title: {title}\n:PROPERTIES:\n:ID: {explicit_id}\n:END:\n\n");
+    fs::write(path, content).with_context(|| format!("failed to write {}", path.display()))
+}
+
+fn append_heading_to_source(source: &str, heading: &str, level: usize) -> (String, usize) {
+    let mut lines = source.lines().map(ToOwned::to_owned).collect::<Vec<_>>();
+    if !lines.is_empty() && lines.last().is_some_and(|line| !line.trim().is_empty()) {
+        lines.push(String::new());
+    }
+
+    let line_number = lines.len() + 1;
+    lines.push(format!("{} {}", "*".repeat(level), heading));
+
+    (render_lines(&lines, source.ends_with('\n')), line_number)
+}
+
+fn normalized_title(title: &str) -> Result<&str> {
+    let title = title.trim();
+    if title.is_empty() {
+        bail!("capture title must not be empty");
+    }
+    Ok(title)
+}
+
+fn normalize_relative_org_path(file_path: &str) -> Result<String> {
+    let candidate = Path::new(file_path);
+    if candidate.is_absolute() {
+        bail!("file path must be relative to the slipbox root");
+    }
+
+    let mut normalized = PathBuf::new();
+    for component in candidate.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(part) => normalized.push(part),
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                bail!("file path must stay within the slipbox root")
+            }
+        }
+    }
+
+    let normalized = normalized.to_string_lossy().replace('\\', "/");
+    if normalized.is_empty() {
+        bail!("file path must not be empty");
+    }
+    if !normalized.ends_with(".org") {
+        bail!("file path must end with .org");
+    }
+
+    Ok(normalized)
 }
 
 fn next_available_path(root: &Path, slug: &str) -> String {
