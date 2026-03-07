@@ -243,7 +243,10 @@
                (lambda (request-method request-params)
                  (setq method request-method
                        params request-params)
-                 '(:title "Meeting" :file_path "daily/2026-03-07.org" :line 8))))
+                 '(:title "Meeting" :file_path "daily/2026-03-07.org" :line 8)))
+              ((symbol-function 'current-time)
+               (lambda ()
+                 (encode-time 0 0 0 7 3 2026))))
       (org-slipbox--capture-node
        "Meeting"
        '("d" "daily"

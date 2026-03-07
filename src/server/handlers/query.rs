@@ -7,7 +7,7 @@ use slipbox_core::{
 use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
 
 use crate::server::rpc::{internal_error, parse_params, to_value};
-use crate::server::state::{ServerState, resolve_index_path, sync_one_path};
+use crate::server::state::ServerState;
 
 pub(crate) fn ping(state: &ServerState) -> Result<serde_json::Value, JsonRpcError> {
     to_value(PingInfo {
@@ -93,7 +93,8 @@ pub(crate) fn node_at_point(
     params: serde_json::Value,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let params: NodeAtPointParams = parse_params(params)?;
-    let (relative_path, _) = resolve_index_path(&state.root, &params.file_path)
+    let (relative_path, _) = state
+        .resolve_index_path(&params.file_path)
         .map_err(|error| internal_error(error.context("failed to resolve file path")))?;
     let node = state
         .database
@@ -155,10 +156,11 @@ pub(crate) fn index_file(
     params: serde_json::Value,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let params: IndexFileParams = parse_params(params)?;
-    let (relative_path, absolute_path) = resolve_index_path(&state.root, &params.file_path)
+    let (relative_path, absolute_path) = state
+        .resolve_index_path(&params.file_path)
         .map_err(|error| internal_error(error.context("failed to resolve file path")))?;
     if absolute_path.exists() {
-        sync_one_path(state, &absolute_path)?;
+        state.sync_path(&absolute_path)?;
     } else {
         state
             .database
