@@ -44,6 +44,10 @@ impl Database {
         Ok(stats)
     }
 
+    pub fn sync_file_index(&mut self, file: &IndexedFile) -> Result<IndexStats> {
+        self.replace_file_index(file)
+    }
+
     pub fn search_nodes(&self, query: &str, limit: usize) -> Result<Vec<NodeRecord>> {
         let limit = limit.clamp(1, 200) as i64;
         if let Some(fts_query) = build_fts_query(query) {

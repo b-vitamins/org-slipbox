@@ -393,21 +393,20 @@
     (should (equal method "slipbox/searchNodes"))
     (should (equal params '(:query "He" :limit 50)))))
 
-(ert-deftest org-slipbox-test-refile-moves-subtree-to-target-node ()
-  "Refile should move the current subtree under the target node."
+(ert-deftest org-slipbox-test-refile-calls-rust-rpc-and-refreshes-buffers ()
+  "Refile should delegate subtree movement to the Rust RPC layer."
   (let* ((root (make-temp-file "org-slipbox-refile-" t))
          (source (expand-file-name "source.org" root))
          (target (expand-file-name "target.org" root))
-         sync-calls)
+         sync-calls
+         refresh-calls
+         rpc-args)
     (unwind-protect
         (progn
-          (write-region "#+title: Source\n\n* Move Me\nBody\n" nil source nil 'silent)
-          (write-region "#+title: Target\n\n* Parent\n" nil target nil 'silent)
+          (write-region "" nil source nil 'silent)
+          (write-region "" nil target nil 'silent)
           (with-current-buffer (find-file-noselect source)
-            (goto-char (point-min))
-            (search-forward "* Move Me")
-            (let ((org-slipbox-directory root)
-                  (org-auto-align-tags nil))
+            (let ((org-slipbox-directory root))
               (cl-letf (((symbol-function 'org-slipbox-node-at-point)
                          (lambda (&optional _assert)
                            '(:node_key "heading:source.org:3"
@@ -415,10 +414,16 @@
                              :line 3
                              :kind "heading"
                              :title "Move Me")))
-                        ((symbol-function 'org-slipbox-rpc-request)
-                         (lambda (method params)
-                           (push (list method params) sync-calls)
-                           nil)))
+                        ((symbol-function 'org-slipbox--sync-live-file-buffer-if-needed)
+                         (lambda (path)
+                           (push path sync-calls)))
+                        ((symbol-function 'org-slipbox-rpc-refile-subtree)
+                         (lambda (source-node-key target-node-key)
+                           (setq rpc-args (list source-node-key target-node-key))
+                           '(:node_key "heading:target.org:4")))
+                        ((symbol-function 'org-slipbox--refresh-or-kill-file-buffer)
+                         (lambda (path)
+                           (push path refresh-calls))))
                 (org-slipbox-refile
                  '(:node_key "heading:target.org:3"
                    :file_path "target.org"
@@ -428,69 +433,54 @@
             (kill-buffer (current-buffer)))
           (should
            (equal
-            (with-temp-buffer
-              (insert-file-contents source)
-              (buffer-string))
-            "#+title: Source\n\n"))
+            rpc-args
+            '("heading:source.org:3" "heading:target.org:3")))
           (should
            (equal
-            (with-temp-buffer
-              (insert-file-contents target)
-              (buffer-string))
-            "#+title: Target\n\n* Parent\n** Move Me\nBody\n"))
+            sync-calls
+            (list target)))
           (should
            (equal
-            (sort (mapcar (lambda (entry) (plist-get (cadr entry) :file_path)) sync-calls)
-                  #'string-lessp)
-            (sort (list source target) #'string-lessp))))
+            (nreverse refresh-calls)
+            (list source target))))
       (delete-directory root t))))
 
-(ert-deftest org-slipbox-test-extract-subtree-creates-file-note ()
-  "Extracting a subtree should create a promoted file note."
+(ert-deftest org-slipbox-test-extract-subtree-calls-rust-rpc-and-refreshes-buffers ()
+  "Extracting a subtree should delegate file mutation to the Rust RPC layer."
   (let* ((root (make-temp-file "org-slipbox-extract-" t))
          (source (expand-file-name "source.org" root))
          (target (expand-file-name "moved.org" root))
-         sync-calls)
+         rpc-args
+         refresh-calls)
     (unwind-protect
         (progn
-         (write-region
-           "#+title: Source\n\n* Move Me :tag:\nBody\n** Child\nMore\n"
-           nil
-           source
-           nil
-           'silent)
-          (write-region "" nil (expand-file-name ".org-id-locations" root) nil 'silent)
+          (write-region "" nil source nil 'silent)
           (with-current-buffer (find-file-noselect source)
-            (goto-char (point-min))
-            (search-forward "* Move Me")
-            (let ((org-slipbox-directory root)
-                  (org-auto-align-tags nil)
-                  (org-id-locations-file (expand-file-name ".org-id-locations" root))
-                  (org-id-track-globally nil))
-              (cl-letf (((symbol-function 'org-slipbox-rpc-request)
-                         (lambda (method params)
-                           (push (list method params) sync-calls)
-                           nil)))
-                (org-slipbox-extract-subtree target)))
+            (let ((org-slipbox-directory root))
+              (cl-letf (((symbol-function 'org-slipbox-node-at-point)
+                         (lambda (&optional _assert)
+                           '(:node_key "heading:source.org:3"
+                             :file_path "source.org"
+                             :line 3
+                             :kind "heading"
+                             :title "Move Me")))
+                        ((symbol-function 'org-slipbox-rpc-extract-subtree)
+                         (lambda (source-node-key file-path)
+                           (setq rpc-args (list source-node-key file-path))
+                           '(:node_key "file:moved.org")))
+                        ((symbol-function 'org-slipbox--refresh-or-kill-file-buffer)
+                         (lambda (path)
+                           (push path refresh-calls))))
+                (should (equal (org-slipbox-extract-subtree target) target))))
             (kill-buffer (current-buffer)))
           (should
            (equal
-            (with-temp-buffer
-              (insert-file-contents source)
-              (buffer-string))
-            "#+title: Source\n\n"))
-          (let ((content (with-temp-buffer
-                           (insert-file-contents target)
-                           (buffer-string))))
-            (should (string-match-p "^#\\+TITLE: Move Me\n" content))
-            (should (string-match-p "^#\\+FILETAGS: :tag:\n" content))
-            (should (string-match-p "^:PROPERTIES:\n:ID: " content))
-            (should (string-match-p "\nBody\n\\* Child\nMore\n\\'" content)))
+            rpc-args
+            (list "heading:source.org:3" target)))
           (should
            (equal
-            (sort (mapcar (lambda (entry) (plist-get (cadr entry) :file_path)) sync-calls)
-                  #'string-lessp)
-            (sort (list source target) #'string-lessp))))
+            (nreverse refresh-calls)
+            (list source target))))
       (delete-directory root t))))
 
 (ert-deftest org-slipbox-test-ref-find-uses-rpc ()
@@ -532,57 +522,71 @@
     (should (equal method "slipbox/searchTags"))
     (should (equal params '(:query "" :limit 10000)))))
 
-(ert-deftest org-slipbox-test-tag-add-updates-filetags-keyword ()
-  "Adding a file tag should update `#+FILETAGS:' and sync the file."
+(ert-deftest org-slipbox-test-tag-add-uses-metadata-rpc ()
+  "Adding a file tag should use the metadata RPC and refresh the file buffer."
   (let* ((root (make-temp-file "org-slipbox-tags-" t))
          (file (expand-file-name "note.org" root))
-         method
-         params)
+         params
+         refreshed)
     (unwind-protect
         (progn
-          (write-region "#+title: Note\n\n" nil file nil 'silent)
+          (write-region "" nil file nil 'silent)
           (with-current-buffer (find-file-noselect file)
-            (goto-char (point-min))
             (let ((org-slipbox-directory root))
-              (cl-letf (((symbol-function 'org-slipbox-rpc-request)
-                         (lambda (request-method request-params)
-                           (setq method request-method
-                                 params request-params)
-                           nil)))
+              (cl-letf (((symbol-function 'org-slipbox-node-at-point)
+                         (lambda (&optional _assert)
+                           '(:node_key "file:note.org"
+                             :file_path "note.org"
+                             :line 1
+                             :tags ["alpha"])))
+                        ((symbol-function 'org-slipbox-rpc-update-node-metadata)
+                         (lambda (request-params)
+                           (setq params request-params)
+                           '(:node_key "file:note.org")))
+                        ((symbol-function 'org-slipbox--refresh-live-file-buffer)
+                         (lambda (path)
+                           (setq refreshed path))))
                 (org-slipbox-tag-add '("beta"))))
             (kill-buffer (current-buffer)))
-          (should (equal method "slipbox/indexFile"))
-          (should (equal params `(:file_path ,file)))
           (should
            (equal
-            (with-temp-buffer
-              (insert-file-contents file)
-              (buffer-string))
-            "#+title: Note\n#+FILETAGS: :beta:\n\n")))
+            params
+            '(:node_key "file:note.org" :tags ("beta" "alpha"))))
+          (should (equal refreshed file)))
       (delete-directory root t))))
 
-(ert-deftest org-slipbox-test-tag-remove-updates-heading-tags ()
-  "Removing a heading tag should rewrite the headline and sync the file."
+(ert-deftest org-slipbox-test-tag-remove-uses-metadata-rpc ()
+  "Removing a heading tag should use the metadata RPC and refresh the file buffer."
   (let* ((root (make-temp-file "org-slipbox-tags-" t))
-         (file (expand-file-name "note.org" root)))
+         (file (expand-file-name "note.org" root))
+         params
+         refreshed)
     (unwind-protect
         (progn
-          (write-region "#+title: Note\n\n* Heading :one:two:\n" nil file nil 'silent)
+          (write-region "" nil file nil 'silent)
           (with-current-buffer (find-file-noselect file)
-            (goto-char (point-min))
-            (search-forward "* Heading")
             (let ((org-slipbox-directory root)
                   (org-auto-align-tags nil))
-              (cl-letf (((symbol-function 'org-slipbox-rpc-request)
-                         (lambda (&rest _args) nil)))
+              (cl-letf (((symbol-function 'org-slipbox-node-at-point)
+                         (lambda (&optional _assert)
+                           '(:node_key "heading:note.org:3"
+                             :file_path "note.org"
+                             :line 3
+                             :tags ["one" "two"])))
+                        ((symbol-function 'org-slipbox-rpc-update-node-metadata)
+                         (lambda (request-params)
+                           (setq params request-params)
+                           '(:node_key "heading:note.org:3")))
+                        ((symbol-function 'org-slipbox--refresh-live-file-buffer)
+                         (lambda (path)
+                           (setq refreshed path))))
                 (org-slipbox-tag-remove '("one"))))
             (kill-buffer (current-buffer)))
           (should
            (equal
-            (with-temp-buffer
-              (insert-file-contents file)
-              (buffer-string))
-            "#+title: Note\n\n* Heading :two:\n")))
+            params
+            '(:node_key "heading:note.org:3" :tags ("two"))))
+          (should (equal refreshed file)))
       (delete-directory root t))))
 
 (ert-deftest org-slipbox-test-agenda-day-range ()
@@ -609,56 +613,71 @@
             '(:start "2026-03-07T00:00:00"
               :end "2026-03-07T23:59:59")))))
 
-(ert-deftest org-slipbox-test-ref-add-updates-file-property ()
-  "Adding a ref should update the file-level property drawer and sync the file."
+(ert-deftest org-slipbox-test-ref-add-uses-metadata-rpc ()
+  "Adding a ref should use the metadata RPC and refresh the file buffer."
   (let* ((root (make-temp-file "org-slipbox-ref-" t))
          (file (expand-file-name "note.org" root))
-         method
-         params)
+         params
+         refreshed)
     (unwind-protect
         (progn
-          (write-region "#+title: Note\n\n" nil file nil 'silent)
+          (write-region "" nil file nil 'silent)
           (with-current-buffer (find-file-noselect file)
-            (goto-char (point-min))
             (let ((org-slipbox-directory root))
-              (cl-letf (((symbol-function 'org-slipbox-rpc-request)
-                         (lambda (request-method request-params)
-                           (setq method request-method
-                                 params request-params)
-                           nil)))
+              (cl-letf (((symbol-function 'org-slipbox-node-at-point)
+                         (lambda (&optional _assert)
+                           '(:node_key "file:note.org"
+                             :file_path "note.org"
+                             :line 1
+                             :refs [])))
+                        ((symbol-function 'org-slipbox-rpc-update-node-metadata)
+                         (lambda (request-params)
+                           (setq params request-params)
+                           '(:node_key "file:note.org")))
+                        ((symbol-function 'org-slipbox--refresh-live-file-buffer)
+                         (lambda (path)
+                           (setq refreshed path))))
                 (org-slipbox-ref-add "http://site.net/docs/01. introduction - hello world.html")))
             (kill-buffer (current-buffer)))
-          (should (equal method "slipbox/indexFile"))
-          (should (equal params `(:file_path ,file)))
           (should
            (equal
-            (with-temp-buffer
-              (insert-file-contents file)
-              (buffer-string))
-            "#+title: Note\n:PROPERTIES:\n:ROAM_REFS: \"http://site.net/docs/01. introduction - hello world.html\"\n:END:\n\n")))
+            params
+            '(:node_key "file:note.org"
+              :refs ("http://site.net/docs/01. introduction - hello world.html"))))
+          (should (equal refreshed file)))
       (delete-directory root t))))
 
-(ert-deftest org-slipbox-test-alias-add-updates-heading-property ()
-  "Adding an alias should update the current heading property drawer."
+(ert-deftest org-slipbox-test-alias-add-uses-metadata-rpc ()
+  "Adding an alias should use the metadata RPC and refresh the file buffer."
   (let* ((root (make-temp-file "org-slipbox-alias-" t))
-         (file (expand-file-name "note.org" root)))
+         (file (expand-file-name "note.org" root))
+         params
+         refreshed)
     (unwind-protect
         (progn
-          (write-region "#+title: Note\n\n* Heading\n" nil file nil 'silent)
+          (write-region "" nil file nil 'silent)
           (with-current-buffer (find-file-noselect file)
-            (goto-char (point-min))
-            (search-forward "* Heading")
             (let ((org-slipbox-directory root))
-              (cl-letf (((symbol-function 'org-slipbox-rpc-request)
-                         (lambda (&rest _args) nil)))
+              (cl-letf (((symbol-function 'org-slipbox-node-at-point)
+                         (lambda (&optional _assert)
+                           '(:node_key "heading:note.org:3"
+                             :file_path "note.org"
+                             :line 3
+                             :aliases [])))
+                        ((symbol-function 'org-slipbox-rpc-update-node-metadata)
+                         (lambda (request-params)
+                           (setq params request-params)
+                           '(:node_key "heading:note.org:3")))
+                        ((symbol-function 'org-slipbox--refresh-live-file-buffer)
+                         (lambda (path)
+                           (setq refreshed path))))
                 (org-slipbox-alias-add "Batman")))
             (kill-buffer (current-buffer)))
           (should
            (equal
-            (with-temp-buffer
-              (insert-file-contents file)
-              (buffer-string))
-            "#+title: Note\n\n* Heading\n:PROPERTIES:\n:ROAM_ALIASES: Batman\n:END:\n")))
+            params
+            '(:node_key "heading:note.org:3" :aliases ("Batman"))))
+          (should (equal refreshed file)))
       (delete-directory root t))))
 
 (ert-deftest org-slipbox-test-syncable-buffer-detection ()

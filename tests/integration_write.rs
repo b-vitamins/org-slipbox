@@ -1,11 +1,13 @@
 use std::fs;
+use std::path::Path;
 
 use anyhow::Result;
 use slipbox_index::{scan_path, scan_root};
 use slipbox_store::Database;
 use slipbox_write::{
-    append_heading, append_heading_to_node, capture_file_note, capture_file_note_at,
-    capture_file_note_with_refs, ensure_file_note, ensure_node_id,
+    MetadataUpdate, RewriteOutcome, append_heading, append_heading_to_node, capture_file_note,
+    capture_file_note_at, capture_file_note_with_refs, ensure_file_note, ensure_node_id,
+    extract_subtree, refile_subtree, update_node_metadata,
 };
 use tempfile::tempdir;
 
@@ -19,7 +21,7 @@ fn capture_creates_file_node_with_explicit_id() -> Result<()> {
     let indexed = scan_path(&root, &captured.absolute_path)?;
     let database_path = workspace.path().join("slipbox.sqlite");
     let mut database = Database::open(&database_path)?;
-    database.sync_index(&[indexed])?;
+    database.sync_file_index(&indexed)?;
 
     let node = database
         .node_by_key(&captured.node_key)?
@@ -55,7 +57,7 @@ fn ensure_node_id_updates_heading_in_place() -> Result<()> {
 
     let updated_path = ensure_node_id(&root, &node)?;
     let indexed = scan_path(&root, &updated_path)?;
-    database.sync_index(&[indexed])?;
+    database.sync_file_index(&indexed)?;
 
     let refreshed = database
         .node_by_key(&node.node_key)?
@@ -75,7 +77,7 @@ fn ensure_file_note_creates_nested_org_file_with_explicit_id() -> Result<()> {
     let indexed = scan_path(&root, &ensured.absolute_path)?;
     let database_path = workspace.path().join("slipbox.sqlite");
     let mut database = Database::open(&database_path)?;
-    database.sync_index(&[indexed])?;
+    database.sync_file_index(&indexed)?;
 
     let node = database
         .node_by_key(&ensured.node_key)?
@@ -175,7 +177,7 @@ fn append_heading_to_existing_node_inserts_child_before_next_sibling() -> Result
 
     let captured = append_heading_to_node(&root, &parent, "Child Task")?;
     let indexed = scan_path(&root, &captured.absolute_path)?;
-    database.sync_index(&[indexed])?;
+    database.sync_file_index(&indexed)?;
 
     let source = fs::read_to_string(&note_path)?;
     assert!(source.contains("* Parent\nBody.\n\n** Child Task\n* Sibling"));
@@ -185,6 +187,195 @@ fn append_heading_to_existing_node_inserts_child_before_next_sibling() -> Result
         .expect("captured child should exist");
     assert_eq!(child.title, "Child Task");
     assert_eq!(child.level, 2);
+
+    Ok(())
+}
+
+#[test]
+fn update_node_metadata_rewrites_file_level_refs_and_tags() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let note_path = root.join("note.org");
+    fs::write(&note_path, "#+title: Note\n\n")?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let node = database
+        .node_by_key("file:note.org")?
+        .expect("file node should exist");
+    let updated_path = update_node_metadata(
+        &root,
+        &node,
+        &MetadataUpdate {
+            aliases: None,
+            refs: Some(vec!["https://example.test/ref".to_owned()]),
+            tags: Some(vec!["beta".to_owned()]),
+        },
+    )?;
+    let indexed = scan_path(&root, &updated_path)?;
+    database.sync_file_index(&indexed)?;
+
+    let source = fs::read_to_string(&note_path)?;
+    assert!(source.contains("#+filetags: :beta:"));
+    assert!(source.contains(":ROAM_REFS: https://example.test/ref"));
+
+    let refreshed = database
+        .node_by_key("file:note.org")?
+        .expect("updated file node should exist");
+    assert_eq!(refreshed.tags, vec!["beta"]);
+    assert_eq!(refreshed.refs, vec!["https://example.test/ref"]);
+
+    Ok(())
+}
+
+#[test]
+fn update_node_metadata_rewrites_heading_aliases_and_tags() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let note_path = root.join("note.org");
+    fs::write(&note_path, "#+title: Note\n\n* Heading :one:two:\n")?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let node = database
+        .search_nodes("heading", 10)?
+        .into_iter()
+        .find(|candidate| candidate.title == "Heading")
+        .expect("heading node should exist");
+    let updated_path = update_node_metadata(
+        &root,
+        &node,
+        &MetadataUpdate {
+            aliases: Some(vec!["Batman".to_owned()]),
+            refs: None,
+            tags: Some(vec!["two".to_owned()]),
+        },
+    )?;
+    let indexed = scan_path(&root, &updated_path)?;
+    database.sync_file_index(&indexed)?;
+
+    let source = fs::read_to_string(&note_path)?;
+    assert!(source.contains("* Heading :two:"));
+    assert!(source.contains(":ROAM_ALIASES: Batman"));
+
+    let refreshed = database
+        .node_by_key(&node.node_key)?
+        .expect("updated heading should exist");
+    assert_eq!(refreshed.aliases, vec!["Batman"]);
+    assert_eq!(refreshed.tags, vec!["two"]);
+
+    Ok(())
+}
+
+#[test]
+fn refile_subtree_moves_heading_between_files_and_preserves_source_file_note() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let source_path = root.join("source.org");
+    let target_path = root.join("target.org");
+    fs::write(&source_path, "#+title: Source\n\n* Move Me\nBody\n")?;
+    fs::write(&target_path, "#+title: Target\n\n* Parent\n")?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let source = database
+        .search_nodes("move me", 10)?
+        .into_iter()
+        .find(|candidate| candidate.title == "Move Me")
+        .expect("source heading should exist");
+    let target = database
+        .search_nodes("parent", 10)?
+        .into_iter()
+        .find(|candidate| candidate.title == "Parent")
+        .expect("target heading should exist");
+
+    let outcome = refile_subtree(&root, &source, &target)?;
+    sync_rewrite_outcome(&mut database, &root, &outcome)?;
+
+    assert_eq!(fs::read_to_string(&source_path)?, "#+title: Source\n\n");
+    let target_source = fs::read_to_string(&target_path)?;
+    assert!(target_source.contains("* Parent\n** Move Me\n:PROPERTIES:\n:ID: "));
+    assert!(target_source.contains("\nBody\n"));
+
+    let moved = database
+        .node_from_id(&outcome.explicit_id)?
+        .expect("moved heading should be indexed");
+    assert_eq!(moved.file_path, "target.org");
+    assert_eq!(moved.level, 2);
+
+    Ok(())
+}
+
+#[test]
+fn extract_subtree_promotes_heading_into_a_file_node() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let source_path = root.join("source.org");
+    fs::write(
+        &source_path,
+        "#+title: Source\n\n* Move Me :tag:\nBody\n** Child\nMore\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let source = database
+        .search_nodes("move me", 10)?
+        .into_iter()
+        .find(|candidate| candidate.title == "Move Me")
+        .expect("source heading should exist");
+
+    let outcome = extract_subtree(&root, &source, "moved.org")?;
+    sync_rewrite_outcome(&mut database, &root, &outcome)?;
+
+    assert_eq!(fs::read_to_string(&source_path)?, "#+title: Source\n\n");
+    let moved_source = fs::read_to_string(root.join("moved.org"))?;
+    assert!(moved_source.starts_with("#+title: Move Me\n#+filetags: :tag:\n"));
+    assert!(moved_source.contains(":PROPERTIES:\n:ID: "));
+    assert!(moved_source.contains("\nBody\n* Child\nMore\n"));
+
+    let moved = database
+        .node_from_id(&outcome.explicit_id)?
+        .expect("extracted node should be indexed");
+    assert_eq!(moved.kind.as_str(), "file");
+    assert_eq!(moved.file_path, "moved.org");
+    assert_eq!(moved.title, "Move Me");
+
+    Ok(())
+}
+
+fn sync_rewrite_outcome(
+    database: &mut Database,
+    root: &Path,
+    outcome: &RewriteOutcome,
+) -> Result<()> {
+    for path in &outcome.changed_paths {
+        let indexed = scan_path(root, path)?;
+        database.sync_file_index(&indexed)?;
+    }
+
+    for path in &outcome.removed_paths {
+        let relative = path
+            .strip_prefix(root)?
+            .to_string_lossy()
+            .replace('\\', "/");
+        database.remove_file_index(&relative)?;
+    }
 
     Ok(())
 }

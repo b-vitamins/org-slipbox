@@ -314,6 +314,65 @@ pub struct EnsureNodeIdParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateNodeMetadataParams {
+    pub node_key: String,
+    #[serde(default)]
+    pub aliases: Option<Vec<String>>,
+    #[serde(default)]
+    pub refs: Option<Vec<String>>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+}
+
+impl UpdateNodeMetadataParams {
+    #[must_use]
+    pub fn normalized_aliases(&self) -> Option<Vec<String>> {
+        self.aliases
+            .as_ref()
+            .map(|values| normalize_string_values(values, false))
+    }
+
+    #[must_use]
+    pub fn normalized_refs(&self) -> Option<Vec<String>> {
+        self.refs.as_ref().map(|values| {
+            let mut refs = Vec::new();
+            for value in values {
+                for normalized in normalize_reference(value) {
+                    if normalized.is_empty()
+                        || refs
+                            .iter()
+                            .any(|existing: &String| existing.eq_ignore_ascii_case(&normalized))
+                    {
+                        continue;
+                    }
+                    refs.push(normalized);
+                }
+            }
+            refs
+        })
+    }
+
+    #[must_use]
+    pub fn normalized_tags(&self) -> Option<Vec<String>> {
+        self.tags
+            .as_ref()
+            .map(|values| normalize_string_values(values, false))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RefileSubtreeParams {
+    pub source_node_key: String,
+    pub target_node_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtractSubtreeParams {
+    pub source_node_key: String,
+    pub file_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndexFileParams {
     pub file_path: String,
 }
@@ -431,9 +490,32 @@ fn is_cite_key_char(character: char) -> bool {
     character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | ':' | '.')
 }
 
+fn normalize_string_values(values: &[String], nocase: bool) -> Vec<String> {
+    let mut normalized = Vec::new();
+
+    for value in values {
+        let trimmed = value.trim();
+        if trimmed.is_empty()
+            || normalized.iter().any(|existing: &String| {
+                if nocase {
+                    existing.eq_ignore_ascii_case(trimmed)
+                } else {
+                    existing == trimmed
+                }
+            })
+        {
+            continue;
+        }
+
+        normalized.push(trimmed.to_owned());
+    }
+
+    normalized
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{CaptureNodeParams, normalize_reference};
+    use super::{CaptureNodeParams, UpdateNodeMetadataParams, normalize_reference};
 
     #[test]
     fn normalizes_common_reference_forms() {
@@ -464,6 +546,34 @@ mod tests {
         assert_eq!(
             params.normalized_refs(),
             vec!["@smith2024".to_owned(), "https://example.test".to_owned()]
+        );
+    }
+
+    #[test]
+    fn metadata_params_normalize_fields() {
+        let params = UpdateNodeMetadataParams {
+            node_key: "heading:note.org:3".to_owned(),
+            aliases: Some(vec![
+                " Bruce ".to_owned(),
+                "Bruce".to_owned(),
+                String::new(),
+            ]),
+            refs: Some(vec!["cite:smith2024".to_owned(), "@smith2024".to_owned()]),
+            tags: Some(vec![
+                "alpha".to_owned(),
+                " alpha ".to_owned(),
+                "beta".to_owned(),
+            ]),
+        };
+
+        assert_eq!(params.normalized_aliases(), Some(vec!["Bruce".to_owned()]));
+        assert_eq!(
+            params.normalized_refs(),
+            Some(vec!["@smith2024".to_owned()])
+        );
+        assert_eq!(
+            params.normalized_tags(),
+            Some(vec!["alpha".to_owned(), "beta".to_owned()])
         );
     }
 }

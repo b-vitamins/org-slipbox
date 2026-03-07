@@ -6,18 +6,19 @@ use clap::{Parser, Subcommand};
 use serde::de::DeserializeOwned;
 use slipbox_core::{
     AgendaParams, AgendaResult, AppendHeadingParams, AppendHeadingToNodeParams, BacklinksParams,
-    BacklinksResult, CaptureNodeParams, EnsureFileNodeParams, EnsureNodeIdParams, IndexFileParams,
-    NodeAtPointParams, NodeFromIdParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
-    PingInfo, RandomNodeResult, SearchNodesParams, SearchNodesResult, SearchRefsParams,
-    SearchRefsResult, SearchTagsParams, SearchTagsResult,
+    BacklinksResult, CaptureNodeParams, EnsureFileNodeParams, EnsureNodeIdParams,
+    ExtractSubtreeParams, IndexFileParams, NodeAtPointParams, NodeFromIdParams, NodeFromRefParams,
+    NodeFromTitleOrAliasParams, NodeRecord, PingInfo, RandomNodeResult, RefileSubtreeParams,
+    SearchNodesParams, SearchNodesResult, SearchRefsParams, SearchRefsResult, SearchTagsParams,
+    SearchTagsResult, UpdateNodeMetadataParams,
 };
 use slipbox_rpc::{
     JsonRpcError, JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_AGENDA,
     METHOD_APPEND_HEADING, METHOD_APPEND_HEADING_TO_NODE, METHOD_BACKLINKS, METHOD_CAPTURE_NODE,
-    METHOD_ENSURE_FILE_NODE, METHOD_ENSURE_NODE_ID, METHOD_INDEX, METHOD_INDEX_FILE,
-    METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_REF,
-    METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_RANDOM_NODE, METHOD_SEARCH_NODES,
-    METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS,
+    METHOD_ENSURE_FILE_NODE, METHOD_ENSURE_NODE_ID, METHOD_EXTRACT_SUBTREE, METHOD_INDEX,
+    METHOD_INDEX_FILE, METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_REF,
+    METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_RANDOM_NODE, METHOD_REFILE_SUBTREE,
+    METHOD_SEARCH_NODES, METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS, METHOD_UPDATE_NODE_METADATA,
 };
 use slipbox_store::Database;
 
@@ -363,6 +364,46 @@ fn dispatch_request(
                 })?;
             to_value(refreshed)
         }
+        METHOD_UPDATE_NODE_METADATA => {
+            let params: UpdateNodeMetadataParams = parse_params(params)?;
+            let node = read_known_node(state, &params.node_key, "node")?;
+            let updated_path = slipbox_write::update_node_metadata(
+                &state.root,
+                &node,
+                &slipbox_write::MetadataUpdate {
+                    aliases: params.normalized_aliases(),
+                    refs: params.normalized_refs(),
+                    tags: params.normalized_tags(),
+                },
+            )
+            .map_err(|error| internal_error(error.context("failed to update node metadata")))?;
+            sync_one_path(state, &updated_path)?;
+            let refreshed = read_required_node(state, &params.node_key, "updated node")?;
+            to_value(refreshed)
+        }
+        METHOD_REFILE_SUBTREE => {
+            let params: RefileSubtreeParams = parse_params(params)?;
+            let source = read_known_node(state, &params.source_node_key, "source node")?;
+            let target = read_known_node(state, &params.target_node_key, "target node")?;
+            let outcome = slipbox_write::refile_subtree(&state.root, &source, &target)
+                .map_err(|error| internal_error(error.context("failed to refile subtree")))?;
+            sync_changed_paths(state, &outcome.changed_paths)?;
+            remove_deleted_paths(state, &outcome.removed_paths)?;
+            let moved = read_required_node_by_id(state, &outcome.explicit_id, "refiled node")?;
+            to_value(moved)
+        }
+        METHOD_EXTRACT_SUBTREE => {
+            let params: ExtractSubtreeParams = parse_params(params)?;
+            let source = read_known_node(state, &params.source_node_key, "source node")?;
+            let (relative_path, _) = resolve_index_path(&state.root, &params.file_path)
+                .map_err(|error| internal_error(error.context("failed to resolve file path")))?;
+            let outcome = slipbox_write::extract_subtree(&state.root, &source, &relative_path)
+                .map_err(|error| internal_error(error.context("failed to extract subtree")))?;
+            sync_changed_paths(state, &outcome.changed_paths)?;
+            let extracted =
+                read_required_node_by_id(state, &outcome.explicit_id, "extracted node")?;
+            to_value(extracted)
+        }
         METHOD_INDEX_FILE => {
             let params: IndexFileParams = parse_params(params)?;
             let (relative_path, absolute_path) = resolve_index_path(&state.root, &params.file_path)
@@ -419,10 +460,40 @@ fn sync_one_path(state: &mut ServerState, path: &std::path::Path) -> Result<(), 
         .map_err(|error| internal_error(error.context("failed to scan updated file")))?;
     state
         .database
-        .sync_index(&[indexed_file])
+        .sync_file_index(&indexed_file)
         .map_err(|error| {
             internal_error(error.context("failed to sync updated file into SQLite"))
         })?;
+    Ok(())
+}
+
+fn sync_changed_paths(state: &mut ServerState, paths: &[PathBuf]) -> Result<(), JsonRpcError> {
+    for path in paths {
+        sync_one_path(state, path)?;
+    }
+    Ok(())
+}
+
+fn remove_deleted_paths(state: &mut ServerState, paths: &[PathBuf]) -> Result<(), JsonRpcError> {
+    for path in paths {
+        let relative_path = path
+            .strip_prefix(&state.root)
+            .map_err(|_| {
+                internal_error(anyhow!(
+                    "{} is not under {}",
+                    path.display(),
+                    state.root.display()
+                ))
+            })?
+            .to_string_lossy()
+            .replace('\\', "/");
+        state
+            .database
+            .remove_file_index(&relative_path)
+            .map_err(|error| {
+                internal_error(error.context("failed to remove file from SQLite index"))
+            })?;
+    }
     Ok(())
 }
 
@@ -439,6 +510,38 @@ fn read_required_node(
             internal_error(anyhow!(
                 "{description} {node_key} was not found after indexing"
             ))
+        })
+}
+
+fn read_required_node_by_id(
+    state: &mut ServerState,
+    explicit_id: &str,
+    description: &str,
+) -> Result<NodeRecord, JsonRpcError> {
+    state
+        .database
+        .node_from_id(explicit_id)
+        .map_err(|error| internal_error(error.context(format!("failed to fetch {description}"))))?
+        .ok_or_else(|| {
+            internal_error(anyhow!(
+                "{description} {explicit_id} was not found after indexing"
+            ))
+        })
+}
+
+fn read_known_node(
+    state: &mut ServerState,
+    node_key: &str,
+    description: &str,
+) -> Result<NodeRecord, JsonRpcError> {
+    state
+        .database
+        .node_by_key(node_key)
+        .map_err(|error| internal_error(error.context(format!("failed to fetch {description}"))))?
+        .ok_or_else(|| {
+            JsonRpcError::new(JsonRpcErrorObject::invalid_request(format!(
+                "unknown {description}: {node_key}"
+            )))
         })
 }
 

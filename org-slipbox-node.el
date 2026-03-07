@@ -173,6 +173,42 @@ With prefix argument OTHER-WINDOW, visit it in another window."
   "Sync absolute PATH into the index."
   (org-slipbox-rpc-index-file path))
 
+(defun org-slipbox--normalize-file-path (path)
+  "Return an absolute normalized form of PATH."
+  (and path (expand-file-name path)))
+
+(defun org-slipbox--live-file-buffer (path)
+  "Return a live buffer visiting PATH, or nil."
+  (let ((absolute (org-slipbox--normalize-file-path path)))
+    (seq-find
+     (lambda (buffer)
+       (let* ((base-buffer (or (buffer-base-buffer buffer) buffer))
+              (buffer-path (buffer-file-name base-buffer)))
+         (and buffer-path
+              (equal (org-slipbox--normalize-file-path buffer-path) absolute))))
+     (buffer-list))))
+
+(defun org-slipbox--sync-live-file-buffer-if-needed (path)
+  "Save and sync the live buffer visiting PATH when needed."
+  (let ((buffer (org-slipbox--live-file-buffer path)))
+    (when buffer
+      (with-current-buffer (or (buffer-base-buffer buffer) buffer)
+        (when (buffer-modified-p)
+          (org-slipbox--save-and-sync-current-buffer))))))
+
+(defun org-slipbox--refresh-live-file-buffer (path)
+  "Revert the live buffer visiting PATH, if any."
+  (let ((buffer (org-slipbox--live-file-buffer path)))
+    (when buffer
+      (with-current-buffer (or (buffer-base-buffer buffer) buffer)
+        (revert-buffer :ignore-auto :noconfirm)))))
+
+(defun org-slipbox--kill-live-file-buffer (path)
+  "Kill the live buffer visiting PATH, if any."
+  (let ((buffer (org-slipbox--live-file-buffer path)))
+    (when buffer
+      (kill-buffer (or (buffer-base-buffer buffer) buffer)))))
+
 (defun org-slipbox--sync-node-buffer-if-needed ()
   "Save and sync the current node buffer when it has local modifications."
   (let ((base-buffer (or (buffer-base-buffer) (current-buffer))))

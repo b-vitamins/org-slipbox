@@ -74,6 +74,9 @@
 (defconst org-slipbox-rpc-method-append-heading "slipbox/appendHeading")
 (defconst org-slipbox-rpc-method-append-heading-to-node "slipbox/appendHeadingToNode")
 (defconst org-slipbox-rpc-method-ensure-node-id "slipbox/ensureNodeId")
+(defconst org-slipbox-rpc-method-update-node-metadata "slipbox/updateNodeMetadata")
+(defconst org-slipbox-rpc-method-refile-subtree "slipbox/refileSubtree")
+(defconst org-slipbox-rpc-method-extract-subtree "slipbox/extractSubtree")
 
 (defun org-slipbox-rpc-live-p ()
   "Return non-nil when the org-slipbox JSON-RPC process is live."
@@ -209,6 +212,22 @@ When NOCASE is non-nil, use case-insensitive matching."
   (org-slipbox-rpc-request
    org-slipbox-rpc-method-ensure-node-id
    `(:node_key ,node-key)))
+
+(defun org-slipbox-rpc-update-node-metadata (params)
+  "Update node metadata using PARAMS."
+  (org-slipbox-rpc-request org-slipbox-rpc-method-update-node-metadata params))
+
+(defun org-slipbox-rpc-refile-subtree (source-node-key target-node-key)
+  "Refile SOURCE-NODE-KEY under TARGET-NODE-KEY."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-refile-subtree
+   `(:source_node_key ,source-node-key :target_node_key ,target-node-key)))
+
+(defun org-slipbox-rpc-extract-subtree (source-node-key file-path)
+  "Extract SOURCE-NODE-KEY into FILE-PATH."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-extract-subtree
+   `(:source_node_key ,source-node-key :file_path ,(expand-file-name file-path))))
 
 (provide 'org-slipbox-rpc)
 

@@ -10,6 +10,18 @@ pub struct CaptureOutcome {
     pub node_key: String,
 }
 
+pub struct MetadataUpdate {
+    pub aliases: Option<Vec<String>>,
+    pub refs: Option<Vec<String>>,
+    pub tags: Option<Vec<String>>,
+}
+
+pub struct RewriteOutcome {
+    pub changed_paths: Vec<PathBuf>,
+    pub removed_paths: Vec<PathBuf>,
+    pub explicit_id: String,
+}
+
 pub fn capture_file_note(root: &Path, title: &str) -> Result<CaptureOutcome> {
     capture_file_note_with_refs(root, title, &[])
 }
@@ -137,80 +149,212 @@ pub fn ensure_node_id(root: &Path, node: &NodeRecord) -> Result<PathBuf> {
     Ok(absolute_path)
 }
 
-fn insert_file_id(source: &str, explicit_id: &str) -> String {
-    let mut lines = source.lines().map(ToOwned::to_owned).collect::<Vec<_>>();
-    let mut index = 0;
+pub fn update_node_metadata(
+    root: &Path,
+    node: &NodeRecord,
+    update: &MetadataUpdate,
+) -> Result<PathBuf> {
+    let absolute_path = root.join(&node.file_path);
+    let source = fs::read_to_string(&absolute_path)
+        .with_context(|| format!("failed to read {}", absolute_path.display()))?;
+    let mut document = OrgDocument::from_source(&source);
 
-    while index < lines.len() {
-        let trimmed = lines[index].trim();
-        if trimmed.is_empty() || trimmed.starts_with("#+") {
-            index += 1;
-            continue;
-        }
-
-        if trimmed.eq_ignore_ascii_case(":PROPERTIES:") {
-            let mut property_index = index + 1;
-            while property_index < lines.len() {
-                if lines[property_index].trim().eq_ignore_ascii_case(":END:") {
-                    lines.insert(property_index, format!(":ID: {explicit_id}"));
-                    return render_lines(&lines, source.ends_with('\n'));
-                }
-                property_index += 1;
+    match node.kind {
+        NodeKind::File => {
+            if let Some(aliases) = &update.aliases {
+                document.set_file_property("ROAM_ALIASES", property_value(aliases));
+            }
+            if let Some(refs) = &update.refs {
+                document.set_file_property("ROAM_REFS", property_value(refs));
+            }
+            if let Some(tags) = &update.tags {
+                document.set_file_keyword("filetags", keyword_value(tags));
             }
         }
-        break;
+        NodeKind::Heading => {
+            if let Some(aliases) = &update.aliases {
+                document.set_heading_property(
+                    node.line as usize,
+                    "ROAM_ALIASES",
+                    property_value(aliases),
+                )?;
+            }
+            if let Some(refs) = &update.refs {
+                document.set_heading_property(
+                    node.line as usize,
+                    "ROAM_REFS",
+                    property_value(refs),
+                )?;
+            }
+            if let Some(tags) = &update.tags {
+                document.set_heading_tags(node.line as usize, tags)?;
+            }
+        }
     }
 
-    lines.splice(
-        index..index,
-        [
-            String::from(":PROPERTIES:"),
-            format!(":ID: {explicit_id}"),
-            String::from(":END:"),
-            String::new(),
-        ],
+    fs::write(&absolute_path, document.render())
+        .with_context(|| format!("failed to write {}", absolute_path.display()))?;
+    Ok(absolute_path)
+}
+
+pub fn refile_subtree(
+    root: &Path,
+    source: &NodeRecord,
+    target: &NodeRecord,
+) -> Result<RewriteOutcome> {
+    if source.node_key == target.node_key {
+        bail!("target is the same as current node");
+    }
+
+    let source_path = root.join(&source.file_path);
+    let target_path = root.join(&target.file_path);
+    if source.kind == NodeKind::File && source_path == target_path {
+        bail!("target is inside the current subtree");
+    }
+
+    let source_source = fs::read_to_string(&source_path)
+        .with_context(|| format!("failed to read {}", source_path.display()))?;
+    let target_source = if source_path == target_path {
+        None
+    } else {
+        Some(
+            fs::read_to_string(&target_path)
+                .with_context(|| format!("failed to read {}", target_path.display()))?,
+        )
+    };
+
+    let mut source_document = OrgDocument::from_source(&source_source);
+    let (mut subtree_lines, explicit_id) = source_document.subtree_lines(source)?;
+    let target_root_level = match target.kind {
+        NodeKind::File => 1,
+        NodeKind::Heading => target.level as usize + 1,
+    };
+    shift_subtree_levels(&mut subtree_lines, target_root_level)?;
+
+    if source_path == target_path {
+        if source.kind != NodeKind::Heading {
+            bail!("target is inside the current subtree");
+        }
+
+        let (source_start, source_end) = source_document.subtree_range(source.line as usize)?;
+        if target.kind == NodeKind::Heading {
+            let target_index = source_document.heading_index(target.line as usize)?;
+            if (source_start..source_end).contains(&target_index) {
+                bail!("target is inside the current subtree");
+            }
+        }
+
+        let insert_index = source_document.insertion_index(target)?;
+        source_document.remove_range(source_start, source_end);
+        let adjusted_insert = if insert_index > source_start {
+            insert_index - (source_end - source_start)
+        } else {
+            insert_index
+        };
+        source_document.insert_subtree(adjusted_insert, target.kind, subtree_lines);
+
+        fs::write(&source_path, source_document.render())
+            .with_context(|| format!("failed to write {}", source_path.display()))?;
+
+        return Ok(RewriteOutcome {
+            changed_paths: vec![source_path],
+            removed_paths: Vec::new(),
+            explicit_id,
+        });
+    }
+
+    let mut target_document = OrgDocument::from_source(target_source.as_deref().unwrap_or(""));
+    target_document.insert_subtree(
+        target_document.insertion_index(target)?,
+        target.kind,
+        subtree_lines,
     );
-    render_lines(&lines, source.ends_with('\n'))
+
+    let mut changed_paths = vec![target_path.clone()];
+    let mut removed_paths = Vec::new();
+
+    if source.kind == NodeKind::File {
+        fs::remove_file(&source_path)
+            .with_context(|| format!("failed to remove {}", source_path.display()))?;
+        removed_paths.push(source_path);
+    } else {
+        let (source_start, source_end) = source_document.subtree_range(source.line as usize)?;
+        source_document.remove_range(source_start, source_end);
+        if source_document.has_meaningful_content() {
+            fs::write(&source_path, source_document.render())
+                .with_context(|| format!("failed to write {}", source_path.display()))?;
+            changed_paths.push(source_path);
+        } else {
+            fs::remove_file(&source_path)
+                .with_context(|| format!("failed to remove {}", source_path.display()))?;
+            removed_paths.push(source_path);
+        }
+    }
+
+    fs::write(&target_path, target_document.render())
+        .with_context(|| format!("failed to write {}", target_path.display()))?;
+
+    Ok(RewriteOutcome {
+        changed_paths,
+        removed_paths,
+        explicit_id,
+    })
+}
+
+pub fn extract_subtree(
+    root: &Path,
+    source: &NodeRecord,
+    file_path: &str,
+) -> Result<RewriteOutcome> {
+    if source.kind != NodeKind::Heading {
+        bail!("only heading nodes can be extracted");
+    }
+
+    let relative_path = normalize_relative_org_path(file_path)?;
+    let source_path = root.join(&source.file_path);
+    let target_path = root.join(&relative_path);
+    if source_path == target_path {
+        bail!("target file must differ from the source file");
+    }
+    if target_path.exists() {
+        bail!("{} exists. Aborting", target_path.display());
+    }
+
+    let source_source = fs::read_to_string(&source_path)
+        .with_context(|| format!("failed to read {}", source_path.display()))?;
+    let mut source_document = OrgDocument::from_source(&source_source);
+    let (subtree_lines, explicit_id) = source_document.subtree_lines(source)?;
+    let target_document = OrgDocument::from_extracted_subtree(&subtree_lines, &explicit_id)?;
+    let (source_start, source_end) = source_document.subtree_range(source.line as usize)?;
+    source_document.remove_range(source_start, source_end);
+
+    if let Some(parent) = target_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create directory {}", parent.display()))?;
+    }
+
+    fs::write(&source_path, source_document.render())
+        .with_context(|| format!("failed to write {}", source_path.display()))?;
+    fs::write(&target_path, target_document.render())
+        .with_context(|| format!("failed to write {}", target_path.display()))?;
+
+    Ok(RewriteOutcome {
+        changed_paths: vec![source_path, target_path],
+        removed_paths: Vec::new(),
+        explicit_id,
+    })
+}
+
+fn insert_file_id(source: &str, explicit_id: &str) -> String {
+    let mut document = OrgDocument::from_source(source);
+    document.set_file_property("ID", Some(explicit_id.to_owned()));
+    document.render()
 }
 
 fn insert_heading_id(source: &str, line_number: usize, explicit_id: &str) -> Result<String> {
-    let mut lines = source.lines().map(ToOwned::to_owned).collect::<Vec<_>>();
-    if line_number == 0 || line_number > lines.len() {
-        bail!("heading line {line_number} is out of range");
-    }
-
-    let heading_index = line_number - 1;
-    let next_index = heading_index + 1;
-    if let Some(next_line) = lines.get(next_index)
-        && next_line.trim().eq_ignore_ascii_case(":PROPERTIES:")
-    {
-        let mut property_index = next_index + 1;
-        while property_index < lines.len() {
-            if lines[property_index].trim().eq_ignore_ascii_case(":END:") {
-                lines.insert(property_index, format!(":ID: {explicit_id}"));
-                return Ok(render_lines(&lines, source.ends_with('\n')));
-            }
-            property_index += 1;
-        }
-    }
-
-    lines.splice(
-        next_index..next_index,
-        [
-            String::from(":PROPERTIES:"),
-            format!(":ID: {explicit_id}"),
-            String::from(":END:"),
-        ],
-    );
-    Ok(render_lines(&lines, source.ends_with('\n')))
-}
-
-fn render_lines(lines: &[String], had_trailing_newline: bool) -> String {
-    let mut rendered = lines.join("\n");
-    if had_trailing_newline || !rendered.ends_with('\n') {
-        rendered.push('\n');
-    }
-    rendered
+    let mut document = OrgDocument::from_source(source);
+    document.set_heading_property(line_number, "ID", Some(explicit_id.to_owned()))?;
+    Ok(document.render())
 }
 
 fn create_file_note(
@@ -396,6 +540,22 @@ fn slugify(title: &str) -> String {
     }
 }
 
+fn property_value(values: &[String]) -> Option<String> {
+    if values.is_empty() {
+        None
+    } else {
+        Some(format_property_values(values))
+    }
+}
+
+fn keyword_value(values: &[String]) -> Option<String> {
+    if values.is_empty() {
+        None
+    } else {
+        Some(format_colon_tags(values))
+    }
+}
+
 fn format_property_values(values: &[String]) -> String {
     values
         .iter()
@@ -413,6 +573,18 @@ fn format_property_values(values: &[String]) -> String {
         .join(" ")
 }
 
+fn format_colon_tags(values: &[String]) -> String {
+    format!(":{}:", values.join(":"))
+}
+
+fn render_lines(lines: &[String], had_trailing_newline: bool) -> String {
+    let mut rendered = lines.join("\n");
+    if (had_trailing_newline || !rendered.ends_with('\n')) && !rendered.is_empty() {
+        rendered.push('\n');
+    }
+    rendered
+}
+
 fn heading_level(line: &str) -> Option<usize> {
     let trimmed = line.trim_start();
     let stars = trimmed
@@ -428,4 +600,478 @@ fn heading_level(line: &str) -> Option<usize> {
         return None;
     }
     Some(stars)
+}
+
+fn strip_keyword<'a>(line: &'a str, keyword: &str) -> Option<&'a str> {
+    if line.len() < keyword.len() {
+        return None;
+    }
+
+    let prefix = &line[..keyword.len()];
+    if prefix.eq_ignore_ascii_case(keyword) {
+        Some(&line[keyword.len()..])
+    } else {
+        None
+    }
+}
+
+fn split_heading_tags(input: &str) -> (&str, Vec<String>) {
+    let Some(position) = input.rfind(" :") else {
+        return (input.trim(), Vec::new());
+    };
+    let title = &input[..position];
+    let suffix = &input[position + 1..];
+    let tags = parse_colon_tags(suffix);
+    if tags.is_empty() {
+        (input.trim(), Vec::new())
+    } else {
+        (title.trim_end(), dedup_strings(tags))
+    }
+}
+
+fn split_todo_keyword(input: &str) -> (Option<String>, &str) {
+    let Some((first, rest)) = input.split_once(' ') else {
+        return (None, input);
+    };
+
+    if looks_like_todo_keyword(first) {
+        (Some(first.to_owned()), rest.trim_start())
+    } else {
+        (None, input)
+    }
+}
+
+fn looks_like_todo_keyword(token: &str) -> bool {
+    matches!(
+        token,
+        "TODO" | "DONE" | "NEXT" | "WAITING" | "STARTED" | "CANCELLED" | "HOLD"
+    )
+}
+
+fn parse_colon_tags(input: &str) -> Vec<String> {
+    let trimmed = input.trim();
+    if !trimmed.starts_with(':') || !trimmed.ends_with(':') {
+        return Vec::new();
+    }
+
+    trimmed
+        .split(':')
+        .filter(|part| !part.is_empty())
+        .filter(|part| !part.chars().any(char::is_whitespace))
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn dedup_strings(values: Vec<String>) -> Vec<String> {
+    let mut unique = Vec::new();
+    for value in values {
+        if !value.is_empty() && !unique.contains(&value) {
+            unique.push(value);
+        }
+    }
+    unique
+}
+
+fn shift_subtree_levels(lines: &mut [String], desired_root_level: usize) -> Result<()> {
+    let current_root_level = lines
+        .first()
+        .and_then(|line| heading_level(line))
+        .context("subtree must begin with a heading")?;
+    let delta = desired_root_level as isize - current_root_level as isize;
+
+    for line in lines {
+        if let Some(level) = heading_level(line) {
+            let trimmed = line.trim_start();
+            let new_level = (level as isize + delta).max(1) as usize;
+            *line = format!("{}{}", "*".repeat(new_level), &trimmed[level..]);
+        }
+    }
+
+    Ok(())
+}
+
+fn promote_subtree_lines(lines: &mut [String]) {
+    for line in lines {
+        if let Some(level) = heading_level(line) {
+            let trimmed = line.trim_start();
+            let new_level = level.saturating_sub(1).max(1);
+            *line = format!("{}{}", "*".repeat(new_level), &trimmed[level..]);
+        }
+    }
+}
+
+fn demote_all_headings(lines: &mut [String]) {
+    for line in lines {
+        if let Some(level) = heading_level(line) {
+            let trimmed = line.trim_start();
+            *line = format!("{}{}", "*".repeat(level + 1), &trimmed[level..]);
+        }
+    }
+}
+
+fn format_heading_line(level: usize, title: &str, tags: &[String]) -> String {
+    if tags.is_empty() {
+        format!("{} {}", "*".repeat(level), title)
+    } else {
+        format!(
+            "{} {} {}",
+            "*".repeat(level),
+            title,
+            format_colon_tags(tags)
+        )
+    }
+}
+
+struct OrgDocument {
+    lines: Vec<String>,
+    had_trailing_newline: bool,
+}
+
+impl OrgDocument {
+    fn from_source(source: &str) -> Self {
+        Self {
+            lines: source.lines().map(ToOwned::to_owned).collect(),
+            had_trailing_newline: source.ends_with('\n'),
+        }
+    }
+
+    fn from_extracted_subtree(subtree_lines: &[String], explicit_id: &str) -> Result<Self> {
+        let root_line = subtree_lines
+            .first()
+            .context("subtree must begin with a heading")?;
+        let level = heading_level(root_line).context("subtree must begin with a heading")?;
+        let heading_text = root_line.trim_start()[level + 1..].trim();
+        let (title_text, tags) = split_heading_tags(heading_text);
+        let (_, title) = split_todo_keyword(title_text);
+        let title = title.trim();
+        if title.is_empty() {
+            bail!("subtree heading must include a title");
+        }
+
+        let mut lines = vec![format!("#+title: {title}")];
+        if !tags.is_empty() {
+            lines.push(format!("#+filetags: {}", format_colon_tags(&tags)));
+        }
+        let mut remainder = subtree_lines[1..].to_vec();
+        promote_subtree_lines(&mut remainder);
+        lines.extend(remainder);
+
+        let mut document = Self {
+            lines,
+            had_trailing_newline: true,
+        };
+        document.set_file_property("ID", Some(explicit_id.to_owned()));
+        Ok(document)
+    }
+
+    fn render(&self) -> String {
+        if self.lines.is_empty() {
+            String::new()
+        } else {
+            render_lines(&self.lines, self.had_trailing_newline)
+        }
+    }
+
+    fn has_meaningful_content(&self) -> bool {
+        self.lines.iter().any(|line| !line.trim().is_empty())
+    }
+
+    fn heading_index(&self, line_number: usize) -> Result<usize> {
+        if line_number == 0 || line_number > self.lines.len() {
+            bail!("heading line {line_number} is out of range");
+        }
+        let index = line_number - 1;
+        if heading_level(&self.lines[index]).is_none() {
+            bail!("line {line_number} is not a heading");
+        }
+        Ok(index)
+    }
+
+    fn subtree_range(&self, line_number: usize) -> Result<(usize, usize)> {
+        let start = self.heading_index(line_number)?;
+        let level = heading_level(&self.lines[start]).context("heading line is invalid")?;
+        let mut end = self.lines.len();
+        for (index, line) in self.lines.iter().enumerate().skip(start + 1) {
+            if heading_level(line).is_some_and(|candidate| candidate <= level) {
+                end = index;
+                break;
+            }
+        }
+        Ok((start, end))
+    }
+
+    fn insertion_index(&self, target: &NodeRecord) -> Result<usize> {
+        match target.kind {
+            NodeKind::File => Ok(self.lines.len()),
+            NodeKind::Heading => {
+                let start = self.heading_index(target.line as usize)?;
+                let level = target.level as usize;
+                let mut insert_index = self.lines.len();
+                for (index, line) in self.lines.iter().enumerate().skip(start + 1) {
+                    if heading_level(line).is_some_and(|candidate| candidate <= level) {
+                        insert_index = index;
+                        break;
+                    }
+                }
+                Ok(insert_index)
+            }
+        }
+    }
+
+    fn remove_range(&mut self, start: usize, end: usize) {
+        self.lines.drain(start..end);
+    }
+
+    fn insert_subtree(
+        &mut self,
+        index: usize,
+        target_kind: NodeKind,
+        mut subtree_lines: Vec<String>,
+    ) {
+        if matches!(target_kind, NodeKind::File)
+            && index > 0
+            && self
+                .lines
+                .get(index - 1)
+                .is_some_and(|line| !line.trim().is_empty())
+        {
+            subtree_lines.insert(0, String::new());
+        }
+
+        self.lines.splice(index..index, subtree_lines);
+    }
+
+    fn subtree_lines(&self, node: &NodeRecord) -> Result<(Vec<String>, String)> {
+        match node.kind {
+            NodeKind::Heading => {
+                let (start, end) = self.subtree_range(node.line as usize)?;
+                let mut lines = self.lines[start..end].to_vec();
+                let explicit_id = node
+                    .explicit_id
+                    .clone()
+                    .unwrap_or_else(|| Uuid::new_v4().to_string());
+                ensure_heading_property_value(&mut lines, 0, "ID", Some(explicit_id.clone()))?;
+                Ok((lines, explicit_id))
+            }
+            NodeKind::File => {
+                let mut lines = self.lines.clone();
+                remove_file_keyword(&mut lines, "title");
+                remove_file_keyword(&mut lines, "filetags");
+                demote_all_headings(&mut lines);
+                lines.insert(0, format_heading_line(1, &node.title, &node.tags));
+
+                let explicit_id = node
+                    .explicit_id
+                    .clone()
+                    .unwrap_or_else(|| Uuid::new_v4().to_string());
+                ensure_heading_property_value(&mut lines, 0, "ID", Some(explicit_id.clone()))?;
+                Ok((lines, explicit_id))
+            }
+        }
+    }
+
+    fn set_file_property(&mut self, property: &str, value: Option<String>) {
+        set_file_property_value(&mut self.lines, property, value);
+    }
+
+    fn set_heading_property(
+        &mut self,
+        line_number: usize,
+        property: &str,
+        value: Option<String>,
+    ) -> Result<()> {
+        let heading_index = self.heading_index(line_number)?;
+        ensure_heading_property_value(&mut self.lines, heading_index, property, value)
+    }
+
+    fn set_file_keyword(&mut self, keyword: &str, value: Option<String>) {
+        set_file_keyword_value(&mut self.lines, keyword, value);
+    }
+
+    fn set_heading_tags(&mut self, line_number: usize, tags: &[String]) -> Result<()> {
+        let index = self.heading_index(line_number)?;
+        let level = heading_level(&self.lines[index]).context("heading line is invalid")?;
+        let trimmed = self.lines[index].trim_start();
+        let heading_text = trimmed[level + 1..].trim();
+        let (title, _) = split_heading_tags(heading_text);
+        self.lines[index] = format_heading_line(level, title, tags);
+        Ok(())
+    }
+}
+
+fn remove_file_keyword(lines: &mut Vec<String>, keyword: &str) {
+    let limit = file_keyword_limit(lines);
+    if let Some(index) = (0..limit)
+        .find(|index| strip_keyword(lines[*index].trim_start(), &format!("#+{keyword}:")).is_some())
+    {
+        lines.remove(index);
+    }
+}
+
+fn file_keyword_limit(lines: &[String]) -> usize {
+    lines
+        .iter()
+        .position(|line| heading_level(line).is_some())
+        .unwrap_or(lines.len())
+}
+
+fn file_property_insert_index(lines: &[String]) -> usize {
+    let mut index = 0;
+    while index < lines.len() && lines[index].trim().is_empty() {
+        index += 1;
+    }
+
+    while index < lines.len() && lines[index].trim_start().starts_with("#+") {
+        index += 1;
+    }
+
+    index
+}
+
+fn file_property_drawer_bounds(lines: &[String]) -> Option<(usize, usize)> {
+    let mut index = file_property_insert_index(lines);
+    while index < lines.len() && lines[index].trim().is_empty() {
+        index += 1;
+    }
+
+    if lines
+        .get(index)
+        .is_some_and(|line| line.trim().eq_ignore_ascii_case(":PROPERTIES:"))
+    {
+        for (end, line) in lines.iter().enumerate().skip(index + 1) {
+            if line.trim().eq_ignore_ascii_case(":END:") {
+                return Some((index, end + 1));
+            }
+        }
+    }
+
+    None
+}
+
+fn set_file_property_value(lines: &mut Vec<String>, property: &str, value: Option<String>) {
+    if let Some((start, end)) = file_property_drawer_bounds(lines) {
+        let property_line = format!(":{property}:");
+        if let Some(index) = (start + 1..end - 1)
+            .find(|index| strip_keyword(lines[*index].trim(), &property_line).is_some())
+        {
+            if let Some(value) = value {
+                lines[index] = format!(":{property}: {value}");
+            } else {
+                lines.remove(index);
+                if start + 1 == end - 2 {
+                    lines.drain(start..start + 2);
+                }
+            }
+            return;
+        }
+
+        if let Some(value) = value {
+            lines.insert(end - 1, format!(":{property}: {value}"));
+        }
+        return;
+    }
+
+    if let Some(value) = value {
+        let insert_index = file_property_insert_index(lines);
+        let mut drawer = vec![
+            String::from(":PROPERTIES:"),
+            format!(":{property}: {value}"),
+            String::from(":END:"),
+        ];
+        if insert_index == lines.len()
+            || lines
+                .get(insert_index)
+                .is_some_and(|line| !line.trim().is_empty())
+        {
+            drawer.push(String::new());
+        }
+        lines.splice(insert_index..insert_index, drawer);
+    }
+}
+
+fn set_file_keyword_value(lines: &mut Vec<String>, keyword: &str, value: Option<String>) {
+    let needle = format!("#+{keyword}:");
+    let limit = file_keyword_limit(lines);
+    if let Some(index) =
+        (0..limit).find(|index| strip_keyword(lines[*index].trim_start(), &needle).is_some())
+    {
+        if let Some(value) = value {
+            lines[index] = format!("#+{}: {value}", keyword.to_ascii_lowercase());
+        } else {
+            lines.remove(index);
+        }
+        return;
+    }
+
+    if let Some(value) = value {
+        let insert_index = file_property_insert_index(lines);
+        lines.insert(
+            insert_index,
+            format!("#+{}: {value}", keyword.to_ascii_lowercase()),
+        );
+    }
+}
+
+fn heading_property_drawer_bounds(
+    lines: &[String],
+    heading_index: usize,
+) -> Option<(usize, usize)> {
+    let drawer_start = heading_index + 1;
+    if lines
+        .get(drawer_start)
+        .is_some_and(|line| line.trim().eq_ignore_ascii_case(":PROPERTIES:"))
+    {
+        for (end, line) in lines.iter().enumerate().skip(drawer_start + 1) {
+            if line.trim().eq_ignore_ascii_case(":END:") {
+                return Some((drawer_start, end + 1));
+            }
+        }
+    }
+    None
+}
+
+fn ensure_heading_property_value(
+    lines: &mut Vec<String>,
+    heading_index: usize,
+    property: &str,
+    value: Option<String>,
+) -> Result<()> {
+    if heading_index >= lines.len() || heading_level(&lines[heading_index]).is_none() {
+        bail!("heading line {} is out of range", heading_index + 1);
+    }
+
+    if let Some((start, end)) = heading_property_drawer_bounds(lines, heading_index) {
+        let property_line = format!(":{property}:");
+        if let Some(index) = (start + 1..end - 1)
+            .find(|index| strip_keyword(lines[*index].trim(), &property_line).is_some())
+        {
+            if let Some(value) = value {
+                lines[index] = format!(":{property}: {value}");
+            } else {
+                lines.remove(index);
+                if start + 1 == end - 2 {
+                    lines.drain(start..start + 2);
+                }
+            }
+            return Ok(());
+        }
+
+        if let Some(value) = value {
+            lines.insert(end - 1, format!(":{property}: {value}"));
+        }
+        return Ok(());
+    }
+
+    if let Some(value) = value {
+        lines.splice(
+            heading_index + 1..heading_index + 1,
+            [
+                String::from(":PROPERTIES:"),
+                format!(":{property}: {value}"),
+                String::from(":END:"),
+            ],
+        );
+    }
+
+    Ok(())
 }
