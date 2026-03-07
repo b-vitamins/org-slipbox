@@ -46,7 +46,7 @@
 (defun org-slipbox-ping ()
   "Check that the local org-slipbox daemon responds."
   (interactive)
-  (let* ((response (org-slipbox-rpc-request "slipbox/ping"))
+  (let* ((response (org-slipbox-rpc-ping))
          (version (plist-get response :version))
          (root (plist-get response :root)))
     (message "org-slipbox %s at %s" version root)

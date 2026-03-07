@@ -44,9 +44,7 @@
 (defun org-slipbox-ref-find (query)
   "Find a node by reference QUERY and visit it."
   (interactive (list (read-string "Find ref: ")))
-  (let* ((response (org-slipbox-rpc-request
-                    "slipbox/searchRefs"
-                    `(:query ,query :limit ,org-slipbox-search-limit)))
+  (let* ((response (org-slipbox-rpc-search-refs query org-slipbox-search-limit))
          (refs (org-slipbox--plist-sequence (plist-get response :refs)))
          (choices (mapcar (lambda (entry)
                             (cons (org-slipbox--ref-display entry) entry))
@@ -325,9 +323,7 @@ When PREFIX is non-nil, only return tags matching PREFIX."
 
 (defun org-slipbox--indexed-tags (query limit)
   "Return indexed tags matching QUERY, requesting up to LIMIT results."
-  (let* ((response (org-slipbox-rpc-request
-                    "slipbox/searchTags"
-                    `(:query ,query :limit ,limit)))
+  (let* ((response (org-slipbox-rpc-search-tags query limit))
          (tags (plist-get response :tags)))
     (org-slipbox--plist-sequence tags)))
 

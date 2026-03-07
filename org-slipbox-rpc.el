@@ -56,6 +56,25 @@
 (defvar org-slipbox--connection nil
   "Live JSON-RPC connection to the local org-slipbox process.")
 
+(defconst org-slipbox-rpc-method-ping "slipbox/ping")
+(defconst org-slipbox-rpc-method-index "slipbox/index")
+(defconst org-slipbox-rpc-method-index-file "slipbox/indexFile")
+(defconst org-slipbox-rpc-method-search-nodes "slipbox/searchNodes")
+(defconst org-slipbox-rpc-method-random-node "slipbox/randomNode")
+(defconst org-slipbox-rpc-method-search-tags "slipbox/searchTags")
+(defconst org-slipbox-rpc-method-node-from-id "slipbox/nodeFromId")
+(defconst org-slipbox-rpc-method-node-from-title-or-alias "slipbox/nodeFromTitleOrAlias")
+(defconst org-slipbox-rpc-method-node-from-ref "slipbox/nodeFromRef")
+(defconst org-slipbox-rpc-method-node-at-point "slipbox/nodeAtPoint")
+(defconst org-slipbox-rpc-method-backlinks "slipbox/backlinks")
+(defconst org-slipbox-rpc-method-agenda "slipbox/agenda")
+(defconst org-slipbox-rpc-method-search-refs "slipbox/searchRefs")
+(defconst org-slipbox-rpc-method-capture-node "slipbox/captureNode")
+(defconst org-slipbox-rpc-method-ensure-file-node "slipbox/ensureFileNode")
+(defconst org-slipbox-rpc-method-append-heading "slipbox/appendHeading")
+(defconst org-slipbox-rpc-method-append-heading-to-node "slipbox/appendHeadingToNode")
+(defconst org-slipbox-rpc-method-ensure-node-id "slipbox/ensureNodeId")
+
 (defun org-slipbox-rpc-live-p ()
   "Return non-nil when the org-slipbox JSON-RPC process is live."
   (and org-slipbox--connection
@@ -91,6 +110,105 @@
 (defun org-slipbox-rpc-request (method &optional params)
   "Send METHOD with PARAMS to the local org-slipbox daemon."
   (jsonrpc-request (org-slipbox-rpc-ensure) method params))
+
+(defun org-slipbox-rpc-ping ()
+  "Request daemon identity information."
+  (org-slipbox-rpc-request org-slipbox-rpc-method-ping))
+
+(defun org-slipbox-rpc-index ()
+  "Rebuild the index for the configured slipbox root."
+  (org-slipbox-rpc-request org-slipbox-rpc-method-index))
+
+(defun org-slipbox-rpc-index-file (file-path)
+  "Sync FILE-PATH into the index."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-index-file
+   `(:file_path ,(expand-file-name file-path))))
+
+(defun org-slipbox-rpc-search-nodes (query limit)
+  "Search nodes matching QUERY with LIMIT."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-search-nodes
+   `(:query ,query :limit ,limit)))
+
+(defun org-slipbox-rpc-random-node ()
+  "Return a random indexed node."
+  (org-slipbox-rpc-request org-slipbox-rpc-method-random-node))
+
+(defun org-slipbox-rpc-search-tags (query limit)
+  "Search indexed tags matching QUERY with LIMIT."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-search-tags
+   `(:query ,query :limit ,limit)))
+
+(defun org-slipbox-rpc-node-from-id (id)
+  "Resolve the indexed node identified by ID."
+  (org-slipbox-rpc-request org-slipbox-rpc-method-node-from-id `(:id ,id)))
+
+(defun org-slipbox-rpc-node-from-title-or-alias (title-or-alias &optional nocase)
+  "Resolve a node by TITLE-OR-ALIAS.
+When NOCASE is non-nil, use case-insensitive matching."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-node-from-title-or-alias
+   `(:title_or_alias ,title-or-alias :nocase ,(and nocase t))))
+
+(defun org-slipbox-rpc-node-from-ref (reference)
+  "Resolve a node by REFERENCE."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-node-from-ref
+   `(:reference ,reference)))
+
+(defun org-slipbox-rpc-node-at-point (file-path line)
+  "Resolve the indexed node at FILE-PATH and LINE."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-node-at-point
+   `(:file_path ,(expand-file-name file-path) :line ,line)))
+
+(defun org-slipbox-rpc-backlinks (node-key &optional limit)
+  "Return backlinks for NODE-KEY, optionally capped by LIMIT."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-backlinks
+   `(:node_key ,node-key :limit ,(or limit 200))))
+
+(defun org-slipbox-rpc-agenda (start end)
+  "Return indexed agenda entries between START and END."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-agenda
+   `(:start ,start :end ,end)))
+
+(defun org-slipbox-rpc-search-refs (query limit)
+  "Search references matching QUERY with LIMIT."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-search-refs
+   `(:query ,query :limit ,limit)))
+
+(defun org-slipbox-rpc-capture-node (params)
+  "Capture a new node using PARAMS."
+  (org-slipbox-rpc-request org-slipbox-rpc-method-capture-node params))
+
+(defun org-slipbox-rpc-ensure-file-node (file-path title)
+  "Ensure FILE-PATH exists as a file node with TITLE."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-ensure-file-node
+   `(:file_path ,file-path :title ,title)))
+
+(defun org-slipbox-rpc-append-heading (file-path title heading level)
+  "Append HEADING at LEVEL into FILE-PATH with file TITLE."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-append-heading
+   `(:file_path ,file-path :title ,title :heading ,heading :level ,level)))
+
+(defun org-slipbox-rpc-append-heading-to-node (node-key heading)
+  "Append HEADING under NODE-KEY."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-append-heading-to-node
+   `(:node_key ,node-key :heading ,heading)))
+
+(defun org-slipbox-rpc-ensure-node-id (node-key)
+  "Ensure the node identified by NODE-KEY has an explicit Org ID."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-ensure-node-id
+   `(:node_key ,node-key)))
 
 (provide 'org-slipbox-rpc)
 

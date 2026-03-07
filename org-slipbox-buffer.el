@@ -188,9 +188,9 @@
   (or (org-slipbox-node-at-point)
       (let ((query (read-string "Node: ")))
         (or (org-slipbox-node-from-title-or-alias query)
-            (let* ((response (org-slipbox-rpc-request
-                              "slipbox/searchNodes"
-                              `(:query ,query :limit ,org-slipbox-search-limit)))
+            (let* ((response (org-slipbox-rpc-search-nodes
+                              query
+                              org-slipbox-search-limit))
                    (nodes (org-slipbox--plist-sequence (plist-get response :nodes)))
                    (choices (mapcar (lambda (candidate)
                                       (cons (org-slipbox--node-display candidate) candidate))
@@ -201,9 +201,7 @@
 
 (defun org-slipbox-buffer--backlinks (node)
   "Return backlinks for NODE."
-  (let* ((response (org-slipbox-rpc-request
-                    "slipbox/backlinks"
-                    `(:node_key ,(plist-get node :node_key) :limit 200)))
+  (let* ((response (org-slipbox-rpc-backlinks (plist-get node :node_key) 200))
          (backlinks (plist-get response :backlinks)))
     (org-slipbox--plist-sequence backlinks)))
 

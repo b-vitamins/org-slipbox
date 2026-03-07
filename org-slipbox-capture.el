@@ -71,10 +71,9 @@ Each template is a list of the form (KEY DESCRIPTION [:path STRING] [:title STRI
          (read-string "Heading: ")))
   (unless node
     (user-error "No target node selected"))
-  (let ((captured (org-slipbox-rpc-request
-                   "slipbox/appendHeadingToNode"
-                   `(:node_key ,(plist-get node :node_key)
-                     :heading ,heading))))
+  (let ((captured (org-slipbox-rpc-append-heading-to-node
+                   (plist-get node :node_key)
+                   heading)))
     (org-slipbox--visit-node captured)
     captured))
 
@@ -109,9 +108,7 @@ Each template is a list of the form (KEY DESCRIPTION [:path STRING] [:title STRI
                    `(:title ,capture-title))))
     (when refs
       (setq params (plist-put params :refs refs)))
-    (org-slipbox-rpc-request
-     "slipbox/captureNode"
-     params)))
+    (org-slipbox-rpc-capture-node params)))
 
 (defun org-slipbox--default-capture-template ()
   "Return the default capture template."

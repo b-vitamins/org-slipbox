@@ -217,22 +217,20 @@ Daily-note file names must remain parseable by `org-parse-time-string'."
   (let ((heading (string-trim heading)))
     (when (string-empty-p heading)
       (user-error "Daily entry must not be empty"))
-    (let ((node (org-slipbox-rpc-request
-                 "slipbox/appendHeading"
-                 `(:file_path ,(org-slipbox-dailies--path time)
-                   :title ,(org-slipbox-dailies--title time)
-                   :heading ,heading
-                   :level ,org-slipbox-dailies-entry-level))))
+    (let ((node (org-slipbox-rpc-append-heading
+                 (org-slipbox-dailies--path time)
+                 (org-slipbox-dailies--title time)
+                 heading
+                 org-slipbox-dailies-entry-level)))
       (org-slipbox--visit-node node)
       (run-hooks 'org-slipbox-dailies-find-file-hook)
       node)))
 
 (defun org-slipbox-dailies--ensure-note (time)
   "Return the daily note node for TIME."
-  (org-slipbox-rpc-request
-  "slipbox/ensureFileNode"
-  `(:file_path ,(org-slipbox-dailies--path time)
-    :title ,(org-slipbox-dailies--title time))))
+  (org-slipbox-rpc-ensure-file-node
+   (org-slipbox-dailies--path time)
+   (org-slipbox-dailies--title time)))
 
 (defun org-slipbox-dailies--list-files (&rest extra-files)
   "Return daily note files, appending EXTRA-FILES."

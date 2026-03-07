@@ -51,9 +51,7 @@ With prefix argument PREFER-FUTURE, `org-read-date' prefers future dates."
                    (let ((org-read-date-prefer-future prefer-future))
                      (org-read-date nil t nil "Agenda date: "))))
          (range (org-slipbox-agenda--day-range time))
-         (response (org-slipbox-rpc-request
-                    "slipbox/agenda"
-                    `(:start ,(car range) :end ,(cdr range))))
+         (response (org-slipbox-rpc-agenda (car range) (cdr range)))
          (nodes (org-slipbox--plist-sequence (plist-get response :nodes))))
     (with-current-buffer (get-buffer-create "*org-slipbox agenda*")
       (let ((inhibit-read-only t))

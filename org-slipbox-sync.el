@@ -45,9 +45,7 @@
   (interactive)
   (when (org-slipbox--syncable-buffer-p)
     (condition-case error
-        (org-slipbox-rpc-request
-         "slipbox/indexFile"
-         `(:file_path ,(expand-file-name buffer-file-name)))
+        (org-slipbox-rpc-index-file buffer-file-name)
       (error
        (message "org-slipbox sync failed: %s" (error-message-string error))))))
 

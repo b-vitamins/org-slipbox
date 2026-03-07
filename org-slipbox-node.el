@@ -43,7 +43,7 @@
 (defun org-slipbox-index ()
   "Rebuild the local org-slipbox index from Org files."
   (interactive)
-  (let* ((response (org-slipbox-rpc-request "slipbox/index"))
+  (let* ((response (org-slipbox-rpc-index))
          (files (plist-get response :files_indexed))
          (nodes (plist-get response :nodes_indexed))
          (links (plist-get response :links_indexed)))
@@ -52,18 +52,16 @@
 
 (defun org-slipbox-node-from-id (id)
   "Return the indexed node with explicit ID."
-  (org-slipbox-rpc-request "slipbox/nodeFromId" `(:id ,id)))
+  (org-slipbox-rpc-node-from-id id))
 
 (defun org-slipbox-node-from-title-or-alias (title-or-alias &optional nocase)
   "Return the indexed node matching TITLE-OR-ALIAS.
 When NOCASE is non-nil, use case-insensitive matching."
-  (org-slipbox-rpc-request
-   "slipbox/nodeFromTitleOrAlias"
-   `(:title_or_alias ,title-or-alias :nocase ,(and nocase t))))
+  (org-slipbox-rpc-node-from-title-or-alias title-or-alias nocase))
 
 (defun org-slipbox-node-from-ref (reference)
   "Return the indexed node for REFERENCE, or nil when none exists."
-  (org-slipbox-rpc-request "slipbox/nodeFromRef" `(:reference ,reference)))
+  (org-slipbox-rpc-node-from-ref reference))
 
 (defun org-slipbox-node-at-point (&optional assert)
   "Return the indexed node at point.
@@ -71,10 +69,9 @@ If ASSERT is non-nil, signal a user error when no node is available."
   (let ((node (and (org-slipbox--queryable-node-buffer-p)
                    (progn
                      (org-slipbox--sync-node-buffer-if-needed)
-                     (org-slipbox-rpc-request
-                      "slipbox/nodeAtPoint"
-                      `(:file_path ,(expand-file-name (org-slipbox--current-node-buffer-file))
-                        :line ,(line-number-at-pos)))))))
+                     (org-slipbox-rpc-node-at-point
+                      (org-slipbox--current-node-buffer-file)
+                      (line-number-at-pos))))))
     (or node
         (and assert (user-error "No node at point")))))
 
@@ -90,7 +87,7 @@ If ASSERT is non-nil, signal a user error when no node is available."
   "Visit a random indexed node.
 With prefix argument OTHER-WINDOW, visit it in another window."
   (interactive "P")
-  (let* ((response (org-slipbox-rpc-request "slipbox/randomNode"))
+  (let* ((response (org-slipbox-rpc-random-node))
          (node (plist-get response :node)))
     (unless node
       (user-error "No indexed nodes available"))
@@ -112,10 +109,7 @@ With prefix argument OTHER-WINDOW, visit it in another window."
   (interactive (list (read-string "Backlinks for: ")))
   (let* ((node (org-slipbox--select-or-capture-node query))
          (node-key (plist-get node :node_key))
-         (response (and node
-                        (org-slipbox-rpc-request
-                         "slipbox/backlinks"
-                         `(:node_key ,node-key :limit 200))))
+         (response (and node (org-slipbox-rpc-backlinks node-key 200)))
          (backlinks (and response
                          (org-slipbox--plist-sequence
                           (plist-get response :backlinks)))))
@@ -135,9 +129,7 @@ With prefix argument OTHER-WINDOW, visit it in another window."
   "Return NODE with an explicit ID, assigning one if needed."
   (if (plist-get node :explicit_id)
       node
-    (org-slipbox-rpc-request
-     "slipbox/ensureNodeId"
-     `(:node_key ,(plist-get node :node_key)))))
+    (org-slipbox-rpc-ensure-node-id (plist-get node :node_key))))
 
 (defun org-slipbox--node-display (node)
   "Return a display string for NODE."
@@ -179,9 +171,7 @@ With prefix argument OTHER-WINDOW, visit it in another window."
 
 (defun org-slipbox--sync-file-path (path)
   "Sync absolute PATH into the index."
-  (org-slipbox-rpc-request
-   "slipbox/indexFile"
-   `(:file_path ,(expand-file-name path))))
+  (org-slipbox-rpc-index-file path))
 
 (defun org-slipbox--sync-node-buffer-if-needed ()
   "Save and sync the current node buffer when it has local modifications."
@@ -221,9 +211,7 @@ With prefix argument OTHER-WINDOW, visit it in another window."
 
 (defun org-slipbox--search-node-choices (query)
   "Return display-to-node choices for QUERY."
-  (let* ((response (org-slipbox-rpc-request
-                    "slipbox/searchNodes"
-                    `(:query ,query :limit ,org-slipbox-search-limit)))
+  (let* ((response (org-slipbox-rpc-search-nodes query org-slipbox-search-limit))
          (nodes (org-slipbox--plist-sequence (plist-get response :nodes))))
     (mapcar (lambda (node)
               (cons (org-slipbox--node-display node) node))
@@ -241,9 +229,7 @@ With prefix argument OTHER-WINDOW, visit it in another window."
 
 (defun org-slipbox--title-completion-candidates (query)
   "Return title and alias candidates matching QUERY."
-  (let* ((response (org-slipbox-rpc-request
-                    "slipbox/searchNodes"
-                    `(:query ,query :limit ,org-slipbox-search-limit)))
+  (let* ((response (org-slipbox-rpc-search-nodes query org-slipbox-search-limit))
          (nodes (org-slipbox--plist-sequence (plist-get response :nodes)))
          candidates)
     (dolist (node nodes)
