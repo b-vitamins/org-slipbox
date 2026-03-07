@@ -38,3 +38,28 @@ fn indexes_nodes_searches_and_returns_backlinks() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn indexes_and_queries_distinct_tags() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    fs::write(
+        root.join("alpha.org"),
+        "#+title: Alpha\n#+filetags: :global:alpha:\n\n* First heading :beta:\nBody.\n* Second heading :alpha:\nMore body.\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    assert_eq!(
+        database.search_tags("", 10)?,
+        vec!["alpha".to_owned(), "beta".to_owned(), "global".to_owned()]
+    );
+    assert_eq!(database.search_tags("be", 10)?, vec!["beta".to_owned()]);
+
+    Ok(())
+}

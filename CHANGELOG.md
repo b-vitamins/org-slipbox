@@ -20,3 +20,4 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Added configurable capture path and title templates backed by unique file-target capture.
 - Added indexed scheduled, deadline, and closed timestamps plus an agenda query command.
 - Added indexed `ROAM_REFS` support, ref lookup commands, and alias/ref metadata editing commands.
+- Added indexed tag completion plus file-level and heading-level tag editing commands.

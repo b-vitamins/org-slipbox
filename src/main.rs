@@ -8,13 +8,13 @@ use slipbox_core::{
     AgendaParams, AgendaResult, AppendHeadingParams, BacklinksParams, BacklinksResult,
     CaptureNodeParams, EnsureFileNodeParams, EnsureNodeIdParams, IndexFileParams,
     NodeFromRefParams, NodeRecord, PingInfo, SearchNodesParams, SearchNodesResult,
-    SearchRefsParams, SearchRefsResult,
+    SearchRefsParams, SearchRefsResult, SearchTagsParams, SearchTagsResult,
 };
 use slipbox_rpc::{
     JsonRpcError, JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_AGENDA,
     METHOD_APPEND_HEADING, METHOD_BACKLINKS, METHOD_CAPTURE_NODE, METHOD_ENSURE_FILE_NODE,
     METHOD_ENSURE_NODE_ID, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_NODE_FROM_REF, METHOD_PING,
-    METHOD_SEARCH_NODES, METHOD_SEARCH_REFS,
+    METHOD_SEARCH_NODES, METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS,
 };
 use slipbox_store::Database;
 
@@ -183,6 +183,14 @@ fn dispatch_request(
                 .search_nodes(&params.query, params.normalized_limit())
                 .map_err(|error| internal_error(error.context("failed to query nodes")))?;
             to_value(SearchNodesResult { nodes })
+        }
+        METHOD_SEARCH_TAGS => {
+            let params: SearchTagsParams = parse_params(params)?;
+            let tags = state
+                .database
+                .search_tags(&params.query, params.normalized_limit())
+                .map_err(|error| internal_error(error.context("failed to query tags")))?;
+            to_value(SearchTagsResult { tags })
         }
         METHOD_BACKLINKS => {
             let params: BacklinksParams = parse_params(params)?;

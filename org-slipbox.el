@@ -57,6 +57,8 @@
 ;;;###autoload(autoload 'org-slipbox-ref-remove "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-alias-add "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-alias-remove "org-slipbox-node" nil t)
+;;;###autoload(autoload 'org-slipbox-tag-add "org-slipbox-node" nil t)
+;;;###autoload(autoload 'org-slipbox-tag-remove "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-agenda-today "org-slipbox-agenda" nil t)
 ;;;###autoload(autoload 'org-slipbox-agenda-date "org-slipbox-agenda" nil t)
 ;;;###autoload(autoload 'org-slipbox-dailies-capture-today "org-slipbox-dailies" nil t)

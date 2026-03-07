@@ -8,6 +8,7 @@ pub const METHOD_PING: &str = "slipbox/ping";
 pub const METHOD_INDEX: &str = "slipbox/index";
 pub const METHOD_INDEX_FILE: &str = "slipbox/indexFile";
 pub const METHOD_SEARCH_NODES: &str = "slipbox/searchNodes";
+pub const METHOD_SEARCH_TAGS: &str = "slipbox/searchTags";
 pub const METHOD_BACKLINKS: &str = "slipbox/backlinks";
 pub const METHOD_AGENDA: &str = "slipbox/agenda";
 pub const METHOD_SEARCH_REFS: &str = "slipbox/searchRefs";

@@ -7,7 +7,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
 use slipbox_core::{IndexStats, IndexedFile, NodeKind, NodeRecord, RefRecord, normalize_reference};
 
-const SCHEMA_VERSION: i32 = 4;
+const SCHEMA_VERSION: i32 = 5;
 
 pub struct Database {
     connection: Connection,
@@ -96,6 +96,34 @@ impl Database {
             let rows = statement.query_map(params![limit], row_to_node)?;
             rows.collect::<rusqlite::Result<Vec<_>>>()
                 .context("failed to read node listing")
+        }
+    }
+
+    pub fn search_tags(&self, query: &str, limit: usize) -> Result<Vec<String>> {
+        let limit = limit.clamp(1, 1_000) as i64;
+        if query.trim().is_empty() {
+            let mut statement = self.connection.prepare(
+                "SELECT DISTINCT tag
+                   FROM tags
+                  ORDER BY tag
+                  LIMIT ?1",
+            )?;
+            let rows = statement.query_map(params![limit], |row| row.get::<_, String>(0))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .context("failed to read tags")
+        } else {
+            let pattern = format!("{}%", escape_like_pattern(query.trim()));
+            let mut statement = self.connection.prepare(
+                "SELECT DISTINCT tag
+                   FROM tags
+                  WHERE tag LIKE ?1 ESCAPE '\\' COLLATE NOCASE
+                  ORDER BY tag
+                  LIMIT ?2",
+            )?;
+            let rows =
+                statement.query_map(params![pattern, limit], |row| row.get::<_, String>(0))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .context("failed to search tags")
         }
     }
 
@@ -345,6 +373,7 @@ impl Database {
              PRAGMA synchronous = NORMAL;
 
              DROP TABLE IF EXISTS links;
+             DROP TABLE IF EXISTS tags;
              DROP TABLE IF EXISTS refs;
              DROP TABLE IF EXISTS node_fts;
              DROP TABLE IF EXISTS nodes;
@@ -388,6 +417,11 @@ impl Database {
                ref TEXT NOT NULL
              );
 
+             CREATE TABLE IF NOT EXISTS tags (
+               node_key TEXT NOT NULL,
+               tag TEXT NOT NULL
+             );
+
              CREATE TABLE IF NOT EXISTS links (
                source_node_key TEXT NOT NULL,
                destination_explicit_id TEXT NOT NULL
@@ -409,6 +443,9 @@ impl Database {
              CREATE INDEX IF NOT EXISTS idx_refs_ref
                ON refs (ref);
 
+             CREATE INDEX IF NOT EXISTS idx_tags_tag
+               ON tags (tag);
+
              CREATE INDEX IF NOT EXISTS idx_nodes_scheduled_for
                ON nodes (scheduled_for)
                WHERE scheduled_for IS NOT NULL;
@@ -417,7 +454,7 @@ impl Database {
                ON nodes (deadline_for)
                WHERE deadline_for IS NOT NULL;
 
-             PRAGMA user_version = 4;",
+             PRAGMA user_version = 5;",
         )?;
         Ok(())
     }
@@ -494,6 +531,14 @@ impl Database {
                     params![node.node_key, reference],
                 )?;
             }
+
+            for tag in &node.tags {
+                transaction.execute(
+                    "INSERT INTO tags (node_key, tag)
+                     VALUES (?1, ?2)",
+                    params![node.node_key, tag],
+                )?;
+            }
         }
 
         for link in &file.links {
@@ -534,6 +579,15 @@ impl Database {
 }
 
 fn delete_file_rows(transaction: &rusqlite::Transaction<'_>, file_path: &str) -> Result<()> {
+    transaction.execute(
+        "DELETE FROM tags
+          WHERE node_key IN (
+                SELECT node_key
+                  FROM nodes
+                 WHERE file_path = ?1
+          )",
+        params![file_path],
+    )?;
     transaction.execute(
         "DELETE FROM refs
           WHERE node_key IN (
@@ -649,4 +703,16 @@ fn build_fts_query(input: &str) -> Option<String> {
     } else {
         Some(tokens.join(" "))
     }
+}
+
+fn escape_like_pattern(input: &str) -> String {
+    input
+        .chars()
+        .flat_map(|character| match character {
+            '\\' => ['\\', '\\'].into_iter().collect::<Vec<_>>(),
+            '%' => ['\\', '%'].into_iter().collect::<Vec<_>>(),
+            '_' => ['\\', '_'].into_iter().collect::<Vec<_>>(),
+            _ => [character].into_iter().collect::<Vec<_>>(),
+        })
+        .collect()
 }

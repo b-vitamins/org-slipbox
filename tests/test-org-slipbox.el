@@ -93,6 +93,79 @@
     (should (equal params '(:query "smith" :limit 50)))
     (should (equal visited '(:title "Paper" :file_path "paper.org" :line 1)))))
 
+(ert-deftest org-slipbox-test-tag-completions-merge-indexed-and-org-tags ()
+  "Tag completions should include indexed and configured Org tags."
+  (let ((org-tag-alist '((:startgroup . nil)
+                         ("@work" . ?w)
+                         (:endgroup . nil)
+                         ("pc" . ?p)))
+        method
+        params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:tags ["alpha" "beta"]))))
+      (should
+       (equal
+        (sort (org-slipbox-tag-completions) #'string-lessp)
+        '("@work" "alpha" "beta" "pc"))))
+    (should (equal method "slipbox/searchTags"))
+    (should (equal params '(:query "" :limit 10000)))))
+
+(ert-deftest org-slipbox-test-tag-add-updates-filetags-keyword ()
+  "Adding a file tag should update `#+FILETAGS:' and sync the file."
+  (let* ((root (make-temp-file "org-slipbox-tags-" t))
+         (file (expand-file-name "note.org" root))
+         method
+         params)
+    (unwind-protect
+        (progn
+          (write-region "#+title: Note\n\n" nil file nil 'silent)
+          (with-current-buffer (find-file-noselect file)
+            (goto-char (point-min))
+            (let ((org-slipbox-directory root))
+              (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                         (lambda (request-method request-params)
+                           (setq method request-method
+                                 params request-params)
+                           nil)))
+                (org-slipbox-tag-add '("beta"))))
+            (kill-buffer (current-buffer)))
+          (should (equal method "slipbox/indexFile"))
+          (should (equal params `(:file_path ,file)))
+          (should
+           (equal
+            (with-temp-buffer
+              (insert-file-contents file)
+              (buffer-string))
+            "#+title: Note\n#+FILETAGS: :beta:\n\n")))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-tag-remove-updates-heading-tags ()
+  "Removing a heading tag should rewrite the headline and sync the file."
+  (let* ((root (make-temp-file "org-slipbox-tags-" t))
+         (file (expand-file-name "note.org" root)))
+    (unwind-protect
+        (progn
+          (write-region "#+title: Note\n\n* Heading :one:two:\n" nil file nil 'silent)
+          (with-current-buffer (find-file-noselect file)
+            (goto-char (point-min))
+            (search-forward "* Heading")
+            (let ((org-slipbox-directory root)
+                  (org-auto-align-tags nil))
+              (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                         (lambda (&rest _args) nil)))
+                (org-slipbox-tag-remove '("one"))))
+            (kill-buffer (current-buffer)))
+          (should
+           (equal
+            (with-temp-buffer
+              (insert-file-contents file)
+              (buffer-string))
+            "#+title: Note\n\n* Heading :two:\n")))
+      (delete-directory root t))))
+
 (ert-deftest org-slipbox-test-agenda-day-range ()
   "Agenda day ranges should cover the full calendar day."
   (should

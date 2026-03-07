@@ -132,6 +132,25 @@ pub struct SearchNodesResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchTagsParams {
+    pub query: String,
+    #[serde(default = "default_tag_limit")]
+    pub limit: usize,
+}
+
+impl SearchTagsParams {
+    #[must_use]
+    pub fn normalized_limit(&self) -> usize {
+        self.limit.clamp(1, 1_000)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchTagsResult {
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BacklinksParams {
     pub node_key: String,
     #[serde(default = "default_backlink_limit")]
@@ -244,6 +263,10 @@ const fn default_search_limit() -> usize {
 }
 
 const fn default_backlink_limit() -> usize {
+    200
+}
+
+const fn default_tag_limit() -> usize {
     200
 }
 

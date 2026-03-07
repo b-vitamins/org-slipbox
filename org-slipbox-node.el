@@ -30,11 +30,17 @@
 ;;; Code:
 
 (require 'org)
+(require 'seq)
 (require 'subr-x)
 (require 'org-slipbox-rpc)
 
 (defcustom org-slipbox-search-limit 50
   "Maximum number of nodes to request for interactive search."
+  :type 'integer
+  :group 'org-slipbox)
+
+(defcustom org-slipbox-tag-search-limit 200
+  "Maximum number of indexed tags to request per completion query."
   :type 'integer
   :group 'org-slipbox)
 
@@ -158,6 +164,44 @@ Each template is a list of the form (KEY DESCRIPTION [:path STRING] [:title STRI
     (unless alias
       (user-error "No alias to remove"))
     (org-slipbox--node-property-remove "ROAM_ALIASES" alias)))
+
+(defun org-slipbox-tag-completions (&optional prefix)
+  "Return known tags for completion.
+When PREFIX is non-nil, only return tags matching PREFIX."
+  (delete-dups
+   (append (org-slipbox--indexed-tags (or prefix "") 10000)
+           (org-slipbox--matching-org-tags prefix))))
+
+;;;###autoload
+(defun org-slipbox-tag-add (tags)
+  "Add TAGS to the current node."
+  (interactive
+   (list
+    (let ((crm-separator "[ \t]*:[ \t]*"))
+      (completing-read-multiple "Tag: " #'org-slipbox--tag-completion-table nil nil))))
+  (setq tags (delete-dups (seq-filter #'identity (mapcar #'string-trim tags))))
+  (unless tags
+    (user-error "No tag to add"))
+  (org-slipbox--set-current-node-tags
+   (delete-dups (append tags (org-slipbox--current-node-tags))))
+  tags)
+
+;;;###autoload
+(defun org-slipbox-tag-remove (&optional tags)
+  "Remove TAGS from the current node."
+  (interactive)
+  (let* ((current-tags (org-slipbox--current-node-tags))
+         (tags (or tags
+                   (and current-tags
+                        (completing-read-multiple "Tag: " current-tags nil t)))))
+    (unless current-tags
+      (user-error "No tag to remove"))
+    (setq tags (delete-dups (seq-filter #'identity (mapcar #'string-trim tags))))
+    (unless tags
+      (user-error "No tag selected"))
+    (org-slipbox--set-current-node-tags
+     (seq-remove (lambda (tag) (member tag tags)) current-tags))
+    tags))
 
 (defun org-slipbox--select-or-capture-node (query)
   "Return a node selected for QUERY, or create one."
@@ -478,11 +522,130 @@ Each template is a list of the form (KEY DESCRIPTION [:path STRING] [:title STRI
    "slipbox/indexFile"
    `(:file_path ,(expand-file-name buffer-file-name))))
 
+(defun org-slipbox--tag-completion-table (string pred action)
+  "Completion table for tags using STRING, PRED, and ACTION."
+  (complete-with-action
+   action
+   (delete-dups
+    (append (org-slipbox--indexed-tags string org-slipbox-tag-search-limit)
+            (org-slipbox--matching-org-tags string)))
+   string
+   pred))
+
+(defun org-slipbox--indexed-tags (query limit)
+  "Return indexed tags matching QUERY, requesting up to LIMIT results."
+  (let* ((response (org-slipbox-rpc-request
+                    "slipbox/searchTags"
+                    `(:query ,query :limit ,limit)))
+         (tags (plist-get response :tags)))
+    (org-slipbox--plist-sequence tags)))
+
+(defun org-slipbox--matching-org-tags (&optional prefix)
+  "Return `org-tag-alist' tags matching PREFIX."
+  (let ((prefix (or prefix "")))
+    (seq-filter
+     (lambda (tag)
+       (or (string-empty-p prefix)
+           (string-prefix-p prefix tag completion-ignore-case)))
+     (delete-dups
+      (delq nil
+            (mapcar (lambda (entry)
+                      (pcase entry
+                        (`(,tag . ,_) (and (stringp tag) tag))
+                        (_ nil)))
+                    org-tag-alist))))))
+
+(defun org-slipbox--current-node-tags ()
+  "Return local tags for the current node."
+  (save-excursion
+    (save-restriction
+      (widen)
+      (if (org-slipbox--file-node-p)
+          (org-slipbox--file-tags)
+        (org-back-to-heading t)
+        (org-get-tags nil t)))))
+
+(defun org-slipbox--set-current-node-tags (tags)
+  "Set current node tags to TAGS."
+  (save-excursion
+    (save-restriction
+      (widen)
+      (if (org-slipbox--file-node-p)
+          (org-slipbox--set-file-tags tags)
+        (org-back-to-heading t)
+        (org-set-tags tags))))
+  (org-slipbox--save-and-sync-current-buffer)
+  tags)
+
+(defun org-slipbox--file-tags ()
+  "Return file-level tags from `#+FILETAGS:'."
+  (let ((value (org-slipbox--file-keyword-value "FILETAGS")))
+    (if value
+        (org-slipbox--parse-colon-tags value)
+      nil)))
+
+(defun org-slipbox--set-file-tags (tags)
+  "Set file-level TAGS in `#+FILETAGS:'."
+  (org-slipbox--set-file-keyword
+   "FILETAGS"
+   (and tags (org-slipbox--format-colon-tags tags))))
+
+(defun org-slipbox--file-keyword-value (keyword)
+  "Return file-level KEYWORD value, or nil if missing."
+  (save-excursion
+    (goto-char (point-min))
+    (let ((case-fold-search t)
+          (limit (org-slipbox--file-keyword-limit)))
+      (when (re-search-forward
+             (format "^[ \t]*#\\+%s:[ \t]*\\(.*\\)$" (regexp-quote keyword))
+             limit
+             t)
+        (string-trim (match-string 1))))))
+
+(defun org-slipbox--set-file-keyword (keyword value)
+  "Set file-level KEYWORD to VALUE.
+When VALUE is nil, remove KEYWORD."
+  (save-excursion
+    (goto-char (point-min))
+    (let ((case-fold-search t)
+          (limit (org-slipbox--file-keyword-limit)))
+      (if (re-search-forward
+           (format "^[ \t]*#\\+%s:[ \t]*\\(.*\\)$" (regexp-quote keyword))
+           limit
+           t)
+          (if value
+              (replace-match (format "#+%s: %s" keyword value) t t)
+            (delete-region (line-beginning-position)
+                           (min (point-max) (1+ (line-end-position)))))
+        (when value
+          (goto-char (org-slipbox--file-property-insert-point))
+          (insert (format "#+%s: %s\n" keyword value)))))))
+
+(defun org-slipbox--file-keyword-limit ()
+  "Return the buffer position where file-level keywords stop."
+  (save-excursion
+    (goto-char (point-min))
+    (if (re-search-forward org-outline-regexp-bol nil t)
+        (line-beginning-position)
+      (point-max))))
+
 (defun org-slipbox--visit-node (node)
   "Visit NODE in its source file."
   (find-file (expand-file-name (plist-get node :file_path) org-slipbox-directory))
   (goto-char (point-min))
   (forward-line (1- (plist-get node :line))))
+
+(defun org-slipbox--parse-colon-tags (value)
+  "Parse VALUE from an Org colon tag string."
+  (let ((trimmed (string-trim (or value ""))))
+    (if (and (string-prefix-p ":" trimmed)
+             (string-suffix-p ":" trimmed))
+        (split-string trimmed ":" t)
+      nil)))
+
+(defun org-slipbox--format-colon-tags (tags)
+  "Format TAGS as an Org colon tag string."
+  (format ":%s:" (string-join tags ":")))
 
 (provide 'org-slipbox-node)
 
