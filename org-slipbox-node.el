@@ -37,6 +37,13 @@
   :type 'integer
   :group 'org-slipbox)
 
+(defcustom org-slipbox-capture-templates
+  '(("d" "default" :path "${slug}.org" :title "${title}"))
+  "Capture templates for `org-slipbox-capture'.
+Each template is a list of the form (KEY DESCRIPTION [:path STRING] [:title STRING])."
+  :type 'sexp
+  :group 'org-slipbox)
+
 (defun org-slipbox-index ()
   "Rebuild the local org-slipbox index from Org files."
   (interactive)
@@ -47,10 +54,12 @@
     (message "Indexed %s files, %s nodes, %s links" files nodes links)
     response))
 
-(defun org-slipbox-capture (title)
+(defun org-slipbox-capture (&optional title)
   "Create a new note with TITLE and visit it."
-  (interactive (list (read-string "Capture title: ")))
-  (org-slipbox--visit-node (org-slipbox--capture-node title)))
+  (interactive)
+  (let* ((title (or title (read-string "Capture title: ")))
+         (template (org-slipbox--read-capture-template)))
+    (org-slipbox--visit-node (org-slipbox--capture-node title template))))
 
 (defun org-slipbox-node-find (query)
   "Find a node matching QUERY and visit it."
@@ -109,9 +118,25 @@
      (choice choice)
      (t nil))))
 
-(defun org-slipbox--capture-node (title)
-  "Capture a new node with TITLE."
-  (org-slipbox-rpc-request "slipbox/captureNode" `(:title ,title)))
+(defun org-slipbox--capture-node (title &optional template)
+  "Capture a new node with TITLE using TEMPLATE."
+  (let* ((template (or template (org-slipbox--default-capture-template)))
+         (template-options (and template (nthcdr 2 template)))
+         (current-time (current-time))
+         (capture-title (or (org-slipbox--expand-capture-template
+                             (plist-get template-options :title)
+                             title
+                             current-time)
+                            title))
+         (file-path (org-slipbox--expand-capture-template
+                     (plist-get template-options :path)
+                     title
+                     current-time)))
+    (org-slipbox-rpc-request
+     "slipbox/captureNode"
+     (if file-path
+         `(:title ,capture-title :file_path ,file-path)
+       `(:title ,capture-title)))))
 
 (defun org-slipbox--ensure-node-id (node)
   "Return NODE with an explicit ID, assigning one if needed."
@@ -144,6 +169,68 @@
    ((vectorp value) (append value nil))
    ((listp value) value)
    (t (list value))))
+
+(defun org-slipbox--default-capture-template ()
+  "Return the default capture template."
+  (car org-slipbox-capture-templates))
+
+(defun org-slipbox--read-capture-template ()
+  "Prompt for a capture template when more than one is configured."
+  (cond
+   ((null org-slipbox-capture-templates) nil)
+   ((= (length org-slipbox-capture-templates) 1)
+    (car org-slipbox-capture-templates))
+   (t
+    (let* ((choices (mapcar (lambda (template)
+                              (cons (format "%s %s" (car template) (cadr template))
+                                    template))
+                            org-slipbox-capture-templates))
+           (selection (completing-read "Template: " choices nil t)))
+      (cdr (assoc selection choices))))))
+
+(defun org-slipbox--expand-capture-template (template title time)
+  "Expand TEMPLATE for TITLE using TIME."
+  (when template
+    (let ((expanded (replace-regexp-in-string
+                     "%<\\([^>]+\\)>"
+                     (lambda (match)
+                       (format-time-string
+                        (substring match 2 -1)
+                        time))
+                     template
+                     t)))
+      (setq expanded
+            (replace-regexp-in-string
+             (regexp-quote "${title}")
+             title
+             expanded
+             t
+             t))
+      (replace-regexp-in-string
+       (regexp-quote "${slug}")
+       (org-slipbox--slugify title)
+       expanded
+       t
+       t))))
+
+(defun org-slipbox--slugify (title)
+  "Convert TITLE into a stable file-name slug."
+  (let ((result "")
+        (previous-dash nil))
+    (dolist (character (string-to-list title))
+      (let ((normalized (downcase character)))
+        (cond
+         ((or (and (<= ?a normalized) (<= normalized ?z))
+              (and (<= ?0 normalized) (<= normalized ?9)))
+          (setq result (concat result (string normalized))
+                previous-dash nil))
+         ((not previous-dash)
+          (setq result (concat result "-")
+                previous-dash t)))))
+    (let ((trimmed (string-trim result "-+" "-+")))
+      (if (string-empty-p trimmed)
+          "note"
+        trimmed))))
 
 (defun org-slipbox--visit-node (node)
   "Visit NODE in its source file."

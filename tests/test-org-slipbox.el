@@ -40,6 +40,40 @@
      '(:title "Heading" :outline_path "" :tags ["one" "two"] :file_path "notes/foo.org" :line 42))
     "Heading | #one #two | notes/foo.org:42")))
 
+(ert-deftest org-slipbox-test-capture-template-expansion ()
+  "Capture templates should expand slug, title, and time placeholders."
+  (should
+   (equal
+    (org-slipbox--expand-capture-template
+     "notes/%<%Y>-${slug}.org"
+     "Sample Title"
+     (encode-time 0 0 0 7 3 2026))
+    "notes/2026-sample-title.org"))
+  (should
+   (equal
+    (org-slipbox--expand-capture-template
+     "Slip: ${title}"
+     "Sample Title"
+     (encode-time 0 0 0 7 3 2026))
+    "Slip: Sample Title")))
+
+(ert-deftest org-slipbox-test-capture-node-uses-template-path ()
+  "Capture should send expanded file targets through the RPC layer."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:title "Slip: Sample Title" :file_path "notes/2026-sample-title.org" :line 1))))
+      (org-slipbox--capture-node
+       "Sample Title"
+       '("d" "default" :path "notes/%<%Y>-${slug}.org" :title "Slip: ${title}")))
+    (should (equal method "slipbox/captureNode"))
+    (should
+     (equal params
+            '(:title "Slip: Sample Title"
+              :file_path "notes/2026-sample-title.org")))))
+
 (ert-deftest org-slipbox-test-syncable-buffer-detection ()
   "Autosync should only consider Org files under the configured root."
   (let* ((root (make-temp-file "org-slipbox-test-" t))

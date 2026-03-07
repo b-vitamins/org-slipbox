@@ -138,6 +138,8 @@ pub struct BacklinksResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureNodeParams {
     pub title: String,
+    #[serde(default)]
+    pub file_path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

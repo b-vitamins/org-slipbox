@@ -3,7 +3,9 @@ use std::fs;
 use anyhow::Result;
 use slipbox_index::{scan_path, scan_root};
 use slipbox_store::Database;
-use slipbox_write::{append_heading, capture_file_note, ensure_file_note, ensure_node_id};
+use slipbox_write::{
+    append_heading, capture_file_note, capture_file_note_at, ensure_file_note, ensure_node_id,
+};
 use tempfile::tempdir;
 
 #[test]
@@ -101,6 +103,23 @@ fn append_heading_creates_indexed_heading_node() -> Result<()> {
     assert_eq!(node.title, "Meeting");
     assert_eq!(node.file_path, "daily/2026-03-07.org");
     assert_eq!(node.line, 6);
+
+    Ok(())
+}
+
+#[test]
+fn capture_file_note_at_chooses_unique_path_when_target_exists() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(root.join("projects"))?;
+    fs::write(
+        root.join("projects").join("sample.org"),
+        "#+title: Existing\n",
+    )?;
+
+    let captured = capture_file_note_at(&root, "projects/sample.org", "Sample")?;
+    assert_eq!(captured.node_key, "file:projects/sample-1.org");
+    assert!(captured.absolute_path.ends_with("projects/sample-1.org"));
 
     Ok(())
 }

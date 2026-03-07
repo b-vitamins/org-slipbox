@@ -20,6 +20,15 @@ pub fn capture_file_note(root: &Path, title: &str) -> Result<CaptureOutcome> {
     create_file_note(root, &relative_path, title)
 }
 
+pub fn capture_file_note_at(root: &Path, file_path: &str, title: &str) -> Result<CaptureOutcome> {
+    fs::create_dir_all(root)
+        .with_context(|| format!("failed to create root directory {}", root.display()))?;
+
+    let title = normalized_title(title)?;
+    let relative_path = next_available_relative_path(root, file_path)?;
+    create_file_note(root, &relative_path, title)
+}
+
 pub fn ensure_file_note(root: &Path, file_path: &str, title: &str) -> Result<CaptureOutcome> {
     fs::create_dir_all(root)
         .with_context(|| format!("failed to create root directory {}", root.display()))?;
@@ -238,6 +247,39 @@ fn next_available_path(root: &Path, slug: &str) -> String {
         };
         if !root.join(&filename).exists() {
             return filename;
+        }
+    }
+
+    unreachable!("unbounded path generation must eventually find an unused file name")
+}
+
+fn next_available_relative_path(root: &Path, file_path: &str) -> Result<String> {
+    let normalized = normalize_relative_org_path(file_path)?;
+    let candidate = Path::new(&normalized);
+    let stem = candidate
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .context("file path must include a valid file name")?;
+    let extension = candidate
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .context("file path must include a valid extension")?;
+    let parent = candidate
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty());
+
+    for suffix in 0.. {
+        let filename = if suffix == 0 {
+            format!("{stem}.{extension}")
+        } else {
+            format!("{stem}-{suffix}.{extension}")
+        };
+        let relative = parent
+            .map(|path| path.join(&filename))
+            .unwrap_or_else(|| PathBuf::from(&filename));
+        let absolute = root.join(&relative);
+        if !absolute.exists() {
+            return Ok(relative.to_string_lossy().replace('\\', "/"));
         }
     }
 

@@ -17,3 +17,4 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Added a file-level sync RPC and an Emacs autosync mode driven by buffer saves.
 - Added indexed alias and tag metadata for nodes, including search over those fields.
 - Added daily-note commands backed by generic file-node and heading-append RPCs.
+- Added configurable capture path and title templates backed by unique file-target capture.
