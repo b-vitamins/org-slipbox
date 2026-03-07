@@ -284,6 +284,112 @@
      (equal visited
             '(:title "Child" :file_path "project.org" :line 8)))))
 
+(ert-deftest org-slipbox-test-typed-capture-template-uses-generic-rpc ()
+  "Typed templates should route through the generic capture RPC."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:title "Note" :file_path "notes/note.org" :line 5))))
+      (org-slipbox--capture-node-at-time
+       "Note"
+       '("d" "default" entry "* ${title}\n${body}"
+         :target (file+head+olp
+                  "notes/${slug}.org"
+                  "#+title: ${title}"
+                  ("Inbox"))
+         :prepend t
+         :empty-lines 1)
+       '("https://example.test/ref")
+       (encode-time 0 0 0 7 3 2026)
+       '(:body "Body text")))
+    (should (equal method "slipbox/captureTemplate"))
+    (should
+     (equal params
+            '(:title "Note"
+              :capture_type "entry"
+              :content "* Note\nBody text"
+              :prepend t
+              :empty_lines_before 1
+              :empty_lines_after 1
+              :refs ("https://example.test/ref")
+              :file_path "notes/note.org"
+              :head "#+title: Note"
+              :outline_path ("Inbox"))))))
+
+(ert-deftest org-slipbox-test-typed-capture-target-node-resolves-existing-node ()
+  "Typed templates should resolve `(node ...)' targets through the index."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-node-from-id)
+               (lambda (_id) nil))
+              ((symbol-function 'org-slipbox-node-from-title-or-alias)
+               (lambda (query _nocase)
+                 (should (equal query "Parent"))
+                 '(:node_key "heading:project.org:3" :title "Parent")))
+              ((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:title "Parent" :file_path "project.org" :line 3))))
+      (org-slipbox--capture-node-at-time
+       "Follow up"
+       '("n" "node item" item "${title}"
+         :target (node "Parent"))
+       nil
+       (encode-time 0 0 0 7 3 2026)))
+    (should (equal method "slipbox/captureTemplate"))
+    (should
+     (equal params
+            '(:title "Follow up"
+              :capture_type "item"
+              :content "Follow up"
+              :prepend nil
+              :empty_lines_before 0
+              :empty_lines_after 0
+              :node_key "heading:project.org:3")))))
+
+(ert-deftest org-slipbox-test-capture-datetree-target-expands-outline-path ()
+  "Datetree targets should expand to deterministic outline paths."
+  (should
+   (equal
+    (org-slipbox--expand-capture-target
+     '(:target (file+datetree "daily/%<%Y-%m>.org" week))
+     "Entry"
+     (encode-time 0 0 0 7 3 2026))
+    '(:kind file
+      :file_path "daily/2026-03.org"
+      :outline_path ("2026" "2026-W10" "2026-03-07 Saturday")))))
+
+(ert-deftest org-slipbox-test-render-capture-body-expands-org-capture-escapes ()
+  "Capture body rendering should support `%'-escapes and `${...}' variables."
+  (should
+   (equal
+    (org-slipbox--render-capture-body
+     "Seen %<%Y> %i ${ref=none}"
+     'plain
+     "Note"
+     (encode-time 0 0 0 7 3 2026)
+     '(:body "Quoted text"
+       :ref "cite:smith2024"))
+    "Seen 2026 Quoted text cite:smith2024")))
+
+(ert-deftest org-slipbox-test-capture-string-prompts-once-for-repeated-placeholder ()
+  "Repeated `${...}' placeholders should share one prompted value."
+  (let ((calls 0))
+    (cl-letf (((symbol-function 'read-from-minibuffer)
+               (lambda (_prompt &optional default-value)
+                 (setq calls (1+ calls))
+                 (or default-value "Topic"))))
+      (should
+       (equal
+        (org-slipbox--render-capture-string
+         "${topic=Topic} / ${topic=Topic}"
+         "Note"
+         (encode-time 0 0 0 7 3 2026))
+        "Topic / Topic"))
+      (should (= calls 1)))))
+
 (ert-deftest org-slipbox-test-node-from-id-uses-rpc ()
   "Exact ID lookup should call the dedicated RPC."
   (let (method params)

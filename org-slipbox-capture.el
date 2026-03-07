@@ -29,21 +29,37 @@
 
 ;;; Code:
 
+(require 'cl-lib)
+(require 'org)
+(require 'org-capture)
 (require 'subr-x)
 (require 'org-slipbox-node)
 (require 'org-slipbox-rpc)
+
+(defconst org-slipbox--capture-types '(plain entry item checkitem table-line)
+  "Org-roam-style capture content types supported by org-slipbox.")
 
 (defcustom org-slipbox-capture-templates
   '(("d" "default" :path "${slug}.org" :title "${title}"))
   "Capture templates for `org-slipbox-capture'.
 Each template is a list of the form
-\(KEY DESCRIPTION [:path STRING] [:title STRING] [:target SPEC]\).
+\(KEY DESCRIPTION [:path STRING] [:title STRING] [:target SPEC]\)
+or
+\(KEY DESCRIPTION TYPE TEMPLATE . OPTIONS\).
 
 When present, SPEC may be one of:
 - (file PATH)
 - (file+head PATH HEAD)
 - (file+olp PATH (OUTLINE ...))
-- (file+head+olp PATH HEAD (OUTLINE ...))"
+- (file+head+olp PATH HEAD (OUTLINE ...))
+- (file+datetree PATH [TREE-TYPE])
+- (node TITLE-OR-ALIAS-OR-ID)
+
+TYPE may be one of `plain', `entry', `item', `checkitem', or
+`table-line'. Typed templates follow the org-roam capture model:
+`:target' selects an existing or created location and TYPE/TEMPLATE
+describe the content inserted there. The older shorthand template
+syntax is preserved for compatibility."
   :type 'sexp
   :group 'org-slipbox)
 
@@ -113,12 +129,47 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
 
 (defun org-slipbox--capture-node (title &optional template refs variables)
   "Capture a new node with TITLE using TEMPLATE, REFS, and VARIABLES."
-  (org-slipbox--capture-node-at-time title template refs (current-time) variables))
+  (org-slipbox--capture-node-at-time title template refs nil variables))
 
 (defun org-slipbox--capture-node-at-time (title &optional template refs time variables)
   "Capture a new node with TITLE using TEMPLATE, REFS, TIME, and VARIABLES."
   (let* ((template (or template (org-slipbox--default-capture-template)))
-         (template-options (and template (nthcdr 2 template)))
+         (template-options (org-slipbox--capture-template-options template))
+         (time (org-slipbox--capture-template-time time template-options)))
+    (if (org-slipbox--typed-capture-template-p template)
+        (org-slipbox--capture-typed-template title template refs time variables)
+      (org-slipbox--capture-shorthand-template title template refs time variables))))
+
+(defun org-slipbox--default-capture-template ()
+  "Return the default capture template."
+  (car org-slipbox-capture-templates))
+
+(defun org-slipbox--typed-capture-template-p (template)
+  "Return non-nil when TEMPLATE uses the explicit typed syntax."
+  (memq (nth 2 template) org-slipbox--capture-types))
+
+(defun org-slipbox--capture-template-options (template)
+  "Return the plist options for TEMPLATE."
+  (if (org-slipbox--typed-capture-template-p template)
+      (nthcdr 4 template)
+    (nthcdr 2 template)))
+
+(defun org-slipbox--capture-template-type (template)
+  "Return the content type for TEMPLATE."
+  (if (org-slipbox--typed-capture-template-p template)
+      (nth 2 template)
+    'entry))
+
+(defun org-slipbox--capture-template-time (time options)
+  "Return the effective capture TIME for OPTIONS."
+  (or time
+      (and (plist-get options :time-prompt)
+           (org-read-date nil t nil "Capture date: "))
+      (current-time)))
+
+(defun org-slipbox--capture-shorthand-template (title template refs time variables)
+  "Capture TITLE with shorthand TEMPLATE using REFS, TIME, and VARIABLES."
+  (let* ((template-options (org-slipbox--capture-template-options template))
          (capture-title (or (org-slipbox--expand-capture-template
                              (plist-get template-options :title)
                              title
@@ -151,9 +202,51 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
       (_
        (user-error "Unsupported capture target")))))
 
-(defun org-slipbox--default-capture-template ()
-  "Return the default capture template."
-  (car org-slipbox-capture-templates))
+(defun org-slipbox--capture-typed-template (title template refs time variables)
+  "Capture TITLE using explicit typed TEMPLATE, REFS, TIME, and VARIABLES."
+  (let* ((template-options (org-slipbox--capture-template-options template))
+         (capture-title (or (org-slipbox--expand-capture-template
+                             (plist-get template-options :title)
+                             title
+                             time
+                             variables)
+                            title))
+         (target (org-slipbox--expand-capture-target
+                  template-options
+                  capture-title
+                  time
+                  variables))
+         (capture-type (org-slipbox--capture-template-type template))
+         (content (org-slipbox--render-capture-body
+                   (nth 3 template)
+                   capture-type
+                   capture-title
+                   time
+                   variables))
+         (empty-lines (org-slipbox--capture-template-empty-lines template-options))
+         (params (append
+                  (list :title capture-title
+                        :capture_type (symbol-name capture-type)
+                        :content content
+                        :prepend (and (plist-get template-options :prepend) t)
+                        :empty_lines_before (plist-get empty-lines :before)
+                        :empty_lines_after (plist-get empty-lines :after))
+                  (when refs
+                    (list :refs refs))
+                  (pcase (plist-get target :kind)
+                    ((or 'file 'file+olp)
+                     (append
+                      (when-let ((file-path (plist-get target :file_path)))
+                        (list :file_path file-path))
+                      (when-let ((head (plist-get target :head)))
+                        (list :head head))
+                      (when-let ((outline-path (plist-get target :outline_path)))
+                        (list :outline_path outline-path))))
+                    ('node
+                     (list :node_key (plist-get target :node_key)))
+                    (_
+                     (user-error "Unsupported capture target"))))))
+    (org-slipbox-rpc-capture-template params)))
 
 (defun org-slipbox--expand-capture-target (template-options title time &optional variables)
   "Expand TEMPLATE-OPTIONS for TITLE at TIME into a capture target plist."
@@ -183,6 +276,19 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
                                     (org-slipbox--expand-capture-template
                                      heading title time variables))
                                   olp)))
+        (`(file+datetree ,path . ,rest)
+         `(:kind file
+           :file_path ,(org-slipbox--expand-capture-template path title time variables)
+           :outline_path
+           ,(org-slipbox--capture-datetree-outline-path
+             time
+             (or (car rest)
+                 (plist-get template-options :tree-type)
+                 'day))))
+        (`(node ,query)
+         (let ((node (org-slipbox--resolve-capture-target-node
+                      (org-slipbox--expand-capture-template query title time variables))))
+           `(:kind node :node_key ,(plist-get node :node_key))))
         (_
          (user-error "Unsupported capture target %S" target))))
      ((plist-get template-options :path)
@@ -217,24 +323,59 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
 (defun org-slipbox--expand-capture-template (template title time &optional variables)
   "Expand TEMPLATE for TITLE using TIME and VARIABLES."
   (when template
-    (let* ((context (org-slipbox--capture-template-context title variables))
-           (expanded (replace-regexp-in-string
-                      "%<\\([^>]+\\)>"
-                      (lambda (match)
-                        (format-time-string
-                         (substring match 2 -1)
-                         time))
-                      template
-                      t)))
-      (replace-regexp-in-string
-       "\\${\\([^}]+\\)}"
-       (lambda (match)
-         (if-let ((value (org-slipbox--capture-template-variable context match)))
-             value
-           match))
-       expanded
-       t
-       t))))
+    (org-slipbox--render-capture-string template title time variables)))
+
+(defun org-slipbox--render-capture-body (template capture-type title time &optional variables)
+  "Render TEMPLATE for CAPTURE-TYPE with TITLE at TIME using VARIABLES."
+  (let* ((template (org-slipbox--capture-template-source template title time variables))
+         (template (or template
+                       (org-slipbox--default-capture-body-template capture-type)))
+         (rendered (org-slipbox--render-capture-string template title time variables)))
+    (replace-regexp-in-string "%\\?" "" rendered t t)))
+
+(defun org-slipbox--capture-template-source (template title time &optional variables)
+  "Return the source string for TEMPLATE with TITLE, TIME, and VARIABLES."
+  (pcase template
+    (`(file ,path)
+     (with-temp-buffer
+       (insert-file-contents
+        (org-slipbox--render-capture-string path title time variables))
+       (buffer-string)))
+    ((pred functionp)
+     (funcall template))
+    ((pred stringp)
+     template)
+    ((or `nil `())
+     nil)
+    (_
+     (user-error "Unsupported capture template source %S" template))))
+
+(defun org-slipbox--default-capture-body-template (capture-type)
+  "Return the default body template for CAPTURE-TYPE."
+  (pcase capture-type
+    ('entry "* ${title}")
+    ('item "- ${title}")
+    ('checkitem "- [ ] ${title}")
+    ('table-line "| ${title} |")
+    (_ "")))
+
+(defun org-slipbox--render-capture-string (template title time &optional variables)
+  "Expand TEMPLATE for TITLE using TIME and VARIABLES."
+  (let* ((context (org-slipbox--capture-template-context title variables))
+         (formatted-state (org-slipbox--format-capture-template template context))
+         (formatted (car formatted-state))
+         (context (cdr formatted-state))
+         (org-store-link-plist
+          (org-slipbox--capture-store-link-plist context))
+         (org-capture-plist
+          (list :default-time time
+                :buffer (current-buffer)
+                :annotation (plist-get context :annotation)
+                :initial (plist-get context :body))))
+    (replace-regexp-in-string
+     "[\n]*\\'"
+     ""
+     (org-capture-fill-template formatted))))
 
 (defun org-slipbox--capture-template-context (title variables)
   "Return template expansion variables for TITLE merged with VARIABLES."
@@ -249,12 +390,80 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
             variables (cddr variables)))
     context))
 
-(defun org-slipbox--capture-template-variable (context match)
-  "Return the replacement from CONTEXT for placeholder MATCH, or nil."
-  (when (string-match "\\${\\([^}]+\\)}" match)
-    (let ((key (intern (concat ":" (match-string 1 match)))))
+(defun org-slipbox--format-capture-template (template context)
+  "Expand `${...}' placeholders in TEMPLATE using CONTEXT."
+  (let ((saved-match-data (match-data))
+        (state (copy-sequence context)))
+    (unwind-protect
+        (cons
+         (replace-regexp-in-string
+          "\\${\\([^}]+\\)}"
+          (lambda (match)
+            (let* ((placeholder (match-string 1 match))
+                   (placeholder-match-data (match-data))
+                   key
+                   default)
+              (when (string-match "\\(.+\\)=\\(.*\\)" placeholder)
+                (setq default (match-string 2 placeholder)
+                      placeholder (match-string 1 placeholder)))
+              (setq key (intern (concat ":" placeholder)))
+              (unwind-protect
+                  (let ((value
+                         (cond
+                          ((plist-member state key)
+                           (or (plist-get state key) ""))
+                          (t
+                           (let* ((name (string-remove-prefix ":" (symbol-name key)))
+                                  (input (read-from-minibuffer
+                                          (format "%s: " name)
+                                          default)))
+                             (setq state (plist-put state key input))
+                             input)))))
+                    (if value
+                        (format "%s" value)
+                      match))
+                (set-match-data placeholder-match-data))))
+          template
+          t
+          t)
+         state)
+      (set-match-data saved-match-data))))
+
+(defun org-slipbox--capture-store-link-plist (context)
+  "Build an `org-store-link-plist' value from CONTEXT."
+  (let (plist)
+    (dolist (key '(:annotation :link :ref :body :title))
       (when (plist-member context key)
-        (format "%s" (or (plist-get context key) ""))))))
+        (setq plist (plist-put plist key (plist-get context key)))))
+    (plist-put plist :initial (plist-get context :body))))
+
+(defun org-slipbox--capture-datetree-outline-path (time &optional tree-type)
+  "Return a datetree outline path for TIME and TREE-TYPE."
+  (pcase (or tree-type 'day)
+    ('month
+     (list (format-time-string "%Y" time)
+           (format-time-string "%Y-%m %B" time)))
+    ('week
+     (list (format-time-string "%G" time)
+           (format-time-string "%G-W%V" time)
+           (format-time-string "%Y-%m-%d %A" time)))
+    (_
+     (list (format-time-string "%Y" time)
+           (format-time-string "%Y-%m %B" time)
+           (format-time-string "%Y-%m-%d %A" time)))))
+
+(defun org-slipbox--capture-template-empty-lines (options)
+  "Return normalized blank-line settings from OPTIONS."
+  (let* ((common (max 0 (or (plist-get options :empty-lines) 0)))
+         (before (or (plist-get options :empty-lines-before) common))
+         (after (or (plist-get options :empty-lines-after) common)))
+    (list :before before :after after)))
+
+(defun org-slipbox--resolve-capture-target-node (query)
+  "Resolve QUERY to an existing indexed node."
+  (or (org-slipbox-node-from-id query)
+      (org-slipbox-node-from-title-or-alias query t)
+      (user-error "No existing node matches %s" query)))
 
 (defun org-slipbox--slugify (title)
   "Convert TITLE into a stable file-name slug."

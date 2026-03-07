@@ -32,6 +32,8 @@ The Rust workspace links against a system SQLite installation.
 - Capture notes from refs without duplicating existing ref-backed nodes.
 - Expand capture templates into exact file targets, optional file heads, and outline-path targets.
 - Expand capture templates with contextual variables such as refs and protocol-supplied body text.
+- Support org-roam-style typed capture templates with `entry`, `plain`, `item`, `checkitem`, and `table-line` content.
+- Capture into datetree targets and existing indexed nodes through the shared Rust write pipeline.
 - Display a persistent or dedicated context buffer for the current node with refs, backlinks, and dedicated-buffer reference discovery sections.
 - Complete and follow title-based org-slipbox links, with optional rewrite to stable `id:` links.
 - Refile subtrees between indexed notes and extract subtrees into new promoted file notes.
