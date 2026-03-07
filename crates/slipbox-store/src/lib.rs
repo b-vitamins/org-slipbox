@@ -6,6 +6,8 @@ use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
 use slipbox_core::{IndexStats, IndexedFile, NodeKind, NodeRecord};
 
+const SCHEMA_VERSION: i32 = 1;
+
 pub struct Database {
     connection: Connection,
 }
@@ -21,7 +23,7 @@ impl Database {
         let connection = Connection::open(path)
             .with_context(|| format!("failed to open database {}", path.display()))?;
         let database = Self { connection };
-        database.initialize()?;
+        database.migrate()?;
         Ok(database)
     }
 
@@ -150,11 +152,35 @@ impl Database {
         Ok(())
     }
 
-    fn initialize(&self) -> Result<()> {
+    fn migrate(&self) -> Result<()> {
+        let version: i32 = self
+            .connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        if version > SCHEMA_VERSION {
+            anyhow::bail!(
+                "database schema version {} is newer than supported version {}",
+                version,
+                SCHEMA_VERSION
+            );
+        }
+
+        if version < SCHEMA_VERSION {
+            self.rebuild_schema()?;
+        }
+
+        Ok(())
+    }
+
+    fn rebuild_schema(&self) -> Result<()> {
         self.connection.execute_batch(
             "PRAGMA journal_mode = WAL;
              PRAGMA foreign_keys = ON;
              PRAGMA synchronous = NORMAL;
+
+             DROP TABLE IF EXISTS links;
+             DROP TABLE IF EXISTS node_fts;
+             DROP TABLE IF EXISTS nodes;
+             DROP TABLE IF EXISTS files;
 
              CREATE TABLE IF NOT EXISTS files (
                path TEXT PRIMARY KEY,
@@ -195,7 +221,9 @@ impl Database {
                ON links (source_node_key);
 
              CREATE INDEX IF NOT EXISTS idx_links_destination_explicit_id
-               ON links (destination_explicit_id);",
+               ON links (destination_explicit_id);
+
+             PRAGMA user_version = 1;",
         )?;
         Ok(())
     }
