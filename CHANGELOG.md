@@ -15,6 +15,7 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Split node completion, visit/buffer coordination, and insertion glue into focused Elisp modules so `org-slipbox-node.el` remains the public facade instead of the next client monolith.
 - Moved persistent context-buffer hook ownership into an explicit mode so the global redisplay lifecycle is mode-controlled rather than command-managed.
 - Split `slipbox-store` schema/migration and index sync/delete flows into dedicated Rust modules so the store facade no longer mixes query surfaces with mutation and pruning logic.
+- Split `slipbox-store` query families into focused Rust modules for nodes, refs, backlinks, agenda, and admin surfaces so new read paths no longer enlarge one store monolith.
 
 ### Added
 - Initialized the repository as a combined Rust and Emacs Lisp project.

@@ -4,7 +4,8 @@ use anyhow::{Context, Result, bail};
 use rusqlite::params;
 use slipbox_core::{GraphParams, GraphTitleShortening, NodeRecord};
 
-use crate::{Database, row_to_node};
+use crate::Database;
+use crate::nodes::row_to_node;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct GraphEdge {
