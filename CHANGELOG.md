@@ -87,5 +87,8 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Added real top-level autoloads for the optional export and graph entry points, so source-loaded installations can enable those documented surfaces immediately after `(require 'org-slipbox)`.
 
 ### Fixed
+- Fixed JSON-RPC request normalization for list-valued params such as aliases, tags, and refs, so real metadata edits and ref-backed captures no longer fail in fresh user sessions.
+- Fixed dedicated-buffer reflink and unlinked-reference discovery so ripgrep commands are executed exactly once and shell stderr does not leak into parsed result rows.
+- Fixed default graph export params so empty hidden-link-type settings are sent as an empty sequence instead of JSON null, restoring the optional graph surface in real use.
 - Fixed blank-heading `entry` captures so org-roam-style `* %?` dailies templates now fall back to the prompted title and index the captured heading correctly.
 - Fixed dailies template path handling so manual-style targets like `%<%Y-%m-%d>.org` are rooted automatically in `org-slipbox-dailies-directory`.

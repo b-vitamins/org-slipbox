@@ -166,7 +166,7 @@ ARG follows the same scope rules as `org-slipbox-graph'."
   "Build graph RPC params from ARG and NODE."
   (let ((params
          (list :include_orphans (org-slipbox-rpc--bool (null arg))
-               :hidden_link_types org-slipbox-graph-link-hidden-types
+               :hidden_link_types (or org-slipbox-graph-link-hidden-types [])
                :max_title_length org-slipbox-graph-max-title-length
                :shorten_titles (and org-slipbox-graph-shorten-titles
                                     (symbol-name org-slipbox-graph-shorten-titles))

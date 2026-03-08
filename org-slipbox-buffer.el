@@ -413,8 +413,7 @@ node. LIMIT bounds the number of rows requested."
        (org-slipbox-buffer--with-pattern-file
         patterns
         (lambda (pattern-file)
-          (shell-command-to-string
-           (org-slipbox-buffer--reflinks-rg-command patterns pattern-file))))
+          (org-slipbox-buffer--reflinks-rg-command patterns pattern-file)))
        node))))
 
 (defun org-slipbox-buffer--unlinked-references (node)
@@ -440,8 +439,7 @@ node. LIMIT bounds the number of rows requested."
                    titles
                    "")))
          (lambda (pattern-file)
-           (shell-command-to-string
-            (org-slipbox-buffer--unlinked-rg-command titles pattern-file))))
+           (org-slipbox-buffer--unlinked-rg-command titles pattern-file)))
         node)))))
 
 (defun org-slipbox-buffer--reflink-patterns (refs)

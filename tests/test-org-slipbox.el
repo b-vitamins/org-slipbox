@@ -66,6 +66,50 @@
   (should-not (assoc "org-slipbox-ref" org-protocol-protocol-alist))
   (should-not (assoc "org-slipbox-node" org-protocol-protocol-alist)))
 
+(ert-deftest org-slipbox-test-rpc-request-normalizes-list-values ()
+  "RPC transport should turn plain Elisp lists into JSON arrays."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-ensure)
+               (lambda () :connection))
+              ((symbol-function 'jsonrpc-request)
+               (lambda (_connection request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:ok t))))
+      (org-slipbox-rpc-update-node-metadata
+       '(:node_key "file:note.org"
+         :aliases ("Batman")
+         :tags ("hero" "gotham"))))
+    (should (equal method "slipbox/updateNodeMetadata"))
+    (should
+     (equal params
+            '(:node_key "file:note.org"
+              :aliases ["Batman"]
+              :tags ["hero" "gotham"])))))
+
+(ert-deftest org-slipbox-test-rpc-request-normalizes-capture-ref-lists ()
+  "Capture RPC transport should normalize ref lists for JSON encoding."
+  (let (params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-ensure)
+               (lambda () :connection))
+              ((symbol-function 'jsonrpc-request)
+               (lambda (_connection _request-method request-params)
+                 (setq params request-params)
+                 '(:ok t))))
+      (org-slipbox-rpc-capture-template
+       '(:title "Web Clip"
+         :capture_type "plain"
+         :content "Body"
+         :refs ("https://example.invalid/web-clip")
+         :prepend :json-false)))
+    (should
+     (equal params
+            '(:title "Web Clip"
+              :capture_type "plain"
+              :content "Body"
+              :refs ["https://example.invalid/web-clip"]
+              :prepend :json-false)))))
+
 (ert-deftest org-slipbox-test-global-mode-owns-setup-hooks-and-modes ()
   "The recommended setup mode should own its hooks and managed modes."
   (let ((org-slipbox-mode nil)
@@ -2052,6 +2096,7 @@
             (org-slipbox-graph-write-dot nil nil output))
           (should (equal method "slipbox/graphDot"))
           (should (equal (plist-get params :include_orphans) t))
+          (should (equal (plist-get params :hidden_link_types) []))
           (should (equal (plist-get params :shorten_titles) "truncate"))
           (should (equal (plist-get params :node_url_prefix)
                          "org-protocol://roam-node?node="))
@@ -2085,6 +2130,7 @@
           (should (equal (plist-get rpc-params :root_node_key) "file:alpha.org"))
           (should (equal (plist-get rpc-params :max_distance) 2))
           (should (eq (plist-get rpc-params :include_orphans) :json-false))
+          (should (equal (plist-get rpc-params :hidden_link_types) []))
           (should (equal (car dot-command) "dot"))
           (with-temp-buffer
             (insert-file-contents output)
@@ -2152,6 +2198,57 @@
    (equal
     (org-slipbox-buffer--reflink-patterns '("@smith2024" "https://example.com"))
     '("@smith2024" "cite:smith2024" "https://example.com"))))
+
+(ert-deftest org-slipbox-test-buffer-reflinks-pass-rg-command-to-grep-runner ()
+  "Reflink discovery should hand an rg command string to the grep runner."
+  (let ((org-slipbox-directory "/tmp/org-slipbox")
+        captured-command)
+    (cl-letf (((symbol-function 'executable-find)
+               (lambda (program)
+                 (and (string= program "rg") "/usr/bin/rg")))
+              ((symbol-function 'org-slipbox-buffer--with-pattern-file)
+               (lambda (patterns builder)
+                 (should (equal patterns '("@smith2024" "cite:smith2024")))
+                 (funcall builder "/tmp/patterns")))
+              ((symbol-function 'shell-command-to-string)
+               (lambda (command)
+                 (concat "OUTPUT:" command)))
+              ((symbol-function 'org-slipbox-buffer--grep-results)
+               (lambda (command _node)
+                 (setq captured-command command)
+                 nil)))
+      (org-slipbox-buffer--reflinks
+       '(:refs ["@smith2024"] :file_path "note.org" :line 1)))
+    (should
+     (equal
+      captured-command
+      (org-slipbox-buffer--reflinks-rg-command nil "/tmp/patterns")))))
+
+(ert-deftest org-slipbox-test-buffer-unlinked-references-pass-rg-command-to-grep-runner ()
+  "Unlinked discovery should hand an rg command string to the grep runner."
+  (let ((org-slipbox-directory "/tmp/org-slipbox")
+        captured-command)
+    (cl-letf (((symbol-function 'executable-find)
+               (lambda (program)
+                 (and (string= program "rg") "/usr/bin/rg")))
+              ((symbol-function 'org-slipbox-buffer--rg-supports-pcre2-p)
+               (lambda () t))
+              ((symbol-function 'org-slipbox-buffer--with-pattern-file)
+               (lambda (_patterns builder)
+                 (funcall builder "/tmp/patterns")))
+              ((symbol-function 'shell-command-to-string)
+               (lambda (command)
+                 (concat "OUTPUT:" command)))
+              ((symbol-function 'org-slipbox-buffer--grep-results)
+               (lambda (command _node)
+                 (setq captured-command command)
+                 nil)))
+      (org-slipbox-buffer--unlinked-references
+       '(:title "Project Atlas" :aliases ["Atlas Plan"] :file_path "note.org" :line 1)))
+    (should
+     (equal
+      captured-command
+      (org-slipbox-buffer--unlinked-rg-command nil "/tmp/patterns")))))
 
 (ert-deftest org-slipbox-test-buffer-dedicated-render-includes-discovery-sections ()
   "Dedicated buffers should render expensive discovery sections by default."

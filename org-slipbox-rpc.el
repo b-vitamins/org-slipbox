@@ -92,6 +92,56 @@ resolves it through `exec-path'."
   "Return VALUE encoded as an explicit JSON boolean."
   (if value t :json-false))
 
+(defun org-slipbox-rpc--json-plist-p (value)
+  "Return non-nil when VALUE is a keyword plist."
+  (and (listp value)
+       (catch 'invalid
+         (let ((tail value))
+           (while tail
+             (unless (keywordp (pop tail))
+               (throw 'invalid nil))
+             (unless tail
+               (throw 'invalid nil))
+             (pop tail))
+           t))))
+
+(defun org-slipbox-rpc--json-alist-p (value)
+  "Return non-nil when VALUE is a JSON-style alist."
+  (and (listp value)
+       value
+       (catch 'invalid
+         (dolist (entry value t)
+           (unless (and (consp entry)
+                        (let ((key (car entry)))
+                          (or (keywordp key)
+                              (stringp key)
+                              (symbolp key))))
+             (throw 'invalid nil))))))
+
+(defun org-slipbox-rpc--json-normalize (value)
+  "Normalize VALUE into a shape accepted by `json-serialize'."
+  (cond
+   ((vectorp value)
+    (apply #'vector (mapcar #'org-slipbox-rpc--json-normalize value)))
+   ((org-slipbox-rpc--json-plist-p value)
+    (let (normalized)
+      (while value
+        (let ((key (pop value))
+              (nested (pop value)))
+          (setq normalized
+                (append normalized
+                        (list key
+                              (org-slipbox-rpc--json-normalize nested))))))
+      normalized))
+   ((org-slipbox-rpc--json-alist-p value)
+    (mapcar (lambda (entry)
+              (cons (car entry)
+                    (org-slipbox-rpc--json-normalize (cdr entry))))
+            value))
+   ((listp value)
+    (apply #'vector (mapcar #'org-slipbox-rpc--json-normalize value)))
+   (t value)))
+
 (defun org-slipbox-rpc-live-p ()
   "Return non-nil when the org-slipbox JSON-RPC process is live."
   (and org-slipbox--connection
@@ -172,7 +222,9 @@ resolves it through `exec-path'."
 
 (defun org-slipbox-rpc-request (method &optional params)
   "Send METHOD with PARAMS to the local org-slipbox daemon."
-  (jsonrpc-request (org-slipbox-rpc-ensure) method params))
+  (jsonrpc-request (org-slipbox-rpc-ensure)
+                   method
+                   (org-slipbox-rpc--json-normalize params)))
 
 (defun org-slipbox-rpc-reset ()
   "Shutdown the live org-slipbox JSON-RPC connection, if any."
