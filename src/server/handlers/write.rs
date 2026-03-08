@@ -1,8 +1,8 @@
 use slipbox_core::{
     AppendHeadingAtOutlinePathParams, AppendHeadingParams, AppendHeadingToNodeParams,
-    CaptureNodeParams, CaptureTemplateParams, CaptureTemplatePreviewParams,
-    CaptureTemplatePreviewResult, EnsureFileNodeParams, EnsureNodeIdParams, ExtractSubtreeParams,
-    RefileRegionParams, RefileSubtreeParams, RewriteFileParams, UpdateNodeMetadataParams,
+    CaptureNodeParams, CaptureTemplateParams, CaptureTemplatePreviewParams, EnsureFileNodeParams,
+    EnsureNodeIdParams, ExtractSubtreeParams, RefileRegionParams, RefileSubtreeParams,
+    RewriteFileParams, UpdateNodeMetadataParams,
 };
 use slipbox_rpc::JsonRpcError;
 
@@ -83,23 +83,7 @@ pub(crate) fn capture_template_preview(
         params.ensure_node_id,
     )
     .map_err(|error| internal_error(error.context("failed to preview capture template")))?;
-    let indexed = slipbox_index::scan_source(&preview.relative_path, &preview.content);
-    let node = indexed
-        .nodes
-        .into_iter()
-        .find(|candidate| candidate.node_key == preview.node_key)
-        .map(Into::into)
-        .ok_or_else(|| {
-            internal_error(anyhow::anyhow!(
-                "captured preview node {} was not found in rendered output",
-                preview.node_key
-            ))
-        })?;
-    to_value(CaptureTemplatePreviewResult {
-        file_path: preview.relative_path,
-        content: preview.content,
-        node,
-    })
+    to_value(state.preview_capture(&preview)?)
 }
 
 pub(crate) fn ensure_file_node(
@@ -214,8 +198,7 @@ pub(crate) fn refile_region(
     let (start, end) = params.normalized_range();
     let outcome = slipbox_write::refile_region(&state.root, &relative_path, start, end, &target)
         .map_err(|error| internal_error(error.context("failed to refile region")))?;
-    state.sync_paths(&outcome.changed_paths)?;
-    state.remove_deleted_paths(&outcome.removed_paths)?;
+    state.sync_region_rewrite(&outcome)?;
     to_value(serde_json::json!({ "refiled": true }))
 }
 

@@ -1,11 +1,11 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
-use slipbox_core::NodeRecord;
+use slipbox_core::{CaptureTemplatePreviewResult, NodeRecord};
 use slipbox_index::DiscoveryPolicy;
 use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
 use slipbox_store::Database;
-use slipbox_write::{CaptureOutcome, RewriteOutcome};
+use slipbox_write::{CaptureOutcome, CapturePreviewOutcome, RegionRewriteOutcome, RewriteOutcome};
 
 use crate::server::rpc::internal_error;
 
@@ -34,17 +34,7 @@ impl ServerState {
         } else {
             self.root.join(candidate)
         };
-        let relative = absolute
-            .strip_prefix(&self.root)
-            .map_err(|_| {
-                anyhow!(
-                    "{} is not under {}",
-                    absolute.display(),
-                    self.root.display()
-                )
-            })?
-            .to_string_lossy()
-            .replace('\\', "/");
+        let relative = self.relative_root_path(&absolute)?;
         Ok((relative, absolute))
     }
 
@@ -59,26 +49,48 @@ impl ServerState {
         Ok(())
     }
 
-    pub(super) fn sync_paths(&mut self, paths: &[PathBuf]) -> Result<(), JsonRpcError> {
+    pub(super) fn preview_capture(
+        &self,
+        outcome: &CapturePreviewOutcome,
+    ) -> Result<CaptureTemplatePreviewResult, JsonRpcError> {
+        let indexed = slipbox_index::scan_source(&outcome.relative_path, &outcome.content);
+        let node = indexed
+            .nodes
+            .into_iter()
+            .find(|candidate| candidate.node_key == outcome.node_key)
+            .map(Into::into)
+            .ok_or_else(|| {
+                internal_error(anyhow!(
+                    "captured preview node {} was not found in rendered output",
+                    outcome.node_key
+                ))
+            })?;
+        Ok(CaptureTemplatePreviewResult {
+            file_path: outcome.relative_path.clone(),
+            content: outcome.content.clone(),
+            node,
+        })
+    }
+
+    pub(super) fn sync_region_rewrite(
+        &mut self,
+        outcome: &RegionRewriteOutcome,
+    ) -> Result<(), JsonRpcError> {
+        self.reconcile_paths(&outcome.changed_paths, &outcome.removed_paths)
+    }
+
+    fn sync_paths(&mut self, paths: &[PathBuf]) -> Result<(), JsonRpcError> {
         for path in paths {
             self.sync_path(path)?;
         }
         Ok(())
     }
 
-    pub(super) fn remove_deleted_paths(&mut self, paths: &[PathBuf]) -> Result<(), JsonRpcError> {
+    fn remove_deleted_paths(&mut self, paths: &[PathBuf]) -> Result<(), JsonRpcError> {
         for path in paths {
-            let relative_path = path
-                .strip_prefix(&self.root)
-                .map_err(|_| {
-                    internal_error(anyhow!(
-                        "{} is not under {}",
-                        path.display(),
-                        self.root.display()
-                    ))
-                })?
-                .to_string_lossy()
-                .replace('\\', "/");
+            let relative_path = self
+                .relative_root_path(path)
+                .map_err(|error| internal_error(error.context("failed to resolve deleted path")))?;
             self.database
                 .remove_file_index(&relative_path)
                 .map_err(|error| {
@@ -86,6 +98,15 @@ impl ServerState {
                 })?;
         }
         Ok(())
+    }
+
+    fn reconcile_paths(
+        &mut self,
+        changed_paths: &[PathBuf],
+        removed_paths: &[PathBuf],
+    ) -> Result<(), JsonRpcError> {
+        self.sync_paths(changed_paths)?;
+        self.remove_deleted_paths(removed_paths)
     }
 
     pub(super) fn require_node(
@@ -163,8 +184,18 @@ impl ServerState {
         outcome: &RewriteOutcome,
         description: &str,
     ) -> Result<NodeRecord, JsonRpcError> {
-        self.sync_paths(&outcome.changed_paths)?;
-        self.remove_deleted_paths(&outcome.removed_paths)?;
+        self.reconcile_paths(&outcome.changed_paths, &outcome.removed_paths)?;
         self.require_node_by_id(&outcome.explicit_id, description)
+    }
+
+    fn relative_root_path(&self, path: &Path) -> Result<String> {
+        let relative = path.strip_prefix(&self.root).map_err(|_| {
+            anyhow!(
+                "{} is not under {}",
+                path.display(),
+                self.root.display()
+            )
+        })?;
+        Ok(relative.to_string_lossy().replace('\\', "/"))
     }
 }
