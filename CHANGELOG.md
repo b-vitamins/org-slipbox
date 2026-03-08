@@ -72,3 +72,4 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Added explicit maintenance commands for full sync/rebuild, current-file sync, node/file diagnostics, file drift inspection, and SQLite database exploration.
 - Added an optional Graphviz export backend that generates DOT from indexed links, supports global or neighborhood graphs, shortens long titles, filters indexed link types, and writes DOT or rendered graph files.
 - Added viewer-facing graph integration with post-generation hooks and optional `org-protocol` node URLs for rendered Graphviz output.
+- Added a deterministic corpus benchmark harness with named profiles, JSON reports, threshold checks, and a batch Emacs benchmark for the persistent context-buffer redisplay path.

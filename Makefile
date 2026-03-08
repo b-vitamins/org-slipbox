@@ -18,3 +18,13 @@ test-elisp:
 
 .PHONY: test
 test: test-rust test-elisp
+
+PROFILE ?= ci
+
+.PHONY: bench
+bench:
+	cargo run --bin slipbox-bench -- run --profile $(PROFILE)
+
+.PHONY: bench-check
+bench-check:
+	cargo run --bin slipbox-bench -- check --profile $(PROFILE)

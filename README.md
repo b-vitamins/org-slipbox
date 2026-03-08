@@ -12,6 +12,8 @@ The repository is under active development. Work remains under `Unreleased` unti
 
 Use `make test` for the current Rust and Emacs checks.
 The Rust workspace links against a system SQLite installation.
+Use `make bench-check PROFILE=ci` for the repeatable corpus regression gate.
+Use `make bench PROFILE=release` for the larger local benchmark profile.
 
 ## Guardrails
 
@@ -19,6 +21,14 @@ The Rust workspace links against a system SQLite installation.
 - Persistent context-buffer redisplay must stay cheap; grep-backed discovery belongs only in dedicated or explicit paths.
 - File-level incremental sync must update one file without pruning unrelated indexed notes.
 - Loading the package must not install global hooks; optional modes own their hook lifecycles explicitly.
+
+## Performance
+
+`org-slipbox` ships with an explicit corpus benchmark harness instead of relying on anecdotal scale claims.
+
+- `cargo run --bin slipbox-bench -- check --profile ci` generates a deterministic corpus, measures full indexing, single-file incremental indexing, indexed search, backlinks, node-at-point lookup, agenda queries, and a batch Emacs benchmark of the persistent context-buffer redisplay path.
+- `cargo run --bin slipbox-bench -- run --profile release --keep-corpus` runs the larger local profile and keeps the generated corpus under `target/bench/` for inspection.
+- Benchmark profiles live in [`benches/profiles/ci.json`](/home/b/projects/org-slipbox/benches/profiles/ci.json) and [`benches/profiles/release.json`](/home/b/projects/org-slipbox/benches/profiles/release.json). Reports are written to `target/bench/`.
 
 ## Current Capabilities
 

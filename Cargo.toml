@@ -38,6 +38,7 @@ slipbox-index = { path = "crates/slipbox-index" }
 slipbox-rpc = { path = "crates/slipbox-rpc" }
 slipbox-store = { path = "crates/slipbox-store" }
 slipbox-write = { path = "crates/slipbox-write" }
+tempfile.workspace = true
 
 [dev-dependencies]
 anyhow.workspace = true

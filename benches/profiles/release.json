@@ -1,0 +1,33 @@
+{
+  "corpus": {
+    "files": 768,
+    "headings_per_file": 128,
+    "hot_link_stride": 2,
+    "ref_stride": 4,
+    "scheduled_stride": 5,
+    "deadline_stride": 7,
+    "query_count": 24
+  },
+  "iterations": {
+    "full_index": 1,
+    "index_file": 20,
+    "search_nodes": 80,
+    "backlinks": 80,
+    "node_at_point": 120,
+    "agenda": 80,
+    "persistent_buffer_samples": 7,
+    "persistent_buffer_iterations": 40,
+    "search_limit": 25,
+    "backlinks_limit": 200,
+    "agenda_limit": 200
+  },
+  "thresholds": {
+    "full_index_p95_ms": 60000.0,
+    "index_file_p95_ms": 250.0,
+    "search_nodes_p95_ms": 50.0,
+    "backlinks_p95_ms": 120.0,
+    "node_at_point_p95_ms": 2.0,
+    "agenda_p95_ms": 220.0,
+    "persistent_buffer_p95_ms": 20.0
+  }
+}
