@@ -58,6 +58,13 @@
     (message "org-slipbox %s at %s" version root)
     response))
 
+;; Keep optional surfaces off the initial load path while still making their
+;; public entry points available after `(require 'org-slipbox)'.
+(autoload 'org-slipbox-export-mode "org-slipbox-export" nil t)
+(autoload 'org-slipbox-graph "org-slipbox-graph" nil t)
+(autoload 'org-slipbox-graph-write-dot "org-slipbox-graph" nil t)
+(autoload 'org-slipbox-graph-write-file "org-slipbox-graph" nil t)
+
 ;;;###autoload(autoload 'org-slipbox-index "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-capture "org-slipbox-capture" nil t)
 ;;;###autoload(autoload 'org-slipbox-capture-ref "org-slipbox-capture" nil t)

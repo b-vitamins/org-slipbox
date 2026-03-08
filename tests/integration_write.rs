@@ -273,6 +273,50 @@ fn capture_template_entry_inserts_child_under_outline_target() -> Result<()> {
 }
 
 #[test]
+fn capture_template_entry_uses_title_for_blank_heading_templates() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    let captured = capture_template(
+        &root,
+        None,
+        &CaptureTemplateParams {
+            title: String::from("Daily substitution entry"),
+            file_path: Some(String::from("daily/2026-03-08.org")),
+            node_key: None,
+            head: Some(String::from("#+title: 2026-03-08")),
+            outline_path: Vec::new(),
+            capture_type: CaptureContentType::Entry,
+            content: String::from("* "),
+            refs: Vec::new(),
+            prepend: false,
+            empty_lines_before: 0,
+            empty_lines_after: 0,
+            table_line_pos: None,
+        },
+    )?;
+
+    let indexed = scan_path(&root, &captured.absolute_path)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_file_index(&indexed)?;
+
+    let source = fs::read_to_string(&captured.absolute_path)?;
+    assert!(source.starts_with("#+title: 2026-03-08\n"));
+    assert!(source.contains("* Daily substitution entry\n"));
+
+    let node = database
+        .node_by_key(&captured.node_key)?
+        .expect("captured daily entry should exist");
+    assert_eq!(node.title, "Daily substitution entry");
+    assert_eq!(node.file_path, "daily/2026-03-08.org");
+    assert_eq!(node.level, 1);
+
+    Ok(())
+}
+
+#[test]
 fn capture_template_item_appends_inside_existing_list_body() -> Result<()> {
     let workspace = tempdir()?;
     let root = workspace.path().join("notes");

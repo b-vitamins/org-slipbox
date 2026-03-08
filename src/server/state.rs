@@ -189,13 +189,9 @@ impl ServerState {
     }
 
     fn relative_root_path(&self, path: &Path) -> Result<String> {
-        let relative = path.strip_prefix(&self.root).map_err(|_| {
-            anyhow!(
-                "{} is not under {}",
-                path.display(),
-                self.root.display()
-            )
-        })?;
+        let relative = path
+            .strip_prefix(&self.root)
+            .map_err(|_| anyhow!("{} is not under {}", path.display(), self.root.display()))?;
         Ok(relative.to_string_lossy().replace('\\', "/"))
     }
 }

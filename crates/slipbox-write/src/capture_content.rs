@@ -178,11 +178,12 @@ fn capture_target_relative_path(target: &CaptureTargetSelection) -> &str {
 
 fn entry_capture_lines(content: &str, title: &str, desired_level: usize) -> Result<Vec<String>> {
     let mut lines = trimmed_capture_lines(content);
+    let normalized_title = normalized_title(title)?;
     if lines.is_empty() {
         lines.push(format!(
             "{} {}",
             "*".repeat(desired_level),
-            normalized_title(title)?
+            normalized_title
         ));
         return Ok(lines);
     }
@@ -196,12 +197,20 @@ fn entry_capture_lines(content: &str, title: &str, desired_level: usize) -> Resu
                 *line = format!("{}{}", "*".repeat(shifted), &trimmed[level..]);
             }
         }
+        if let Some(first_line) = lines.first_mut() {
+            if let Some(level) = heading_level(first_line) {
+                let heading_text = first_line[level..].trim();
+                if heading_text.is_empty() {
+                    *first_line = format!("{} {}", "*".repeat(level), normalized_title);
+                }
+            }
+        }
         Ok(lines)
     } else {
         let mut entry = vec![format!(
             "{} {}",
             "*".repeat(desired_level),
-            normalized_title(title)?
+            normalized_title
         )];
         entry.extend(lines);
         Ok(entry)

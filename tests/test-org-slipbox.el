@@ -21,6 +21,15 @@
   "The package entry feature should load cleanly."
   (should (featurep 'org-slipbox)))
 
+(ert-deftest org-slipbox-test-a-package-exposes-optional-entrypoints-via-autoloads ()
+  "Optional command entry points should be available after top-level load."
+  (should (fboundp 'org-slipbox-export-mode))
+  (should (autoloadp (symbol-function 'org-slipbox-export-mode)))
+  (should-not (featurep 'org-slipbox-export))
+  (should (fboundp 'org-slipbox-graph))
+  (should (autoloadp (symbol-function 'org-slipbox-graph)))
+  (should-not (featurep 'org-slipbox-graph)))
+
 (ert-deftest org-slipbox-test-export-mode-preserves-id-html-targets ()
   "Optional export support should keep HTML IDs aligned with `id:' links."
   (require 'org-slipbox-export)
@@ -3051,6 +3060,37 @@
                     :outline_path ("Inbox"))))
           (should (equal visited '(:title "Meeting" :file_path "daily/2026-03-07.org" :line 8)))
           (should hook-ran))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
+(ert-deftest org-slipbox-test-dailies-template-targets-use-dailies-directory ()
+  "Daily templates should root file targets in `org-slipbox-dailies-directory'."
+  (let (buffer method params)
+    (unwind-protect
+        (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                   (lambda (request-method request-params)
+                     (setq method request-method
+                           params request-params)
+                     '(:title "Meeting" :file_path "daily/2026-03-07.org" :line 8)))
+                  ((symbol-function 'org-slipbox--visit-node)
+                   #'ignore))
+          (let ((org-slipbox-dailies-directory "daily/")
+                (org-slipbox-dailies-capture-templates
+                 '(("d" "default" entry
+                    "* %?"
+                    :target (file+head "%<%Y-%m-%d>.org"
+                                       "#+title: %<%Y-%m-%d>\n")))))
+            (setq buffer
+                  (org-slipbox-dailies--capture
+                   (encode-time 0 0 0 7 3 2026)
+                   "Meeting"
+                   "d"))
+            (with-current-buffer buffer
+              (goto-char (point-max))
+              (insert "Agenda review")
+              (org-slipbox-capture-finalize)))
+          (should (equal method "slipbox/captureTemplate"))
+          (should (equal (plist-get params :file_path) "daily/2026-03-07.org")))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 

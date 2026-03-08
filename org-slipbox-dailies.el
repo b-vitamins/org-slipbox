@@ -233,9 +233,10 @@ When KEYS is non-nil, use the matching daily capture template."
     (when (string-empty-p heading)
       (user-error "Daily entry must not be empty"))
     (let ((node (if org-slipbox-dailies-capture-templates
-                    (let ((template (org-slipbox--read-capture-template
-                                     org-slipbox-dailies-capture-templates
-                                     keys)))
+                    (let ((template (org-slipbox-dailies--capture-template
+                                     (org-slipbox--read-capture-template
+                                      org-slipbox-dailies-capture-templates
+                                      keys))))
                       (org-slipbox--capture-node-at-time
                        heading
                        template
@@ -255,6 +256,53 @@ When KEYS is non-nil, use the matching daily capture template."
         (org-slipbox--visit-node node)
         (run-hooks 'org-slipbox-dailies-find-file-hook))
       node)))
+
+(defun org-slipbox-dailies--capture-template (template)
+  "Return TEMPLATE adjusted for `org-slipbox-dailies-directory'."
+  (when template
+    (let ((prefix (if (org-slipbox--typed-capture-template-p template)
+                      (seq-take template 4)
+                    (seq-take template 2)))
+          (options (org-slipbox-dailies--capture-template-options
+                    (copy-tree (org-slipbox--capture-template-options template)))))
+      (append prefix options))))
+
+(defun org-slipbox-dailies--capture-template-options (options)
+  "Return OPTIONS with file-based targets rooted in the dailies directory."
+  (let ((rewritten (copy-tree options)))
+    (when-let ((path (plist-get rewritten :path)))
+      (setq rewritten
+            (plist-put rewritten :path
+                       (org-slipbox-dailies--capture-template-path path))))
+    (when-let ((target (plist-get rewritten :target)))
+      (setq rewritten
+            (plist-put rewritten :target
+                       (org-slipbox-dailies--capture-template-target target))))
+    rewritten))
+
+(defun org-slipbox-dailies--capture-template-target (target)
+  "Return TARGET rewritten relative to `org-slipbox-dailies-directory'."
+  (pcase target
+    (`(file ,path)
+     `(file ,(org-slipbox-dailies--capture-template-path path)))
+    (`(file+head ,path ,head)
+     `(file+head ,(org-slipbox-dailies--capture-template-path path) ,head))
+    (`(file+olp ,path ,olp)
+     `(file+olp ,(org-slipbox-dailies--capture-template-path path) ,olp))
+    (`(file+head+olp ,path ,head ,olp)
+     `(file+head+olp ,(org-slipbox-dailies--capture-template-path path) ,head ,olp))
+    (`(file+datetree ,path . ,rest)
+     `(file+datetree ,(org-slipbox-dailies--capture-template-path path) ,@rest))
+    (_ target)))
+
+(defun org-slipbox-dailies--capture-template-path (path)
+  "Return PATH rooted in `org-slipbox-dailies-directory' when appropriate."
+  (let ((directory (file-name-as-directory org-slipbox-dailies-directory)))
+    (if (or (string-empty-p org-slipbox-dailies-directory)
+            (file-name-absolute-p path)
+            (string-prefix-p directory path))
+        path
+      (concat directory path))))
 
 (defun org-slipbox-dailies--ensure-note (time)
   "Return the daily note node for TIME."

@@ -421,20 +421,54 @@ your publishing output.
 
 ## If You Use org-roam Today
 
+The normal substitution story is local rewiring, not conceptual retraining.
+Start by translating the setup you already know:
+
+| org-roam | org-slipbox | Notes |
+| --- | --- | --- |
+| `org-roam-directory` | `org-slipbox-directory` | Same role: the note root. |
+| `org-roam-db-location` | `org-slipbox-database-file` | Same role: SQLite index path. |
+| `org-roam-db-autosync-mode` | `org-slipbox-mode` or `org-slipbox-autosync-mode` | `org-slipbox-mode` is the one-step integration path; `org-slipbox-autosync-mode` is the narrower sync-only equivalent. |
+| `org-roam-completion-everywhere` | `org-slipbox-completion-everywhere` | Same meaning. |
+| `(require 'org-roam-protocol)` | `(org-slipbox-protocol-mode 1)` | Protocol support stays opt-in and mode-owned. |
+| `(require 'org-roam-export)` | `(org-slipbox-export-mode 1)` | Export support stays opt-in and mode-owned. |
+| `org-roam-dailies-directory` | `org-slipbox-dailies-directory` | Same role. |
+| `org-roam-dailies-capture-templates` | `org-slipbox-dailies-capture-templates` | Same workflow surface. |
+
+For a typical setup, the translation looks like this:
+
+```emacs-lisp
+(setq org-slipbox-directory (file-truename "~/org"))
+(setq org-slipbox-database-file
+      (expand-file-name "org-slipbox.sqlite" user-emacs-directory))
+(setq org-slipbox-completion-everywhere t)
+
+(setq org-slipbox-dailies-directory "daily/")
+(setq org-slipbox-dailies-capture-templates
+      '(("d" "default" entry "* %?"
+         :target (file+head "%<%Y-%m-%d>.org"
+                            "#+title: %<%Y-%m-%d>\n"))))
+
+(org-slipbox-mode 1)
+```
+
+Then run `M-x org-slipbox-sync` once and continue with the usual note loop.
+
 These are the most common command-level equivalents:
 
-| org-roam | org-slipbox |
-| --- | --- |
-| `org-roam-db-autosync-mode` | `org-slipbox-mode` or `org-slipbox-autosync-mode` |
-| `org-roam-db-sync` | `org-slipbox-sync` |
-| `org-roam-node-find` | `org-slipbox-node-find` |
-| `org-roam-node-insert` | `org-slipbox-node-insert` |
-| `org-roam-capture` | `org-slipbox-capture` |
-| `org-roam-buffer-toggle` | `org-slipbox-buffer-toggle` |
-| `org-roam-buffer-display-dedicated` | `org-slipbox-buffer-display-dedicated` |
-| `org-roam-ref-find` | `org-slipbox-ref-find` |
-| `org-roam-dailies-*` | `org-slipbox-dailies-*` |
-| `org-roam-graph` | `org-slipbox-graph` |
+| org-roam | org-slipbox | Notes |
+| --- | --- | --- |
+| `org-roam-db-sync` | `org-slipbox-sync` | Full rebuild/sync entry point. |
+| `org-roam-node-find` | `org-slipbox-node-find` | Find existing node or start capture for a new one. |
+| `org-roam-node-insert` | `org-slipbox-node-insert` | Insert an `id:` link or capture a new node. |
+| `org-roam-capture` | `org-slipbox-capture` | Direct capture entry point. |
+| `org-roam-buffer-toggle` | `org-slipbox-buffer-toggle` | Persistent current-node buffer. |
+| `org-roam-buffer-display-dedicated` | `org-slipbox-buffer-display-dedicated` | Dedicated current-node buffer. |
+| `org-roam-node-at-point` | `org-slipbox-node-at-point` | Indexed node lookup for the current location. |
+| `org-roam-ref-find` | `org-slipbox-ref-find` | Indexed ref chooser. |
+| `org-roam-ref-add` / `org-roam-ref-remove` | `org-slipbox-ref-add` / `org-slipbox-ref-remove` | Ref metadata editing. |
+| `org-roam-dailies-*` | `org-slipbox-dailies-*` | Same workflow family. |
+| `org-roam-graph` | `org-slipbox-graph` | Optional Graphviz surface. |
 
 The important design differences are:
 
@@ -442,6 +476,7 @@ The important design differences are:
 - Index freshness is explicit and incremental rather than hidden behind ambient state.
 - Completion and query hot paths stay index-backed instead of materializing the corpus in Elisp.
 - The context buffer preserves the workflow surface without depending on `magit-section`.
+- `org-slipbox` keeps one active root and derived index per Emacs session.
 
 ## Optional Surfaces
 
