@@ -523,6 +523,7 @@ name = "slipbox-write"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "serde_json",
  "slipbox-core",
  "uuid",
 ]

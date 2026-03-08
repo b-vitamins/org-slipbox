@@ -16,6 +16,7 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Moved persistent context-buffer hook ownership into an explicit mode so the global redisplay lifecycle is mode-controlled rather than command-managed.
 - Split `slipbox-store` schema/migration and index sync/delete flows into dedicated Rust modules so the store facade no longer mixes query surfaces with mutation and pruning logic.
 - Split `slipbox-store` query families into focused Rust modules for nodes, refs, backlinks, agenda, and admin surfaces so new read paths no longer enlarge one store monolith.
+- Split the Rust Org rewrite engine into explicit document submodules for outline traversal, property and keyword mutation, and block/render helpers so structural editing no longer accumulates in one internal file.
 
 ### Added
 - Initialized the repository as a combined Rust and Emacs Lisp project.
