@@ -33,7 +33,10 @@
 (require 'jsonrpc)
 
 (defcustom org-slipbox-server-program "slipbox"
-  "Path to the org-slipbox server executable."
+  "Path or program name of the org-slipbox server executable.
+
+When this names a bare program such as `slipbox', org-slipbox
+resolves it through `exec-path'."
   :type 'file
   :group 'org-slipbox)
 
@@ -90,10 +93,35 @@
   (and org-slipbox--connection
        (jsonrpc-running-p org-slipbox--connection)))
 
+(defun org-slipbox-rpc--resolve-server-program ()
+  "Return the resolved daemon executable path for the current configuration."
+  (let* ((program (string-trim (or org-slipbox-server-program "")))
+         (path-like (and (not (string-empty-p program))
+                         (or (file-name-absolute-p program)
+                             (file-name-directory program))))
+         (resolved (cond
+                    ((string-empty-p program)
+                     (user-error
+                      "`org-slipbox-server-program' must name a slipbox executable"))
+                    (path-like
+                     (expand-file-name program))
+                    (t
+                     (or (executable-find program)
+                         (user-error
+                          (concat "Cannot find the slipbox daemon `%s'. "
+                                  "Put `slipbox' on PATH or set "
+                                  "`org-slipbox-server-program' to the binary path.")
+                          program))))))
+    (unless (file-exists-p resolved)
+      (user-error "Cannot find the slipbox daemon at %s" resolved))
+    (unless (file-executable-p resolved)
+      (user-error "The slipbox daemon at %s is not executable" resolved))
+    resolved))
+
 (defun org-slipbox-rpc--command ()
   "Return the daemon command for the current configuration."
   (append
-   (list org-slipbox-server-program
+   (list (org-slipbox-rpc--resolve-server-program)
          "serve"
          "--root" (expand-file-name org-slipbox-directory)
          "--db" (expand-file-name org-slipbox-database-file))
@@ -101,7 +129,7 @@
 
 (defun org-slipbox-rpc--connection-config ()
   "Return the normalized connection configuration."
-  (list :program org-slipbox-server-program
+  (list :program (org-slipbox-rpc--resolve-server-program)
         :root (expand-file-name org-slipbox-directory)
         :db (expand-file-name org-slipbox-database-file)
         :file-extensions (org-slipbox-discovery-file-extensions)

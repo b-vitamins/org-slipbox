@@ -270,17 +270,88 @@
         (org-slipbox-database-file "/tmp/org-slipbox.sqlite")
         (org-slipbox-file-extensions '("org" ".md"))
         (org-slipbox-file-exclude-regexp '("^archive/" "\\.cache/")))
-    (should
-     (equal
-      (org-slipbox-rpc--command)
-      '("/tmp/slipbox"
-        "serve"
-        "--root" "/tmp/notes"
-        "--db" "/tmp/org-slipbox.sqlite"
-        "--file-extension" "org"
-        "--file-extension" "md"
-        "--exclude-regexp" "^archive/"
-        "--exclude-regexp" "\\.cache/")))))
+    (cl-letf (((symbol-function 'file-exists-p)
+               (lambda (path)
+                 (string= path "/tmp/slipbox")))
+              ((symbol-function 'file-executable-p)
+               (lambda (path)
+                 (string= path "/tmp/slipbox"))))
+      (should
+       (equal
+        (org-slipbox-rpc--command)
+        '("/tmp/slipbox"
+          "serve"
+          "--root" "/tmp/notes"
+          "--db" "/tmp/org-slipbox.sqlite"
+          "--file-extension" "org"
+          "--file-extension" "md"
+          "--exclude-regexp" "^archive/"
+          "--exclude-regexp" "\\.cache/"))))))
+
+(ert-deftest org-slipbox-test-rpc-resolves-daemon-from-path ()
+  "Daemon startup should resolve PATH-based executables once."
+  (let ((org-slipbox-server-program "slipbox")
+        (org-slipbox-directory "/tmp/notes")
+        (org-slipbox-database-file "/tmp/org-slipbox.sqlite"))
+    (cl-letf (((symbol-function 'executable-find)
+               (lambda (program)
+                 (and (string= program "slipbox") "/usr/bin/slipbox")))
+              ((symbol-function 'file-exists-p)
+               (lambda (path)
+                 (string= path "/usr/bin/slipbox")))
+              ((symbol-function 'file-executable-p)
+               (lambda (path)
+                 (string= path "/usr/bin/slipbox"))))
+      (should
+       (equal
+        (org-slipbox-rpc--command)
+        '("/usr/bin/slipbox"
+          "serve"
+          "--root" "/tmp/notes"
+          "--db" "/tmp/org-slipbox.sqlite"
+          "--file-extension" "org"))))))
+
+(ert-deftest org-slipbox-test-rpc-ensure-errors-when-daemon-is-missing ()
+  "Daemon startup should fail clearly when the binary cannot be found."
+  (let ((org-slipbox-server-program "slipbox")
+        (org-slipbox-directory temporary-file-directory)
+        (org-slipbox-database-file "/tmp/org-slipbox.sqlite"))
+    (cl-letf (((symbol-function 'executable-find) (lambda (_program) nil)))
+      (let ((error-data (should-error
+                         (org-slipbox-rpc-ensure)
+                         :type 'user-error
+                         :exclude-subtypes nil)))
+        (should
+         (string-match-p
+          "Cannot find the slipbox daemon"
+          (cadr error-data)))
+        (should
+         (string-match-p
+          "PATH"
+          (cadr error-data)))
+        (should
+         (string-match-p
+          "org-slipbox-server-program"
+          (cadr error-data)))))))
+
+(ert-deftest org-slipbox-test-rpc-ensure-errors-when-daemon-is-not-executable ()
+  "Daemon startup should fail clearly for a non-executable daemon path."
+  (let ((org-slipbox-server-program "/tmp/slipbox")
+        (org-slipbox-directory temporary-file-directory)
+        (org-slipbox-database-file "/tmp/org-slipbox.sqlite"))
+    (cl-letf (((symbol-function 'file-exists-p)
+               (lambda (path)
+                 (string= path "/tmp/slipbox")))
+              ((symbol-function 'file-executable-p)
+               (lambda (_path) nil)))
+      (let ((error-data (should-error
+                         (org-slipbox-rpc-ensure)
+                         :type 'user-error
+                         :exclude-subtypes nil)))
+        (should
+         (equal
+          (cadr error-data)
+          "The slipbox daemon at /tmp/slipbox is not executable"))))))
 
 (ert-deftest org-slipbox-test-rebuild-resets-daemon-and-deletes-database-files ()
   "Rebuild should reset the daemon connection and delete SQLite files first."
