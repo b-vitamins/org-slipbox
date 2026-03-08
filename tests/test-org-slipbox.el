@@ -42,11 +42,13 @@
   (require 'org-protocol)
   (should-not (memq #'org-slipbox-sync-current-buffer after-save-hook))
   (should-not (memq #'org-slipbox--autosync-setup-file-h find-file-hook))
+  (should-not (memq #'org-slipbox-mode--maybe-enable-completion find-file-hook))
   (should-not (advice-member-p #'org-slipbox--autosync-rename-file-a 'rename-file))
   (should-not (advice-member-p #'org-slipbox--autosync-delete-file-a 'delete-file))
   (should-not (advice-member-p #'org-slipbox--autosync-vc-delete-file-a 'vc-delete-file))
   (should-not (advice-member-p #'org-slipbox-id-find 'org-id-find))
   (should-not (memq #'org-slipbox-buffer--redisplay-h post-command-hook))
+  (should-not org-slipbox-mode)
   (should-not org-slipbox-buffer-persistent-mode)
   (should-not (memq #'org-slipbox-dailies-calendar-mark-entries
                     calendar-today-visible-hook))
@@ -54,6 +56,48 @@
                     calendar-today-invisible-hook))
   (should-not (assoc "org-slipbox-ref" org-protocol-protocol-alist))
   (should-not (assoc "org-slipbox-node" org-protocol-protocol-alist)))
+
+(ert-deftest org-slipbox-test-global-mode-owns-setup-hooks-and-modes ()
+  "The recommended setup mode should own its hooks and managed modes."
+  (let ((org-slipbox-mode nil)
+        (org-slipbox-autosync-mode nil)
+        (org-slipbox-id-mode nil))
+    (unwind-protect
+        (progn
+          (org-slipbox-mode 1)
+          (should (memq #'org-slipbox-mode--maybe-enable-completion find-file-hook))
+          (should org-slipbox-autosync-mode)
+          (should org-slipbox-id-mode)
+          (org-slipbox-mode -1)
+          (should-not (memq #'org-slipbox-mode--maybe-enable-completion find-file-hook))
+          (should-not org-slipbox-autosync-mode)
+          (should-not org-slipbox-id-mode))
+      (when org-slipbox-mode
+        (org-slipbox-mode -1))
+      (when org-slipbox-autosync-mode
+        (org-slipbox-autosync-mode -1))
+      (when org-slipbox-id-mode
+        (org-slipbox-id-mode -1)))))
+
+(ert-deftest org-slipbox-test-global-mode-does-not-disable-user-enabled-modes ()
+  "The recommended setup mode should not turn off modes it did not enable."
+  (let ((org-slipbox-mode nil)
+        (org-slipbox-autosync-mode nil)
+        (org-slipbox-id-mode nil))
+    (unwind-protect
+        (progn
+          (org-slipbox-autosync-mode 1)
+          (org-slipbox-id-mode 1)
+          (org-slipbox-mode 1)
+          (org-slipbox-mode -1)
+          (should org-slipbox-autosync-mode)
+          (should org-slipbox-id-mode))
+      (when org-slipbox-mode
+        (org-slipbox-mode -1))
+      (when org-slipbox-autosync-mode
+        (org-slipbox-autosync-mode -1))
+      (when org-slipbox-id-mode
+        (org-slipbox-id-mode -1)))))
 
 (ert-deftest org-slipbox-test-id-mode-toggles-org-id-find-advice ()
   "The org-id bridge mode should own its advice explicitly."
@@ -2658,6 +2702,50 @@
               (should (org-slipbox--syncable-buffer-p)))
             (let ((buffer-file-name outside))
               (should-not (org-slipbox--syncable-buffer-p)))))
+      (delete-directory root t)
+      (delete-directory outside-root t))))
+
+(ert-deftest org-slipbox-test-global-mode-manages-completion-only-for-eligible-buffers ()
+  "The recommended setup mode should enable completion only in eligible Org files."
+  (let* ((root (make-temp-file "org-slipbox-mode-" t))
+         (inside (expand-file-name "note.org" root))
+         (outside-root (make-temp-file "org-slipbox-mode-outside-" t))
+         (outside (expand-file-name "other.org" outside-root))
+         inside-buffer
+         outside-buffer)
+    (unwind-protect
+        (progn
+          (write-region "* Inside\n" nil inside nil 'silent)
+          (write-region "* Outside\n" nil outside nil 'silent)
+          (setq inside-buffer (find-file-noselect inside)
+                outside-buffer (find-file-noselect outside))
+          (let ((org-slipbox-directory root)
+                (org-slipbox-mode nil)
+                (org-slipbox-autosync-mode nil)
+                (org-slipbox-id-mode nil))
+            (unwind-protect
+                (progn
+                  (org-slipbox-mode 1)
+                  (with-current-buffer inside-buffer
+                    (should org-slipbox-completion-mode)
+                    (should org-slipbox-mode--managed-completion))
+                  (with-current-buffer outside-buffer
+                    (should-not org-slipbox-completion-mode)
+                    (should-not org-slipbox-mode--managed-completion))
+                  (org-slipbox-mode -1)
+                  (with-current-buffer inside-buffer
+                    (should-not org-slipbox-completion-mode)
+                    (should-not org-slipbox-mode--managed-completion)))
+              (when org-slipbox-mode
+                (org-slipbox-mode -1))
+              (when org-slipbox-autosync-mode
+                (org-slipbox-autosync-mode -1))
+              (when org-slipbox-id-mode
+                (org-slipbox-id-mode -1)))))
+      (when (buffer-live-p inside-buffer)
+        (kill-buffer inside-buffer))
+      (when (buffer-live-p outside-buffer)
+        (kill-buffer outside-buffer))
       (delete-directory root t)
       (delete-directory outside-root t))))
 
