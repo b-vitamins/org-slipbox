@@ -1,16 +1,16 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use slipbox_core::{CaptureContentType, CaptureTemplateParams, NodeKind, NodeRecord};
 use uuid::Uuid;
 
-use crate::CaptureOutcome;
 use crate::document::{OrgDocument, format_property_values, heading_level, render_lines};
 use crate::path::{
     default_capture_file_title, next_available_path, next_available_relative_path,
     normalize_relative_org_path, normalized_head_source, normalized_title, slugify,
 };
+use crate::{CaptureOutcome, CapturePreviewOutcome};
 
 enum CaptureTargetSelection {
     File {
@@ -58,6 +58,13 @@ struct TableContext {
     data_lines: Vec<usize>,
 }
 
+struct PreparedCapture {
+    absolute_path: PathBuf,
+    relative_path: String,
+    document: OrgDocument,
+    node_key: String,
+}
+
 pub fn capture_file_note(root: &Path, title: &str) -> Result<CaptureOutcome> {
     capture_file_note_with_refs(root, title, &[])
 }
@@ -99,22 +106,62 @@ pub fn capture_template(
     target_node: Option<&NodeRecord>,
     params: &CaptureTemplateParams,
 ) -> Result<CaptureOutcome> {
+    let prepared = prepare_capture_template(root, target_node, params, None, false)?;
+
+    if let Some(parent) = prepared.absolute_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create directory {}", parent.display()))?;
+    }
+    fs::write(&prepared.absolute_path, prepared.document.render())
+        .with_context(|| format!("failed to write {}", prepared.absolute_path.display()))?;
+
+    Ok(CaptureOutcome {
+        absolute_path: prepared.absolute_path,
+        node_key: prepared.node_key,
+    })
+}
+
+pub fn preview_capture_template(
+    root: &Path,
+    target_node: Option<&NodeRecord>,
+    params: &CaptureTemplateParams,
+    source_override: Option<&str>,
+    ensure_node_id: bool,
+) -> Result<CapturePreviewOutcome> {
+    let prepared =
+        prepare_capture_template(root, target_node, params, source_override, ensure_node_id)?;
+
+    Ok(CapturePreviewOutcome {
+        absolute_path: prepared.absolute_path,
+        relative_path: prepared.relative_path,
+        node_key: prepared.node_key,
+        content: prepared.document.render(),
+    })
+}
+
+fn prepare_capture_template(
+    root: &Path,
+    target_node: Option<&NodeRecord>,
+    params: &CaptureTemplateParams,
+    source_override: Option<&str>,
+    ensure_node_id: bool,
+) -> Result<PreparedCapture> {
     fs::create_dir_all(root)
         .with_context(|| format!("failed to create root directory {}", root.display()))?;
 
     let refs = params.normalized_refs();
     let relative_path = resolve_template_relative_path(root, target_node, params)?;
     let absolute_path = root.join(&relative_path);
-    let existed = absolute_path.exists();
-    let source = if existed {
-        fs::read_to_string(&absolute_path)
-            .with_context(|| format!("failed to read {}", absolute_path.display()))?
-    } else {
-        normalized_head_source(params.head.as_deref())
+    let existed_on_disk = absolute_path.exists();
+    let source = match source_override {
+        Some(source) => source.to_owned(),
+        None if existed_on_disk => fs::read_to_string(&absolute_path)
+            .with_context(|| format!("failed to read {}", absolute_path.display()))?,
+        None => normalized_head_source(params.head.as_deref()),
     };
     let mut document = OrgDocument::from_source(&source);
 
-    if !existed {
+    if !existed_on_disk && source_override.is_none() {
         if params.head.is_none() {
             document.set_file_keyword(
                 "title",
@@ -161,15 +208,14 @@ pub fn capture_template(
         )?,
     };
 
-    if let Some(parent) = absolute_path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create directory {}", parent.display()))?;
+    if ensure_node_id {
+        ensure_capture_node_identity(&mut document, &node_key)?;
     }
-    fs::write(&absolute_path, document.render())
-        .with_context(|| format!("failed to write {}", absolute_path.display()))?;
 
-    Ok(CaptureOutcome {
+    Ok(PreparedCapture {
         absolute_path,
+        relative_path,
+        document,
         node_key,
     })
 }
@@ -522,6 +568,27 @@ fn capture_target_relative_path(target: &CaptureTargetSelection) -> &str {
         CaptureTargetSelection::File { relative_path, .. }
         | CaptureTargetSelection::Heading { relative_path, .. } => relative_path,
     }
+}
+
+fn ensure_capture_node_identity(document: &mut OrgDocument, node_key: &str) -> Result<()> {
+    if node_key.starts_with("file:") {
+        document.ensure_file_identity()?;
+        return Ok(());
+    }
+
+    let Some(line_number) = capture_heading_line_number(node_key) else {
+        bail!("unsupported capture node key: {node_key}");
+    };
+    let explicit_id = document
+        .heading_property_value(line_number, "ID")?
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    document.set_heading_property(line_number, "ID", Some(explicit_id))?;
+    Ok(())
+}
+
+fn capture_heading_line_number(node_key: &str) -> Option<usize> {
+    let (_, line_number) = node_key.strip_prefix("heading:")?.rsplit_once(':')?;
+    line_number.parse::<usize>().ok()
 }
 
 fn entry_capture_lines(content: &str, title: &str, desired_level: usize) -> Result<Vec<String>> {

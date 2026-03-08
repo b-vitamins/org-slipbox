@@ -9,7 +9,7 @@ use std::path::PathBuf;
 pub use capture::{
     append_heading, append_heading_at_outline_path, append_heading_to_node, capture_file_note,
     capture_file_note_at, capture_file_note_at_with_head_and_refs, capture_file_note_at_with_refs,
-    capture_file_note_with_refs, capture_template, ensure_file_note,
+    capture_file_note_with_refs, capture_template, ensure_file_note, preview_capture_template,
 };
 pub use metadata::{ensure_node_id, update_node_metadata};
 pub use rewrite::{
@@ -20,6 +20,13 @@ pub use rewrite::{
 pub struct CaptureOutcome {
     pub absolute_path: PathBuf,
     pub node_key: String,
+}
+
+pub struct CapturePreviewOutcome {
+    pub absolute_path: PathBuf,
+    pub relative_path: String,
+    pub node_key: String,
+    pub content: String,
 }
 
 pub struct MetadataUpdate {

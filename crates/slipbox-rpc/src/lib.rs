@@ -22,6 +22,7 @@ pub const METHOD_SEARCH_REFS: &str = "slipbox/searchRefs";
 pub const METHOD_NODE_FROM_REF: &str = "slipbox/nodeFromRef";
 pub const METHOD_CAPTURE_NODE: &str = "slipbox/captureNode";
 pub const METHOD_CAPTURE_TEMPLATE: &str = "slipbox/captureTemplate";
+pub const METHOD_CAPTURE_TEMPLATE_PREVIEW: &str = "slipbox/captureTemplatePreview";
 pub const METHOD_ENSURE_FILE_NODE: &str = "slipbox/ensureFileNode";
 pub const METHOD_APPEND_HEADING: &str = "slipbox/appendHeading";
 pub const METHOD_APPEND_HEADING_TO_NODE: &str = "slipbox/appendHeadingToNode";

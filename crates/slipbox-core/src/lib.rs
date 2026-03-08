@@ -155,6 +155,28 @@ pub struct IndexedNode {
     pub kind: NodeKind,
 }
 
+impl From<IndexedNode> for NodeRecord {
+    fn from(node: IndexedNode) -> Self {
+        Self {
+            node_key: node.node_key,
+            explicit_id: node.explicit_id,
+            file_path: node.file_path,
+            title: node.title,
+            outline_path: node.outline_path,
+            aliases: node.aliases,
+            tags: node.tags,
+            refs: node.refs,
+            todo_keyword: node.todo_keyword,
+            scheduled_for: node.scheduled_for,
+            deadline_for: node.deadline_for,
+            closed_at: node.closed_at,
+            level: node.level,
+            line: node.line,
+            kind: node.kind,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndexedLink {
     pub source_node_key: String,
@@ -439,6 +461,23 @@ impl CaptureTemplateParams {
             (!trimmed.is_empty()).then(|| trimmed.to_owned())
         })
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaptureTemplatePreviewParams {
+    #[serde(flatten)]
+    pub capture: CaptureTemplateParams,
+    #[serde(default)]
+    pub source_override: Option<String>,
+    #[serde(default)]
+    pub ensure_node_id: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaptureTemplatePreviewResult {
+    pub file_path: String,
+    pub content: String,
+    pub node: NodeRecord,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

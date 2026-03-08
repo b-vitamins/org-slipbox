@@ -97,6 +97,7 @@ list, each element must be a regexp string."
 (defconst org-slipbox-rpc-method-search-refs "slipbox/searchRefs")
 (defconst org-slipbox-rpc-method-capture-node "slipbox/captureNode")
 (defconst org-slipbox-rpc-method-capture-template "slipbox/captureTemplate")
+(defconst org-slipbox-rpc-method-capture-template-preview "slipbox/captureTemplatePreview")
 (defconst org-slipbox-rpc-method-ensure-file-node "slipbox/ensureFileNode")
 (defconst org-slipbox-rpc-method-append-heading "slipbox/appendHeading")
 (defconst org-slipbox-rpc-method-append-heading-to-node "slipbox/appendHeadingToNode")
@@ -305,6 +306,10 @@ per source node."
 (defun org-slipbox-rpc-capture-template (params)
   "Capture using generic template PARAMS."
   (org-slipbox-rpc-request org-slipbox-rpc-method-capture-template params))
+
+(defun org-slipbox-rpc-capture-template-preview (params)
+  "Preview capture using generic template PARAMS without saving."
+  (org-slipbox-rpc-request org-slipbox-rpc-method-capture-template-preview params))
 
 (defun org-slipbox-rpc-ensure-file-node (file-path title)
   "Ensure FILE-PATH exists as a file node with TITLE."

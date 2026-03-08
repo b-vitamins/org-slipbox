@@ -1,8 +1,8 @@
 use slipbox_core::{
     AppendHeadingAtOutlinePathParams, AppendHeadingParams, AppendHeadingToNodeParams,
-    CaptureNodeParams, CaptureTemplateParams, EnsureFileNodeParams, EnsureNodeIdParams,
-    ExtractSubtreeParams, RefileRegionParams, RefileSubtreeParams, RewriteFileParams,
-    UpdateNodeMetadataParams,
+    CaptureNodeParams, CaptureTemplateParams, CaptureTemplatePreviewParams,
+    CaptureTemplatePreviewResult, EnsureFileNodeParams, EnsureNodeIdParams, ExtractSubtreeParams,
+    RefileRegionParams, RefileSubtreeParams, RewriteFileParams, UpdateNodeMetadataParams,
 };
 use slipbox_rpc::JsonRpcError;
 
@@ -58,6 +58,48 @@ pub(crate) fn capture_template(
     let captured = slipbox_write::capture_template(&state.root, target.as_ref(), &params)
         .map_err(|error| internal_error(error.context("failed to capture template")))?;
     to_value(state.sync_capture(&captured, "captured template")?)
+}
+
+pub(crate) fn capture_template_preview(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let mut params: CaptureTemplatePreviewParams = parse_params(params)?;
+    if let Some(file_path) = params.capture.file_path.as_deref() {
+        let (relative_path, _) = state
+            .resolve_index_path(file_path)
+            .map_err(|error| internal_error(error.context("failed to resolve file path")))?;
+        params.capture.file_path = Some(relative_path);
+    }
+    let target = match params.capture.node_key.as_deref() {
+        Some(node_key) => Some(state.known_node(node_key, "target node")?),
+        None => None,
+    };
+    let preview = slipbox_write::preview_capture_template(
+        &state.root,
+        target.as_ref(),
+        &params.capture,
+        params.source_override.as_deref(),
+        params.ensure_node_id,
+    )
+    .map_err(|error| internal_error(error.context("failed to preview capture template")))?;
+    let indexed = slipbox_index::scan_source(&preview.relative_path, &preview.content);
+    let node = indexed
+        .nodes
+        .into_iter()
+        .find(|candidate| candidate.node_key == preview.node_key)
+        .map(Into::into)
+        .ok_or_else(|| {
+            internal_error(anyhow::anyhow!(
+                "captured preview node {} was not found in rendered output",
+                preview.node_key
+            ))
+        })?;
+    to_value(CaptureTemplatePreviewResult {
+        file_path: preview.relative_path,
+        content: preview.content,
+        node,
+    })
 }
 
 pub(crate) fn ensure_file_node(

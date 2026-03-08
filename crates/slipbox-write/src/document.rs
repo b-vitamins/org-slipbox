@@ -386,6 +386,15 @@ impl OrgDocument {
         Ok(index)
     }
 
+    pub(crate) fn heading_property_value(
+        &self,
+        line_number: usize,
+        property: &str,
+    ) -> Result<Option<String>> {
+        let heading_index = self.heading_index(line_number)?;
+        Ok(heading_property_value(&self.lines, heading_index, property))
+    }
+
     fn h1_count(&self) -> usize {
         self.lines
             .iter()
@@ -829,6 +838,18 @@ fn heading_property_drawer_bounds(
         }
     }
     None
+}
+
+fn heading_property_value(
+    lines: &[String],
+    heading_index: usize,
+    property: &str,
+) -> Option<String> {
+    let (start, end) = heading_property_drawer_bounds(lines, heading_index)?;
+    let property_line = format!(":{property}:");
+    (start + 1..end - 1)
+        .find_map(|index| strip_keyword(lines[index].trim(), &property_line))
+        .map(|value| value.trim().to_owned())
 }
 
 fn ensure_heading_property_value(

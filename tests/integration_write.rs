@@ -3,14 +3,15 @@ use std::path::Path;
 
 use anyhow::Result;
 use slipbox_core::{CaptureContentType, CaptureTemplateParams};
-use slipbox_index::{scan_path, scan_root};
+use slipbox_index::{scan_path, scan_root, scan_source};
 use slipbox_store::Database;
 use slipbox_write::{
     MetadataUpdate, RegionRewriteOutcome, RewriteOutcome, append_heading,
     append_heading_at_outline_path, append_heading_to_node, capture_file_note,
     capture_file_note_at, capture_file_note_at_with_head_and_refs, capture_file_note_with_refs,
     capture_template, demote_entire_file, ensure_file_note, ensure_node_id, extract_subtree,
-    promote_entire_file, refile_region, refile_subtree, update_node_metadata,
+    preview_capture_template, promote_entire_file, refile_region, refile_subtree,
+    update_node_metadata,
 };
 use tempfile::tempdir;
 
@@ -655,6 +656,85 @@ fn capture_template_table_line_file_target_finds_existing_table_in_whole_buffer(
         fs::read_to_string(&note_path)?,
         "#+title: Note\n\n* Existing\n| Name |\n|------|\n| Two |\n| One  |\n"
     );
+
+    Ok(())
+}
+
+#[test]
+fn preview_capture_template_leaves_new_target_unsaved() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let note_path = root.join("note.org");
+
+    let preview = preview_capture_template(
+        &root,
+        None,
+        &CaptureTemplateParams {
+            title: String::from("Note"),
+            file_path: Some(String::from("note.org")),
+            node_key: None,
+            head: None,
+            outline_path: Vec::new(),
+            capture_type: CaptureContentType::Entry,
+            content: String::from("* Note"),
+            refs: Vec::new(),
+            prepend: false,
+            empty_lines_before: 0,
+            empty_lines_after: 0,
+            table_line_pos: None,
+        },
+        None,
+        false,
+    )?;
+
+    assert_eq!(preview.relative_path, "note.org");
+    assert_eq!(preview.node_key, "heading:note.org:6");
+    assert!(!note_path.exists());
+    assert!(preview.content.contains("* Note"));
+
+    Ok(())
+}
+
+#[test]
+fn preview_capture_template_uses_source_override_and_can_assign_ids() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let note_path = root.join("note.org");
+    fs::write(&note_path, "#+title: Note\n")?;
+
+    let preview = preview_capture_template(
+        &root,
+        None,
+        &CaptureTemplateParams {
+            title: String::from("Note"),
+            file_path: Some(String::from("note.org")),
+            node_key: None,
+            head: None,
+            outline_path: Vec::new(),
+            capture_type: CaptureContentType::Entry,
+            content: String::from("* Captured"),
+            refs: Vec::new(),
+            prepend: false,
+            empty_lines_before: 0,
+            empty_lines_after: 0,
+            table_line_pos: None,
+        },
+        Some("#+title: Note\nLocal edits\n"),
+        true,
+    )?;
+
+    assert_eq!(fs::read_to_string(&note_path)?, "#+title: Note\n");
+    assert!(preview.content.contains("Local edits"));
+
+    let indexed = scan_source(&preview.relative_path, &preview.content);
+    let node = indexed
+        .nodes
+        .into_iter()
+        .find(|candidate| candidate.node_key == preview.node_key)
+        .expect("preview node should be indexed from rendered content");
+    assert!(node.explicit_id.is_some());
 
     Ok(())
 }

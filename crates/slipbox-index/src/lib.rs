@@ -40,6 +40,10 @@ pub fn scan_path_with_policy(
     parse_path(root, path)
 }
 
+pub fn scan_source(file_path: &str, source: &str) -> IndexedFile {
+    parse_document(file_path, 0, source)
+}
+
 fn parse_path(root: &Path, path: &Path) -> Result<IndexedFile> {
     let source = read_source(path)?;
     let file_path = discovery::relative_path(root, path)

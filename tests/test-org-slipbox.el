@@ -1385,14 +1385,197 @@
         (kill-buffer buffer))
       (delete-directory root t))))
 
-(ert-deftest org-slipbox-test-capture-unsupported-lifecycle-option-errors ()
-  "Unsupported org-capture lifecycle keys should error clearly."
-  (dolist (key '(:no-save))
-    (should-error
-     (org-slipbox--capture-node
-      "Note"
-      `("d" "default" :path "notes/${slug}.org" ,key t))
-     :type 'error)))
+(ert-deftest org-slipbox-test-capture-no-save-leaves-new-target-buffer-unsaved ()
+  "`:no-save' should keep new target buffers unsaved and off disk."
+  (let* ((root (make-temp-file "org-slipbox-capture-" t))
+         (org-slipbox-directory root)
+         (target (expand-file-name "notes/note.org" root))
+         target-buffer
+         methods)
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                     (lambda (request-method request-params)
+                       (push (list request-method request-params) methods)
+                       (pcase request-method
+                         ("slipbox/captureTemplatePreview"
+                          '(:file_path "notes/note.org"
+                            :content "* Note\n"
+                            :node (:title "Note"
+                                   :file_path "notes/note.org"
+                                   :line 1
+                                   :kind heading)))
+                         (_
+                          (ert-fail
+                           (format "unexpected rpc method %s" request-method)))))))
+            (org-slipbox--capture-node-at-time
+             "Note"
+             '("d" "default" entry "* ${title}"
+               :target (file "notes/note.org")
+               :no-save t
+               :jump-to-captured t
+               :immediate-finish t)
+             nil
+             (encode-time 0 0 0 7 3 2026)))
+          (should (equal (mapcar #'car (nreverse methods))
+                         '("slipbox/captureTemplatePreview")))
+          (should-not (file-exists-p target))
+          (setq target-buffer (get-file-buffer target))
+          (should (buffer-live-p target-buffer))
+          (with-current-buffer target-buffer
+            (should (buffer-modified-p))
+            (should (equal (buffer-string) "* Note\n"))))
+      (when (buffer-live-p target-buffer)
+        (kill-buffer target-buffer))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-capture-no-save-preserves-dirty-live-target-buffer ()
+  "`:no-save' should preview against dirty live target buffers without saving them."
+  (let* ((root (make-temp-file "org-slipbox-capture-" t))
+         (org-slipbox-directory root)
+         (target (expand-file-name "notes/note.org" root))
+         target-buffer
+         methods)
+    (unwind-protect
+        (progn
+          (make-directory (file-name-directory target) t)
+          (write-region "#+title: Note\n" nil target nil 'silent)
+          (setq target-buffer (find-file-noselect target))
+          (with-current-buffer target-buffer
+            (goto-char (point-max))
+            (insert "Local edits\n"))
+          (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                     (lambda (request-method request-params)
+                       (push (list request-method request-params) methods)
+                       (pcase request-method
+                         ("slipbox/captureTemplatePreview"
+                          (should (string-match-p
+                                   "Local edits"
+                                   (plist-get request-params :source_override)))
+                          '(:file_path "notes/note.org"
+                            :content "#+title: Note\nLocal edits\nCaptured body\n"
+                            :node (:title "Note"
+                                   :file_path "notes/note.org"
+                                   :line 1
+                                   :kind file)))
+                         (_
+                          (ert-fail
+                           (format "unexpected rpc method %s" request-method)))))))
+            (org-slipbox--capture-node-at-time
+             "Note"
+             '("d" "default" plain "Captured body"
+               :target (file "notes/note.org")
+               :no-save t
+               :immediate-finish t)
+             nil
+             (encode-time 0 0 0 7 3 2026)))
+          (should (equal (mapcar #'car (nreverse methods))
+                         '("slipbox/captureTemplatePreview")))
+          (should (equal (with-temp-buffer
+                           (insert-file-contents target)
+                           (buffer-string))
+                         "#+title: Note\n"))
+          (with-current-buffer target-buffer
+            (should (buffer-modified-p))
+            (should (string-match-p "Local edits" (buffer-string)))
+            (should (string-match-p "Captured body" (buffer-string)))))
+      (when (buffer-live-p target-buffer)
+        (kill-buffer target-buffer))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-capture-no-save-insert-link-uses-preview-id ()
+  "`:no-save' insert-link finalization should use the preview node ID directly."
+  (let* ((root (make-temp-file "org-slipbox-capture-" t))
+         (org-slipbox-directory root)
+         (target (expand-file-name "notes/note.org" root))
+         methods
+         added-location)
+    (unwind-protect
+        (with-temp-buffer
+          (org-mode)
+          (let ((marker (point-marker)))
+            (cl-letf (((symbol-function 'org-id-add-location)
+                       (lambda (id file)
+                         (setq added-location (list id file))))
+                      ((symbol-function 'org-slipbox-rpc-request)
+                       (lambda (request-method request-params)
+                         (push (list request-method request-params) methods)
+                         (pcase request-method
+                           ("slipbox/captureTemplatePreview"
+                            (should (plist-get request-params :ensure_node_id))
+                            '(:file_path "notes/note.org"
+                              :content "* Note\n:PROPERTIES:\n:ID: note-1\n:END:\n"
+                              :node (:title "Note"
+                                     :file_path "notes/note.org"
+                                     :line 1
+                                     :kind heading
+                                     :explicit_id "note-1")))
+                           ("slipbox/ensureNodeId"
+                            (ert-fail "no-save insert-link should not assign IDs after preview"))
+                           (_
+                            (ert-fail
+                             (format "unexpected rpc method %s" request-method)))))))
+              (org-slipbox--capture-node-at-time
+               "Note"
+               '("d" "default" entry "* ${title}"
+                 :target (file "notes/note.org")
+                 :no-save t
+                 :immediate-finish t)
+               nil
+               (encode-time 0 0 0 7 3 2026)
+               nil
+               `(:finalize insert-link
+                 :call-location ,marker
+                 :link-description "Inserted")))
+            (should (equal (buffer-string)
+                           "[[id:note-1][Inserted]]"))))
+      (should (equal (mapcar #'car (nreverse methods))
+                     '("slipbox/captureTemplatePreview")))
+      (should
+       (equal added-location
+              (list "note-1" target)))
+      (when-let ((buffer (get-file-buffer target)))
+        (kill-buffer buffer))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-capture-no-save-kill-buffer-saves-before-kill ()
+  "`:kill-buffer' should force a real save even when `:no-save' is set."
+  (let* ((root (make-temp-file "org-slipbox-capture-" t))
+         (org-slipbox-directory root)
+         (target (expand-file-name "notes/note.org" root))
+         saved-params
+         opened-buffer)
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'org-slipbox-rpc-capture-template)
+                     (lambda (request-params)
+                       (setq saved-params request-params)
+                       (make-directory (file-name-directory target) t)
+                       (write-region "* Note\n" nil target nil 'silent)
+                       '(:title "Note" :file_path "notes/note.org" :line 1)))
+                    ((symbol-function 'org-slipbox-rpc-capture-template-preview)
+                     (lambda (&rest _args)
+                       (ert-fail ":kill-buffer + :no-save should not use preview capture")))
+                    ((symbol-function 'org-slipbox--visit-node)
+                     (lambda (node &optional _other-window)
+                       (setq opened-buffer
+                             (find-file-noselect
+                              (expand-file-name (plist-get node :file_path) root))))))
+            (org-slipbox--capture-node-at-time
+             "Note"
+             '("d" "default" entry "* ${title}"
+               :target (file "notes/note.org")
+               :no-save t
+               :kill-buffer t
+               :jump-to-captured t
+               :immediate-finish t)
+             nil
+             (encode-time 0 0 0 7 3 2026)))
+          (should saved-params)
+          (should (file-exists-p target))
+          (should opened-buffer)
+          (should-not (buffer-live-p opened-buffer)))
+      (delete-directory root t))))
 
 (ert-deftest org-slipbox-test-capture-invalid-lifecycle-handler-errors ()
   "Lifecycle handlers must be functions or lists of functions."

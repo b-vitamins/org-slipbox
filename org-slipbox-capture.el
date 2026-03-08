@@ -32,6 +32,7 @@
 (require 'cl-lib)
 (require 'org)
 (require 'org-capture)
+(require 'org-id)
 (require 'subr-x)
 (require 'org-slipbox-node)
 (require 'org-slipbox-rpc)
@@ -71,12 +72,11 @@ the inserted row relative to table separators.
 In addition to target and content options, typed templates may carry
 the lifecycle keys `:finalize', `:jump-to-captured',
 `:immediate-finish', `:prepare-finalize', `:before-finalize', and
-`:after-finalize'. Compatibility keys from `org-capture' that do not
-yet map cleanly onto the draft-based capture model, including
-`:no-save', signal a clear user error instead
-of being accepted silently. Every capture starts in a transient draft
-buffer unless `:immediate-finish' commits the prepared draft directly,
-and all target writes still go through the Rust RPC layer."
+`:after-finalize', `:kill-buffer', `:no-save', `:unnarrowed',
+`:clock-in', `:clock-keep', and `:clock-resume'. Every capture starts
+in a transient draft buffer unless `:immediate-finish' commits the
+prepared draft directly, and all target writes still go through the
+Rust RPC layer."
   :type 'sexp
   :group 'org-slipbox)
 
@@ -93,7 +93,7 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
   :group 'org-slipbox)
 
 (defconst org-slipbox--capture-unsupported-lifecycle-keys
-  '(:no-save)
+  nil
   "Template lifecycle keys reserved for later capture-parity work.")
 
 (defconst org-slipbox--capture-phase-keys
@@ -512,20 +512,21 @@ REFS, TIME, VARIABLES, and SESSION describe the session state."
          (template-options (org-slipbox-capture-session-template-options capture-session))
          (caller-session (org-slipbox-capture-session-caller-session capture-session))
          (buffer (current-buffer)))
-    (org-slipbox--capture-preflight-target-buffer capture-session)
-    (let ((node (org-slipbox--capture-commit-session
-                 capture-session
-                 (progn
-                   (org-slipbox--capture-run-phase-functions
-                    :prepare-finalize
-                    template-options
-                    capture-session
-                    nil)
-                   (buffer-substring-no-properties org-slipbox--capture-body-start
-                                                   (point-max))))))
+    (let* ((content
+            (progn
+              (org-slipbox--capture-run-phase-functions
+               :prepare-finalize
+               template-options
+               capture-session
+               nil)
+              (buffer-substring-no-properties org-slipbox--capture-body-start
+                                              (point-max))))
+           (node (org-slipbox--capture-materialize-session
+                  capture-session
+                  content
+                  caller-session)))
       (unwind-protect
           (progn
-            (org-slipbox--capture-refresh-target-buffer capture-session node)
             (org-slipbox--capture-run-phase-functions
              :before-finalize
              template-options
@@ -579,6 +580,56 @@ REFS, TIME, VARIABLES, and SESSION describe the session state."
   (org-slipbox-rpc-capture-template
    (org-slipbox--capture-session-params capture-session content)))
 
+(defun org-slipbox--capture-materialize-session
+    (capture-session content caller-session)
+  "Materialize CAPTURE-SESSION CONTENT and return the captured node.
+CALLER-SESSION is used to resolve lifecycle-dependent preview behavior."
+  (if (org-slipbox--capture-use-preview-p capture-session)
+      (org-slipbox--capture-preview-session
+       capture-session
+       content
+       caller-session)
+    (org-slipbox--capture-save-session capture-session content)))
+
+(defun org-slipbox--capture-use-preview-p (capture-session)
+  "Return non-nil when CAPTURE-SESSION should use unsaved preview materialization."
+  (let ((template-options (org-slipbox-capture-session-template-options capture-session)))
+    (and (plist-get template-options :no-save)
+         (not (and (plist-get template-options :kill-buffer)
+                   (not (org-slipbox-capture-session-target-buffer-preexisting-p
+                         capture-session)))))))
+
+(defun org-slipbox--capture-save-session (capture-session content)
+  "Persist CAPTURE-SESSION CONTENT through the daemon and refresh live buffers."
+  (org-slipbox--capture-preflight-target-buffer capture-session)
+  (let ((node (org-slipbox--capture-commit-session capture-session content)))
+    (org-slipbox--capture-refresh-target-buffer capture-session node)
+    node))
+
+(defun org-slipbox--capture-preview-session
+    (capture-session content caller-session)
+  "Apply an unsaved preview for CAPTURE-SESSION CONTENT and return the node.
+CALLER-SESSION is used to determine whether preview materialization must
+assign an explicit Org ID."
+  (let* ((ensure-node-id
+          (eq (org-slipbox--capture-resolve-finalize
+               (org-slipbox-capture-session-template-options capture-session)
+               caller-session)
+              'insert-link))
+         (preview
+          (org-slipbox-rpc-capture-template-preview
+           (org-slipbox--capture-preview-params
+            capture-session
+            content
+            ensure-node-id)))
+         (node (plist-get preview :node)))
+    (when (and ensure-node-id
+               (not (plist-get node :explicit_id)))
+      (user-error "No-save capture preview did not assign an explicit Org ID"))
+    (org-slipbox--capture-apply-preview capture-session preview)
+    (org-slipbox--capture-register-preview-node node)
+    node))
+
 (defun org-slipbox--capture-session-params (capture-session content)
   "Return generic capture RPC params for CAPTURE-SESSION and CONTENT."
   (let* ((template-options (org-slipbox-capture-session-template-options capture-session))
@@ -598,10 +649,32 @@ REFS, TIME, VARIABLES, and SESSION describe the session state."
        (list :refs refs))
      (org-slipbox--capture-target-params target))))
 
+(defun org-slipbox--capture-preview-params
+    (capture-session content ensure-node-id)
+  "Return no-save preview RPC params for CAPTURE-SESSION and CONTENT.
+When ENSURE-NODE-ID is non-nil, the daemon must assign an explicit Org ID
+within the preview content before returning."
+  (append
+   (org-slipbox--capture-session-params capture-session content)
+   (when-let ((source-override
+               (org-slipbox--capture-preview-source-override capture-session)))
+     (list :source_override source-override))
+   (when ensure-node-id
+     (list :ensure_node_id t))))
+
 (defun org-slipbox--capture-target-file (target)
   "Return an absolute file path for TARGET when one is known."
   (when-let ((file-path (plist-get target :file_path)))
     (expand-file-name file-path org-slipbox-directory)))
+
+(defun org-slipbox--capture-preview-source-override (capture-session)
+  "Return current live target contents for CAPTURE-SESSION, or nil."
+  (when-let* ((target-file (org-slipbox-capture-session-target-file capture-session))
+              (buffer (org-slipbox--live-file-buffer target-file)))
+    (with-current-buffer buffer
+      (save-restriction
+        (widen)
+        (buffer-substring-no-properties (point-min) (point-max))))))
 
 (defun org-slipbox--capture-preflight-target-buffer (capture-session)
   "Save and sync live target buffers for CAPTURE-SESSION before writing."
@@ -614,6 +687,29 @@ REFS, TIME, VARIABLES, and SESSION describe the session state."
                               (when-let ((file-path (plist-get node :file_path)))
                                 (expand-file-name file-path org-slipbox-directory)))))
     (org-slipbox--refresh-live-file-buffer target-file)))
+
+(defun org-slipbox--capture-apply-preview (capture-session preview)
+  "Apply PREVIEW content into the live target buffer for CAPTURE-SESSION."
+  (let* ((relative-path (plist-get preview :file_path))
+         (target-file (expand-file-name relative-path org-slipbox-directory))
+         (buffer (or (org-slipbox--live-file-buffer target-file)
+                     (find-file-noselect target-file))))
+    (setf (org-slipbox-capture-session-target-file capture-session) target-file)
+    (with-current-buffer buffer
+      (let ((inhibit-read-only t))
+        (save-restriction
+          (widen)
+          (erase-buffer)
+          (insert (plist-get preview :content))))
+      (set-buffer-modified-p t))
+    buffer))
+
+(defun org-slipbox--capture-register-preview-node (node)
+  "Register preview NODE with `org-id' compatibility state when possible."
+  (when-let ((explicit-id (plist-get node :explicit_id))
+             (file-path (plist-get node :file_path)))
+    (org-id-add-location explicit-id
+                         (expand-file-name file-path org-slipbox-directory))))
 
 (defun org-slipbox--capture-target-params (target)
   "Return generic capture RPC params for TARGET."

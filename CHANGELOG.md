@@ -54,6 +54,7 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Added live target-buffer coordination for capture so modified note buffers are saved and reindexed before Rust-backed capture writes, then refreshed afterward.
 - Added `:kill-buffer` capture parity so capture-opened target buffers are cleaned up after finalization without touching buffers that were already open.
 - Added `:unnarrowed`, `:clock-in`, `:clock-resume`, and `:clock-keep` capture parity on top of the draft-based capture lifecycle.
+- Added honest `:no-save` capture parity through Rust-backed preview materialization, dirty live-target coordination, preview-node ID handling for insert-link flows, and upstream-compatible `:kill-buffer` save precedence.
 - Added target-preparation parity for capture drafts across file, outline, datetree, and node targets, including explicit `table-line` placement semantics and clear errors for unsupported target options.
 - Added immediate-finish capture, ordered finalize handlers, and explicit lifecycle validation so capture templates now either run real finalize/abort behavior or fail clearly.
 - Added a shared file-discovery policy with configurable extensions, exclude regexps, encrypted Org suffix handling, and public `org-slipbox-file-p` / `org-slipbox-list-files` helpers.
