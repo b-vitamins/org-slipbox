@@ -297,6 +297,128 @@ One important expectation is the same as in `org-roam`: the SQLite database
 stores indexed metadata in plain text. Encrypt the database separately if that
 metadata is sensitive.
 
+## Capture And Templates
+
+`org-slipbox` treats capture as a first-class workflow, not as a thin wrapper
+around ad hoc file edits.
+
+- `org-slipbox-capture` starts a transient draft buffer
+- `C-c C-c` finalizes the draft through the Rust RPC layer
+- `C-c C-k` aborts the draft without mutating the target note
+- `org-slipbox-node-find` and `org-slipbox-node-insert` reuse the same capture flow for new notes
+
+Capture templates live in `org-slipbox-capture-templates`. They support the
+same workflow shape `org-roam` users expect:
+
+- typed content kinds: `entry`, `plain`, `item`, `checkitem`, `table-line`
+- file targets: `file`, `file+head`, `file+olp`, `file+head+olp`, `file+datetree`
+- existing-node targets with `(node ...)`
+- lifecycle options such as `:immediate-finish`, `:jump-to-captured`, `:no-save`, and finalize hooks
+
+Template expansion uses `${...}` placeholders. Common values include
+`${title}`, `${slug}`, `${ref}`, `${body}`, `${annotation}`, and `${link}`.
+Unknown placeholders prompt once and can take defaults with
+`${name=default}`.
+
+```emacs-lisp
+(setq org-slipbox-capture-templates
+      '(("d" "default" plain "${body}"
+         :target (file+head "%<%Y%m%d%H%M%S>-${slug}.org"
+                            "#+title: ${title}\n")
+         :unnarrowed t)))
+```
+
+Ref-oriented capture uses `org-slipbox-capture-ref-templates`, which follows
+the same syntax while adding `${ref}`, `${body}`, `${annotation}`, and
+`${link}`.
+
+This is an intentional divergence from `org-roam` only in architecture: the
+draft/session layer lives in Emacs, but all target writes and target
+preparation still happen behind Rust RPCs.
+
+## org-protocol
+
+`org-slipbox` keeps browser and external capture flows opt-in. Enable them with:
+
+```emacs-lisp
+(org-slipbox-protocol-mode 1)
+```
+
+This mode registers `roam-node` and `roam-ref` handlers with
+`org-protocol`. The surrounding `org-protocol://` system integration still
+belongs to your Emacs and operating-system setup; `org-slipbox` only owns the
+handler registration.
+
+- `roam-node` visits an indexed node by ID
+- `roam-ref` finds or captures the canonical note for a ref
+
+`roam-ref` uses `org-slipbox-capture-ref-templates`, so bookmarklet and browser
+flows reuse the same capture semantics as normal ref capture.
+
+## Dailies
+
+Daily notes are configured independently from the main capture templates:
+
+```emacs-lisp
+(setq org-slipbox-dailies-directory "daily/")
+(setq org-slipbox-dailies-capture-templates
+      '(("d" "default" entry
+         "* ${title}"
+         :target (file+head "%<%Y-%m-%d>.org"
+                            "#+title: %<%Y-%m-%d>\n"))))
+```
+
+The main commands mirror the documented `org-roam-dailies` workflow:
+
+- `org-slipbox-dailies-capture-today`
+- `org-slipbox-dailies-goto-today`
+- `org-slipbox-dailies-capture-yesterday`
+- `org-slipbox-dailies-goto-yesterday`
+- `org-slipbox-dailies-capture-tomorrow`
+- `org-slipbox-dailies-goto-tomorrow`
+- `org-slipbox-dailies-capture-date`
+- `org-slipbox-dailies-goto-date`
+- `org-slipbox-dailies-goto-previous-note`
+- `org-slipbox-dailies-goto-next-note`
+- `org-slipbox-dailies-find-directory`
+
+Calendar marking remains optional through `org-slipbox-dailies-calendar-mode`,
+so dailies discovery does not bleed into startup or the main buffer hot path.
+
+## Export And Graph
+
+Stable HTML export is opt-in:
+
+```emacs-lisp
+(org-slipbox-export-mode 1)
+```
+
+This keeps Org ID-backed links aligned with exported HTML anchors without
+changing ordinary editing or indexing behavior.
+
+Graph generation is also optional and isolated:
+
+- `org-slipbox-graph` renders and opens a graph
+- `org-slipbox-graph-write-dot` writes the DOT source
+- `org-slipbox-graph-write-file` renders directly to a file
+
+With no prefix argument, `org-slipbox-graph` renders the global graph. With a
+plain `C-u`, it renders the connected component around the node at point. With
+a numeric prefix, it renders the bounded neighborhood around the node at point.
+
+Useful graph options include:
+
+- `org-slipbox-graph-executable`
+- `org-slipbox-graph-viewer`
+- `org-slipbox-graph-filetype`
+- `org-slipbox-graph-node-url-prefix`
+- `org-slipbox-graph-generation-hook`
+
+For local graphs, the default node URL prefix uses `org-protocol`. For
+published graphs, set `org-slipbox-graph-node-url-prefix` to a web URL prefix
+and use `org-slipbox-graph-generation-hook` to copy the rendered artifact into
+your publishing output.
+
 ## If You Use org-roam Today
 
 These are the most common command-level equivalents:
@@ -363,6 +485,47 @@ relying on anecdotal scale claims.
 - `cargo run --bin slipbox-bench -- check --profile ci` generates a deterministic corpus, measures full indexing, single-file incremental indexing, indexed search, backlinks, node-at-point lookup, agenda queries, and a batch Emacs benchmark of the persistent context-buffer redisplay path.
 - `cargo run --bin slipbox-bench -- run --profile release --keep-corpus` runs the larger local profile and keeps the generated corpus under `target/bench/` for inspection.
 - Benchmark profiles live in [`benches/profiles/ci.json`](/home/b/projects/org-slipbox/benches/profiles/ci.json) and [`benches/profiles/release.json`](/home/b/projects/org-slipbox/benches/profiles/release.json). Reports are written to `target/bench/`.
+
+This is an intentional divergence from the `org-roam` manual's performance
+guidance. `org-slipbox` does not expose GC-tuning knobs for cache builds,
+because the heavy parse/index/query path lives in Rust rather than in a large
+Elisp caching pass. The replacement answer here is benchmarked behavior, not
+more GC tuning variables.
+
+## FAQ
+
+### More Than One Slipbox Root
+
+`org-slipbox` currently assumes one active root and one active derived index per
+Emacs session. That is an intentional divergence from `org-roam`'s
+directory-local multi-root story: it keeps daemon state, autosync behavior, and
+index freshness explicit instead of letting correctness depend on hidden
+per-buffer root switching.
+
+The intended layout is one `org-slipbox-directory` with subdirectories under
+it. If you truly need separate slipboxes, use separate Emacs sessions or switch
+the configured root deliberately before reconnecting and reindexing.
+
+### Create A Note Whose Title Matches A Candidate Prefix
+
+`org-slipbox-node-find` and `org-slipbox-node-insert` both allow fresh input
+when the minibuffer text is not resolved to an indexed node. In practice, you
+can type the exact new title you want and confirm it directly; `org-slipbox`
+turns that fresh title into a normal capture flow instead of relying on
+frontend-specific completion hacks.
+
+### Stop Creating IDs Everywhere
+
+`org-slipbox` assigns explicit IDs lazily. Existing notes do not get IDs unless
+they become stable link targets, ref-backed notes, or other explicit identity
+surfaces. This is the default design, not a workaround.
+
+### Publish Notes With An Internet-Friendly Graph
+
+Use `org-slipbox-graph-node-url-prefix` to emit web-facing node links instead
+of local `org-protocol` links, then attach a function to
+`org-slipbox-graph-generation-hook` to copy the rendered graph into your
+publishing output.
 
 ## Development
 
