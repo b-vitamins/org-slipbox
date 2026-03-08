@@ -29,8 +29,11 @@
 - Keep package headers strict: lexical binding, `Package-Requires`, `Version`, commentary, and no false metadata.
 - Maintain GPL-3.0-or-later licensing across Rust and Elisp code.
 - Favor stable protocol boundaries over in-process integration tricks. JSON-RPC over stdio is the default boundary.
+- Keep the daemon and Emacs package separable. The Emacs side should work with a `slipbox` executable on `PATH` or an explicit `org-slipbox-server-program`, so downstream packaging stays simple.
+- Keep `manifest.scm` as an optional contributor convenience layer. It may smooth local development and comparison runs, but it must not become the only supported build or install path.
 
 ## Verification
 - Run `cargo fmt`, `cargo test`, and `cargo clippy --all-targets --all-features` before milestone commits when the codebase supports them.
 - Run Emacs batch checks before milestone commits once Elisp commands exist.
 - Add regression tests with every bug fix touching parsing, indexing, query semantics, or protocol behavior.
+- When a local machine lacks the C or packaging toolchain needed for a clean build, prefer `guix shell -m manifest.scm -- <command>` over repo-specific environment hacks.
