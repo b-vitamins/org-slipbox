@@ -1,0 +1,105 @@
+name: release-binaries
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-13
+          - macos-14
+          - windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release daemon
+        run: cargo build --release --locked
+
+      - name: Package release archive (Unix)
+        id: package-unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="$(rustc -vV | awk '/^host: / { print $2 }')"
+          version="${GITHUB_REF_NAME:-manual}"
+          prefix="slipbox-${version}-${target}"
+          mkdir -p "dist/${prefix}"
+          cp target/release/slipbox "dist/${prefix}/"
+          cp LICENSE "dist/${prefix}/"
+          tar -C dist -czf "dist/${prefix}.tar.gz" "${prefix}"
+          echo "archive=dist/${prefix}.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Package release archive (Windows)
+        id: package-windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $target = ((rustc -vV | Select-String '^host: ').ToString().Split()[1])
+          $version = "${{ github.ref_name }}"
+          if ([string]::IsNullOrWhiteSpace($version)) { $version = "manual" }
+          $prefix = "slipbox-$version-$target"
+          New-Item -ItemType Directory -Force -Path "dist/$prefix" | Out-Null
+          Copy-Item "target/release/slipbox.exe" "dist/$prefix/"
+          Copy-Item "LICENSE" "dist/$prefix/"
+          Compress-Archive -Path "dist/$prefix/*" -DestinationPath "dist/$prefix.zip" -Force
+          "archive=dist/$prefix.zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Upload release archive (Unix)
+        if: runner.os != 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ runner.os }}-archive
+          path: ${{ steps.package-unix.outputs.archive }}
+
+      - name: Upload release archive (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ runner.os }}-archive
+          path: ${{ steps.package-windows.outputs.archive }}
+
+  publish:
+    name: publish-release-assets
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download archives
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          find artifacts -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) \
+            -print0 | sort -z | xargs -0 sha256sum > artifacts/sha256sums.txt
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/*.tar.gz
+            artifacts/*.zip
+            artifacts/sha256sums.txt

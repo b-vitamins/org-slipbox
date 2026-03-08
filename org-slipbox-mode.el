@@ -1,4 +1,4 @@
-;;; org-slipbox-mode.el --- Recommended setup mode for org-slipbox -*- lexical-binding: t; -*-
+;;; org-slipbox-mode.el --- Integration mode for org-slipbox -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 org-slipbox contributors
 
@@ -25,7 +25,7 @@
 
 ;;; Commentary:
 
-;; Recommended setup mode for `org-slipbox'.
+;; Integration mode for `org-slipbox'.
 
 ;;; Code:
 
@@ -46,7 +46,7 @@
   "Non-nil when `org-slipbox-mode' enabled completion in this buffer.")
 
 (define-minor-mode org-slipbox-mode
-  "Enable the recommended `org-slipbox' integration surface.
+  "Enable the single-mode `org-slipbox' integration surface.
 
 This explicit global mode turns on the `org-id' bridge,
 incremental autosync, and buffer-local completion in eligible Org
@@ -59,7 +59,7 @@ does not enable any of these behaviors."
     (org-slipbox-mode--disable)))
 
 (defun org-slipbox-mode--enable ()
-  "Enable the recommended org-slipbox integration surface."
+  "Enable the single-mode org-slipbox integration surface."
   (unless org-slipbox-autosync-mode
     (org-slipbox-autosync-mode 1)
     (setq org-slipbox-mode--managed-autosync t))
@@ -71,7 +71,7 @@ does not enable any of these behaviors."
     (org-slipbox-mode--maybe-enable-completion buffer)))
 
 (defun org-slipbox-mode--disable ()
-  "Disable the recommended org-slipbox integration surface."
+  "Disable the single-mode org-slipbox integration surface."
   (remove-hook 'find-file-hook #'org-slipbox-mode--maybe-enable-completion)
   (dolist (buffer (buffer-list))
     (org-slipbox-mode--disable-managed-completion buffer))

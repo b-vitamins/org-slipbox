@@ -12,55 +12,112 @@ state, and presentation.
 The repository is under active development. Work remains under `Unreleased`
 until the project is cut as `v0.1.0`.
 
-## Installation From Source
+## Installation
 
-`org-slipbox` currently ships as one repository containing:
+`org-slipbox` ships as one repository containing:
 
 - the Emacs package
 - the Rust daemon and CLI
 
-Build the daemon first:
+The two parts stay separable:
+
+- the Emacs package lives in the repository root for straightforward ELPA-style loading and simple Emacs package builds
+- the daemon is a normal `slipbox` executable that can live on `PATH` or be pointed to explicitly with `org-slipbox-server-program`
+
+### Install The Daemon
+
+#### Release Binary
+
+Release tags publish platform-specific `slipbox` archives through GitHub
+Actions. Unpack the archive somewhere on `PATH`, or point
+`org-slipbox-server-program` at the unpacked binary.
+
+When `slipbox` is already on `PATH`, the default
+`org-slipbox-server-program` value works as-is and no extra daemon path setting
+is required.
+
+#### Build From Source
+
+The default source build uses bundled SQLite, so no system SQLite development
+package is required:
 
 ```bash
-cargo build --release
+make build
 ```
 
-Then add the repository root to your Emacs `load-path` and require
-`org-slipbox`:
+This is equivalent to:
+
+```bash
+cargo build --release --locked
+```
+
+The `make` target prefers an available C compiler automatically for the bundled
+SQLite build. The raw `cargo` command assumes your environment already exposes
+one.
+
+If you want the built daemon on `PATH`, you can install it directly:
+
+```bash
+make install-daemon
+```
+
+This is equivalent to:
+
+```bash
+cargo install --path . --locked
+```
+
+If you are packaging against a system SQLite instead of the bundled copy, use:
+
+```bash
+make build-system-sqlite
+```
+
+This is equivalent to:
+
+```bash
+cargo build --release --locked --no-default-features --features system-sqlite
+```
+
+To install that variant onto `PATH` directly:
+
+```bash
+make install-daemon-system-sqlite
+```
+
+The `system-sqlite` path expects a discoverable SQLite development
+installation. If your toolchain cannot find it, either expose it through the
+usual compiler and `pkg-config` environment for your platform, or use the
+default bundled build instead.
+
+### Install The Emacs Package
+
+Add the repository root to your Emacs `load-path` and require `org-slipbox`:
 
 ```emacs-lisp
 (add-to-list 'load-path "/path/to/org-slipbox")
 (require 'org-slipbox)
 ```
 
-Point Emacs at the built daemon and your note root:
+### Emacs Setup
+
+If `slipbox` is on `PATH`, the default setup is:
 
 ```emacs-lisp
 (setq org-slipbox-directory (file-truename "~/notes"))
 (setq org-slipbox-database-file
       (expand-file-name "org-slipbox.sqlite" user-emacs-directory))
-(setq org-slipbox-server-program
-      "/path/to/org-slipbox/target/release/slipbox")
-```
-
-## Recommended Setup
-
-The simplest replacement-oriented setup is:
-
-```emacs-lisp
-(add-to-list 'load-path "/path/to/org-slipbox")
-(require 'org-slipbox)
-
-(setq org-slipbox-directory (file-truename "~/notes"))
-(setq org-slipbox-database-file
-      (expand-file-name "org-slipbox.sqlite" user-emacs-directory))
-(setq org-slipbox-server-program
-      "/path/to/org-slipbox/target/release/slipbox")
-
 (org-slipbox-mode 1)
 ```
 
-`org-slipbox-mode` is the recommended top-level integration mode. It enables:
+If you built the daemon in a checkout and are not using `PATH`, also set:
+
+```emacs-lisp
+(setq org-slipbox-server-program
+      "/path/to/org-slipbox/target/release/slipbox")
+```
+
+`org-slipbox-mode` is a single top-level integration mode. It enables:
 
 - `org-slipbox-autosync-mode` for save, rename, delete, and VC-delete index updates
 - `org-slipbox-id-mode` so indexed IDs cooperate with `org-id`
@@ -74,6 +131,12 @@ If you prefer granular control, you can enable the pieces separately:
 - `org-slipbox-autosync-mode`
 - `org-slipbox-id-mode`
 - `org-slipbox-completion-mode`
+
+This upstream layout is intentionally simple for downstream packaging:
+
+- Emacs packaging only needs the root `.el` files.
+- The daemon is a separate executable discovered on `PATH` or through `org-slipbox-server-program`.
+- The default source build works without a system SQLite development package, while packagers can switch to system SQLite explicitly.
 
 ## First Run
 
@@ -192,6 +255,7 @@ relying on anecdotal scale claims.
 ## Development
 
 Use `make test` for the current Rust and Emacs checks.
-The Rust workspace links against a system SQLite installation.
+Use `make build` for the default bundled-SQLite release build.
+Use `make build-system-sqlite` when you want to link against a system SQLite installation.
 Use `make bench-check PROFILE=ci` for the repeatable corpus regression gate.
 Use `make bench PROFILE=release` for the larger local benchmark profile.

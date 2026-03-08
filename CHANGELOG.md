@@ -7,7 +7,9 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 ## [Unreleased]
 
 ### Changed
-- Reworked the README around source installation, recommended setup, first-run workflows, and common org-roam command mapping so adoption no longer depends on tribal knowledge.
+- Reworked the installation story around a clean split between the Emacs package and the `slipbox` daemon, with binary-first and source-build paths described explicitly and without assuming a checkout-local daemon path.
+- Changed the default Rust build to use bundled SQLite while keeping an explicit `system-sqlite` feature for packagers and source builds that want system linkage.
+- Reworked the README around source installation, explicit setup paths, first-run workflows, and common org-roam command mapping so adoption no longer depends on tribal knowledge.
 - Split the Emacs client into focused command modules for nodes, links, capture, metadata, and structural editing.
 - Centralized all JSON-RPC method names in `org-slipbox-rpc.el` and routed client calls through named RPC helpers.
 - Moved metadata edits, subtree refile and extract, and single-file incremental reindexing behind Rust RPCs so the Emacs client only coordinates sync and buffer refresh.
@@ -21,7 +23,10 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Centralized daemon post-write reconciliation and preview-node recovery in `ServerState` so write handlers no longer sequence index sync, deleted-path removal, or rendered preview rescans themselves.
 
 ### Added
-- Added `org-slipbox-mode` as an explicit recommended setup mode that owns autosync, the `org-id` bridge, and buffer-local completion in eligible Org files.
+- Added actionable daemon startup diagnostics in `org-slipbox-rpc.el` so missing or non-executable `slipbox` binaries fail with direct installation guidance.
+- Added `make build` and `make build-system-sqlite` targets for the two supported source-build paths.
+- Added a GitHub Actions release workflow that builds platform `slipbox` binaries, archives them with the GPL license text, and publishes release assets plus checksums.
+- Added `org-slipbox-mode` as an explicit single-mode integration surface that owns autosync, the `org-id` bridge, and buffer-local completion in eligible Org files.
 - Initialized the repository as a combined Rust and Emacs Lisp project.
 - Added architectural guardrails, release policy, and verification conventions.
 - Added a JSON-RPC daemon scaffold and an Emacs client scaffold.
