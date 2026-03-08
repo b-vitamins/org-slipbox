@@ -5,6 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+default = ["bundled-sqlite"]
+bundled-sqlite = ["rusqlite/bundled"]
+system-sqlite = []
+
 [dependencies]
 anyhow.workspace = true
 rusqlite.workspace = true

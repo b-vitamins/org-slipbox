@@ -783,6 +783,7 @@ mod tests {
         let params = CaptureNodeParams {
             title: "Note".to_owned(),
             file_path: None,
+            head: None,
             refs: vec![
                 "cite:smith2024".to_owned(),
                 "@smith2024".to_owned(),

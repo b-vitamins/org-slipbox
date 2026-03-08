@@ -7,6 +7,11 @@ license.workspace = true
 description = "Local-first Org slipbox tooling."
 publish = false
 
+[features]
+default = ["bundled-sqlite"]
+bundled-sqlite = ["slipbox-store/bundled-sqlite"]
+system-sqlite = ["slipbox-store/system-sqlite"]
+
 [workspace]
 members = ["crates/*"]
 resolver = "2"
@@ -36,13 +41,13 @@ serde_json.workspace = true
 slipbox-core = { path = "crates/slipbox-core" }
 slipbox-index = { path = "crates/slipbox-index" }
 slipbox-rpc = { path = "crates/slipbox-rpc" }
-slipbox-store = { path = "crates/slipbox-store" }
+slipbox-store = { path = "crates/slipbox-store", default-features = false }
 slipbox-write = { path = "crates/slipbox-write" }
 tempfile.workspace = true
 
 [dev-dependencies]
 anyhow.workspace = true
 slipbox-index = { path = "crates/slipbox-index" }
-slipbox-store = { path = "crates/slipbox-store" }
+slipbox-store = { path = "crates/slipbox-store", default-features = false }
 slipbox-write = { path = "crates/slipbox-write" }
 tempfile.workspace = true
