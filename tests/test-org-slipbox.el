@@ -1242,10 +1242,152 @@
         (kill-buffer target-buffer))
       (delete-directory root t))))
 
+(ert-deftest org-slipbox-test-capture-unnarrowed-visits-full-buffer ()
+  "`:unnarrowed' should be accepted and leave the visited buffer widened."
+  (let* ((root (make-temp-file "org-slipbox-capture-" t))
+         (org-slipbox-directory root)
+         (target (expand-file-name "notes/note.org" root))
+         target-buffer)
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                     (lambda (_request-method _request-params)
+                       (make-directory (file-name-directory target) t)
+                       (write-region "* Note\n" nil target nil 'silent)
+                       '(:title "Note" :file_path "notes/note.org" :line 1))))
+            (org-slipbox--capture-node-at-time
+             "Note"
+             '("d" "default" entry "* ${title}"
+               :target (file "notes/note.org")
+               :jump-to-captured t
+               :unnarrowed t
+               :immediate-finish t)
+             nil
+             (encode-time 0 0 0 7 3 2026)))
+          (setq target-buffer (get-file-buffer target))
+          (should (buffer-live-p target-buffer))
+          (with-current-buffer target-buffer
+            (should-not (buffer-narrowed-p))))
+      (when (buffer-live-p target-buffer)
+        (kill-buffer target-buffer))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-capture-clock-in-starts-clock-on-captured-node ()
+  "`:clock-in' should start an Org clock on the captured node."
+  (require 'org-clock)
+  (let* ((root (make-temp-file "org-slipbox-capture-" t))
+         (org-slipbox-directory root)
+         (target (expand-file-name "notes/note.org" root))
+         (org-clock-persist nil)
+         (org-log-note-clock-out nil))
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                     (lambda (_request-method _request-params)
+                       (make-directory (file-name-directory target) t)
+                       (write-region "* Note\n" nil target nil 'silent)
+                       '(:title "Note" :file_path "notes/note.org" :line 1))))
+            (org-slipbox--capture-node-at-time
+             "Note"
+             '("d" "default" entry "* ${title}"
+               :target (file "notes/note.org")
+               :clock-in t
+               :immediate-finish t)
+             nil
+             (encode-time 0 0 0 7 3 2026)))
+          (should (org-clocking-p))
+          (should (equal org-clock-heading "Note")))
+      (when (org-clocking-p)
+        (org-clock-out))
+      (when-let ((buffer (get-file-buffer target)))
+        (kill-buffer buffer))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-capture-clock-resume-restores-previous-clock ()
+  "`:clock-resume' should restore the previous clock after capture."
+  (require 'org-clock)
+  (let* ((root (make-temp-file "org-slipbox-capture-" t))
+         (org-slipbox-directory root)
+         (existing-file (expand-file-name "existing.org" root))
+         (target (expand-file-name "notes/note.org" root))
+         (org-clock-persist nil)
+         (org-log-note-clock-out nil)
+         existing-buffer)
+    (unwind-protect
+        (progn
+          (write-region "* Existing\n" nil existing-file nil 'silent)
+          (setq existing-buffer (find-file-noselect existing-file))
+          (with-current-buffer existing-buffer
+            (goto-char (point-min))
+            (org-clock-in))
+          (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                     (lambda (_request-method _request-params)
+                       (make-directory (file-name-directory target) t)
+                       (write-region "* Note\n" nil target nil 'silent)
+                       '(:title "Note" :file_path "notes/note.org" :line 1))))
+            (org-slipbox--capture-node-at-time
+             "Note"
+             '("d" "default" entry "* ${title}"
+               :target (file "notes/note.org")
+               :clock-in t
+               :clock-resume t
+               :immediate-finish t)
+             nil
+             (encode-time 0 0 0 7 3 2026)))
+          (should (org-clocking-p))
+          (should (equal org-clock-heading "Existing")))
+      (when (org-clocking-p)
+        (org-clock-out))
+      (when (buffer-live-p existing-buffer)
+        (kill-buffer existing-buffer))
+      (when-let ((buffer (get-file-buffer target)))
+        (kill-buffer buffer))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-capture-clock-keep-preserves-current-clock ()
+  "`:clock-keep' should leave the current clock running."
+  (require 'org-clock)
+  (let* ((root (make-temp-file "org-slipbox-capture-" t))
+         (org-slipbox-directory root)
+         (existing-file (expand-file-name "existing.org" root))
+         (target (expand-file-name "notes/note.org" root))
+         (org-clock-persist nil)
+         (org-log-note-clock-out nil)
+         existing-buffer)
+    (unwind-protect
+        (progn
+          (write-region "* Existing\n" nil existing-file nil 'silent)
+          (setq existing-buffer (find-file-noselect existing-file))
+          (with-current-buffer existing-buffer
+            (goto-char (point-min))
+            (org-clock-in))
+          (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                     (lambda (_request-method _request-params)
+                       (make-directory (file-name-directory target) t)
+                       (write-region "* Note\n" nil target nil 'silent)
+                       '(:title "Note" :file_path "notes/note.org" :line 1))))
+            (org-slipbox--capture-node-at-time
+             "Note"
+             '("d" "default" entry "* ${title}"
+               :target (file "notes/note.org")
+               :clock-in t
+               :clock-keep t
+               :immediate-finish t)
+             nil
+             (encode-time 0 0 0 7 3 2026)))
+          (should (org-clocking-p))
+          (should (equal org-clock-heading "Existing")))
+      (when (org-clocking-p)
+        (org-clock-out))
+      (when (buffer-live-p existing-buffer)
+        (kill-buffer existing-buffer))
+      (when-let ((buffer (get-file-buffer target)))
+        (kill-buffer buffer))
+      (delete-directory root t))))
+
 (ert-deftest org-slipbox-test-capture-unsupported-lifecycle-option-errors ()
   "Unsupported org-capture lifecycle keys should error clearly."
-  (dolist (key '(:no-save :unnarrowed
-                  :clock-in :clock-resume :clock-keep))
+  (dolist (key '(:no-save))
     (should-error
      (org-slipbox--capture-node
       "Note"

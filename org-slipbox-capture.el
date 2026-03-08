@@ -73,8 +73,7 @@ the lifecycle keys `:finalize', `:jump-to-captured',
 `:immediate-finish', `:prepare-finalize', `:before-finalize', and
 `:after-finalize'. Compatibility keys from `org-capture' that do not
 yet map cleanly onto the draft-based capture model, including
-`:no-save', `:unnarrowed', `:clock-in',
-`:clock-resume', and `:clock-keep', signal a clear user error instead
+`:no-save', signal a clear user error instead
 of being accepted silently. Every capture starts in a transient draft
 buffer unless `:immediate-finish' commits the prepared draft directly,
 and all target writes still go through the Rust RPC layer."
@@ -94,8 +93,7 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
   :group 'org-slipbox)
 
 (defconst org-slipbox--capture-unsupported-lifecycle-keys
-  '(:no-save :unnarrowed
-    :clock-in :clock-resume :clock-keep)
+  '(:no-save)
   "Template lifecycle keys reserved for later capture-parity work.")
 
 (defconst org-slipbox--capture-phase-keys
@@ -122,6 +120,7 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
   initial-content
   target-file
   target-buffer-preexisting-p
+  clock-marker
   caller-session)
 
 (defvar-local org-slipbox-capture--session nil
@@ -336,6 +335,7 @@ REFS, TIME, VARIABLES, and SESSION describe the session state."
      :target-buffer-preexisting-p (and target-file
                                       (org-slipbox--live-file-buffer target-file)
                                       t)
+     :clock-marker (org-slipbox--capture-current-clock-marker)
      :caller-session session)))
 
 (defun org-slipbox--prepare-typed-capture-session
@@ -378,6 +378,7 @@ REFS, TIME, VARIABLES, and SESSION describe the session state."
      :target-buffer-preexisting-p (and target-file
                                       (org-slipbox--live-file-buffer target-file)
                                       t)
+     :clock-marker (org-slipbox--capture-current-clock-marker)
      :caller-session session)))
 
 (defun org-slipbox--capture-shorthand-type (target)
@@ -477,10 +478,17 @@ REFS, TIME, VARIABLES, and SESSION describe the session state."
      (let ((file (or (plist-get target :file_path) "<auto>"))
            (outline-path (plist-get target :outline_path)))
        (if outline-path
-           (format "%s :: %s" file (string-join outline-path " / "))
+         (format "%s :: %s" file (string-join outline-path " / "))
          file)))
     (_
      (format "%S" target))))
+
+(defun org-slipbox--capture-current-clock-marker ()
+  "Return a snapshot marker for the currently active Org clock, or nil."
+  (and (boundp 'org-clock-marker)
+       (markerp org-clock-marker)
+       (marker-buffer org-clock-marker)
+       (copy-marker org-clock-marker)))
 
 (defun org-slipbox--capture-finalize-summary (finalize)
   "Return a human-readable summary for FINALIZE."
@@ -858,6 +866,10 @@ REFS, TIME, VARIABLES, and SESSION describe the session state."
      node)
     (when finalize
       (org-slipbox--capture-call-finalizer finalize node session))
+    (org-slipbox--capture-handle-clock
+     node
+     template-options
+     capture-session)
     (org-slipbox--capture-handle-kill-buffer
      node
      template-options
@@ -873,6 +885,42 @@ REFS, TIME, VARIABLES, and SESSION describe the session state."
                                 (when-let ((file-path (plist-get node :file_path)))
                                   (expand-file-name file-path org-slipbox-directory)))))
       (org-slipbox--kill-live-file-buffer target-file))))
+
+(defun org-slipbox--capture-handle-clock (node template-options capture-session)
+  "Honor clock-related TEMPLATE-OPTIONS for NODE and CAPTURE-SESSION."
+  (let ((clock-marker (and capture-session
+                           (org-slipbox-capture-session-clock-marker capture-session))))
+    (when (and (plist-get template-options :clock-in)
+               (not (plist-get template-options :clock-keep)))
+      (org-slipbox--capture-clock-node node))
+    (cond
+     ((plist-get template-options :clock-keep)
+      (when clock-marker
+        (org-slipbox--capture-resume-clock clock-marker)))
+     ((plist-get template-options :clock-resume)
+      (when clock-marker
+        (org-slipbox--capture-resume-clock clock-marker))))))
+
+(defun org-slipbox--capture-clock-node (node)
+  "Start an Org clock on NODE."
+  (let ((buffer (find-file-noselect
+                 (expand-file-name (plist-get node :file_path) org-slipbox-directory))))
+    (with-current-buffer buffer
+      (goto-char (point-min))
+      (forward-line (1- (plist-get node :line)))
+      (when (derived-mode-p 'org-mode)
+        (ignore-errors (org-back-to-heading t)))
+      (org-clock-in))))
+
+(defun org-slipbox--capture-resume-clock (clock-marker)
+  "Resume the Org clock snapshot at CLOCK-MARKER."
+  (when (and (markerp clock-marker)
+             (marker-buffer clock-marker))
+    (with-current-buffer (marker-buffer clock-marker)
+      (goto-char clock-marker)
+      (when (derived-mode-p 'org-mode)
+        (ignore-errors (org-back-to-heading t)))
+      (org-clock-in))))
 
 (defun org-slipbox--capture-run-phase-functions
     (phase template-options capture-session node)
