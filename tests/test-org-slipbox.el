@@ -704,7 +704,7 @@
                   '(:title "Slip: Sample Title"
                     :capture_type "plain"
                     :content "Body text"
-                    :prepend nil
+                    :prepend :json-false
                     :empty_lines_before 0
                     :empty_lines_after 0
                     :file_path "notes/2026-sample-title.org"))))
@@ -743,7 +743,7 @@
                   '(:title "Meeting"
                     :capture_type "entry"
                     :content "Discuss roadmap"
-                    :prepend nil
+                    :prepend :json-false
                     :empty_lines_before 0
                     :empty_lines_after 0
                     :file_path "daily/2026-03-07.org"
@@ -944,7 +944,7 @@
               '(:title "Note"
                 :capture_type "plain"
                 :content "Note"
-                :prepend nil
+                :prepend :json-false
                 :empty_lines_before 0
                 :empty_lines_after 0
                 :file_path "notes/note.org"))))))
@@ -1059,7 +1059,7 @@
                   '(:title "Note"
                     :capture_type "table-line"
                     :content "| Note |"
-                    :prepend nil
+                    :prepend :json-false
                     :empty_lines_before 0
                     :empty_lines_after 0
                     :table_line_pos "I+1"
@@ -1104,7 +1104,7 @@
                   '(:title "Follow up"
                     :capture_type "item"
                     :content "Follow up"
-                    :prepend nil
+                    :prepend :json-false
                     :empty_lines_before 0
                     :empty_lines_after 0
                     :node_key "heading:project.org:3"))))
@@ -1812,6 +1812,18 @@
     (should (equal method "slipbox/nodeFromTitleOrAlias"))
     (should (equal params '(:title_or_alias "batman" :nocase t)))))
 
+(ert-deftest org-slipbox-test-node-from-title-or-alias-encodes-false-nocase ()
+  "Exact title lookup should encode false JSON booleans explicitly."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 nil)))
+      (org-slipbox-node-from-title-or-alias "batman"))
+    (should (equal method "slipbox/nodeFromTitleOrAlias"))
+    (should (equal params '(:title_or_alias "batman" :nocase :json-false)))))
+
 (ert-deftest org-slipbox-test-node-random-uses-rpc ()
   "Random node selection should use the dedicated RPC."
   (let (method params visited)
@@ -2063,7 +2075,7 @@
             (org-slipbox-graph-write-file 2 '(:node_key "file:alpha.org") output))
           (should (equal (plist-get rpc-params :root_node_key) "file:alpha.org"))
           (should (equal (plist-get rpc-params :max_distance) 2))
-          (should-not (plist-get rpc-params :include_orphans))
+          (should (eq (plist-get rpc-params :include_orphans) :json-false))
           (should (equal (car dot-command) "dot"))
           (with-temp-buffer
             (insert-file-contents output)
@@ -3031,7 +3043,7 @@
                   '(:title "Meeting"
                     :capture_type "entry"
                     :content "Agenda review"
-                    :prepend nil
+                    :prepend :json-false
                     :empty_lines_before 0
                     :empty_lines_after 0
                     :file_path "daily/2026-03-07.org"

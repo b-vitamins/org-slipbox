@@ -88,6 +88,10 @@ resolves it through `exec-path'."
 (defconst org-slipbox-rpc-method-promote-entire-file "slipbox/promoteEntireFile")
 (defconst org-slipbox-rpc-method-demote-entire-file "slipbox/demoteEntireFile")
 
+(defun org-slipbox-rpc--bool (value)
+  "Return VALUE encoded as an explicit JSON boolean."
+  (if value t :json-false))
+
 (defun org-slipbox-rpc-live-p ()
   "Return non-nil when the org-slipbox JSON-RPC process is live."
   (and org-slipbox--connection
@@ -230,7 +234,7 @@ resolves it through `exec-path'."
 When NOCASE is non-nil, use case-insensitive matching."
   (org-slipbox-rpc-request
    org-slipbox-rpc-method-node-from-title-or-alias
-   `(:title_or_alias ,title-or-alias :nocase ,(and nocase t))))
+   `(:title_or_alias ,title-or-alias :nocase ,(org-slipbox-rpc--bool nocase))))
 
 (defun org-slipbox-rpc-node-from-ref (reference)
   "Resolve a node by REFERENCE."
@@ -250,7 +254,8 @@ When UNIQUE is non-nil, only return the first backlink occurrence
 per source node."
   (org-slipbox-rpc-request
    org-slipbox-rpc-method-backlinks
-   `(:node_key ,node-key :limit ,(or limit 200) :unique ,(and unique t))))
+   `(:node_key ,node-key :limit ,(or limit 200)
+               :unique ,(org-slipbox-rpc--bool unique))))
 
 (defun org-slipbox-rpc-agenda (start end)
   "Return indexed agenda entries between START and END."

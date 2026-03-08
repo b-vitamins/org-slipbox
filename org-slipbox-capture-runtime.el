@@ -189,7 +189,7 @@ assign an explicit Org ID."
            :capture_type
            (symbol-name (org-slipbox-capture-session-capture-type capture-session))
            :content content
-           :prepend (and (plist-get template-options :prepend) t)
+           :prepend (org-slipbox-rpc--bool (plist-get template-options :prepend))
            :empty_lines_before (plist-get empty-lines :before)
            :empty_lines_after (plist-get empty-lines :after))
      (when-let ((table-line-pos (plist-get template-options :table-line-pos)))
