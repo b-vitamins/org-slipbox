@@ -90,6 +90,31 @@ installation. If your toolchain cannot find it, either expose it through the
 usual compiler and `pkg-config` environment for your platform, or use the
 default bundled build instead.
 
+### Guix Development Shell
+
+The repository includes [manifest.scm](/home/b/projects/org-slipbox/manifest.scm)
+for contributors who want a one-command development environment:
+
+```bash
+guix shell -m manifest.scm
+```
+
+The Makefile also exposes matching convenience targets:
+
+```bash
+make guix-build
+make guix-build-system-sqlite
+make guix-test
+make guix-lint-rust
+make guix-bench-check
+```
+
+These are convenience wrappers only. The normal source-build and binary-first
+paths above remain the primary upstream interfaces.
+
+The Guix shell also includes `emacs-org-roam`, so packaged comparison runs can
+use the same shell instead of relying on ad hoc local installs.
+
 ### Install The Emacs Package
 
 Add the repository root to your Emacs `load-path` and require `org-slipbox`:

@@ -23,6 +23,7 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Centralized daemon post-write reconciliation and preview-node recovery in `ServerState` so write handlers no longer sequence index sync, deleted-path removal, or rendered preview rescans themselves.
 
 ### Added
+- Added an optional `manifest.scm` plus `make guix-*` convenience targets so contributors can enter a complete Guix development shell, including packaged `emacs-org-roam` for reproducible comparison runs, without changing the normal source-build or release-binary paths.
 - Added actionable daemon startup diagnostics in `org-slipbox-rpc.el` so missing or non-executable `slipbox` binaries fail with direct installation guidance.
 - Added `make build` and `make build-system-sqlite` targets for the two supported source-build paths.
 - Added a GitHub Actions release workflow that builds platform `slipbox` binaries, archives them with the GPL license text, and publishes release assets plus checksums.
