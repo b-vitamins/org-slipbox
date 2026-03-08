@@ -2,9 +2,9 @@
 
 ;; Copyright (C) 2026 org-slipbox contributors
 
-;; Author: org-slipbox contributors <maintainers@example.invalid>
-;; Maintainer: org-slipbox contributors <maintainers@example.invalid>
-;; Version: 0.0.0
+;; Author: Ayan Das <bvits@riseup.net>
+;; Maintainer: Ayan Das <bvits@riseup.net>
+;; Version: 0.1.0
 ;; Package-Requires: ((emacs "29.1") (jsonrpc "1.0.27"))
 ;; Keywords: outlines, files, convenience
 

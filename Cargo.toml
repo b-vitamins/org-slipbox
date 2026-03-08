@@ -1,10 +1,11 @@
 [package]
 name = "slipbox"
+authors.workspace = true
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Local-first Org slipbox tooling."
+description = "Local-first Org slipbox and Zettelkasten tooling."
 publish = false
 
 [features]
@@ -17,7 +18,8 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.package]
-version = "0.0.0"
+authors = ["Ayan Das <bvits@riseup.net>"]
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 license = "GPL-3.0-or-later"

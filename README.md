@@ -1,16 +1,28 @@
 # org-slipbox
 
-`org-slipbox` is a local-first Org knowledge engine with an Emacs front-end.
+## What It Is
 
-It keeps parsing, indexing, ranking, and structural writes outside Emacs Lisp
-while preserving Org files as the source of truth. The Rust side owns the
-derived index and JSON-RPC protocol; the Elisp side owns commands, session
-state, and presentation.
+`org-slipbox` is an Emacs package and local daemon for keeping a slipbox, the
+literal English translation of Zettelkasten, in plain Org files.
+
+It treats Org files as the source of truth and uses a derived SQLite index for
+interactive search, backlinks, refs, agenda queries, and structural edits. The
+Rust side owns indexing, ranking, query execution, and file mutation. The
+Emacs Lisp side owns commands, session state, and presentation.
 
 ## Status
 
-The repository is under active development. Work remains under `Unreleased`
-until the project is cut as `v0.1.0`.
+This repository currently reflects the `0.1.0` release candidate.
+
+The documented workflow surface is intended to be complete enough for
+day-to-day replacement use. No release tag has been cut yet.
+
+## Requirements
+
+- Emacs `29.1` or newer
+- a `slipbox` daemon binary, either from a release archive or a local source build
+- Graphviz only if you use the optional graph commands
+- `org-protocol` only if you use the optional protocol handlers
 
 ## Installation
 
@@ -28,7 +40,7 @@ The two parts stay separable:
 
 #### Release Binary
 
-Release tags publish platform-specific `slipbox` archives through GitHub
+Tagged releases publish platform-specific `slipbox` archives through GitHub
 Actions. Unpack the archive somewhere on `PATH`, or point
 `org-slipbox-server-program` at the unpacked binary.
 
