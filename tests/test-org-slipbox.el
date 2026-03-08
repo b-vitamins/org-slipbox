@@ -1175,9 +1175,76 @@
         (kill-buffer target-buffer))
       (delete-directory root t))))
 
+(ert-deftest org-slipbox-test-capture-kill-buffer-closes-target-opened-by-finalize ()
+  "`:kill-buffer' should close target buffers that were not open before capture."
+  (let* ((root (make-temp-file "org-slipbox-capture-" t))
+         (org-slipbox-directory root)
+         opened-buffer)
+    (unwind-protect
+        (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                   (lambda (_request-method request-params)
+                     (let ((target (expand-file-name
+                                    (plist-get request-params :file_path)
+                                    root)))
+                       (make-directory (file-name-directory target) t)
+                       (write-region "#+title: Note\n" nil target nil 'silent))
+                     '(:title "Note" :file_path "notes/note.org" :line 1)))
+                  ((symbol-function 'org-slipbox--visit-node)
+                   (lambda (node &optional _other-window)
+                     (setq opened-buffer
+                           (find-file-noselect
+                            (expand-file-name (plist-get node :file_path) root))))))
+          (org-slipbox--capture-node-at-time
+           "Note"
+           '("d" "default" plain "${title}"
+             :target (file "notes/note.org")
+             :jump-to-captured t
+             :kill-buffer t
+             :immediate-finish t)
+           nil
+           (encode-time 0 0 0 7 3 2026))
+          (should opened-buffer)
+          (should-not (buffer-live-p opened-buffer)))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-capture-kill-buffer-preserves-preexisting-target-buffer ()
+  "`:kill-buffer' should not close target buffers that were already open."
+  (let* ((root (make-temp-file "org-slipbox-capture-" t))
+         (org-slipbox-directory root)
+         (target (expand-file-name "notes/note.org" root))
+         target-buffer
+         visited)
+    (unwind-protect
+        (progn
+          (make-directory (file-name-directory target) t)
+          (write-region "#+title: Note\n" nil target nil 'silent)
+          (setq target-buffer (find-file-noselect target))
+          (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                     (lambda (_request-method _request-params)
+                       '(:title "Note" :file_path "notes/note.org" :line 1)))
+                    ((symbol-function 'org-slipbox--visit-node)
+                     (lambda (node &optional _other-window)
+                       (setq visited node)
+                       (find-file-noselect
+                        (expand-file-name (plist-get node :file_path) root)))))
+            (org-slipbox--capture-node-at-time
+             "Note"
+             '("d" "default" plain "${title}"
+               :target (file "notes/note.org")
+               :jump-to-captured t
+               :kill-buffer t
+               :immediate-finish t)
+             nil
+             (encode-time 0 0 0 7 3 2026)))
+          (should visited)
+          (should (buffer-live-p target-buffer)))
+      (when (buffer-live-p target-buffer)
+        (kill-buffer target-buffer))
+      (delete-directory root t))))
+
 (ert-deftest org-slipbox-test-capture-unsupported-lifecycle-option-errors ()
   "Unsupported org-capture lifecycle keys should error clearly."
-  (dolist (key '(:kill-buffer :no-save :unnarrowed
+  (dolist (key '(:no-save :unnarrowed
                   :clock-in :clock-resume :clock-keep))
     (should-error
      (org-slipbox--capture-node

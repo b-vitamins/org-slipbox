@@ -37,6 +37,7 @@ The Rust workspace links against a system SQLite installation.
 - Coordinate capture with live target note buffers by saving/reindexing them before Rust-backed writes and refreshing them afterward.
 - Support org-roam-style typed capture templates with `entry`, `plain`, `item`, `checkitem`, and `table-line` content, including explicit `:table-line-pos` placement.
 - Honor capture lifecycle actions such as `:finalize`, `:jump-to-captured`, `:immediate-finish`, and template finalize handlers, while rejecting unsupported lifecycle keys explicitly.
+- Honor capture buffer-lifecycle behavior such as `:kill-buffer`, without closing note buffers that were already open before capture started.
 - Capture into datetree targets and existing indexed nodes through the shared Rust write pipeline.
 - Display a persistent or dedicated context buffer for the current node with configurable ordered sections, postrender hooks, unique-backlink variants, and dedicated-buffer reference discovery sections.
 - Complete and follow title-based org-slipbox links, with optional rewrite to stable `id:` links.

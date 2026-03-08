@@ -73,7 +73,7 @@ the lifecycle keys `:finalize', `:jump-to-captured',
 `:immediate-finish', `:prepare-finalize', `:before-finalize', and
 `:after-finalize'. Compatibility keys from `org-capture' that do not
 yet map cleanly onto the draft-based capture model, including
-`:kill-buffer', `:no-save', `:unnarrowed', `:clock-in',
+`:no-save', `:unnarrowed', `:clock-in',
 `:clock-resume', and `:clock-keep', signal a clear user error instead
 of being accepted silently. Every capture starts in a transient draft
 buffer unless `:immediate-finish' commits the prepared draft directly,
@@ -94,7 +94,7 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
   :group 'org-slipbox)
 
 (defconst org-slipbox--capture-unsupported-lifecycle-keys
-  '(:kill-buffer :no-save :unnarrowed
+  '(:no-save :unnarrowed
     :clock-in :clock-resume :clock-keep)
   "Template lifecycle keys reserved for later capture-parity work.")
 
@@ -858,7 +858,21 @@ REFS, TIME, VARIABLES, and SESSION describe the session state."
      node)
     (when finalize
       (org-slipbox--capture-call-finalizer finalize node session))
+    (org-slipbox--capture-handle-kill-buffer
+     node
+     template-options
+     capture-session)
     node))
+
+(defun org-slipbox--capture-handle-kill-buffer (node template-options capture-session)
+  "Honor `:kill-buffer' for NODE from TEMPLATE-OPTIONS and CAPTURE-SESSION."
+  (when (and capture-session
+             (plist-get template-options :kill-buffer)
+             (not (org-slipbox-capture-session-target-buffer-preexisting-p capture-session)))
+    (when-let ((target-file (or (org-slipbox-capture-session-target-file capture-session)
+                                (when-let ((file-path (plist-get node :file_path)))
+                                  (expand-file-name file-path org-slipbox-directory)))))
+      (org-slipbox--kill-live-file-buffer target-file))))
 
 (defun org-slipbox--capture-run-phase-functions
     (phase template-options capture-session node)
