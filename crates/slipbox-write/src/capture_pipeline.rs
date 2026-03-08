@@ -5,7 +5,7 @@ use anyhow::{Context, Result, bail};
 use slipbox_core::{CaptureContentType, CaptureTemplateParams, NodeKind, NodeRecord};
 use uuid::Uuid;
 
-use crate::capture::{capture_entry, capture_list_item, capture_plain, capture_table_line};
+use crate::capture_content::{capture_entry, capture_list_item, capture_plain, capture_table_line};
 use crate::document::OrgDocument;
 use crate::path::{
     default_capture_file_title, next_available_path, normalize_relative_org_path,

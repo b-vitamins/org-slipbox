@@ -1,4 +1,6 @@
 mod capture;
+mod capture_content;
+mod capture_note;
 mod capture_pipeline;
 mod document;
 mod metadata;
