@@ -120,6 +120,8 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
   draft-kind
   capture-type
   initial-content
+  target-file
+  target-buffer-preexisting-p
   caller-session)
 
 (defvar-local org-slipbox-capture--session nil
@@ -316,7 +318,8 @@ REFS, TIME, VARIABLES, and SESSION describe the session state."
                   template-options
                   title
                   time
-                  variables)))
+                  variables))
+         (target-file (org-slipbox--capture-target-file target)))
     (org-slipbox--make-capture-session
      :title title
      :capture-title capture-title
@@ -329,6 +332,10 @@ REFS, TIME, VARIABLES, and SESSION describe the session state."
      :draft-kind 'shorthand
      :capture-type (org-slipbox--capture-shorthand-type target)
      :initial-content ""
+     :target-file target-file
+     :target-buffer-preexisting-p (and target-file
+                                      (org-slipbox--live-file-buffer target-file)
+                                      t)
      :caller-session session)))
 
 (defun org-slipbox--prepare-typed-capture-session
@@ -347,6 +354,7 @@ REFS, TIME, VARIABLES, and SESSION describe the session state."
                   capture-title
                   time
                   variables))
+         (target-file (org-slipbox--capture-target-file target))
          (capture-type (org-slipbox--capture-template-type template))
          (content (org-slipbox--render-capture-body
                    (nth 3 template)
@@ -366,6 +374,10 @@ REFS, TIME, VARIABLES, and SESSION describe the session state."
      :draft-kind 'typed
      :capture-type capture-type
      :initial-content content
+     :target-file target-file
+     :target-buffer-preexisting-p (and target-file
+                                      (org-slipbox--live-file-buffer target-file)
+                                      t)
      :caller-session session)))
 
 (defun org-slipbox--capture-shorthand-type (target)
@@ -491,32 +503,34 @@ REFS, TIME, VARIABLES, and SESSION describe the session state."
   (let* ((capture-session org-slipbox-capture--session)
          (template-options (org-slipbox-capture-session-template-options capture-session))
          (caller-session (org-slipbox-capture-session-caller-session capture-session))
-         (node (org-slipbox--capture-commit-session
-                capture-session
-                (progn
-                  (org-slipbox--capture-run-phase-functions
-                   :prepare-finalize
-                   template-options
-                   capture-session
-                   nil)
-                  (buffer-substring-no-properties org-slipbox--capture-body-start
-                                                  (point-max)))))
          (buffer (current-buffer)))
-    (unwind-protect
-        (progn
-          (org-slipbox--capture-run-phase-functions
-           :before-finalize
-           template-options
-           capture-session
-           node)
-          (org-slipbox--capture-kill-buffer buffer)
-          (org-slipbox--capture-run-lifecycle-with-session
-           node
-           template-options
-           caller-session
-           capture-session))
-      (org-slipbox--capture-cleanup-session caller-session))
-    node))
+    (org-slipbox--capture-preflight-target-buffer capture-session)
+    (let ((node (org-slipbox--capture-commit-session
+                 capture-session
+                 (progn
+                   (org-slipbox--capture-run-phase-functions
+                    :prepare-finalize
+                    template-options
+                    capture-session
+                    nil)
+                   (buffer-substring-no-properties org-slipbox--capture-body-start
+                                                   (point-max))))))
+      (unwind-protect
+          (progn
+            (org-slipbox--capture-refresh-target-buffer capture-session node)
+            (org-slipbox--capture-run-phase-functions
+             :before-finalize
+             template-options
+             capture-session
+             node)
+            (org-slipbox--capture-kill-buffer buffer)
+            (org-slipbox--capture-run-lifecycle-with-session
+             node
+             template-options
+             caller-session
+             capture-session))
+        (org-slipbox--capture-cleanup-session caller-session))
+      node)))
 
 ;;;###autoload
 (defun org-slipbox-capture-abort ()
@@ -576,6 +590,23 @@ REFS, TIME, VARIABLES, and SESSION describe the session state."
        (list :refs refs))
      (org-slipbox--capture-target-params target))))
 
+(defun org-slipbox--capture-target-file (target)
+  "Return an absolute file path for TARGET when one is known."
+  (when-let ((file-path (plist-get target :file_path)))
+    (expand-file-name file-path org-slipbox-directory)))
+
+(defun org-slipbox--capture-preflight-target-buffer (capture-session)
+  "Save and sync live target buffers for CAPTURE-SESSION before writing."
+  (when-let ((target-file (org-slipbox-capture-session-target-file capture-session)))
+    (org-slipbox--sync-live-file-buffer-if-needed target-file)))
+
+(defun org-slipbox--capture-refresh-target-buffer (capture-session node)
+  "Refresh any live target buffer for CAPTURE-SESSION after writing NODE."
+  (when-let ((target-file (or (org-slipbox-capture-session-target-file capture-session)
+                              (when-let ((file-path (plist-get node :file_path)))
+                                (expand-file-name file-path org-slipbox-directory)))))
+    (org-slipbox--refresh-live-file-buffer target-file)))
+
 (defun org-slipbox--capture-target-params (target)
   "Return generic capture RPC params for TARGET."
   (pcase (plist-get target :kind)
@@ -632,7 +663,9 @@ REFS, TIME, VARIABLES, and SESSION describe the session state."
         (`(node ,query)
          (let ((node (org-slipbox--resolve-capture-target-node
                       (org-slipbox--expand-capture-template query title time variables))))
-           `(:kind node :node_key ,(plist-get node :node_key))))
+           `(:kind node
+             :node_key ,(plist-get node :node_key)
+             :file_path ,(plist-get node :file_path))))
         (_
          (user-error "Unsupported capture target %S" target))))
      ((plist-get template-options :path)

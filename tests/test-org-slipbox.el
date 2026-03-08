@@ -1052,6 +1052,129 @@
         (kill-buffer buffer))
       (delete-directory root t))))
 
+(ert-deftest org-slipbox-test-capture-finalize-syncs-and-refreshes-live-file-target ()
+  "Finalizing capture should save and refresh an open file target buffer."
+  (let* ((root (make-temp-file "org-slipbox-capture-" t))
+         (org-slipbox-directory root)
+         (target (expand-file-name "notes/note.org" root))
+         draft
+         target-buffer
+         requests)
+    (unwind-protect
+        (progn
+          (make-directory (file-name-directory target) t)
+          (write-region "#+title: Note\n" nil target nil 'silent)
+          (setq target-buffer (find-file-noselect target))
+          (with-current-buffer target-buffer
+            (goto-char (point-max))
+            (insert "Local edits\n"))
+          (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+                     (lambda (request-method request-params)
+                       (push (list request-method request-params) requests)
+                       (pcase request-method
+                         ("slipbox/indexFile"
+                          '(:files_indexed 1 :nodes_indexed 1 :links_indexed 0))
+                         ("slipbox/captureTemplate"
+                          (with-temp-buffer
+                            (insert-file-contents target)
+                            (should (string-match-p "Local edits" (buffer-string))))
+                          (write-region
+                           (concat "#+title: Note\nLocal edits\n"
+                                   (plist-get request-params :content)
+                                   "\n")
+                           nil target nil 'silent)
+                          '(:title "Note" :file_path "notes/note.org" :line 1))
+                         (_
+                          (ert-fail
+                           (format "unexpected rpc method %s" request-method)))))))
+            (setq draft
+                  (org-slipbox--capture-node-at-time
+                   "Note"
+                   '("d" "default" plain "${title}"
+                     :target (file "notes/note.org"))
+                   nil
+                   (encode-time 0 0 0 7 3 2026)))
+            (with-current-buffer draft
+              (goto-char (point-max))
+              (insert "Captured body")
+              (org-slipbox-capture-finalize)))
+          (should-not (buffer-live-p draft))
+          (should (equal (mapcar #'car (nreverse requests))
+                         '("slipbox/indexFile" "slipbox/captureTemplate")))
+          (with-current-buffer target-buffer
+            (should-not (buffer-modified-p))
+            (should (string-match-p "Local edits" (buffer-string)))
+            (should (string-match-p "Captured body" (buffer-string)))))
+      (when (buffer-live-p draft)
+        (kill-buffer draft))
+      (when (buffer-live-p target-buffer)
+        (kill-buffer target-buffer))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-capture-finalize-syncs-and-refreshes-live-node-target ()
+  "Finalizing capture should save and refresh an open node target buffer."
+  (let* ((root (make-temp-file "org-slipbox-capture-" t))
+         (org-slipbox-directory root)
+         (target (expand-file-name "project.org" root))
+         draft
+         target-buffer
+         requests)
+    (unwind-protect
+        (progn
+          (write-region "* Parent\n" nil target nil 'silent)
+          (setq target-buffer (find-file-noselect target))
+          (with-current-buffer target-buffer
+            (goto-char (point-max))
+            (insert "Local project edits\n"))
+          (cl-letf (((symbol-function 'org-slipbox-node-from-id)
+                     (lambda (_id) nil))
+                    ((symbol-function 'org-slipbox-node-from-title-or-alias)
+                     (lambda (_query _nocase)
+                       '(:node_key "heading:project.org:1"
+                         :title "Parent"
+                         :file_path "project.org"
+                         :line 1)))
+                    ((symbol-function 'org-slipbox-rpc-request)
+                     (lambda (request-method request-params)
+                       (push (list request-method request-params) requests)
+                       (pcase request-method
+                         ("slipbox/indexFile"
+                          '(:files_indexed 1 :nodes_indexed 1 :links_indexed 0))
+                         ("slipbox/captureTemplate"
+                          (with-temp-buffer
+                            (insert-file-contents target)
+                            (should (string-match-p "Local project edits" (buffer-string))))
+                          (write-region
+                           (concat "* Parent\nLocal project edits\n"
+                                   (plist-get request-params :content)
+                                   "\n")
+                           nil target nil 'silent)
+                          '(:title "Parent" :file_path "project.org" :line 1))
+                         (_
+                          (ert-fail
+                           (format "unexpected rpc method %s" request-method)))))))
+            (setq draft
+                  (org-slipbox--capture-node-at-time
+                   "Child"
+                   '("n" "node item" item "${title}"
+                     :target (node "Parent"))
+                   nil
+                   (encode-time 0 0 0 7 3 2026)))
+            (with-current-buffer draft
+              (org-slipbox-capture-finalize)))
+          (should-not (buffer-live-p draft))
+          (should (equal (mapcar #'car (nreverse requests))
+                         '("slipbox/indexFile" "slipbox/captureTemplate")))
+          (with-current-buffer target-buffer
+            (should-not (buffer-modified-p))
+            (should (string-match-p "Local project edits" (buffer-string)))
+            (should (string-match-p "Child" (buffer-string)))))
+      (when (buffer-live-p draft)
+        (kill-buffer draft))
+      (when (buffer-live-p target-buffer)
+        (kill-buffer target-buffer))
+      (delete-directory root t))))
+
 (ert-deftest org-slipbox-test-capture-unsupported-lifecycle-option-errors ()
   "Unsupported org-capture lifecycle keys should error clearly."
   (dolist (key '(:kill-buffer :no-save :unnarrowed
