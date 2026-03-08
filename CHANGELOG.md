@@ -7,6 +7,7 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 ## [Unreleased]
 
 ### Changed
+- Expanded the README into a more manual-like guide for the current-node buffer, metadata and ref workflows, CAPF-based completion, and encrypted/discovery expectations, including explicit notes on intentional divergences from org-roam.
 - Reworked the installation story around a clean split between the Emacs package and the `slipbox` daemon, with binary-first and source-build paths described explicitly and without assuming a checkout-local daemon path.
 - Changed the default Rust build to use bundled SQLite while keeping an explicit `system-sqlite` feature for packagers and source builds that want system linkage.
 - Reworked the README around source installation, explicit setup paths, first-run workflows, and common org-roam command mapping so adoption no longer depends on tribal knowledge.

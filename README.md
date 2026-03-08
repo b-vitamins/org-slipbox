@@ -196,19 +196,106 @@ File nodes and heading nodes are both first-class. Explicit IDs remain the
 stable identity surface, but `org-slipbox` also supports lazy ID assignment when
 you turn an existing note into a stable link target.
 
+## Current-Node Buffer
+
+`org-slipbox` provides the same two buffer entry points that `org-roam` users
+expect:
+
+- `org-slipbox-buffer-toggle` opens a persistent buffer that tracks the node at point
+- `org-slipbox-buffer-display-dedicated` opens a dedicated buffer for one node without replacing it as point moves
+
+The persistent buffer keeps the cheap indexed sections on the hot path. By
+default, grep-backed discovery sections such as reflinks and unlinked
+references render only in dedicated buffers, where their cost is explicit.
+
+The buffer surface is configurable:
+
+```emacs-lisp
+(setq org-slipbox-buffer-sections
+      '((org-slipbox-buffer-backlinks-section :unique t)
+        org-slipbox-buffer-refs-section
+        org-slipbox-buffer-reflinks-section))
+
+(setq org-slipbox-buffer-expensive-sections 'dedicated)
+```
+
+Section functions may also take keyword arguments, and the overall buffer render
+can be shaped with:
+
+- `org-slipbox-buffer-section-filter-function`
+- `org-slipbox-buffer-postrender-functions`
+- `org-slipbox-buffer-expensive-sections`
+
+Entries in the buffer are ordinary buttons that visit the source node or the
+exact match location. This is an intentional divergence from `org-roam`:
+`org-slipbox` preserves the workflow surface without depending on
+`magit-section`, which keeps the persistent path simpler and cheaper.
+
+## Node Metadata, Refs, And Citations
+
+File-node titles come from `#+title`; heading-node titles come from the heading
+text. Aliases, tags, refs, and planning metadata are indexed and available to
+search, completion, and the context buffer.
+
+- Add or remove aliases with `org-slipbox-alias-add` and `org-slipbox-alias-remove`
+- Add or remove tags with `org-slipbox-tag-add` and `org-slipbox-tag-remove`
+- Add or remove refs with `org-slipbox-ref-add` and `org-slipbox-ref-remove`
+- Find canonical ref-backed nodes with `org-slipbox-ref-find`
+
+`ROAM_REFS` may contain URLs, citation keys, or multiple refs for a single
+note. `org-slipbox` normalizes both Org-cite forms like `[cite:@key]` and
+org-ref forms like `cite:key` into the same indexed ref surface, so citation
+backlinks appear through the same reflink workflows instead of requiring a
+separate code path.
+
+File tags come from standard Org file-tag behavior, including `#+filetags`.
+Heading tags are ordinary Org tags.
+
 ## Links And Completion
 
 Graph edges are built from `id:` links. `org-slipbox` also supports title-based
 `slipbox:` links as a writing convenience.
 
-When `org-slipbox-mode` is enabled, completion is active in eligible Org files:
+When `org-slipbox-mode` is enabled, completion is active in eligible Org files.
+You can also enable `org-slipbox-completion-mode` directly if you prefer the
+granular setup path.
+
+`org-slipbox` installs completion through `completion-at-point`, so the normal
+Emacs completion stack applies:
 
 - inside Org bracket links, completion inserts `slipbox:Title` links
 - set `org-slipbox-completion-everywhere` to non-nil to complete outside links too
 - set `org-slipbox-link-auto-replace` to non-nil if you want `slipbox:` links rewritten to stable `id:` links on save
+- completion respects your configured `completion-styles`
+- Corfu, Vertico, Company via `company-capf`, and other CAPF front-ends work through the same surface
 
 The node chooser behind `org-slipbox-node-read` supports configurable display
 templates, annotation hooks, and sorting/filtering hooks.
+
+## Encrypted Files And Discovery
+
+Encrypted Org files are part of the normal discovery story. Files ending in
+`.org.gpg` or `.org.age` are eligible whenever their base extension matches the
+configured discovery policy.
+
+Capture templates can target encrypted notes directly:
+
+```emacs-lisp
+(setq org-slipbox-capture-templates
+      '(("d" "default" plain "${body}"
+         :target (file+head "notes/${slug}.org.gpg"
+                            "#+title: ${title}\n"))))
+```
+
+The discovery policy is shared across indexing, autosync, dailies, and
+grep-backed discovery sections through:
+
+- `org-slipbox-file-extensions`
+- `org-slipbox-file-exclude-regexp`
+
+One important expectation is the same as in `org-roam`: the SQLite database
+stores indexed metadata in plain text. Encrypt the database separately if that
+metadata is sensitive.
 
 ## If You Use org-roam Today
 
