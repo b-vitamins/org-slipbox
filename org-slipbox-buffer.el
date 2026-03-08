@@ -102,6 +102,14 @@ Return non-nil to render the section, or nil to skip it."
 (define-derived-mode org-slipbox-buffer-mode special-mode "org-slipbox"
   "Major mode for org-slipbox context buffers.")
 
+(define-minor-mode org-slipbox-buffer-persistent-mode
+  "Keep the persistent org-slipbox context buffer synchronized with point."
+  :global t
+  :group 'org-slipbox
+  (if org-slipbox-buffer-persistent-mode
+      (add-hook 'post-command-hook #'org-slipbox-buffer--redisplay-h)
+    (remove-hook 'post-command-hook #'org-slipbox-buffer--redisplay-h)))
+
 ;;;###autoload
 (defun org-slipbox-buffer-refresh ()
   "Refresh the current org-slipbox context buffer."
@@ -129,10 +137,10 @@ Return non-nil to render the section, or nil to skip it."
   (if (get-buffer-window org-slipbox-buffer 'visible)
       (progn
         (quit-window nil (get-buffer-window org-slipbox-buffer))
-        (remove-hook 'post-command-hook #'org-slipbox-buffer--redisplay-h))
+        (org-slipbox-buffer-persistent-mode -1))
     (display-buffer (get-buffer-create org-slipbox-buffer))
     (org-slipbox-buffer-persistent-redisplay)
-    (add-hook 'post-command-hook #'org-slipbox-buffer--redisplay-h)))
+    (org-slipbox-buffer-persistent-mode 1)))
 
 (defun org-slipbox-buffer-persistent-redisplay ()
   "Refresh the persistent org-slipbox context buffer from point."
@@ -190,7 +198,7 @@ Return non-nil to render the section, or nil to skip it."
 (defun org-slipbox-buffer--persistent-cleanup-h ()
   "Clean up persistent buffer global state."
   (when (string= (buffer-name) org-slipbox-buffer)
-    (remove-hook 'post-command-hook #'org-slipbox-buffer--redisplay-h)))
+    (org-slipbox-buffer-persistent-mode -1)))
 
 (defun org-slipbox-buffer--dedicated-name (node)
   "Return a dedicated context buffer name for NODE."

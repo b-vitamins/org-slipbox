@@ -47,6 +47,7 @@
   (should-not (advice-member-p #'org-slipbox--autosync-vc-delete-file-a 'vc-delete-file))
   (should-not (advice-member-p #'org-slipbox-id-find 'org-id-find))
   (should-not (memq #'org-slipbox-buffer--redisplay-h post-command-hook))
+  (should-not org-slipbox-buffer-persistent-mode)
   (should-not (memq #'org-slipbox-dailies-calendar-mark-entries
                     calendar-today-visible-hook))
   (should-not (memq #'org-slipbox-dailies-calendar-mark-entries
@@ -1873,6 +1874,20 @@
                         :file_path "note.org"
                         :line 1))))
           (kill-buffer (current-buffer)))))))
+
+(ert-deftest org-slipbox-test-buffer-persistent-mode-owns-hook-lifecycle ()
+  "Persistent buffer redisplay should be owned by its explicit mode."
+  (let ((org-slipbox-buffer-persistent-mode nil))
+    (unwind-protect
+        (progn
+          (org-slipbox-buffer-persistent-mode 1)
+          (should org-slipbox-buffer-persistent-mode)
+          (should (memq #'org-slipbox-buffer--redisplay-h post-command-hook))
+          (org-slipbox-buffer-persistent-mode -1)
+          (should-not org-slipbox-buffer-persistent-mode)
+          (should-not (memq #'org-slipbox-buffer--redisplay-h post-command-hook)))
+      (when org-slipbox-buffer-persistent-mode
+        (org-slipbox-buffer-persistent-mode -1)))))
 
 (ert-deftest org-slipbox-test-buffer-unlinked-rg-command-quotes-root ()
   "Unlinked-reference grep commands should quote the slipbox root."
