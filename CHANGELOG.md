@@ -9,6 +9,10 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 ## [0.1.0] - 2026-03-08
 
 ### Changed
+- Tightened the release-candidate framing in the README and package metadata so
+  `org-slipbox` describes itself directly as personal knowledge management with
+  interconnected Org notes, without translation trivia or developer-oriented
+  jargon.
 - Expanded the README into a more manual-like guide for capture templates, `org-protocol`, dailies, export, graph usage, benchmark-based performance guidance, and the remaining adoption-relevant FAQ entries.
 - Expanded the README into a more manual-like guide for the current-node buffer, metadata and ref workflows, CAPF-based completion, and encrypted/discovery expectations, including explicit notes on intentional divergences from org-roam.
 - Expanded the README's org-roam substitution section into a concrete setup-and-command rewiring map, so switching no longer depends on inferring variable renames or optional mode ownership.

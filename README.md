@@ -2,13 +2,14 @@
 
 ## What It Is
 
-`org-slipbox` is an Emacs package and local daemon for keeping a slipbox, the
-literal English translation of Zettelkasten, in plain Org files.
+`org-slipbox` is an Emacs package and companion daemon for personal knowledge
+management with interconnected Org notes.
 
-It treats Org files as the source of truth and uses a derived SQLite index for
-interactive search, backlinks, refs, agenda queries, and structural edits. The
-Rust side owns indexing, ranking, query execution, and file mutation. The
-Emacs Lisp side owns commands, session state, and presentation.
+It keeps a personal slip-box, or Zettelkasten, in plain Org files. Org files
+remain the source of truth, while a derived SQLite index supports interactive
+search, backlinks, refs, agenda queries, and structural edits. The Rust side
+owns indexing, ranking, query execution, and file mutation. The Emacs Lisp
+side owns commands, session state, and presentation.
 
 ## Status
 
