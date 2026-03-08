@@ -204,6 +204,20 @@
               '("note.org" "readme.md" "secret.md.gpg")))))
       (delete-directory root t))))
 
+(ert-deftest org-slipbox-test-discovery-policy-normalizes-command-args ()
+  "Discovery helpers should normalize extensions and exclusions once."
+  (let ((org-slipbox-file-extensions '("org" ".md" "ORG" ""))
+        (org-slipbox-file-exclude-regexp '("^archive/" "" "  " "\\.cache/")))
+    (should (equal (org-slipbox-discovery-file-extensions)
+                   '("org" "md")))
+    (should (equal (org-slipbox-discovery-exclude-regexps)
+                   '("^archive/" "\\.cache/")))
+    (should (equal (org-slipbox-discovery-command-args)
+                   '("--file-extension" "org"
+                     "--file-extension" "md"
+                     "--exclude-regexp" "^archive/"
+                     "--exclude-regexp" "\\.cache/")))))
+
 (ert-deftest org-slipbox-test-rpc-command-includes-discovery-policy ()
   "Daemon startup should include the configured discovery policy."
   (let ((org-slipbox-server-program "/tmp/slipbox")

@@ -34,6 +34,7 @@
 (require 'org-slipbox-agenda)
 (require 'org-slipbox-buffer)
 (require 'org-slipbox-capture)
+(require 'org-slipbox-discovery)
 (require 'org-slipbox-edit)
 (require 'org-slipbox-files)
 (require 'org-slipbox-id)

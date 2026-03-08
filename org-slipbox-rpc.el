@@ -29,13 +29,8 @@
 
 ;;; Code:
 
+(require 'org-slipbox-discovery)
 (require 'jsonrpc)
-(require 'subr-x)
-
-(defgroup org-slipbox nil
-  "Local-first Org knowledge tools."
-  :group 'applications
-  :prefix "org-slipbox-")
 
 (defcustom org-slipbox-server-program "slipbox"
   "Path to the org-slipbox server executable."
@@ -45,26 +40,6 @@
 (defcustom org-slipbox-directory nil
   "Root directory containing Org files for org-slipbox."
   :type 'directory
-  :group 'org-slipbox)
-
-(defcustom org-slipbox-file-extensions '("org")
-  "File extensions eligible for discovery and indexing.
-
-These extensions are matched case-insensitively.  Encrypted files
-with an outer `.gpg' or `.age' suffix remain eligible when their base
-extension matches this list."
-  :type '(repeat string)
-  :group 'org-slipbox)
-
-(defcustom org-slipbox-file-exclude-regexp nil
-  "Relative-path regexp or regexps excluded from discovery.
-
-When this is a string, it is applied as one regexp.  When it is a
-list, each element must be a regexp string."
-  :type '(choice
-          (const :tag "No exclusions" nil)
-          (regexp :tag "One regexp")
-          (repeat :tag "Regexp list" regexp))
   :group 'org-slipbox)
 
 (defcustom org-slipbox-database-file
@@ -115,37 +90,6 @@ list, each element must be a regexp string."
   (and org-slipbox--connection
        (jsonrpc-running-p org-slipbox--connection)))
 
-(defun org-slipbox-rpc--normalized-file-extensions ()
-  "Return normalized discovery extensions."
-  (or (delete-dups
-       (delq nil
-             (mapcar
-              (lambda (extension)
-                (let ((extension (string-trim (or extension ""))))
-                  (unless (string-empty-p extension)
-                    (downcase (string-remove-prefix "." extension)))))
-              org-slipbox-file-extensions)))
-      '("org")))
-
-(defun org-slipbox-rpc--normalized-file-exclude-regexp ()
-  "Return normalized discovery exclusion regexps."
-  (let ((patterns (cond
-                   ((null org-slipbox-file-exclude-regexp) nil)
-                   ((stringp org-slipbox-file-exclude-regexp)
-                    (list org-slipbox-file-exclude-regexp))
-                   ((listp org-slipbox-file-exclude-regexp)
-                    org-slipbox-file-exclude-regexp)
-                   (t
-                    (user-error
-                     "`org-slipbox-file-exclude-regexp' must be nil, a string, or a list of strings")))))
-    (delq nil
-          (mapcar
-           (lambda (pattern)
-             (let ((pattern (string-trim (or pattern ""))))
-               (unless (string-empty-p pattern)
-                 pattern)))
-           patterns))))
-
 (defun org-slipbox-rpc--command ()
   "Return the daemon command for the current configuration."
   (append
@@ -153,22 +97,15 @@ list, each element must be a regexp string."
          "serve"
          "--root" (expand-file-name org-slipbox-directory)
          "--db" (expand-file-name org-slipbox-database-file))
-   (apply #'append
-          (mapcar (lambda (extension)
-                    (list "--file-extension" extension))
-                  (org-slipbox-rpc--normalized-file-extensions)))
-   (apply #'append
-          (mapcar (lambda (pattern)
-                    (list "--exclude-regexp" pattern))
-                  (org-slipbox-rpc--normalized-file-exclude-regexp)))))
+   (org-slipbox-discovery-command-args)))
 
 (defun org-slipbox-rpc--connection-config ()
   "Return the normalized connection configuration."
   (list :program org-slipbox-server-program
         :root (expand-file-name org-slipbox-directory)
         :db (expand-file-name org-slipbox-database-file)
-        :file-extensions (org-slipbox-rpc--normalized-file-extensions)
-        :exclude-regexp (org-slipbox-rpc--normalized-file-exclude-regexp)))
+        :file-extensions (org-slipbox-discovery-file-extensions)
+        :exclude-regexp (org-slipbox-discovery-exclude-regexps)))
 
 (defun org-slipbox-rpc-ensure ()
   "Start and return the org-slipbox JSON-RPC connection."

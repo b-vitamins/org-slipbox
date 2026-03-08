@@ -32,6 +32,7 @@
 (require 'pp)
 (require 'seq)
 (require 'subr-x)
+(require 'org-slipbox-discovery)
 (require 'org-slipbox-files)
 (require 'org-slipbox-node)
 (require 'org-slipbox-rpc)
@@ -221,7 +222,7 @@ INDEXED-FILES is the current list of relative indexed file paths."
   (seq-filter
    (lambda (pattern)
      (string-match-p pattern relative-path))
-   (org-slipbox-rpc--normalized-file-exclude-regexp)))
+   (org-slipbox-discovery-exclude-regexps)))
 
 (defun org-slipbox--maintenance-insert-file-diagnostics (diagnostics)
   "Insert the file DIAGNOSTICS plist into the current buffer."

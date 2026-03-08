@@ -11,6 +11,7 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Centralized all JSON-RPC method names in `org-slipbox-rpc.el` and routed client calls through named RPC helpers.
 - Moved metadata edits, subtree refile and extract, and single-file incremental reindexing behind Rust RPCs so the Emacs client only coordinates sync and buffer refresh.
 - Codified runtime guardrails for load-time hooks, persistent-buffer discovery costs, and incremental file sync semantics.
+- Separated discovery policy from the JSON-RPC transport so daemon startup, file eligibility, and maintenance diagnostics now share one dedicated policy surface.
 
 ### Added
 - Initialized the repository as a combined Rust and Emacs Lisp project.

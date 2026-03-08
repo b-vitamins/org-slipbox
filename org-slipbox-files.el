@@ -31,7 +31,9 @@
 
 (require 'seq)
 (require 'subr-x)
-(require 'org-slipbox-rpc)
+(require 'org-slipbox-discovery)
+
+(defvar org-slipbox-directory)
 
 ;;;###autoload
 (defun org-slipbox-file-p (file &optional root)
@@ -45,7 +47,7 @@ Otherwise use `org-slipbox-directory'."
               ((file-in-directory-p expanded-file expanded-root))
               (relative-path (file-relative-name expanded-file expanded-root))
               (extension (org-slipbox--file-base-extension expanded-file)))
-    (and (member extension (org-slipbox-rpc--normalized-file-extensions))
+    (and (member extension (org-slipbox-discovery-file-extensions))
          (not (org-slipbox--excluded-relative-path-p relative-path)))))
 
 ;;;###autoload
@@ -64,7 +66,7 @@ Otherwise use `org-slipbox-directory'."
 (defun org-slipbox--file-recursive-regexp ()
   "Return the recursive listing regexp for eligible files."
   (format "\\.%s\\(?:\\.gpg\\|\\.age\\)?\\'"
-          (regexp-opt (org-slipbox-rpc--normalized-file-extensions))))
+          (regexp-opt (org-slipbox-discovery-file-extensions))))
 
 (defun org-slipbox--file-base-extension (file)
   "Return FILE's base extension, stripping outer encrypted suffixes."
@@ -79,7 +81,7 @@ Otherwise use `org-slipbox-directory'."
 (defun org-slipbox--supported-file-p (file)
   "Return non-nil when FILE has a supported base extension."
   (when-let ((extension (org-slipbox--file-base-extension file)))
-    (member extension (org-slipbox-rpc--normalized-file-extensions))))
+    (member extension (org-slipbox-discovery-file-extensions))))
 
 (defun org-slipbox--file-name-stem (file)
   "Return FILE's stem, stripping one encrypted suffix when present."
@@ -94,7 +96,7 @@ Otherwise use `org-slipbox-directory'."
   (seq-some
    (lambda (pattern)
      (string-match-p pattern relative-path))
-   (org-slipbox-rpc--normalized-file-exclude-regexp)))
+   (org-slipbox-discovery-exclude-regexps)))
 
 (defun org-slipbox--list-supported-files (root)
   "Return supported files under ROOT, ignoring exclusion regexps."
@@ -116,7 +118,7 @@ Otherwise use `org-slipbox-directory'."
              (list (format "*.%s" extension)
                    (format "*.%s.gpg" extension)
                    (format "*.%s.age" extension)))
-           (org-slipbox-rpc--normalized-file-extensions)))))
+           (org-slipbox-discovery-file-extensions)))))
 
 (provide 'org-slipbox-files)
 
