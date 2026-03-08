@@ -66,14 +66,14 @@ jobs:
         if: runner.os != 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ runner.os }}-archive
+          name: ${{ matrix.os }}-archive
           path: ${{ steps.package-unix.outputs.archive }}
 
       - name: Upload release archive (Windows)
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ runner.os }}-archive
+          name: ${{ matrix.os }}-archive
           path: ${{ steps.package-windows.outputs.archive }}
 
   publish:
