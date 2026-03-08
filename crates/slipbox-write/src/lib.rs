@@ -1,4 +1,5 @@
 mod capture;
+mod capture_pipeline;
 mod document;
 mod metadata;
 mod path;
