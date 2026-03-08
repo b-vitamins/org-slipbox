@@ -1,0 +1,80 @@
+#+title: org-slipbox Roadmap
+
+* Purpose
+
+This roadmap maps release bands to the vision and milestones. It intentionally
+avoids time promises.
+
+* 0.2.x
+
+Theme: settle the first release and lay the cockpit foundation.
+
+Focus:
+
+- strengthen the dedicated buffer as an exploratory surface
+- improve explanatory and navigational affordances
+- deepen diagnostics, docs, and operator confidence
+- preserve the thin-client architecture under this new UI pressure
+
+Watchpoints:
+
+- do not let buffer richness reintroduce expensive Emacs-side hot paths
+- do not let exploratory features become ad hoc grep or shell glue
+
+* 0.4.x
+
+Theme: real conversational exploration.
+
+Focus:
+
+- multiple relatedness lenses
+- explicit pivots, comparisons, and trails
+- surfacing bridges, dormant threads, and unresolved material
+- richer index-backed reasoning over tasks, refs, and time
+
+Watchpoints:
+
+- keep every surprising result explainable
+- do not replace structural discovery with vague ranking theatrics
+
+* 0.8.x
+
+Theme: research workbench and platform maturity.
+
+Focus:
+
+- saved views and programmable exploration
+- stronger CLI and headless workflows
+- extension points for advanced users
+- larger benchmark corpora and stricter scale guarantees
+
+Watchpoints:
+
+- avoid turning extension support into architecture leakage
+- keep the store, write engine, and protocol growth modular
+
+* 1.0.x
+
+Theme: dependable system.
+
+Focus:
+
+- stable public surfaces
+- explicit upgrade and compatibility expectations
+- mature manual and extension guidance
+- routine packaging and release engineering
+
+Watchpoints:
+
+- do not rush a `1.0.0` label until the exploratory model, not just the
+  replacement surface, has proven stable
+
+* Release Discipline
+
+Every release band should satisfy the following:
+
+- architecture first, then feature count
+- measured performance, not inferred performance
+- clean packaging and installation
+- deliberate documentation of any meaningful divergences
+- no work that makes future rescue refactors more likely

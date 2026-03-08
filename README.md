@@ -13,10 +13,10 @@ side owns commands, session state, and presentation.
 
 ## Status
 
-This repository currently reflects the `0.1.0` release candidate.
+Current development starts from the released `0.1.0` foundation.
 
-The documented workflow surface is intended to be complete enough for
-day-to-day replacement use. No release tag has been cut yet.
+The documented workflow surface is intended to remain complete enough for
+day-to-day replacement use while the project deepens its exploratory model.
 
 ## Requirements
 
@@ -24,6 +24,14 @@ day-to-day replacement use. No release tag has been cut yet.
 - a `slipbox` daemon binary, either from a release archive or a local source build
 - Graphviz only if you use the optional graph commands
 - `org-protocol` only if you use the optional protocol handlers
+
+## Product Docs
+
+The durable product documents live in `doc/`:
+
+- `doc/vision.org` states the north star
+- `doc/milestones.org` translates that vision into capability milestones
+- `doc/roadmap.org` maps the milestones onto release bands without date promises
 
 ## Installation
 

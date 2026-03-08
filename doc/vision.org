@@ -1,0 +1,92 @@
+#+title: org-slipbox Vision
+
+* North Star
+
+`org-slipbox` should become a serious Org-based slip-box: a personal
+knowledge system that helps its user think, not merely store notes.
+
+The model is not a pile of hyperlinked documents and not a miniature wiki. A
+slip-box is useful when it becomes a competent partner in thought: something
+that helps surface connections, tensions, absences, trails, and lines of
+development that the user did not already have fully in view.
+
+* Product Thesis
+
+- Org files remain the source of truth.
+- The index remains derived and disposable.
+- Interactive work must stay cheap at large corpus sizes.
+- The Emacs front-end must stay thin, explicit, and comprehensible.
+- The system must talk back through grounded structure, not through vague
+  theatrics.
+
+* What "Conversation Partner" Means
+
+The system should not stop at answering "what links here?" It should also help
+answer questions such as:
+
+- What else does this note make thinkable?
+- What nearby lines of thought are present but weakly connected?
+- What ideas keep recurring across otherwise distant regions?
+- What unresolved or contradictory material is accumulating around this topic?
+- What has gone dormant but now bears on the current line of work?
+
+This requires:
+
+- explainable relatedness, not just opaque ranking
+- multiple ways to pivot through the corpus
+- trails, comparison, and backtracking
+- support for surprise without sacrificing trust
+
+* Buffer As Cockpit
+
+The current-node buffer should mature into the main exploratory surface of the
+system.
+
+The persistent buffer should remain cheap and minimal. It exists to keep
+context close at hand without making ordinary editing expensive.
+
+The dedicated buffer should become the richer workbench. It should support:
+
+- indexed neighborhoods beyond direct backlinks
+- explicit pivots between lenses such as refs, tags, time, tasks, and
+  structural proximity
+- saved trails and comparisons
+- clear explanations for why a node or section is being shown
+- controlled discovery of non-obvious but relevant material
+
+* Architectural Commitments
+
+- Parsing, indexing, ranking, query execution, and file mutation stay in Rust.
+- Emacs Lisp owns commands, session state, and presentation only.
+- Modes own hooks. Loading the package must not mutate user state.
+- File-level updates stay incremental and explicit.
+- Expensive discovery stays off persistent redisplay paths.
+- Growth must happen by adding focused modules behind stable seams, not by
+  swelling central files.
+
+* Product Standards
+
+- No parity theatre. If a workflow is claimed, it must work.
+- No convenience shortcuts that compromise correctness or scale.
+- No hidden global state deciding whether the system is right.
+- No broad feature churn without a clear fit to the slip-box thesis.
+- No UI richness that pushes hot-path work back into Emacs Lisp.
+
+* Anti-Goals
+
+- Not a clone of social knowledge graphs.
+- Not a generic note app with fashionable graph visuals.
+- Not a mini encyclopedia maintained for its own sake.
+- Not a chatbot pasted on top of an index.
+- Not a system whose apparent intelligence depends on stale caches or ambient
+  editor state.
+
+* Measure Of Success
+
+`org-slipbox` is succeeding when:
+
+- it remains fast and predictable as corpora become large
+- it remains easy to package and integrate in ordinary Emacs environments
+- its exploratory surface helps users discover structure they did not manually
+  encode ahead of time
+- new features deepen the conversation-partner model rather than dilute it

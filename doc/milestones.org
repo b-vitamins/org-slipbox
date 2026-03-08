@@ -1,0 +1,104 @@
+#+title: org-slipbox Milestones
+
+* Purpose
+
+This document translates the product vision into concrete software milestones.
+These are capability milestones, not date commitments.
+
+* Milestone 1: Stable Replacement Foundation
+
+The first milestone is already achieved.
+
+Outcomes:
+
+- `org-slipbox` is a credible day-to-day replacement for `org-roam`
+- the daemon and Emacs package are cleanly separable
+- manual-backed workflows are covered
+- correctness, scale, and packaging are proven rather than assumed
+
+Exit criteria:
+
+- the core node, capture, backlinks, refs, dailies, export, graph, and agenda
+  surfaces are present
+- packaging and installation are routine
+- benchmark gates exist
+
+* Milestone 2: Cockpit Foundation
+
+Turn the dedicated context buffer into a first-class exploratory surface rather
+than a status panel.
+
+Outcomes:
+
+- richer indexed section families
+- explicit pivot controls between relatedness lenses
+- stable explanation of why sections and nodes are shown
+- cheap persistent buffer, deeper dedicated buffer
+
+Exit criteria:
+
+- a user can navigate through the dedicated buffer rather than merely inspect
+  it
+- the persistent buffer remains cheap by design
+- new buffer power does not move hot work back into Emacs Lisp
+
+* Milestone 3: Conversational Exploration
+
+Let the system surface lines of thought rather than only direct graph
+adjacencies.
+
+Outcomes:
+
+- bridge detection between distant regions
+- dormant or weakly connected material surfacing around the current context
+- explicit comparison and trail management
+- better support for ambiguity, tension, and unresolved work
+
+Exit criteria:
+
+- the system can show more than backlinks and nearest neighbors
+- exploratory results remain explainable and index-backed
+- users can save, revisit, and branch lines of inquiry
+
+* Milestone 4: Programmable Research Workbench
+
+Expose the engine and exploratory model as a serious programmable environment.
+
+Outcomes:
+
+- saved views and query surfaces
+- stronger CLI and headless workflows
+- stable hooks and extension points around exploration
+- richer task, ref, and citation-driven navigation
+
+Exit criteria:
+
+- users can script and automate meaningful exploratory workflows
+- buffer and query surfaces compose without reaching into unstable internals
+- extensions add capability without bending core architecture
+
+* Milestone 5: Dependable Platform
+
+Make the system boring in the best sense: dependable, extensible, and stable.
+
+Outcomes:
+
+- stable public surfaces
+- documented compatibility and upgrade expectations
+- clear performance envelopes
+- routine release engineering
+
+Exit criteria:
+
+- the project can evolve without repeated rescue refactors
+- packagers and users can rely on stable interfaces
+- the codebase still grows by module rather than monolith
+
+* Non-Milestones
+
+The following are explicitly not milestones by themselves:
+
+- adding visually impressive graph features
+- increasing the raw command count
+- imitating every historical detail of `org-roam`
+- adding large speculative surfaces without a clear relation to the vision

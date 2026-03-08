@@ -6,6 +6,16 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 
 ## [Unreleased]
 
+### Added
+- Added durable product documents in `doc/` for the project's vision,
+  capability milestones, and release-band roadmap so future work can stay
+  anchored to the slip-box-as-conversation-partner thesis without relying on
+  transient planning notes.
+
+### Changed
+- Clarified `AGENTS.md` and `README.md` so durable strategy documents belong in
+  `doc/*.org`, while temporary planning remains out of the repository.
+
 ## [0.1.0] - 2026-03-08
 
 ### Changed

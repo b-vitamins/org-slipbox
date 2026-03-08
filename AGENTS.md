@@ -15,7 +15,7 @@
 - Keep expensive discovery off the persistent redisplay path. Grep-backed sections belong in dedicated buffers or explicit refresh flows.
 - Treat capture, search, backlinks, refs, and agenda as first-class product surfaces. Do not bolt them on through incidental internals.
 - Do not add competitive copy, migration pressure, or dismissive comparisons to any documentation or code comments.
-- Keep documentation tight. Use `README.md`, `CHANGELOG.md`, and code comments; do not create ad hoc planning markdown files.
+- Keep documentation tight. Use `README.md`, `CHANGELOG.md`, `doc/*.org`, and code comments; do not create ad hoc planning markdown files.
 
 ## Release Policy
 - Work under `Unreleased` in `CHANGELOG.md`.
@@ -31,6 +31,7 @@
 - Favor stable protocol boundaries over in-process integration tricks. JSON-RPC over stdio is the default boundary.
 - Keep the daemon and Emacs package separable. The Emacs side should work with a `slipbox` executable on `PATH` or an explicit `org-slipbox-server-program`, so downstream packaging stays simple.
 - Keep `manifest.scm` as an optional contributor convenience layer. It may smooth local development and comparison runs, but it must not become the only supported build or install path.
+- Keep durable product strategy documents in `doc/` as Org files. Vision, milestones, and roadmap belong there; transient planning belongs outside the repository.
 
 ## Verification
 - Run `cargo fmt`, `cargo test`, and `cargo clippy --all-targets --all-features` before milestone commits when the codebase supports them.
