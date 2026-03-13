@@ -92,6 +92,45 @@ When non-nil, templates use the same format as
   "v" #'org-slipbox-dailies-capture-date
   "." #'org-slipbox-dailies-find-directory)
 
+(defun org-slipbox-dailies--capture-template-key (template)
+  "Return the selection key for daily TEMPLATE."
+  (car template))
+
+(defun org-slipbox-dailies--capture-template-description (template)
+  "Return the user-facing description for daily TEMPLATE."
+  (cadr template))
+
+(defun org-slipbox-dailies--normalize-capture-heading (heading template)
+  "Return the normalized daily capture HEADING for TEMPLATE.
+
+When TEMPLATE does not consume title-derived placeholders, fall back to the
+template description or key instead of forcing a meaningless prompt."
+  (let ((heading (string-trim (or heading ""))))
+    (cond
+     ((not template)
+      (when (string-empty-p heading)
+        (user-error "Daily entry must not be empty"))
+      heading)
+     ((string-empty-p heading)
+      (if (org-slipbox--capture-template-uses-title-p template)
+          (user-error "Daily entry must not be empty")
+        (or (org-slipbox-dailies--capture-template-description template)
+            (org-slipbox-dailies--capture-template-key template)
+            (user-error "Daily template must define a key or description"))))
+     (t
+      heading))))
+
+(defun org-slipbox-dailies--read-capture-args (&optional keys)
+  "Return interactive capture arguments as a list of HEADING and KEYS."
+  (if org-slipbox-dailies-capture-templates
+      (let* ((template (org-slipbox--read-capture-template
+                        org-slipbox-dailies-capture-templates
+                        keys))
+             (heading (when (org-slipbox--capture-template-uses-title-p template)
+                        (read-string "Daily entry: "))))
+        (list heading (org-slipbox-dailies--capture-template-key template)))
+    (list (read-string "Daily entry: ") keys)))
+
 (define-minor-mode org-slipbox-dailies-calendar-mode
   "Mark visible calendar dates for existing daily notes.
 
@@ -114,7 +153,7 @@ installing them at load time."
 (defun org-slipbox-dailies-capture-today (heading &optional keys)
   "Capture HEADING into today's daily note.
 When KEYS is non-nil, use the matching daily capture template."
-  (interactive (list (read-string "Daily entry: ")))
+  (interactive (org-slipbox-dailies--read-capture-args))
   (org-slipbox-dailies--capture (current-time) heading keys))
 
 ;;;###autoload
@@ -128,8 +167,8 @@ When KEYS is non-nil, use the matching daily capture template."
   "Capture HEADING into the daily note N days in the future.
 When KEYS is non-nil, use the matching daily capture template."
   (interactive
-   (list (prefix-numeric-value current-prefix-arg)
-         (read-string "Daily entry: ")))
+   (cons (prefix-numeric-value current-prefix-arg)
+         (org-slipbox-dailies--read-capture-args)))
   (org-slipbox-dailies--capture (org-slipbox-dailies--offset-time n) heading keys))
 
 ;;;###autoload
@@ -143,8 +182,8 @@ When KEYS is non-nil, use the matching daily capture template."
   "Capture HEADING into the daily note N days in the past.
 When KEYS is non-nil, use the matching daily capture template."
   (interactive
-   (list (prefix-numeric-value current-prefix-arg)
-         (read-string "Daily entry: ")))
+   (cons (prefix-numeric-value current-prefix-arg)
+         (org-slipbox-dailies--read-capture-args)))
   (org-slipbox-dailies--capture (org-slipbox-dailies--offset-time (- n)) heading keys))
 
 ;;;###autoload
@@ -154,13 +193,14 @@ When KEYS is non-nil, use the matching daily capture template."
   (org-slipbox-dailies--goto (org-slipbox-dailies--offset-time (- n))))
 
 ;;;###autoload
-(defun org-slipbox-dailies-capture-date (&optional prefer-future keys)
+(defun org-slipbox-dailies-capture-date (&optional prefer-future keys heading)
   "Capture a heading into a daily note selected with the calendar.
 With prefix argument PREFER-FUTURE, `org-read-date' prefers future dates.
 When KEYS is non-nil, use the matching daily capture template."
-  (interactive "P")
-  (let ((time (org-slipbox-dailies--read-date "Capture to daily note: " prefer-future))
-        (heading (read-string "Daily entry: ")))
+  (interactive
+   (let ((args (org-slipbox-dailies--read-capture-args)))
+     (list current-prefix-arg (cadr args) (car args))))
+  (let ((time (org-slipbox-dailies--read-date "Capture to daily note: " prefer-future)))
     (org-slipbox-dailies--capture time heading keys)))
 
 ;;;###autoload
@@ -244,33 +284,33 @@ Daily-note file names must remain parseable by `org-parse-time-string'."
 (defun org-slipbox-dailies--capture (time heading &optional keys)
   "Capture HEADING into the daily note for TIME.
 When KEYS is non-nil, use the matching daily capture template."
-  (let ((heading (string-trim heading)))
-    (when (string-empty-p heading)
-      (user-error "Daily entry must not be empty"))
-    (let ((node (if org-slipbox-dailies-capture-templates
-                    (let ((template (org-slipbox-dailies--capture-template
-                                     (org-slipbox--read-capture-template
-                                      org-slipbox-dailies-capture-templates
-                                      keys))))
-                      (org-slipbox--capture-node-at-time
-                       heading
-                       template
-                       nil
-                       time
-                       nil
-                       `(:default-finalize
-                         ,(lambda (captured _session)
-                            (org-slipbox--visit-node captured)
-                            (run-hooks 'org-slipbox-dailies-find-file-hook)))))
-                  (org-slipbox-rpc-append-heading
-                   (org-slipbox-dailies--path time)
-                   (org-slipbox-dailies--title time)
-                   heading
-                   org-slipbox-dailies-entry-level))))
-      (when (plist-get node :file_path)
-        (org-slipbox--visit-node node)
-        (run-hooks 'org-slipbox-dailies-find-file-hook))
-      node)))
+  (let* ((template (and org-slipbox-dailies-capture-templates
+                        (org-slipbox-dailies--capture-template
+                         (org-slipbox--read-capture-template
+                          org-slipbox-dailies-capture-templates
+                          keys))))
+         (heading (org-slipbox-dailies--normalize-capture-heading heading template))
+         (finalize
+          (lambda (captured _session)
+            (org-slipbox--visit-node captured)
+            (run-hooks 'org-slipbox-dailies-find-file-hook)))
+         (node (if template
+                   (org-slipbox--capture-node-at-time
+                    heading
+                    template
+                    nil
+                    time
+                    nil
+                    `(:default-finalize ,finalize))
+                 (org-slipbox-rpc-append-heading
+                  (org-slipbox-dailies--path time)
+                  (org-slipbox-dailies--title time)
+                  heading
+                  org-slipbox-dailies-entry-level))))
+    (when (plist-get node :file_path)
+      (org-slipbox--visit-node node)
+      (run-hooks 'org-slipbox-dailies-find-file-hook))
+    node))
 
 (defun org-slipbox-dailies--capture-template (template)
   "Return TEMPLATE adjusted for `org-slipbox-dailies-directory'."

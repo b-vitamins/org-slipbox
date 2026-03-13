@@ -54,6 +54,11 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
   semantics by returning an explicit `preview_node` shape for unsaved preview
   materialization.
 
+### Fixed
+- Fixed dailies capture so interactive commands select daily templates before
+  prompting for `Daily entry:`, and fixed-content templates no longer require a
+  meaningless heading when they do not consume title-derived placeholders.
+
 ### Removed
 - Removed the legacy `file-atime` node chooser sort from `org-slipbox-node-read`
   so supported named sorts now align with the daemon-backed `searchNodes` sort

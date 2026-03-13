@@ -3627,6 +3627,153 @@
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))
 
+(ert-deftest org-slipbox-test-capture-template-title-detection-supports-fixed-dailies ()
+  "Capture template title detection should distinguish fixed daily entries."
+  (should
+   (org-slipbox--capture-template-uses-title-p
+    '("d" "default" entry "* ${title}"
+      :target (file+head "%<%Y-%m-%d>.org"
+                         "#+title: %<%Y-%m-%d>\n"))))
+  (should-not
+   (org-slipbox--capture-template-uses-title-p
+    '("m" "morning" entry
+      "* Morning Review\n\n** What am I grateful for?\n"
+      :target (file+head "%<%Y-%m-%d>.org"
+                         "#+title: %<%Y-%m-%d>\n"))))
+  (should
+   (org-slipbox--capture-template-uses-title-p
+    '("d" "default"
+      :path "daily/%<%Y-%m-%d>.org")))
+  (should-not
+   (org-slipbox--capture-template-uses-title-p
+    '("m" "morning"
+      :path "daily/%<%Y-%m-%d>.org"
+      :title "%<%Y-%m-%d>"))))
+
+(ert-deftest org-slipbox-test-dailies-capture-allows-fixed-template-with-empty-heading ()
+  "Fixed-content daily templates should not require a synthetic heading prompt."
+  (let (captured-title captured-template captured-time)
+    (cl-letf (((symbol-function 'org-slipbox--capture-node-at-time)
+               (lambda (title template _refs time _variables _session)
+                 (setq captured-title title
+                       captured-template template
+                       captured-time time)
+                 '(:title "Morning Review"))))
+      (let ((org-slipbox-dailies-capture-templates
+             '(("m" "morning" entry
+                "* Morning Review\n\n** What am I grateful for?\n"
+                :target (file+head "%<%Y-%m-%d>.org"
+                                   "#+title: %<%Y-%m-%d>\n")))))
+        (should (equal (org-slipbox-dailies--capture
+                        (encode-time 0 0 0 7 3 2026)
+                        ""
+                        "m")
+                       '(:title "Morning Review")))))
+    (should (equal captured-title "morning"))
+    (should (equal (car captured-template) "m"))
+    (should (equal captured-time (encode-time 0 0 0 7 3 2026)))))
+
+(ert-deftest org-slipbox-test-dailies-capture-rejects-empty-heading-for-title-template ()
+  "Title-driven daily templates should still require a non-empty heading."
+  (let ((org-slipbox-dailies-capture-templates
+         '(("d" "default" entry
+            "* ${title}"
+            :target (file+head "%<%Y-%m-%d>.org"
+                               "#+title: %<%Y-%m-%d>\n")))))
+    (should-error
+     (org-slipbox-dailies--capture
+      (encode-time 0 0 0 7 3 2026)
+      ""
+      "d")
+     :type 'user-error)))
+
+(ert-deftest org-slipbox-test-dailies-capture-today-skips-heading-prompt-for-fixed-template ()
+  "Interactive dailies capture should skip heading prompts for fixed templates."
+  (let ((org-slipbox-dailies-capture-templates
+         '(("m" "morning" entry
+            "* Morning Review"
+            :target (file+head "%<%Y-%m-%d>.org"
+                               "#+title: %<%Y-%m-%d>\n"))))
+        captured-heading
+        captured-key)
+    (cl-letf (((symbol-function 'org-slipbox--read-capture-template)
+               (lambda (_templates &optional _keys)
+                 '("m" "morning" entry
+                   "* Morning Review"
+                   :target (file+head "%<%Y-%m-%d>.org"
+                                      "#+title: %<%Y-%m-%d>\n"))))
+              ((symbol-function 'read-string)
+               (lambda (&rest _args)
+                 (ert-fail "fixed daily templates should not prompt for a heading")))
+              ((symbol-function 'org-slipbox-dailies--capture)
+               (lambda (_time heading &optional key)
+                 (setq captured-heading heading
+                       captured-key key)
+                 'ok)))
+      (should (eq (call-interactively #'org-slipbox-dailies-capture-today) 'ok)))
+    (should-not captured-heading)
+    (should (equal captured-key "m"))))
+
+(ert-deftest org-slipbox-test-dailies-capture-date-skips-heading-prompt-for-fixed-template ()
+  "Date-selected dailies capture should share the fixed-template prompt behavior."
+  (let ((org-slipbox-dailies-capture-templates
+         '(("e" "evening" entry
+            "* Evening Review"
+            :target (file+head "%<%Y-%m-%d>.org"
+                               "#+title: %<%Y-%m-%d>\n"))))
+        captured-heading
+        captured-key)
+    (cl-letf (((symbol-function 'org-slipbox--read-capture-template)
+               (lambda (_templates &optional _keys)
+                 '("e" "evening" entry
+                   "* Evening Review"
+                   :target (file+head "%<%Y-%m-%d>.org"
+                                      "#+title: %<%Y-%m-%d>\n"))))
+              ((symbol-function 'read-string)
+               (lambda (&rest _args)
+                 (ert-fail "fixed daily templates should not prompt for a heading")))
+              ((symbol-function 'org-slipbox-dailies--read-date)
+               (lambda (_prompt _prefer-future)
+                 (encode-time 0 0 0 7 3 2026)))
+              ((symbol-function 'org-slipbox-dailies--capture)
+               (lambda (_time heading &optional key)
+                 (setq captured-heading heading
+                       captured-key key)
+                 'ok)))
+      (should (eq (call-interactively #'org-slipbox-dailies-capture-date) 'ok)))
+    (should-not captured-heading)
+    (should (equal captured-key "e"))))
+
+(ert-deftest org-slipbox-test-dailies-capture-today-prompts-for-title-template ()
+  "Interactive dailies capture should still prompt for title-driven templates."
+  (let ((org-slipbox-dailies-capture-templates
+         '(("d" "default" entry
+            "* ${title}"
+            :target (file+head "%<%Y-%m-%d>.org"
+                               "#+title: %<%Y-%m-%d>\n"))))
+        captured-heading
+        captured-key
+        prompt)
+    (cl-letf (((symbol-function 'org-slipbox--read-capture-template)
+               (lambda (_templates &optional _keys)
+                 '("d" "default" entry
+                   "* ${title}"
+                   :target (file+head "%<%Y-%m-%d>.org"
+                                      "#+title: %<%Y-%m-%d>\n"))))
+              ((symbol-function 'read-string)
+               (lambda (text &rest _args)
+                 (setq prompt text)
+                 "Meeting"))
+              ((symbol-function 'org-slipbox-dailies--capture)
+               (lambda (_time heading &optional key)
+                 (setq captured-heading heading
+                       captured-key key)
+                 'ok)))
+      (should (eq (call-interactively #'org-slipbox-dailies-capture-today) 'ok)))
+    (should (equal prompt "Daily entry: "))
+    (should (equal captured-heading "Meeting"))
+    (should (equal captured-key "d"))))
+
 (ert-deftest org-slipbox-test-dailies-template-targets-use-dailies-directory ()
   "Daily templates should root file targets in `org-slipbox-dailies-directory'."
   (let (buffer method params)

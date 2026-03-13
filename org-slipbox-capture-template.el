@@ -112,11 +112,78 @@ and may interpolate `${ref}', `${body}', `${annotation}', and `${link}'."
       (nthcdr 4 template)
     (nthcdr 2 template)))
 
+(defconst org-slipbox--capture-title-placeholder-regexp
+  "\\${\\(?:title\\|slug\\)\\(?:=[^}]*\\)?}"
+  "Regexp matching capture placeholders that depend on the note title.")
+
 (defun org-slipbox--capture-template-type (template)
   "Return the content type for TEMPLATE."
   (if (org-slipbox--typed-capture-template-p template)
       (nth 2 template)
     'entry))
+
+(defun org-slipbox--capture-string-uses-title-p (string)
+  "Return non-nil when STRING references title-derived placeholders."
+  (and (stringp string)
+       (string-match-p org-slipbox--capture-title-placeholder-regexp string)))
+
+(defun org-slipbox--capture-sequence-uses-title-p (sequence)
+  "Return non-nil when any string in SEQUENCE references title placeholders."
+  (seq-some #'org-slipbox--capture-string-uses-title-p sequence))
+
+(defun org-slipbox--capture-template-source-uses-title-p (source)
+  "Return non-nil when SOURCE depends on title-derived placeholders."
+  (pcase source
+    (`(file ,path)
+     (or (org-slipbox--capture-string-uses-title-p path)
+         (and (stringp path)
+              (file-readable-p path)
+              (with-temp-buffer
+                (insert-file-contents path)
+                (org-slipbox--capture-string-uses-title-p (buffer-string))))
+         (not (and (stringp path)
+                   (file-readable-p path)))))
+    ((pred functionp) t)
+    ((pred stringp) (org-slipbox--capture-string-uses-title-p source))
+    ((or `nil `()) nil)
+    (_ t)))
+
+(defun org-slipbox--capture-target-uses-title-p (target)
+  "Return non-nil when TARGET depends on title-derived placeholders."
+  (pcase target
+    (`(file ,path)
+     (org-slipbox--capture-string-uses-title-p path))
+    (`(file+head ,path ,head)
+     (or (org-slipbox--capture-string-uses-title-p path)
+         (org-slipbox--capture-string-uses-title-p head)))
+    (`(file+olp ,path ,olp)
+     (or (org-slipbox--capture-string-uses-title-p path)
+         (org-slipbox--capture-sequence-uses-title-p olp)))
+    (`(file+head+olp ,path ,head ,olp)
+     (or (org-slipbox--capture-string-uses-title-p path)
+         (org-slipbox--capture-string-uses-title-p head)
+         (org-slipbox--capture-sequence-uses-title-p olp)))
+    (`(file+datetree ,path . ,_)
+     (org-slipbox--capture-string-uses-title-p path))
+    (`(node ,query)
+     (org-slipbox--capture-string-uses-title-p query))
+    (_ nil)))
+
+(defun org-slipbox--capture-template-uses-title-p (template)
+  "Return non-nil when TEMPLATE requires a title-derived value."
+  (let* ((options (org-slipbox--capture-template-options template))
+         (typed (org-slipbox--typed-capture-template-p template))
+         (capture-type (org-slipbox--capture-template-type template))
+         (source (and typed (nth 3 template))))
+    (or (org-slipbox--capture-string-uses-title-p (plist-get options :title))
+        (org-slipbox--capture-string-uses-title-p (plist-get options :path))
+        (org-slipbox--capture-target-uses-title-p (plist-get options :target))
+        (if source
+            (org-slipbox--capture-template-source-uses-title-p source)
+          (if typed
+              (org-slipbox--capture-string-uses-title-p
+               (org-slipbox--default-capture-body-template capture-type))
+            (not (plist-member options :title)))))))
 
 (defun org-slipbox--capture-template-time (time options)
   "Return the effective capture TIME for OPTIONS."

@@ -401,6 +401,11 @@ Daily notes are configured independently from the main capture templates:
                             "#+title: %<%Y-%m-%d>\n"))))
 ```
 
+When daily templates are configured, the interactive capture commands select
+the template first and only prompt for `Daily entry:` when that template uses
+title-derived placeholders such as `${title}` or `${slug}`. Fixed-content
+templates can therefore capture directly without a meaningless heading prompt.
+
 The main commands mirror the documented `org-roam-dailies` workflow:
 
 - `org-slipbox-dailies-capture-today`
