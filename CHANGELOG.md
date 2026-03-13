@@ -15,6 +15,14 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 ### Changed
 - Clarified `AGENTS.md` and `README.md` so durable strategy documents belong in
   `doc/*.org`, while temporary planning remains out of the repository.
+- Extended indexed node query payloads to include file modification time plus
+  backlink and forward-link counts, so frontend consumers can rely on
+  engine-backed metadata instead of filesystem stats or local graph counting.
+
+### Removed
+- Removed the legacy `file-atime` node chooser sort from `org-slipbox-node-read`
+  so supported named sorts now align with the daemon-backed `searchNodes` sort
+  contract.
 
 ## [0.1.0] - 2026-03-08
 

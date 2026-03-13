@@ -68,7 +68,8 @@ When nil, preserve the Rust query engine ranking."
           (const :tag "Title" title)
           (const :tag "File path" file)
           (const :tag "File mtime" file-mtime)
-          (const :tag "File atime" file-atime)
+          (const :tag "Backlink count" backlink-count)
+          (const :tag "Forward-link count" forward-link-count)
           (function :tag "Custom comparator"))
   :group 'org-slipbox)
 
@@ -102,17 +103,18 @@ uses the same placeholder syntax as `org-slipbox-node-display-template'."
 (defun org-slipbox-node-read (&optional initial-input filter-fn sort-fn require-match prompt)
   "Read and return an indexed node plist.
 INITIAL-INPUT seeds the minibuffer. FILTER-FN filters indexed nodes.
-SORT-FN sorts completion candidates. REQUIRE-MATCH enforces an indexed
-selection. PROMPT defaults to \"Node: \". When REQUIRE-MATCH is nil and
-the user enters a new title, return a plist with only `:title'."
+SORT-FN names an engine-backed sort or provides a custom comparator.
+REQUIRE-MATCH enforces an indexed selection. PROMPT defaults to
+\"Node: \". When REQUIRE-MATCH is nil and the user enters a new title,
+return a plist with only `:title'."
   (let* ((prompt (or prompt "Node: "))
-         (sort-fn (org-slipbox--resolve-node-sort-function sort-fn))
+         (sort (org-slipbox--resolve-node-sort sort-fn))
          completions
          (collection
           (lambda (string pred action)
             (if (eq action 'metadata)
                 `(metadata
-                  ,@(when sort-fn
+                  ,@(when sort
                       '((display-sort-function . identity)
                         (cycle-sort-function . identity)))
                   (annotation-function
@@ -120,7 +122,7 @@ the user enters a new title, return a plist with only `:title'."
                         (org-slipbox--node-completion-annotation title)))
                   (category . org-slipbox-node))
               (setq completions
-                    (org-slipbox-node-read--completions string filter-fn sort-fn))
+                    (org-slipbox-node-read--completions string filter-fn sort))
               (complete-with-action action completions string pred))))
          (selection (completing-read
                      prompt
@@ -138,7 +140,7 @@ the user enters a new title, return a plist with only `:title'."
                                    (org-slipbox-node-read--completions
                                     selection
                                     filter-fn
-                                    sort-fn)))))
+                                    sort)))))
         (or refreshed
             (and (not require-match)
                  (list :title selection))))))))
@@ -173,17 +175,20 @@ the user enters a new title, return a plist with only `:title'."
   (or (org-slipbox-node-read nil nil nil t prompt)
       (user-error "No node selected")))
 
-(defun org-slipbox-node-read--completions (query &optional filter-fn sort-fn)
+(defun org-slipbox-node-read--completions (query &optional filter-fn sort)
   "Return formatted completion candidates for QUERY.
-FILTER-FN filters indexed nodes. SORT-FN sorts completion candidates."
-  (let* ((response (org-slipbox-rpc-search-nodes query org-slipbox-node-read-limit))
+FILTER-FN filters indexed nodes. SORT configures ordering."
+  (let* ((response (org-slipbox-rpc-search-nodes
+                    query
+                    org-slipbox-node-read-limit
+                    (org-slipbox--node-sort-rpc-value sort)))
          (nodes (org-slipbox--plist-sequence (plist-get response :nodes)))
          (nodes (if filter-fn
                     (seq-filter filter-fn nodes)
                   nodes))
          (completions (mapcar #'org-slipbox--node-completion-candidate nodes)))
-    (if sort-fn
-        (seq-sort sort-fn completions)
+    (if-let ((comparator (org-slipbox--node-sort-local-comparator sort)))
+        (seq-sort comparator completions)
       completions)))
 
 (defun org-slipbox--search-node-choices (query)
@@ -312,16 +317,26 @@ FILTER-FN filters indexed nodes. SORT-FN sorts completion candidates."
              values)
      " ")))
 
-(defun org-slipbox--resolve-node-sort-function (sort-fn)
-  "Return the effective sort function for SORT-FN."
+(defun org-slipbox--resolve-node-sort (sort-fn)
+  "Return the effective sort configuration for SORT-FN."
   (let ((sort-fn (or sort-fn org-slipbox-node-default-sort)))
     (cond
      ((functionp sort-fn) sort-fn)
      ((null sort-fn) nil)
-     ((fboundp (intern-soft (format "org-slipbox-node-read-sort-by-%s" sort-fn)))
-      (intern-soft (format "org-slipbox-node-read-sort-by-%s" sort-fn)))
+     ((memq sort-fn '(relevance title file file-mtime backlink-count forward-link-count))
+      sort-fn)
      (t
       (user-error "Unsupported node sort %s" sort-fn)))))
+
+(defun org-slipbox--node-sort-rpc-value (sort)
+  "Return the daemon sort name for SORT, or nil when local sorting applies."
+  (when (memq sort '(relevance title file file-mtime backlink-count forward-link-count))
+    sort))
+
+(defun org-slipbox--node-sort-local-comparator (sort)
+  "Return the local comparator for SORT, or nil when the daemon sorts."
+  (when (functionp sort)
+    sort))
 
 (defun org-slipbox-node-read-sort-by-title (completion-a completion-b)
   "Sort COMPLETION-A and COMPLETION-B by title."
@@ -342,22 +357,15 @@ FILTER-FN filters indexed nodes. SORT-FN sorts completion candidates."
 
 (defun org-slipbox-node-read-sort-by-file-mtime (completion-a completion-b)
   "Sort COMPLETION-A and COMPLETION-B by descending file modification time."
-  (time-less-p (org-slipbox--node-file-time (cdr completion-b) 'modification)
-               (org-slipbox--node-file-time (cdr completion-a) 'modification)))
+  (time-less-p (org-slipbox--node-file-modification-time (cdr completion-b))
+               (org-slipbox--node-file-modification-time (cdr completion-a))))
 
-(defun org-slipbox-node-read-sort-by-file-atime (completion-a completion-b)
-  "Sort COMPLETION-A and COMPLETION-B by descending file access time."
-  (time-less-p (org-slipbox--node-file-time (cdr completion-b) 'access)
-               (org-slipbox--node-file-time (cdr completion-a) 'access)))
-
-(defun org-slipbox--node-file-time (node attribute)
-  "Return NODE file ATTRIBUTE time, or the epoch when unavailable."
+(defun org-slipbox--node-file-modification-time (node)
+  "Return NODE file modification time, or the epoch when unavailable."
   (let* ((file (expand-file-name (plist-get node :file_path) org-slipbox-directory))
          (attributes (and (file-exists-p file)
                           (file-attributes file 'string))))
-    (or (pcase attribute
-          ('modification (file-attribute-modification-time attributes))
-          ('access (file-attribute-access-time attributes)))
+    (or (file-attribute-modification-time attributes)
         '(0 0 0 0))))
 
 (defun org-slipbox-node-read--annotation (_node)

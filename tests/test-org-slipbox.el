@@ -503,7 +503,7 @@
          (lambda (node)
            (format "Choice: %s" (plist-get node :title)))))
     (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
-               (lambda (_query _limit)
+               (lambda (_query _limit &optional _sort)
                  '(:nodes [(:title "One" :file_path "one.org" :line 1)]))))
       (let ((choices (org-slipbox--search-node-choices "o")))
         (should (equal (mapcar #'substring-no-properties (mapcar #'car choices))
@@ -520,18 +520,23 @@
                "Fresh Node")))
     (should (equal (org-slipbox-node-read) '(:title "Fresh Node")))))
 
-(ert-deftest org-slipbox-test-node-read-applies-default-sort-and-annotation ()
-  "Node read should expose sort and annotation metadata."
+(ert-deftest org-slipbox-test-node-read-delegates-default-sort-and-annotation ()
+  "Node read should delegate supported sorts and expose annotation metadata."
   (let ((org-slipbox-node-default-sort 'title)
         (org-slipbox-node-annotation-function
          (lambda (node)
            (format " [%s]" (plist-get node :file_path))))
+        rpc-sort
         metadata
         candidates)
     (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
-               (lambda (_query _limit)
-                 '(:nodes [(:title "Zulu" :file_path "z.org" :line 2)
-                           (:title "Alpha" :file_path "a.org" :line 1)])))
+               (lambda (_query _limit &optional sort)
+                 (setq rpc-sort sort)
+                 (if (eq sort 'title)
+                     '(:nodes [(:title "Alpha" :file_path "a.org" :line 1)
+                               (:title "Zulu" :file_path "z.org" :line 2)])
+                   '(:nodes [(:title "Zulu" :file_path "z.org" :line 2)
+                             (:title "Alpha" :file_path "a.org" :line 1)]))))
               ((symbol-function 'completing-read)
                (lambda (_prompt collection _predicate _require-match _initial-input _history)
                  (setq candidates (all-completions "" collection nil)
@@ -542,8 +547,52 @@
              (annotation (funcall (cdr (assq 'annotation-function props))
                                   (car candidates))))
         (should (equal (plist-get node :title) "Alpha"))
+        (should (eq rpc-sort 'title))
         (should (eq (cdr (assq 'display-sort-function props)) 'identity))
         (should (equal annotation " [a.org]"))))))
+
+(ert-deftest org-slipbox-test-node-read-file-mtime-sort-avoids-file-attributes ()
+  "Supported file-mtime sorting should be delegated to the daemon."
+  (let ((org-slipbox-node-default-sort 'file-mtime)
+        rpc-sort
+        candidates)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
+               (lambda (_query _limit &optional sort)
+                 (setq rpc-sort sort)
+                 '(:nodes [(:title "Newest" :file_path "new.org" :line 1)
+                           (:title "Older" :file_path "old.org" :line 1)])))
+              ((symbol-function 'file-attributes)
+               (lambda (&rest _args)
+                 (ert-fail "supported sorts should not call file-attributes")))
+              ((symbol-function 'completing-read)
+               (lambda (_prompt collection _predicate _require-match _initial-input _history)
+                 (setq candidates (all-completions "" collection nil))
+                 (car candidates))))
+      (let ((node (org-slipbox-node-read)))
+        (should (eq rpc-sort 'file-mtime))
+        (should (equal (plist-get node :title) "Newest"))))))
+
+(ert-deftest org-slipbox-test-node-read-file-atime-sort-errors ()
+  "Unsupported legacy `file-atime' sorting should error clearly."
+  (let ((org-slipbox-node-default-sort 'file-atime))
+    (should-error (org-slipbox-node-read) :type 'user-error)))
+
+(ert-deftest org-slipbox-test-node-read-custom-sort-remains-local ()
+  "Custom sort comparators should still run client-side."
+  (let (rpc-sort
+        candidates)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
+               (lambda (_query _limit &optional sort)
+                 (setq rpc-sort sort)
+                 '(:nodes [(:title "Zulu" :file_path "z.org" :line 2)
+                           (:title "Alpha" :file_path "a.org" :line 1)])))
+              ((symbol-function 'completing-read)
+               (lambda (_prompt collection _predicate _require-match _initial-input _history)
+                 (setq candidates (all-completions "" collection nil))
+                 (car candidates))))
+      (let ((node (org-slipbox-node-read nil nil #'org-slipbox-node-read-sort-by-title)))
+        (should (null rpc-sort))
+        (should (equal (plist-get node :title) "Alpha"))))))
 
 (ert-deftest org-slipbox-test-ref-read-exposes-dedicated-chooser-metadata ()
   "Ref read should expose annotation metadata, history, and duplicate refs."
@@ -2472,6 +2521,26 @@
                      '("Heading" "Head"))))
     (should (equal method "slipbox/searchNodes"))
     (should (equal params '(:query "He" :limit 50)))))
+
+(ert-deftest org-slipbox-test-rpc-search-nodes-encodes-sort-param ()
+  "Node search RPC should encode named sort modes explicitly."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:nodes []))))
+      (org-slipbox-rpc-search-nodes "Heading" 10 'forward-link-count))
+    (should (equal method "slipbox/searchNodes"))
+    (should (equal params '(:query "Heading"
+                            :limit 10
+                            :sort "forward-link-count")))))
+
+(ert-deftest org-slipbox-test-rpc-search-nodes-rejects-unsupported-string-sort ()
+  "Node search RPC should reject unsupported string sort names."
+  (should-error
+   (org-slipbox-rpc-search-nodes "Heading" 10 "file-atime")
+   :type 'user-error))
 
 (ert-deftest org-slipbox-test-refile-calls-rust-rpc-and-refreshes-buffers ()
   "Refile should delegate subtree movement to the Rust RPC layer."

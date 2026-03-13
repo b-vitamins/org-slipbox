@@ -261,11 +261,34 @@ resolves it through `exec-path'."
   "Return Graphviz DOT for graph generation PARAMS."
   (org-slipbox-rpc-request org-slipbox-rpc-method-graph-dot params))
 
-(defun org-slipbox-rpc-search-nodes (query limit)
-  "Search nodes matching QUERY with LIMIT."
-  (org-slipbox-rpc-request
-   org-slipbox-rpc-method-search-nodes
-   `(:query ,query :limit ,limit)))
+(defun org-slipbox-rpc--search-node-sort-name (sort)
+  "Return SORT encoded for the `searchNodes' RPC surface."
+  (cond
+   ((null sort) nil)
+   ((member sort '("relevance"
+                   "title"
+                   "file"
+                   "file-mtime"
+                   "backlink-count"
+                   "forward-link-count"))
+    sort)
+   ((eq sort 'relevance) "relevance")
+   ((eq sort 'title) "title")
+   ((eq sort 'file) "file")
+   ((eq sort 'file-mtime) "file-mtime")
+   ((eq sort 'backlink-count) "backlink-count")
+   ((eq sort 'forward-link-count) "forward-link-count")
+   (t
+    (user-error "Unsupported searchNodes sort %s" sort))))
+
+(defun org-slipbox-rpc-search-nodes (query limit &optional sort)
+  "Search nodes matching QUERY with LIMIT and optional SORT."
+  (let ((params `(:query ,query :limit ,limit)))
+    (when-let ((sort-name (org-slipbox-rpc--search-node-sort-name sort)))
+      (setq params (append params `(:sort ,sort-name))))
+    (org-slipbox-rpc-request
+     org-slipbox-rpc-method-search-nodes
+     params)))
 
 (defun org-slipbox-rpc-random-node ()
   "Return a random indexed node."

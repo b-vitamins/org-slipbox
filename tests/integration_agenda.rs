@@ -22,7 +22,7 @@ fn indexes_planning_lines_and_queries_agenda_ranges() -> Result<()> {
     database.sync_index(&files)?;
 
     let scheduled = database
-        .search_nodes("scheduled heading", 10)?
+        .search_nodes("scheduled heading", 10, None)?
         .into_iter()
         .find(|node| node.title == "Scheduled heading")
         .expect("scheduled heading should exist");
@@ -36,7 +36,7 @@ fn indexes_planning_lines_and_queries_agenda_ranges() -> Result<()> {
     );
 
     let full_planning = database
-        .search_nodes("full planning", 10)?
+        .search_nodes("full planning", 10, None)?
         .into_iter()
         .find(|node| node.title == "Full planning-line")
         .expect("full planning heading should exist");

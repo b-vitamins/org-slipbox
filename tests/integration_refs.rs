@@ -22,7 +22,7 @@ fn indexes_refs_and_resolves_nodes_from_them() -> Result<()> {
     database.sync_index(&files)?;
 
     let node = database
-        .search_nodes("thrun2005", 10)?
+        .search_nodes("thrun2005", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Probabilistic Robotics")
         .expect("ref search should find the paper node");

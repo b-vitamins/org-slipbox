@@ -211,10 +211,23 @@ impl IndexStats {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SearchNodesSort {
+    Relevance,
+    Title,
+    File,
+    FileMtime,
+    BacklinkCount,
+    ForwardLinkCount,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchNodesParams {
     pub query: String,
     #[serde(default = "default_search_limit")]
     pub limit: usize,
+    #[serde(default)]
+    pub sort: Option<SearchNodesSort>,
 }
 
 impl SearchNodesParams {
@@ -772,7 +785,8 @@ fn normalize_string_values(values: &[String], nocase: bool) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        CaptureNodeParams, NodeKind, NodeRecord, UpdateNodeMetadataParams, normalize_reference,
+        CaptureNodeParams, NodeKind, NodeRecord, SearchNodesParams, SearchNodesSort,
+        UpdateNodeMetadataParams, normalize_reference,
     };
     use serde_json::json;
 
@@ -881,6 +895,29 @@ mod tests {
                 "file_mtime_ns": 123,
                 "backlink_count": 2,
                 "forward_link_count": 4
+            })
+        );
+    }
+
+    #[test]
+    fn search_nodes_params_support_kebab_case_sort_names() {
+        let params: SearchNodesParams = serde_json::from_value(json!({
+            "query": "alpha",
+            "limit": 10,
+            "sort": "forward-link-count"
+        }))
+        .expect("search node params should deserialize");
+
+        assert_eq!(params.query, "alpha");
+        assert_eq!(params.limit, 10);
+        assert_eq!(params.sort, Some(SearchNodesSort::ForwardLinkCount));
+
+        assert_eq!(
+            serde_json::to_value(&params).expect("search node params should serialize"),
+            json!({
+                "query": "alpha",
+                "limit": 10,
+                "sort": "forward-link-count"
             })
         );
     }

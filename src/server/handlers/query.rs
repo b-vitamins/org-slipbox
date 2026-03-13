@@ -76,7 +76,11 @@ pub(crate) fn search_nodes(
     let params: SearchNodesParams = parse_params(params)?;
     let nodes = state
         .database
-        .search_nodes(&params.query, params.normalized_limit())
+        .search_nodes(
+            &params.query,
+            params.normalized_limit(),
+            params.sort.clone(),
+        )
         .map_err(|error| internal_error(error.context("failed to query nodes")))?;
     to_value(SearchNodesResult { nodes })
 }

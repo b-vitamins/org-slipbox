@@ -1,6 +1,8 @@
 use std::fs;
+use std::{thread, time::Duration};
 
 use anyhow::Result;
+use slipbox_core::SearchNodesSort;
 use slipbox_index::{
     DiscoveryPolicy, scan_path, scan_path_with_policy, scan_root, scan_root_with_policy,
 };
@@ -30,7 +32,7 @@ fn indexes_nodes_searches_and_returns_backlinks() -> Result<()> {
     assert_eq!(stats.files_indexed, 2);
     assert_eq!(stats.links_indexed, 1);
 
-    let results = database.search_nodes("target", 10)?;
+    let results = database.search_nodes("target", 10, None)?;
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].title, "Target heading");
 
@@ -69,7 +71,7 @@ fn node_queries_return_indexed_metadata_and_graph_counts() -> Result<()> {
     database.sync_index(&files)?;
 
     let target = database
-        .search_nodes("target", 10)?
+        .search_nodes("target", 10, None)?
         .into_iter()
         .next()
         .expect("expected target node");
@@ -78,7 +80,7 @@ fn node_queries_return_indexed_metadata_and_graph_counts() -> Result<()> {
     assert_eq!(target.forward_link_count, 0);
 
     let source = database
-        .search_nodes("first", 10)?
+        .search_nodes("first", 10, None)?
         .into_iter()
         .next()
         .expect("expected source node");
@@ -92,6 +94,95 @@ fn node_queries_return_indexed_metadata_and_graph_counts() -> Result<()> {
     assert!(backlinks[0].source_node.file_mtime_ns > 0);
     assert_eq!(backlinks[0].source_node.backlink_count, 0);
     assert_eq!(backlinks[0].source_node.forward_link_count, 1);
+
+    Ok(())
+}
+
+#[test]
+fn search_nodes_support_named_sorts() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    fs::write(
+        root.join("zeta.org"),
+        ":PROPERTIES:\n:ID: alpha-id\n:END:\n#+title: Common Zulu\n\nSee [[id:beta-id][Alpha]].\nSee [[id:gamma-id][Beta]].\n",
+    )?;
+    thread::sleep(Duration::from_millis(20));
+    fs::write(
+        root.join("alpha.org"),
+        ":PROPERTIES:\n:ID: beta-id\n:END:\n#+title: Common Alpha\n\nTarget body.\n",
+    )?;
+    thread::sleep(Duration::from_millis(20));
+    fs::write(
+        root.join("beta.org"),
+        ":PROPERTIES:\n:ID: gamma-id\n:END:\n#+title: Common Beta\n\nSee [[id:beta-id][Alpha again]].\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let default = database.search_nodes("common", 10, None)?;
+    let relevance = database.search_nodes("common", 10, Some(SearchNodesSort::Relevance))?;
+    assert_eq!(
+        default
+            .iter()
+            .map(|node| node.title.as_str())
+            .collect::<Vec<_>>(),
+        relevance
+            .iter()
+            .map(|node| node.title.as_str())
+            .collect::<Vec<_>>()
+    );
+
+    let title_sorted = database.search_nodes("common", 10, Some(SearchNodesSort::Title))?;
+    assert_eq!(
+        title_sorted
+            .iter()
+            .map(|node| node.title.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Common Alpha", "Common Beta", "Common Zulu"]
+    );
+
+    let file_sorted = database.search_nodes("common", 10, Some(SearchNodesSort::File))?;
+    assert_eq!(
+        file_sorted
+            .iter()
+            .map(|node| node.title.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Common Alpha", "Common Beta", "Common Zulu"]
+    );
+
+    let mtime_sorted = database.search_nodes("common", 10, Some(SearchNodesSort::FileMtime))?;
+    assert_eq!(
+        mtime_sorted
+            .iter()
+            .map(|node| node.title.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Common Beta", "Common Alpha", "Common Zulu"]
+    );
+
+    let backlink_sorted =
+        database.search_nodes("common", 10, Some(SearchNodesSort::BacklinkCount))?;
+    assert_eq!(
+        backlink_sorted
+            .iter()
+            .map(|node| node.title.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Common Alpha", "Common Beta", "Common Zulu"]
+    );
+
+    let forward_sorted =
+        database.search_nodes("common", 10, Some(SearchNodesSort::ForwardLinkCount))?;
+    assert_eq!(
+        forward_sorted
+            .iter()
+            .map(|node| node.title.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Common Zulu", "Common Beta", "Common Alpha"]
+    );
 
     Ok(())
 }
@@ -121,7 +212,7 @@ fn backlinks_support_unique_sources() -> Result<()> {
     database.sync_index(&files)?;
 
     let target = database
-        .search_nodes("target", 10)?
+        .search_nodes("target", 10, None)?
         .into_iter()
         .next()
         .expect("expected target node");

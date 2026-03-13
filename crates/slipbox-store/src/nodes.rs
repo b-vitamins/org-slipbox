@@ -2,14 +2,19 @@ use anyhow::{Context, Result};
 use rusqlite::{OptionalExtension, params};
 use serde_json::Value;
 
-use slipbox_core::{NodeKind, NodeRecord};
+use slipbox_core::{NodeKind, NodeRecord, SearchNodesSort};
 
 use crate::Database;
 
 pub(crate) const NODE_SELECT_COLUMN_COUNT: usize = 18;
 
 impl Database {
-    pub fn search_nodes(&self, query: &str, limit: usize) -> Result<Vec<NodeRecord>> {
+    pub fn search_nodes(
+        &self,
+        query: &str,
+        limit: usize,
+        sort: Option<SearchNodesSort>,
+    ) -> Result<Vec<NodeRecord>> {
         let limit = limit.clamp(1, 200) as i64;
         if let Some(fts_query) = build_fts_query(query) {
             let sql = format!(
@@ -17,9 +22,10 @@ impl Database {
                    FROM node_fts
                    JOIN nodes AS n ON n.id = node_fts.rowid
                   WHERE node_fts MATCH ?1
-                  ORDER BY bm25(node_fts, 1.0, 0.3, 0.2, 0.7, 0.8, 0.4), n.file_path, n.line
+                  ORDER BY {}
                   LIMIT ?2",
-                node_select_columns("n")
+                node_select_columns("n"),
+                search_nodes_order_by(sort.as_ref(), true)
             );
             let mut statement = self.connection.prepare(&sql)?;
             let rows = statement.query_map(params![fts_query, limit], row_to_node)?;
@@ -29,9 +35,10 @@ impl Database {
             let sql = format!(
                 "SELECT {}
                    FROM nodes AS n
-                  ORDER BY n.file_path, n.line
+                  ORDER BY {}
                   LIMIT ?1",
-                node_select_columns("n")
+                node_select_columns("n"),
+                search_nodes_order_by(sort.as_ref(), false)
             );
             let mut statement = self.connection.prepare(&sql)?;
             let rows = statement.query_map(params![limit], row_to_node)?;
@@ -207,6 +214,20 @@ pub(crate) fn node_select_columns(alias: &str) -> String {
                      JOIN nodes AS dest ON dest.explicit_id = outgoing.destination_explicit_id
                     WHERE outgoing.source_node_key = {alias}.node_key), 0) AS forward_link_count"
     )
+}
+
+fn search_nodes_order_by(sort: Option<&SearchNodesSort>, using_fts: bool) -> &'static str {
+    match sort {
+        None | Some(SearchNodesSort::Relevance) if using_fts => {
+            "bm25(node_fts, 1.0, 0.3, 0.2, 0.7, 0.8, 0.4), n.file_path, n.line"
+        }
+        None | Some(SearchNodesSort::Relevance) => "n.file_path, n.line",
+        Some(SearchNodesSort::Title) => "n.title COLLATE NOCASE, n.file_path, n.line",
+        Some(SearchNodesSort::File) => "n.file_path, n.line",
+        Some(SearchNodesSort::FileMtime) => "file_mtime_ns DESC, n.file_path, n.line",
+        Some(SearchNodesSort::BacklinkCount) => "backlink_count DESC, n.file_path, n.line",
+        Some(SearchNodesSort::ForwardLinkCount) => "forward_link_count DESC, n.file_path, n.line",
+    }
 }
 
 pub(crate) fn row_to_node(row: &rusqlite::Row<'_>) -> rusqlite::Result<NodeRecord> {

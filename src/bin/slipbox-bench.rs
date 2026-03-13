@@ -369,7 +369,7 @@ fn benchmark_search_nodes(
     measure_iterations(profile.iterations.search_nodes, |iteration| {
         let query = &fixture.search_queries[iteration % fixture.search_queries.len()];
         let nodes = database
-            .search_nodes(query, profile.iterations.search_limit)
+            .search_nodes(query, profile.iterations.search_limit, None)
             .with_context(|| format!("failed to search nodes for query {query}"))?;
         if nodes.is_empty() {
             bail!("benchmark search query {query} returned no nodes");
