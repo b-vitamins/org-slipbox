@@ -34,6 +34,9 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Extended indexed node query payloads to include file modification time plus
   backlink and forward-link counts, so frontend consumers can rely on
   engine-backed metadata instead of filesystem stats or local graph counting.
+- Expanded the benchmark and regression gates for the `0.2.0` read/query
+  surfaces, including explicit sorted-node-search benchmark coverage alongside
+  the new daemon-backed graph, file, discovery, and occurrence query paths.
 - Added daemon-owned `ROAM_EXCLUDE` compatibility semantics for file and
   heading nodes, including inherited exclusion plus explicit `nil` clearing,
   while keeping file-level discovery and `org-id` fallback orthogonal to node

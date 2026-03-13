@@ -18,7 +18,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use serde::{Deserialize, Serialize};
-use slipbox_core::{BacklinkRecord, ForwardLinkRecord, NodeRecord};
+use slipbox_core::{BacklinkRecord, ForwardLinkRecord, NodeRecord, SearchNodesSort};
 use slipbox_index::{DiscoveryPolicy, scan_path_with_policy, scan_root_with_policy};
 use slipbox_store::Database;
 use tempfile::TempDir;
@@ -89,6 +89,7 @@ struct IterationConfig {
     full_index: usize,
     index_file: usize,
     search_nodes: usize,
+    search_nodes_sorted: usize,
     search_files: usize,
     search_occurrences: usize,
     backlinks: usize,
@@ -111,6 +112,7 @@ struct ThresholdConfig {
     full_index_p95_ms: f64,
     index_file_p95_ms: f64,
     search_nodes_p95_ms: f64,
+    search_nodes_sorted_p95_ms: f64,
     search_files_p95_ms: f64,
     search_occurrences_p95_ms: f64,
     backlinks_p95_ms: f64,
@@ -129,6 +131,7 @@ struct BenchmarkReport {
     full_index: TimingReport,
     index_file: TimingReport,
     search_nodes: TimingReport,
+    search_nodes_sorted: TimingReport,
     search_files: TimingReport,
     search_occurrences: TimingReport,
     backlinks: TimingReport,
@@ -315,6 +318,7 @@ fn run_profile(
         .context("failed to resolve forward-link benchmark node")?;
 
     let search_nodes = benchmark_search_nodes(&mut database, profile, fixture)?;
+    let search_nodes_sorted = benchmark_search_nodes_sorted(&mut database, profile, fixture)?;
     let search_files = benchmark_search_files(&mut database, profile, fixture)?;
     let search_occurrences = benchmark_search_occurrences(&mut database, profile, fixture)?;
     let backlinks = benchmark_backlinks(&mut database, profile, &hot_node)?;
@@ -361,6 +365,7 @@ fn run_profile(
         full_index,
         index_file,
         search_nodes,
+        search_nodes_sorted,
         search_files,
         search_occurrences,
         backlinks,
@@ -427,6 +432,35 @@ fn benchmark_search_nodes(
             .with_context(|| format!("failed to search nodes for query {query}"))?;
         if nodes.is_empty() {
             bail!("benchmark search query {query} returned no nodes");
+        }
+        black_box(nodes.len());
+        Ok(())
+    })
+}
+
+fn benchmark_search_nodes_sorted(
+    database: &mut Database,
+    profile: &BenchmarkProfile,
+    fixture: &CorpusFixture,
+) -> Result<TimingReport> {
+    const SORTS: [SearchNodesSort; 5] = [
+        SearchNodesSort::Title,
+        SearchNodesSort::File,
+        SearchNodesSort::FileMtime,
+        SearchNodesSort::BacklinkCount,
+        SearchNodesSort::ForwardLinkCount,
+    ];
+
+    measure_iterations(profile.iterations.search_nodes_sorted, |iteration| {
+        let query = &fixture.search_queries[iteration % fixture.search_queries.len()];
+        let sort = SORTS[iteration % SORTS.len()].clone();
+        let nodes = database
+            .search_nodes(query, profile.iterations.search_limit, Some(sort.clone()))
+            .with_context(|| {
+                format!("failed to search nodes for query {query} with sort {sort:?}")
+            })?;
+        if nodes.is_empty() {
+            bail!("benchmark sorted search query {query} with sort {sort:?} returned no nodes");
         }
         black_box(nodes.len());
         Ok(())
@@ -949,6 +983,11 @@ fn enforce_thresholds(report: &BenchmarkReport, thresholds: &ThresholdConfig) ->
         thresholds.search_nodes_p95_ms,
     )?;
     check_threshold(
+        "search_nodes_sorted",
+        report.search_nodes_sorted.p95_ms,
+        thresholds.search_nodes_sorted_p95_ms,
+    )?;
+    check_threshold(
         "search_files",
         report.search_files.p95_ms,
         thresholds.search_files_p95_ms,
@@ -1016,6 +1055,7 @@ fn print_summary(report: &BenchmarkReport, check: bool, output_path: &Path) {
     print_metric("index", &report.full_index);
     print_metric("indexFile", &report.index_file);
     print_metric("searchNodes", &report.search_nodes);
+    print_metric("searchNodesSorted", &report.search_nodes_sorted);
     print_metric("searchFiles", &report.search_files);
     print_metric("searchOccurrences", &report.search_occurrences);
     print_metric("backlinks", &report.backlinks);
@@ -1148,6 +1188,7 @@ impl BenchmarkProfile {
             ("full_index", self.iterations.full_index),
             ("index_file", self.iterations.index_file),
             ("search_nodes", self.iterations.search_nodes),
+            ("search_nodes_sorted", self.iterations.search_nodes_sorted),
             ("search_files", self.iterations.search_files),
             ("search_occurrences", self.iterations.search_occurrences),
             ("backlinks", self.iterations.backlinks),
