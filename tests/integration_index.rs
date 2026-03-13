@@ -1,7 +1,11 @@
+#[path = "../src/reflinks_query.rs"]
+mod reflinks_query;
+
 use std::fs;
 use std::{thread, time::Duration};
 
 use anyhow::Result;
+use reflinks_query::query_reflinks;
 use slipbox_core::SearchNodesSort;
 use slipbox_index::{
     DiscoveryPolicy, scan_path, scan_path_with_policy, scan_root, scan_root_with_policy,
@@ -286,6 +290,59 @@ fn forward_links_support_unique_destinations_and_skip_missing_targets() -> Resul
         "Another target"
     );
     assert_eq!(unique_forward_links[1].row, 10);
+
+    Ok(())
+}
+
+#[test]
+fn reflinks_query_returns_structured_hits_and_skips_current_subtree() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    fs::write(
+        root.join("current.org"),
+        "#+title: Current\n\n* Source heading\n:PROPERTIES:\n:ID: source-id\n:ROAM_REFS: @smith2024\n:END:\nCurrent cite:smith2024 should stay hidden.\n** Child heading\nChild @smith2024 should stay hidden.\n* Sibling heading\nSibling cite:smith2024 should surface.\n",
+    )?;
+    fs::write(
+        root.join("other.org"),
+        "#+title: Other\n\nPreamble @SMITH2024 should surface.\n* Another heading\nBody cite:smith2024 should surface.\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let source = database
+        .search_nodes("source", 10, None)?
+        .into_iter()
+        .next()
+        .expect("expected source node");
+
+    let reflinks = query_reflinks(&database, &root, &source, 10)?;
+    assert_eq!(reflinks.len(), 3);
+
+    assert_eq!(reflinks[0].source_node.title, "Sibling heading");
+    assert_eq!(reflinks[0].row, 12);
+    assert_eq!(reflinks[0].col, 9);
+    assert_eq!(
+        reflinks[0].preview,
+        "Sibling cite:smith2024 should surface."
+    );
+    assert_eq!(reflinks[0].matched_reference, "cite:smith2024");
+
+    assert_eq!(reflinks[1].source_node.title, "Other");
+    assert_eq!(reflinks[1].row, 3);
+    assert_eq!(reflinks[1].col, 10);
+    assert_eq!(reflinks[1].preview, "Preamble @SMITH2024 should surface.");
+    assert_eq!(reflinks[1].matched_reference, "@SMITH2024");
+
+    assert_eq!(reflinks[2].source_node.title, "Another heading");
+    assert_eq!(reflinks[2].row, 5);
+    assert_eq!(reflinks[2].col, 6);
+    assert_eq!(reflinks[2].preview, "Body cite:smith2024 should surface.");
+    assert_eq!(reflinks[2].matched_reference, "cite:smith2024");
 
     Ok(())
 }

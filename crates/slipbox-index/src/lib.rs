@@ -135,7 +135,7 @@ fn parse_document(file_path: &str, mtime_ns: i64, source: &str) -> IndexedFile {
     }
 }
 
-fn read_source(path: &Path) -> Result<String> {
+pub fn read_source(path: &Path) -> Result<String> {
     match discovery::envelope_extension(path).as_deref() {
         Some("gpg") => read_encrypted_source(path, "gpg", &["--quiet", "--batch", "--decrypt"]),
         Some("age") => read_age_source(path),

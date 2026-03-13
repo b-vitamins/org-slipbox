@@ -184,6 +184,20 @@ impl Database {
             .optional()
             .context("failed to fetch node by key")
     }
+
+    pub fn nodes_in_file(&self, file_path: &str) -> Result<Vec<NodeRecord>> {
+        let sql = format!(
+            "SELECT {}
+               FROM nodes AS n
+              WHERE n.file_path = ?1
+              ORDER BY n.line, n.level",
+            node_select_columns("n")
+        );
+        let mut statement = self.connection.prepare(&sql)?;
+        let rows = statement.query_map(params![file_path], row_to_node)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("failed to read nodes for indexed file")
+    }
 }
 
 pub(crate) fn node_select_columns(alias: &str) -> String {

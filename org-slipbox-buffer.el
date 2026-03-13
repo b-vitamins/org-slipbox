@@ -42,7 +42,7 @@
   "Name of the persistent org-slipbox context buffer.")
 
 (defcustom org-slipbox-buffer-expensive-sections 'dedicated
-  "When grep-backed discovery sections should be rendered.
+  "When expensive discovery sections should be rendered.
 `dedicated' renders them only in dedicated org-slipbox buffers,
 `always' renders them everywhere, and nil disables them."
   :type '(choice
@@ -212,7 +212,7 @@ Return non-nil to render the section, or nil to skip it."
                    (buffer-name (or buffer (current-buffer)))))
 
 (defun org-slipbox-buffer--render-expensive-sections-p ()
-  "Return non-nil when grep-backed sections should be rendered."
+  "Return non-nil when expensive discovery sections should be rendered."
   (pcase org-slipbox-buffer-expensive-sections
     ('always t)
     ('dedicated (org-slipbox-buffer--dedicated-p))
@@ -284,10 +284,11 @@ SECTION-HEADING overrides the rendered heading. LIMIT bounds the query."
 (cl-defun org-slipbox-buffer-reflinks-section (node &key (section-heading "Reflinks"))
   "Insert a reflink section for NODE using SECTION-HEADING."
   (when (org-slipbox-buffer--render-expensive-sections-p)
-    (org-slipbox-buffer--insert-result-section
+    (org-slipbox-buffer--insert-occurrence-section
      section-heading
      (org-slipbox-buffer--reflinks node)
-     "No reflinks found.")))
+     "No reflinks found."
+     #'org-slipbox-buffer--insert-reflink-entry)))
 
 (cl-defun org-slipbox-buffer-unlinked-references-section
     (node &key (section-heading "Unlinked References"))
@@ -359,6 +360,27 @@ node. LIMIT bounds the number of rows requested."
             "\n  "
             preview)))
 
+(defun org-slipbox-buffer--insert-reflink-entry (entry)
+  "Insert a preview-rich reflink ENTRY."
+  (let* ((source-node (plist-get entry :source_node))
+         (file (plist-get source-node :file_path))
+         (row (plist-get entry :row))
+         (col (plist-get entry :col))
+         (preview (plist-get entry :preview))
+         (matched-reference (plist-get entry :matched_reference)))
+    (insert-text-button
+     (org-slipbox--node-display source-node)
+     'follow-link t
+     'help-echo "Visit reflink source"
+     'action (lambda (_button)
+               (org-slipbox-buffer--visit-location file row col)))
+    (insert " "
+            (propertize (format "%s:%s:%s" file row col) 'face 'shadow))
+    (when matched-reference
+      (insert " "
+              (propertize matched-reference 'face 'italic)))
+    (insert "\n  " preview)))
+
 (defun org-slipbox-buffer--insert-result-section (title results empty-message)
   "Insert result section TITLE using RESULTS or EMPTY-MESSAGE."
   (org-slipbox-buffer--insert-occurrence-section
@@ -405,16 +427,10 @@ node. LIMIT bounds the number of rows requested."
     (org-fold-show-context)))
 
 (defun org-slipbox-buffer--reflinks (node)
-  "Return grep-backed reflink matches for NODE."
-  (let* ((refs (org-slipbox--plist-sequence (plist-get node :refs)))
-         (patterns (and refs (org-slipbox-buffer--reflink-patterns refs))))
-    (when (and patterns (executable-find "rg"))
-      (org-slipbox-buffer--grep-results
-       (org-slipbox-buffer--with-pattern-file
-        patterns
-        (lambda (pattern-file)
-          (org-slipbox-buffer--reflinks-rg-command patterns pattern-file)))
-       node))))
+  "Return daemon-backed reflink matches for NODE."
+  (when-let ((node-key (plist-get node :node_key)))
+    (org-slipbox--plist-sequence
+     (plist-get (org-slipbox-rpc-reflinks node-key 200) :reflinks))))
 
 (defun org-slipbox-buffer--unlinked-references (node)
   "Return grep-backed unlinked references for NODE."
@@ -441,23 +457,6 @@ node. LIMIT bounds the number of rows requested."
          (lambda (pattern-file)
            (org-slipbox-buffer--unlinked-rg-command titles pattern-file)))
         node)))))
-
-(defun org-slipbox-buffer--reflink-patterns (refs)
-  "Return fixed-string search patterns derived from REFS."
-  (let (patterns)
-    (dolist (reference refs)
-      (push reference patterns)
-      (when (string-prefix-p "@" reference)
-        (push (concat "cite:" (substring reference 1)) patterns)))
-    (delete-dups (nreverse patterns))))
-
-(defun org-slipbox-buffer--reflinks-rg-command (_patterns pattern-file)
-  "Return ripgrep command for reflinks using PATTERN-FILE."
-  (format
-   "rg --follow --only-matching --vimgrep --ignore-case --fixed-strings %s --file %s %s"
-   (org-slipbox-buffer--rg-glob-arguments)
-   (shell-quote-argument pattern-file)
-   (shell-quote-argument (expand-file-name org-slipbox-directory))))
 
 (defun org-slipbox-buffer--unlinked-rg-command (_titles pattern-file)
   "Return ripgrep command for unlinked references using PATTERN-FILE."

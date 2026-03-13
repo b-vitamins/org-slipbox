@@ -2407,37 +2407,37 @@
     (should (equal (cadr build-args) '(:node_key "file:alpha.org")))
     (should (equal opened "/tmp/generated.svg"))))
 
-(ert-deftest org-slipbox-test-buffer-reflink-patterns-expand-citekeys ()
-  "Reflink search should include cite: variants for citekeys."
-  (should
-   (equal
-    (org-slipbox-buffer--reflink-patterns '("@smith2024" "https://example.com"))
-    '("@smith2024" "cite:smith2024" "https://example.com"))))
-
-(ert-deftest org-slipbox-test-buffer-reflinks-pass-rg-command-to-grep-runner ()
-  "Reflink discovery should hand an rg command string to the grep runner."
-  (let ((org-slipbox-directory "/tmp/org-slipbox")
-        captured-command)
-    (cl-letf (((symbol-function 'executable-find)
-               (lambda (program)
-                 (and (string= program "rg") "/usr/bin/rg")))
-              ((symbol-function 'org-slipbox-buffer--with-pattern-file)
-               (lambda (patterns builder)
-                 (should (equal patterns '("@smith2024" "cite:smith2024")))
-                 (funcall builder "/tmp/patterns")))
+(ert-deftest org-slipbox-test-buffer-reflinks-use-daemon-query ()
+  "Reflink discovery should use the dedicated daemon query."
+  (let (rpc-args)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-reflinks)
+               (lambda (node-key &optional limit)
+                 (setq rpc-args (list node-key limit))
+                 '(:reflinks [(:source_node (:title "Sibling"
+                                       :file_path "note.org"
+                                       :line 9)
+                              :row 10
+                              :col 3
+                              :preview "cite:smith2024"
+                              :matched_reference "cite:smith2024")])))
+              ((symbol-function 'executable-find)
+               (lambda (&rest _args)
+                 (ert-fail "reflinks should not depend on rg")))
               ((symbol-function 'shell-command-to-string)
-               (lambda (command)
-                 (concat "OUTPUT:" command)))
-              ((symbol-function 'org-slipbox-buffer--grep-results)
-               (lambda (command _node)
-                 (setq captured-command command)
-                 nil)))
-      (org-slipbox-buffer--reflinks
-       '(:refs ["@smith2024"] :file_path "note.org" :line 1)))
-    (should
-     (equal
-      captured-command
-      (org-slipbox-buffer--reflinks-rg-command nil "/tmp/patterns")))))
+               (lambda (&rest _args)
+                 (ert-fail "reflinks should not shell out"))))
+      (should
+       (equal
+        (org-slipbox-buffer--reflinks
+         '(:node_key "heading:note.org:3" :refs ["@smith2024"]))
+        '((:source_node (:title "Sibling"
+                    :file_path "note.org"
+                    :line 9)
+           :row 10
+           :col 3
+           :preview "cite:smith2024"
+           :matched_reference "cite:smith2024")))))
+    (should (equal rpc-args '("heading:note.org:3" 200)))))
 
 (ert-deftest org-slipbox-test-buffer-unlinked-references-pass-rg-command-to-grep-runner ()
   "Unlinked discovery should hand an rg command string to the grep runner."
@@ -2482,10 +2482,13 @@
                        (lambda (&rest _args) nil))
                       ((symbol-function 'org-slipbox-buffer--reflinks)
                        (lambda (_node)
-                         '((:file "/tmp/refs.org"
+                         '((:source_node (:title "Sibling"
+                                      :file_path "refs.org"
+                                      :line 2)
                             :row 3
                             :col 7
-                            :preview "cite:smith2024"))))
+                            :preview "cite:smith2024"
+                            :matched_reference "cite:smith2024"))))
                       ((symbol-function 'org-slipbox-buffer--unlinked-references)
                        (lambda (_node)
                          '((:file "/tmp/unlinked.org"
@@ -2495,6 +2498,7 @@
               (org-slipbox-buffer-render-contents))
             (should (string-match-p "Reflinks" (buffer-string)))
             (should (string-match-p "Unlinked References" (buffer-string)))
+            (should (string-match-p "Sibling" (buffer-string)))
             (should (string-match-p "cite:smith2024" (buffer-string)))
             (should (string-match-p "Note mention" (buffer-string))))
         (kill-buffer (current-buffer))))))
@@ -2733,6 +2737,19 @@
     (should (equal params '(:node_key "heading:alpha.org:3"
                             :limit 25
                             :unique t)))))
+
+(ert-deftest org-slipbox-test-rpc-reflinks-encodes-params ()
+  "Reflink RPC should encode node key and limit explicitly."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:reflinks []))))
+      (org-slipbox-rpc-reflinks "heading:alpha.org:3" 25))
+    (should (equal method "slipbox/reflinks"))
+    (should (equal params '(:node_key "heading:alpha.org:3"
+                            :limit 25)))))
 
 (ert-deftest org-slipbox-test-refile-calls-rust-rpc-and-refreshes-buffers ()
   "Refile should delegate subtree movement to the Rust RPC layer."

@@ -73,6 +73,7 @@ resolves it through `exec-path'."
 (defconst org-slipbox-rpc-method-node-at-point "slipbox/nodeAtPoint")
 (defconst org-slipbox-rpc-method-backlinks "slipbox/backlinks")
 (defconst org-slipbox-rpc-method-forward-links "slipbox/forwardLinks")
+(defconst org-slipbox-rpc-method-reflinks "slipbox/reflinks")
 (defconst org-slipbox-rpc-method-agenda "slipbox/agenda")
 (defconst org-slipbox-rpc-method-search-refs "slipbox/searchRefs")
 (defconst org-slipbox-rpc-method-capture-node "slipbox/captureNode")
@@ -348,6 +349,12 @@ per destination node."
    org-slipbox-rpc-method-forward-links
    `(:node_key ,node-key :limit ,(or limit 200)
                :unique ,(org-slipbox-rpc--bool unique))))
+
+(defun org-slipbox-rpc-reflinks (node-key &optional limit)
+  "Return reflinks for NODE-KEY, optionally capped by LIMIT."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-reflinks
+   `(:node_key ,node-key :limit ,(or limit 200))))
 
 (defun org-slipbox-rpc-agenda (start end)
   "Return indexed agenda entries between START and END."

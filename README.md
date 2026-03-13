@@ -226,7 +226,7 @@ expect:
 - `org-slipbox-buffer-display-dedicated` opens a dedicated buffer for one node without replacing it as point moves
 
 The persistent buffer keeps the cheap indexed sections on the hot path. By
-default, grep-backed discovery sections such as reflinks and unlinked
+default, expensive discovery sections such as reflinks and unlinked
 references render only in dedicated buffers, where their cost is explicit.
 
 The buffer surface is configurable:
@@ -309,7 +309,7 @@ Capture templates can target encrypted notes directly:
 ```
 
 The discovery policy is shared across indexing, autosync, dailies, and
-grep-backed discovery sections through:
+discovery sections through:
 
 - `org-slipbox-file-extensions`
 - `org-slipbox-file-exclude-regexp`
@@ -531,7 +531,7 @@ These stay opt-in and isolated from startup:
 - Create and visit daily notes, append daily entries, move between existing daily notes, and opt into calendar marking for existing daily files.
 - Enable optional HTML export support so Org ID-backed targets keep stable exported anchors.
 - Keep indexed state current across Org file saves, renames, deletes, and VC deletes through explicit modes.
-- Apply a shared file-discovery policy across indexing, autosync, dailies, and grep-backed discovery, with configurable extensions, exclude regexps, and `.gpg` / `.age` suffix handling.
+- Apply a shared file-discovery policy across indexing, autosync, dailies, and discovery sections, with configurable extensions, exclude regexps, and `.gpg` / `.age` suffix handling.
 - Export optional global or neighborhood Graphviz graphs from indexed `id:` links, with title shortening, link filtering, DOT output, rendered file generation, viewer integration, and optional `org-protocol` node URLs.
 
 ## Performance

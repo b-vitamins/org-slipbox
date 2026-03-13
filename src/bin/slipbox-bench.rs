@@ -1,3 +1,6 @@
+#[path = "../reflinks_query.rs"]
+mod reflinks_query;
+
 use std::collections::BTreeSet;
 use std::fs;
 use std::hint::black_box;
@@ -12,6 +15,8 @@ use slipbox_core::{BacklinkRecord, NodeRecord};
 use slipbox_index::{DiscoveryPolicy, scan_path_with_policy, scan_root_with_policy};
 use slipbox_store::Database;
 use tempfile::TempDir;
+
+use reflinks_query::query_reflinks;
 
 const HOT_NODE_ID: &str = "node-000000";
 const AGENDA_START: &str = "2026-03-01";
@@ -78,12 +83,14 @@ struct IterationConfig {
     search_files: usize,
     backlinks: usize,
     forward_links: usize,
+    reflinks: usize,
     node_at_point: usize,
     agenda: usize,
     persistent_buffer_samples: usize,
     persistent_buffer_iterations: usize,
     search_limit: usize,
     backlinks_limit: usize,
+    reflinks_limit: usize,
     agenda_limit: usize,
 }
 
@@ -95,6 +102,7 @@ struct ThresholdConfig {
     search_files_p95_ms: f64,
     backlinks_p95_ms: f64,
     forward_links_p95_ms: f64,
+    reflinks_p95_ms: f64,
     node_at_point_p95_ms: f64,
     agenda_p95_ms: f64,
     persistent_buffer_p95_ms: Option<f64>,
@@ -110,6 +118,7 @@ struct BenchmarkReport {
     search_files: TimingReport,
     backlinks: TimingReport,
     forward_links: TimingReport,
+    reflinks: TimingReport,
     node_at_point: TimingReport,
     agenda: TimingReport,
     persistent_buffer: Option<TimingReport>,
@@ -292,6 +301,7 @@ fn run_profile(
     let search_files = benchmark_search_files(&mut database, profile, fixture)?;
     let backlinks = benchmark_backlinks(&mut database, profile, &hot_node)?;
     let forward_links = benchmark_forward_links(&mut database, profile, &forward_node)?;
+    let reflinks = benchmark_reflinks(&mut database, profile, &fixture.root, &hot_node)?;
     let node_at_point = benchmark_node_at_point(&mut database, profile, fixture)?;
     let agenda = benchmark_agenda(&mut database, profile)?;
     let persistent_buffer = if skip_elisp {
@@ -328,6 +338,7 @@ fn run_profile(
         search_files,
         backlinks,
         forward_links,
+        reflinks,
         node_at_point,
         agenda,
         persistent_buffer,
@@ -464,6 +475,35 @@ fn benchmark_forward_links(
             )
             .context("failed to query forward links")?;
         black_box(forward_links.len());
+        Ok(())
+    })
+}
+
+fn benchmark_reflinks(
+    database: &mut Database,
+    profile: &BenchmarkProfile,
+    root: &Path,
+    source_node: &NodeRecord,
+) -> Result<TimingReport> {
+    let sample = query_reflinks(
+        database,
+        root,
+        source_node,
+        profile.iterations.reflinks_limit,
+    )
+    .context("failed to fetch reflink sample")?;
+    if sample.is_empty() {
+        bail!("benchmark source node produced no reflinks");
+    }
+    measure_iterations(profile.iterations.reflinks, |_| {
+        let reflinks = query_reflinks(
+            database,
+            root,
+            source_node,
+            profile.iterations.reflinks_limit,
+        )
+        .context("failed to query reflinks")?;
+        black_box(reflinks.len());
         Ok(())
     })
 }
@@ -724,6 +764,9 @@ fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result<CorpusFixt
                 lines.push(format!("Hub [[id:{HOT_NODE_ID}][hub]]."));
                 expected_links += 1;
             }
+            if global_index % config.hot_link_stride == 0 {
+                lines.push(String::from("Reference cite:cite000000."));
+            }
             lines.push(String::new());
 
             if search_queries.len() < config.query_count {
@@ -829,6 +872,11 @@ fn enforce_thresholds(report: &BenchmarkReport, thresholds: &ThresholdConfig) ->
         thresholds.forward_links_p95_ms,
     )?;
     check_threshold(
+        "reflinks",
+        report.reflinks.p95_ms,
+        thresholds.reflinks_p95_ms,
+    )?;
+    check_threshold(
         "node_at_point",
         report.node_at_point.p95_ms,
         thresholds.node_at_point_p95_ms,
@@ -869,6 +917,7 @@ fn print_summary(report: &BenchmarkReport, check: bool, output_path: &Path) {
     print_metric("searchFiles", &report.search_files);
     print_metric("backlinks", &report.backlinks);
     print_metric("forwardLinks", &report.forward_links);
+    print_metric("reflinks", &report.reflinks);
     print_metric("nodeAtPoint", &report.node_at_point);
     print_metric("agenda", &report.agenda);
     if let Some(persistent_buffer) = &report.persistent_buffer {
@@ -998,6 +1047,7 @@ impl BenchmarkProfile {
             ("search_files", self.iterations.search_files),
             ("backlinks", self.iterations.backlinks),
             ("forward_links", self.iterations.forward_links),
+            ("reflinks", self.iterations.reflinks),
             ("node_at_point", self.iterations.node_at_point),
             ("agenda", self.iterations.agenda),
             (
@@ -1010,6 +1060,7 @@ impl BenchmarkProfile {
             ),
             ("search_limit", self.iterations.search_limit),
             ("backlinks_limit", self.iterations.backlinks_limit),
+            ("reflinks_limit", self.iterations.reflinks_limit),
             ("agenda_limit", self.iterations.agenda_limit),
         ] {
             if value == 0 {

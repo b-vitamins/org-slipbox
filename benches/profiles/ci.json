@@ -15,12 +15,14 @@
     "search_files": 40,
     "backlinks": 40,
     "forward_links": 40,
+    "reflinks": 20,
     "node_at_point": 80,
     "agenda": 40,
     "persistent_buffer_samples": 5,
     "persistent_buffer_iterations": 30,
     "search_limit": 25,
     "backlinks_limit": 200,
+    "reflinks_limit": 200,
     "agenda_limit": 200
   },
   "thresholds": {
@@ -30,6 +32,7 @@
     "search_files_p95_ms": 15.0,
     "backlinks_p95_ms": 30.0,
     "forward_links_p95_ms": 30.0,
+    "reflinks_p95_ms": 120.0,
     "node_at_point_p95_ms": 2.0,
     "agenda_p95_ms": 25.0,
     "persistent_buffer_p95_ms": 20.0
