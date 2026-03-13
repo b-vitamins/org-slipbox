@@ -37,6 +37,9 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 ### Changed
 - Clarified `AGENTS.md` and `README.md` so durable strategy documents belong in
   `doc/*.org`, while temporary planning remains out of the repository.
+- Clarified the current-node buffer docs so the persistent point-tracking
+  buffer and the dedicated fuller inspection buffer are described as distinct
+  entry points with different discovery-cost expectations.
 - Extended indexed node query payloads to include file modification time plus
   backlink and forward-link counts, so frontend consumers can rely on
   engine-backed metadata instead of filesystem stats or local graph counting.

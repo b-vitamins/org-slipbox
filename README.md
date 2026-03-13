@@ -201,6 +201,8 @@ Then try the core workflow:
    Use `M-x org-slipbox-node-insert-immediate` to skip the draft buffer for
    newly captured insertions.
 5. Open the current-node context buffer with `M-x org-slipbox-buffer-toggle`
+   Use `M-x org-slipbox-buffer-display-dedicated` when you want the fuller
+   one-node view, including the more expensive discovery sections.
 
 The first full sync builds the database. After that, autosync keeps the index
 current incrementally.
@@ -213,8 +215,8 @@ current incrementally.
 - `org-slipbox-node-insert` inserts a link to an existing node or captures a new one.
 - `org-slipbox-node-insert-immediate` inserts a link and commits newly captured nodes directly.
 - `org-slipbox-capture` starts the same draft-based capture flow directly.
-- `org-slipbox-buffer-toggle` shows the current node's context buffer.
-- `org-slipbox-buffer-display-dedicated` opens a dedicated context buffer for one node.
+- `org-slipbox-buffer-toggle` shows the persistent current-node context buffer.
+- `org-slipbox-buffer-display-dedicated` opens the dedicated one-node context buffer with the fuller discovery surface.
 
 File nodes and heading nodes are both first-class. Explicit IDs remain the
 stable identity surface, but `org-slipbox` also supports lazy ID assignment when
@@ -232,6 +234,11 @@ The persistent buffer keeps the cheap indexed sections on the hot path. By
 default, backlinks and forward links render from indexed daemon queries, while
 expensive discovery sections such as reflinks and unlinked references render
 only in dedicated buffers, where their daemon-backed query cost is explicit.
+
+For migration purposes, the practical rule is simple: use
+`org-slipbox-buffer-toggle` for a cheap tracking buffer that follows point, and
+use `org-slipbox-buffer-display-dedicated` when you want the fuller current-node
+inspection surface without point-driven replacement.
 
 When the current node record includes indexed metadata, the node summary also
 renders file modification time plus backlink and forward-link counts without
@@ -517,8 +524,8 @@ These are the most common command-level equivalents:
 | `org-roam-node-insert` | `org-slipbox-node-insert` | Insert an `id:` link or capture a new node. |
 | immediate-insert wrapper | `org-slipbox-node-insert-immediate` | Same insert-link flow, but newly captured nodes commit without opening a draft. |
 | `org-roam-capture` | `org-slipbox-capture` | Direct capture entry point. |
-| `org-roam-buffer-toggle` | `org-slipbox-buffer-toggle` | Persistent current-node buffer. |
-| `org-roam-buffer-display-dedicated` | `org-slipbox-buffer-display-dedicated` | Dedicated current-node buffer. |
+| `org-roam-buffer-toggle` | `org-slipbox-buffer-toggle` | Persistent current-node buffer that tracks point and keeps expensive discovery off the hot path. |
+| `org-roam-buffer-display-dedicated` | `org-slipbox-buffer-display-dedicated` | Dedicated one-node buffer for the fuller context surface, including expensive discovery sections. |
 | `org-roam-node-at-point` | `org-slipbox-node-at-point` | Indexed node lookup for the current location. |
 | `org-roam-ref-find` | `org-slipbox-ref-find` | Indexed ref chooser. |
 | `org-roam-ref-add` / `org-roam-ref-remove` | `org-slipbox-ref-add` / `org-slipbox-ref-remove` | Ref metadata editing. |
