@@ -1652,10 +1652,11 @@
                          ("slipbox/captureTemplatePreview"
                           '(:file_path "notes/note.org"
                             :content "* Note\n"
-                            :node (:title "Note"
-                                   :file_path "notes/note.org"
-                                   :line 1
-                                   :kind heading)))
+                            :preview_node
+                            (:title "Note"
+                             :file_path "notes/note.org"
+                             :line 1
+                             :kind heading)))
                          (_
                           (ert-fail
                            (format "unexpected rpc method %s" request-method)))))))
@@ -1705,10 +1706,11 @@
                                    (plist-get request-params :source_override)))
                           '(:file_path "notes/note.org"
                             :content "#+title: Note\nLocal edits\nCaptured body\n"
-                            :node (:title "Note"
-                                   :file_path "notes/note.org"
-                                   :line 1
-                                   :kind file)))
+                            :preview_node
+                            (:title "Note"
+                             :file_path "notes/note.org"
+                             :line 1
+                             :kind file)))
                          (_
                           (ert-fail
                            (format "unexpected rpc method %s" request-method)))))))
@@ -1756,11 +1758,12 @@
                             (should (plist-get request-params :ensure_node_id))
                             '(:file_path "notes/note.org"
                               :content "* Note\n:PROPERTIES:\n:ID: note-1\n:END:\n"
-                              :node (:title "Note"
-                                     :file_path "notes/note.org"
-                                     :line 1
-                                     :kind heading
-                                     :explicit_id "note-1")))
+                              :preview_node
+                              (:title "Note"
+                               :file_path "notes/note.org"
+                               :line 1
+                               :kind heading
+                               :explicit_id "note-1")))
                            ("slipbox/ensureNodeId"
                             (ert-fail "no-save insert-link should not assign IDs after preview"))
                            (_

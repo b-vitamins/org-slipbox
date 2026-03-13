@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
-use slipbox_core::{CaptureTemplatePreviewResult, NodeRecord};
+use slipbox_core::{CaptureTemplatePreviewResult, NodeRecord, PreviewNodeRecord};
 use slipbox_index::DiscoveryPolicy;
 use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
 use slipbox_store::Database;
@@ -58,7 +58,7 @@ impl ServerState {
             .nodes
             .into_iter()
             .find(|candidate| candidate.node_key == outcome.node_key)
-            .map(Into::into)
+            .map(PreviewNodeRecord::from)
             .ok_or_else(|| {
                 internal_error(anyhow!(
                     "captured preview node {} was not found in rendered output",
@@ -68,7 +68,7 @@ impl ServerState {
         Ok(CaptureTemplatePreviewResult {
             file_path: outcome.relative_path.clone(),
             content: outcome.content.clone(),
-            node,
+            preview_node: node,
         })
     }
 

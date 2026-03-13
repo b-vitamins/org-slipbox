@@ -171,7 +171,7 @@ assign an explicit Org ID."
             capture-session
             content
             ensure-node-id)))
-         (node (plist-get preview :node)))
+         (node (plist-get preview :preview_node)))
     (when (and ensure-node-id
                (not (plist-get node :explicit_id)))
       (user-error "No-save capture preview did not assign an explicit Org ID"))

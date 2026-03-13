@@ -143,6 +143,32 @@ pub struct NodeRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreviewNodeRecord {
+    pub node_key: String,
+    pub explicit_id: Option<String>,
+    pub file_path: String,
+    pub title: String,
+    pub outline_path: String,
+    #[serde(default)]
+    pub aliases: Vec<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub refs: Vec<String>,
+    #[serde(default)]
+    pub todo_keyword: Option<String>,
+    #[serde(default)]
+    pub scheduled_for: Option<String>,
+    #[serde(default)]
+    pub deadline_for: Option<String>,
+    #[serde(default)]
+    pub closed_at: Option<String>,
+    pub level: u32,
+    pub line: u32,
+    pub kind: NodeKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndexedFile {
     pub file_path: String,
     pub mtime_ns: i64,
@@ -190,6 +216,28 @@ impl From<IndexedNode> for NodeRecord {
             file_mtime_ns: 0,
             backlink_count: 0,
             forward_link_count: 0,
+        }
+    }
+}
+
+impl From<IndexedNode> for PreviewNodeRecord {
+    fn from(node: IndexedNode) -> Self {
+        Self {
+            node_key: node.node_key,
+            explicit_id: node.explicit_id,
+            file_path: node.file_path,
+            title: node.title,
+            outline_path: node.outline_path,
+            aliases: node.aliases,
+            tags: node.tags,
+            refs: node.refs,
+            todo_keyword: node.todo_keyword,
+            scheduled_for: node.scheduled_for,
+            deadline_for: node.deadline_for,
+            closed_at: node.closed_at,
+            level: node.level,
+            line: node.line,
+            kind: node.kind,
         }
     }
 }
@@ -555,7 +603,7 @@ pub struct CaptureTemplatePreviewParams {
 pub struct CaptureTemplatePreviewResult {
     pub file_path: String,
     pub content: String,
-    pub node: NodeRecord,
+    pub preview_node: PreviewNodeRecord,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -841,8 +889,8 @@ fn normalize_string_values(values: &[String], nocase: bool) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        CaptureNodeParams, NodeKind, NodeRecord, SearchNodesParams, SearchNodesSort,
-        UpdateNodeMetadataParams, normalize_reference,
+        CaptureNodeParams, CaptureTemplatePreviewResult, NodeKind, NodeRecord, PreviewNodeRecord,
+        SearchNodesParams, SearchNodesSort, UpdateNodeMetadataParams, normalize_reference,
     };
     use serde_json::json;
 
@@ -951,6 +999,98 @@ mod tests {
                 "file_mtime_ns": 123,
                 "backlink_count": 2,
                 "forward_link_count": 4
+            })
+        );
+    }
+
+    #[test]
+    fn preview_node_serialization_omits_indexed_metadata_fields() {
+        let preview = PreviewNodeRecord {
+            node_key: "heading:note.org:3".to_owned(),
+            explicit_id: Some("note-id".to_owned()),
+            file_path: "note.org".to_owned(),
+            title: "Note".to_owned(),
+            outline_path: "Parent".to_owned(),
+            aliases: vec!["Alias".to_owned()],
+            tags: vec!["tag".to_owned()],
+            refs: vec!["@smith2024".to_owned()],
+            todo_keyword: None,
+            scheduled_for: None,
+            deadline_for: None,
+            closed_at: None,
+            level: 1,
+            line: 3,
+            kind: NodeKind::Heading,
+        };
+
+        assert_eq!(
+            serde_json::to_value(preview).expect("preview node should serialize"),
+            json!({
+                "node_key": "heading:note.org:3",
+                "explicit_id": "note-id",
+                "file_path": "note.org",
+                "title": "Note",
+                "outline_path": "Parent",
+                "aliases": ["Alias"],
+                "tags": ["tag"],
+                "refs": ["@smith2024"],
+                "todo_keyword": null,
+                "scheduled_for": null,
+                "deadline_for": null,
+                "closed_at": null,
+                "level": 1,
+                "line": 3,
+                "kind": "heading"
+            })
+        );
+    }
+
+    #[test]
+    fn capture_template_preview_result_serializes_preview_node_field() {
+        let result = CaptureTemplatePreviewResult {
+            file_path: "note.org".to_owned(),
+            content: "* Note\n".to_owned(),
+            preview_node: PreviewNodeRecord {
+                node_key: "heading:note.org:1".to_owned(),
+                explicit_id: None,
+                file_path: "note.org".to_owned(),
+                title: "Note".to_owned(),
+                outline_path: "Note".to_owned(),
+                aliases: Vec::new(),
+                tags: Vec::new(),
+                refs: Vec::new(),
+                todo_keyword: None,
+                scheduled_for: None,
+                deadline_for: None,
+                closed_at: None,
+                level: 1,
+                line: 1,
+                kind: NodeKind::Heading,
+            },
+        };
+
+        assert_eq!(
+            serde_json::to_value(result).expect("preview result should serialize"),
+            json!({
+                "file_path": "note.org",
+                "content": "* Note\n",
+                "preview_node": {
+                    "node_key": "heading:note.org:1",
+                    "explicit_id": null,
+                    "file_path": "note.org",
+                    "title": "Note",
+                    "outline_path": "Note",
+                    "aliases": [],
+                    "tags": [],
+                    "refs": [],
+                    "todo_keyword": null,
+                    "scheduled_for": null,
+                    "deadline_for": null,
+                    "closed_at": null,
+                    "level": 1,
+                    "line": 1,
+                    "kind": "heading"
+                }
             })
         );
     }

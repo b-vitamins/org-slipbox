@@ -24,6 +24,9 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Extended indexed node query payloads to include file modification time plus
   backlink and forward-link counts, so frontend consumers can rely on
   engine-backed metadata instead of filesystem stats or local graph counting.
+- Split capture-template preview payloads away from indexed `NodeRecord`
+  semantics by returning an explicit `preview_node` shape for unsaved preview
+  materialization.
 
 ### Removed
 - Removed the legacy `file-atime` node chooser sort from `org-slipbox-node-read`
