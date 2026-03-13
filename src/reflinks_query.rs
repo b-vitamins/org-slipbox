@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
@@ -8,7 +9,7 @@ use slipbox_core::{NodeRecord, ReflinkRecord};
 use slipbox_store::Database;
 
 use crate::text_query::{
-    build_node_ranges, column_number, node_range_for_key, source_range_for_row,
+    build_structural_ranges, column_number, structural_range_for_key, structural_range_for_row,
 };
 
 /// Return structured textual ref occurrences across indexed files.
@@ -50,22 +51,29 @@ pub(crate) fn query_reflinks(
 
         let source = slipbox_index::read_source(&absolute_path)
             .with_context(|| format!("failed to read indexed file {}", absolute_path.display()))?;
-        let nodes = database
+        let visible_nodes = database
             .nodes_in_file(&file_path)
             .with_context(|| format!("failed to read indexed nodes for {file_path}"))?;
-        if nodes.is_empty() {
+        if visible_nodes.is_empty() {
             continue;
         }
+        let nodes_by_key = visible_nodes
+            .iter()
+            .map(|candidate| (candidate.node_key.as_str(), candidate))
+            .collect::<HashMap<_, _>>();
+        let outline = slipbox_index::scan_source_outline(&file_path, &source);
+        let ranges = build_structural_ranges(&outline, source.lines().count().max(1) as u32);
 
-        let ranges = build_node_ranges(&nodes, source.lines().count().max(1) as u32);
         let current_range = if file_path == node.file_path {
-            Some(node_range_for_key(&ranges, &node.node_key).ok_or_else(|| {
-                anyhow!(
-                    "queried node {} was not found in indexed file {}",
-                    node.node_key,
-                    file_path
-                )
-            })?)
+            Some(
+                structural_range_for_key(&ranges, &node.node_key).ok_or_else(|| {
+                    anyhow!(
+                        "queried node {} was not found in indexed file {}",
+                        node.node_key,
+                        file_path
+                    )
+                })?,
+            )
         } else {
             None
         };
@@ -81,13 +89,26 @@ pub(crate) fn query_reflinks(
                 continue;
             }
 
-            let Some(source_range) = source_range_for_row(&ranges, row, &mut source_index) else {
+            let Some(source_range) = structural_range_for_row(&ranges, row, &mut source_index)
+            else {
                 continue;
             };
+            if source_range.excluded {
+                continue;
+            }
+            let source_node = nodes_by_key
+                .get(source_range.node_key.as_str())
+                .ok_or_else(|| {
+                    anyhow!(
+                        "indexed source node {} was not found in visible node map for {}",
+                        source_range.node_key,
+                        file_path
+                    )
+                })?;
 
             for matched in matcher.find_iter(line) {
                 let result = ReflinkRecord {
-                    source_node: source_range.node.clone(),
+                    source_node: (*source_node).clone(),
                     row,
                     col: column_number(line, matched.start()),
                     preview: line.trim_end().to_owned(),

@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::Database;
 
-const SCHEMA_VERSION: i32 = 7;
+const SCHEMA_VERSION: i32 = 8;
 
 impl Database {
     pub(crate) fn migrate(&self) -> Result<()> {
@@ -40,6 +40,7 @@ impl Database {
 
              CREATE TABLE IF NOT EXISTS files (
                path TEXT PRIMARY KEY,
+               title TEXT NOT NULL,
                mtime_ns INTEGER NOT NULL
              );
 
@@ -133,7 +134,7 @@ impl Database {
                ON nodes (deadline_for)
                WHERE deadline_for IS NOT NULL;
 
-             PRAGMA user_version = 7;",
+             PRAGMA user_version = 8;",
         )?;
         Ok(())
     }

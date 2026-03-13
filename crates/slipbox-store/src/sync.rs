@@ -39,9 +39,9 @@ impl Database {
         delete_file_rows(&transaction, &file.file_path)?;
 
         transaction.execute(
-            "INSERT INTO files (path, mtime_ns)
-             VALUES (?1, ?2)",
-            params![file.file_path, file.mtime_ns],
+            "INSERT INTO files (path, title, mtime_ns)
+             VALUES (?1, ?2, ?3)",
+            params![file.file_path, file.title, file.mtime_ns],
         )?;
 
         for node in &file.nodes {

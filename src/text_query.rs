@@ -1,36 +1,45 @@
-use slipbox_core::{NodeKind, NodeRecord};
+use slipbox_core::NodeKind;
+use slipbox_index::OutlineNode;
 
 #[derive(Debug, Clone)]
-pub(crate) struct NodeRange {
-    pub(crate) node: NodeRecord,
+pub(crate) struct StructuralRange {
+    pub(crate) node_key: String,
     pub(crate) start_line: u32,
     pub(crate) end_line: u32,
+    pub(crate) excluded: bool,
 }
 
-pub(crate) fn build_node_ranges(nodes: &[NodeRecord], total_lines: u32) -> Vec<NodeRange> {
+pub(crate) fn build_structural_ranges(
+    nodes: &[OutlineNode],
+    total_lines: u32,
+) -> Vec<StructuralRange> {
     nodes
         .iter()
         .enumerate()
-        .map(|(index, node)| NodeRange {
-            node: node.clone(),
+        .map(|(index, node)| StructuralRange {
+            node_key: node.node_key.clone(),
             start_line: node.line.max(1),
-            end_line: node_end_line(nodes, index, total_lines),
+            end_line: structural_node_end_line(nodes, index, total_lines),
+            excluded: node.excluded,
         })
         .collect()
 }
 
-pub(crate) fn node_range_for_key(ranges: &[NodeRange], node_key: &str) -> Option<(u32, u32)> {
+pub(crate) fn structural_range_for_key(
+    ranges: &[StructuralRange],
+    node_key: &str,
+) -> Option<(u32, u32)> {
     ranges
         .iter()
-        .find(|range| range.node.node_key == node_key)
+        .find(|range| range.node_key == node_key)
         .map(|range| (range.start_line, range.end_line))
 }
 
-pub(crate) fn source_range_for_row<'a>(
-    ranges: &'a [NodeRange],
+pub(crate) fn structural_range_for_row<'a>(
+    ranges: &'a [StructuralRange],
     row: u32,
     source_index: &mut usize,
-) -> Option<&'a NodeRange> {
+) -> Option<&'a StructuralRange> {
     while *source_index + 1 < ranges.len() && ranges[*source_index + 1].start_line <= row {
         *source_index += 1;
     }
@@ -69,7 +78,7 @@ pub(crate) fn has_phrase_boundaries(line: &str, start: usize, end: usize) -> boo
     !before.is_some_and(is_word_char) && !after.is_some_and(is_word_char)
 }
 
-fn node_end_line(nodes: &[NodeRecord], index: usize, total_lines: u32) -> u32 {
+fn structural_node_end_line(nodes: &[OutlineNode], index: usize, total_lines: u32) -> u32 {
     let node = &nodes[index];
     if node.kind == NodeKind::File {
         return total_lines.max(node.line);

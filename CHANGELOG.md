@@ -30,6 +30,10 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Extended indexed node query payloads to include file modification time plus
   backlink and forward-link counts, so frontend consumers can rely on
   engine-backed metadata instead of filesystem stats or local graph counting.
+- Added daemon-owned `ROAM_EXCLUDE` compatibility semantics for file and
+  heading nodes, including inherited exclusion plus explicit `nil` clearing,
+  while keeping file-level discovery and `org-id` fallback orthogonal to node
+  membership.
 - Extended the node chooser template and annotation surface so candidate
   formatting can use indexed file modification time plus backlink and
   forward-link counts without local filesystem stats.

@@ -275,6 +275,12 @@ org-ref forms like `cite:key` into the same indexed ref surface, so citation
 backlinks appear through the same reflink workflows instead of requiring a
 separate code path.
 
+`ROAM_EXCLUDE` is recognized during indexing for file nodes and heading nodes.
+Any present value excludes that node from the derived index except the literal
+value `nil`, which explicitly clears a local or inherited exclusion. File
+discovery stays separate from node membership, so excluded files still remain
+eligible for file-level surfaces and `org-id` compatibility fallback.
+
 File tags come from standard Org file-tag behavior, including `#+filetags`.
 Heading tags are ordinary Org tags.
 

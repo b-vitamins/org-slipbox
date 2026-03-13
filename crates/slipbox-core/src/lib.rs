@@ -171,6 +171,7 @@ pub struct PreviewNodeRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndexedFile {
     pub file_path: String,
+    pub title: String,
     pub mtime_ns: i64,
     pub nodes: Vec<IndexedNode>,
     pub links: Vec<IndexedLink>,

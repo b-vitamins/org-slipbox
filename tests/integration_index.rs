@@ -456,6 +456,137 @@ fn unlinked_references_query_supports_quoted_multi_word_aliases() -> Result<()> 
 }
 
 #[test]
+fn node_exclusion_respects_file_heading_inheritance_and_explicit_clearing() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    fs::write(
+        root.join("target.org"),
+        "#+title: Target\n\n* Target heading\n:PROPERTIES:\n:ID: target-id\n:END:\nTarget body.\n",
+    )?;
+    fs::write(
+        root.join("alpha.org"),
+        "#+title: Alpha\n\n* Visible heading\n:PROPERTIES:\n:ID: visible-id\n:END:\nVisible body.\n\n* Excluded parent\n:PROPERTIES:\n:ID: excluded-parent-id\n:ROAM_EXCLUDE:\n:END:\nThis link should not count [[id:target-id][Target]].\n** Inherited excluded child\n:PROPERTIES:\n:ID: inherited-child-id\n:END:\nStill excluded.\n** Reincluded child\n:PROPERTIES:\n:ID: reincluded-child-id\n:ROAM_EXCLUDE: nil\n:END:\nThis link should count [[id:target-id][Target]].\n*** Included grandchild\n:PROPERTIES:\n:ID: included-grandchild-id\n:END:\nVisible again.\n",
+    )?;
+    fs::write(
+        root.join("excluded-file.org"),
+        ":PROPERTIES:\n:ID: excluded-file-id\n:ROAM_EXCLUDE: t\n:END:\n#+title: Excluded File\n\n* Hidden file heading\n:PROPERTIES:\n:ID: hidden-file-heading-id\n:END:\nThis link should not count [[id:target-id][Target]].\n\n* Reincluded file heading\n:PROPERTIES:\n:ID: reincluded-file-heading-id\n:ROAM_EXCLUDE: nil\n:END:\nThis link should count [[id:target-id][Target]].\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    let stats = database.sync_index(&files)?;
+
+    assert_eq!(stats.files_indexed, 3);
+    assert_eq!(stats.links_indexed, 2);
+
+    assert!(database.node_from_id("visible-id")?.is_some());
+    assert!(database.node_from_id("reincluded-child-id")?.is_some());
+    assert!(database.node_from_id("included-grandchild-id")?.is_some());
+    assert!(
+        database
+            .node_from_id("reincluded-file-heading-id")?
+            .is_some()
+    );
+    assert!(database.node_from_id("target-id")?.is_some());
+
+    assert!(database.node_from_id("excluded-file-id")?.is_none());
+    assert!(database.node_from_id("excluded-parent-id")?.is_none());
+    assert!(database.node_from_id("inherited-child-id")?.is_none());
+    assert!(database.node_from_id("hidden-file-heading-id")?.is_none());
+
+    assert!(
+        database
+            .node_from_title_or_alias("Excluded parent", true)?
+            .is_empty()
+    );
+    assert!(
+        database
+            .node_from_title_or_alias("Hidden file heading", true)?
+            .is_empty()
+    );
+
+    let target = database
+        .node_from_id("target-id")?
+        .expect("target heading should remain indexed");
+    let backlinks = database.backlinks(&target.node_key, 10, false)?;
+    assert_eq!(backlinks.len(), 2);
+    assert_eq!(backlinks[0].source_node.title, "Reincluded child");
+    assert_eq!(backlinks[1].source_node.title, "Reincluded file heading");
+
+    let files = database.search_files("", 10)?;
+    let excluded_file = files
+        .iter()
+        .find(|record| record.file_path == "excluded-file.org")
+        .expect("excluded file should remain in the file surface");
+    assert_eq!(excluded_file.title, "Excluded File");
+    assert_eq!(excluded_file.node_count, 1);
+    let title_match = database.search_files("excluded file", 10)?;
+    assert_eq!(title_match.len(), 1);
+    assert_eq!(title_match[0].file_path, "excluded-file.org");
+
+    Ok(())
+}
+
+#[test]
+fn node_exclusion_keeps_text_queries_out_of_excluded_subtrees() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    fs::write(
+        root.join("target.org"),
+        "#+title: Target\n\n* Project Atlas\n:PROPERTIES:\n:ID: atlas-id\n:ROAM_ALIASES: AtlasPlan\n:ROAM_REFS: @smith2024\n:END:\nTarget body.\n",
+    )?;
+    fs::write(
+        root.join("mentions.org"),
+        "#+title: Mentions\n\n* Visible heading\nVisible cite:smith2024 should surface.\nVisible AtlasPlan should surface.\n\n* Excluded heading\n:PROPERTIES:\n:ROAM_EXCLUDE:\n:END:\nExcluded cite:smith2024 should stay hidden.\nExcluded AtlasPlan should stay hidden.\n** Excluded child\nChild AtlasPlan should stay hidden.\n\n* Reincluded heading\n:PROPERTIES:\n:ROAM_EXCLUDE: nil\n:END:\nReincluded cite:smith2024 should surface.\nReincluded AtlasPlan should surface.\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let target = database
+        .node_from_id("atlas-id")?
+        .expect("target node should remain indexed");
+
+    let reflinks = query_reflinks(&database, &root, &target, 10)?;
+    assert_eq!(reflinks.len(), 2);
+    assert_eq!(reflinks[0].source_node.title, "Visible heading");
+    assert_eq!(
+        reflinks[0].preview,
+        "Visible cite:smith2024 should surface."
+    );
+    assert_eq!(reflinks[1].source_node.title, "Reincluded heading");
+    assert_eq!(
+        reflinks[1].preview,
+        "Reincluded cite:smith2024 should surface."
+    );
+
+    let unlinked_references = query_unlinked_references(&database, &root, &target, 10)?;
+    assert_eq!(unlinked_references.len(), 2);
+    assert_eq!(unlinked_references[0].source_node.title, "Visible heading");
+    assert_eq!(
+        unlinked_references[0].preview,
+        "Visible AtlasPlan should surface."
+    );
+    assert_eq!(
+        unlinked_references[1].source_node.title,
+        "Reincluded heading"
+    );
+    assert_eq!(
+        unlinked_references[1].preview,
+        "Reincluded AtlasPlan should surface."
+    );
+
+    Ok(())
+}
+
+#[test]
 fn reports_index_stats_and_indexed_files() -> Result<()> {
     let workspace = tempdir()?;
     let root = workspace.path().join("notes");

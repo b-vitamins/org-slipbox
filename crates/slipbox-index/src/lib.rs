@@ -1,5 +1,6 @@
 mod discovery;
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -9,6 +10,15 @@ use anyhow::{Context, Result, anyhow};
 use slipbox_core::{IndexedFile, IndexedLink, IndexedNode, NodeKind, normalize_reference};
 
 pub use discovery::DiscoveryPolicy;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutlineNode {
+    pub node_key: String,
+    pub line: u32,
+    pub level: u32,
+    pub kind: NodeKind,
+    pub excluded: bool,
+}
 
 pub fn scan_root(root: &Path) -> Result<Vec<IndexedFile>> {
     scan_root_with_policy(root, &DiscoveryPolicy::default())
@@ -44,6 +54,11 @@ pub fn scan_source(file_path: &str, source: &str) -> IndexedFile {
     parse_document(file_path, 0, source)
 }
 
+pub fn scan_source_outline(file_path: &str, source: &str) -> Vec<OutlineNode> {
+    let lines = source.lines().collect::<Vec<_>>();
+    parse_outline_nodes(file_path, &lines)
+}
+
 fn parse_path(root: &Path, path: &Path) -> Result<IndexedFile> {
     let source = read_source(path)?;
     let file_path = discovery::relative_path(root, path)
@@ -65,74 +80,130 @@ fn parse_document(file_path: &str, mtime_ns: i64, source: &str) -> IndexedFile {
     let file_properties = parse_file_properties(&lines);
     let file_tags = parse_filetags(&lines);
     let file_node_key = format!("file:{file_path}");
-    let mut nodes = vec![IndexedNode {
-        node_key: file_node_key.clone(),
-        explicit_id: file_properties.explicit_id,
-        file_path: file_path.to_owned(),
-        title: file_title,
-        outline_path: String::new(),
-        aliases: file_properties.aliases,
-        tags: file_tags.clone(),
-        refs: file_properties.refs,
-        todo_keyword: None,
-        scheduled_for: None,
-        deadline_for: None,
-        closed_at: None,
-        level: 0,
-        line: 1,
-        kind: NodeKind::File,
-    }];
+    let mut excluded_explicit_ids = HashSet::new();
+    let file_excluded = file_properties.roam_exclude.resolve(false);
+    let file_explicit_id = file_properties.explicit_id.clone();
+    let mut nodes = Vec::new();
+    if file_excluded {
+        if let Some(explicit_id) = &file_explicit_id {
+            excluded_explicit_ids.insert(explicit_id.clone());
+        }
+    } else {
+        nodes.push(IndexedNode {
+            node_key: file_node_key.clone(),
+            explicit_id: file_explicit_id,
+            file_path: file_path.to_owned(),
+            title: file_title.clone(),
+            outline_path: String::new(),
+            aliases: file_properties.aliases,
+            tags: file_tags.clone(),
+            refs: file_properties.refs,
+            todo_keyword: None,
+            scheduled_for: None,
+            deadline_for: None,
+            closed_at: None,
+            level: 0,
+            line: 1,
+            kind: NodeKind::File,
+        });
+    }
     let mut links = Vec::new();
-    let mut current_source_node_key = file_node_key;
+    let mut current_source_node_key = (!file_excluded).then_some(file_node_key);
     let mut outline_stack: Vec<String> = Vec::new();
+    let mut exclusion_stack: Vec<bool> = Vec::new();
 
     for (index, line) in lines.iter().enumerate() {
         if let Some((level, todo_keyword, title, heading_tags)) = parse_heading(line) {
             outline_stack.truncate(level.saturating_sub(1));
+            exclusion_stack.truncate(level.saturating_sub(1));
             outline_stack.push(title.clone());
 
             let node_key = format!("heading:{file_path}:{}", index + 1);
-            current_source_node_key = node_key.clone();
             let heading_metadata = parse_heading_metadata(&lines, index + 1);
-            nodes.push(IndexedNode {
-                node_key,
-                explicit_id: heading_metadata.explicit_id,
-                file_path: file_path.to_owned(),
-                title,
-                outline_path: outline_stack.join(" / "),
-                aliases: heading_metadata.aliases,
-                tags: unique_strings(
-                    file_tags
-                        .iter()
-                        .chain(heading_tags.iter())
-                        .cloned()
-                        .collect(),
-                ),
-                refs: heading_metadata.refs,
-                todo_keyword,
-                scheduled_for: heading_metadata.scheduled_for,
-                deadline_for: heading_metadata.deadline_for,
-                closed_at: heading_metadata.closed_at,
-                level: level as u32,
-                line: (index + 1) as u32,
-                kind: NodeKind::Heading,
-            });
+            let inherited_exclusion = exclusion_stack.last().copied().unwrap_or(file_excluded);
+            let heading_excluded = heading_metadata.roam_exclude.resolve(inherited_exclusion);
+            exclusion_stack.push(heading_excluded);
+
+            if heading_excluded {
+                if let Some(explicit_id) = &heading_metadata.explicit_id {
+                    excluded_explicit_ids.insert(explicit_id.clone());
+                }
+                current_source_node_key = None;
+            } else {
+                current_source_node_key = Some(node_key.clone());
+                nodes.push(IndexedNode {
+                    node_key,
+                    explicit_id: heading_metadata.explicit_id,
+                    file_path: file_path.to_owned(),
+                    title,
+                    outline_path: outline_stack.join(" / "),
+                    aliases: heading_metadata.aliases,
+                    tags: unique_strings(
+                        file_tags
+                            .iter()
+                            .chain(heading_tags.iter())
+                            .cloned()
+                            .collect(),
+                    ),
+                    refs: heading_metadata.refs,
+                    todo_keyword,
+                    scheduled_for: heading_metadata.scheduled_for,
+                    deadline_for: heading_metadata.deadline_for,
+                    closed_at: heading_metadata.closed_at,
+                    level: level as u32,
+                    line: (index + 1) as u32,
+                    kind: NodeKind::Heading,
+                });
+            }
         }
 
-        extract_id_links(
-            line,
-            &current_source_node_key,
-            (index + 1) as u32,
-            &mut links,
-        );
+        if let Some(source_node_key) = current_source_node_key.as_deref() {
+            extract_id_links(line, source_node_key, (index + 1) as u32, &mut links);
+        }
+    }
+
+    if !excluded_explicit_ids.is_empty() {
+        links.retain(|link| !excluded_explicit_ids.contains(&link.destination_explicit_id));
     }
 
     IndexedFile {
         file_path: file_path.to_owned(),
+        title: file_title,
         mtime_ns,
         nodes,
         links,
     }
+}
+
+fn parse_outline_nodes(file_path: &str, lines: &[&str]) -> Vec<OutlineNode> {
+    let file_excluded = parse_file_properties(lines).roam_exclude.resolve(false);
+    let mut outline_nodes = vec![OutlineNode {
+        node_key: format!("file:{file_path}"),
+        line: 1,
+        level: 0,
+        kind: NodeKind::File,
+        excluded: file_excluded,
+    }];
+    let mut exclusion_stack = Vec::new();
+
+    for (index, line) in lines.iter().enumerate() {
+        if let Some((level, _, _, _)) = parse_heading(line) {
+            exclusion_stack.truncate(level.saturating_sub(1));
+            let inherited_exclusion = exclusion_stack.last().copied().unwrap_or(file_excluded);
+            let heading_excluded =
+                parse_heading_exclusion(lines, index + 1).resolve(inherited_exclusion);
+            exclusion_stack.push(heading_excluded);
+            outline_nodes.push(OutlineNode {
+                node_key: format!("heading:{file_path}:{}", index + 1),
+                line: (index + 1) as u32,
+                level: level as u32,
+                kind: NodeKind::Heading,
+                excluded: heading_excluded,
+            });
+        }
+    }
+
+    outline_nodes
 }
 
 pub fn read_source(path: &Path) -> Result<String> {
@@ -250,6 +321,9 @@ fn parse_property_drawer(lines: &[&str], start_index: usize) -> NodeProperties {
         if let Some(value) = strip_keyword(trimmed, ":ROAM_REFS:") {
             properties.refs = parse_refs(value);
         }
+        if let Some(value) = strip_keyword(trimmed, ":ROAM_EXCLUDE:") {
+            properties.roam_exclude = parse_roam_exclude(value);
+        }
     }
 
     properties
@@ -282,6 +356,9 @@ fn parse_heading_metadata(lines: &[&str], start_index: usize) -> HeadingMetadata
             if let Some(value) = strip_keyword(trimmed, ":ROAM_REFS:") {
                 metadata.refs = parse_refs(value);
             }
+            if let Some(value) = strip_keyword(trimmed, ":ROAM_EXCLUDE:") {
+                metadata.roam_exclude = parse_roam_exclude(value);
+            }
             continue;
         }
 
@@ -298,6 +375,40 @@ fn parse_heading_metadata(lines: &[&str], start_index: usize) -> HeadingMetadata
     }
 
     metadata
+}
+
+fn parse_heading_exclusion(lines: &[&str], start_index: usize) -> NodeExclusionDirective {
+    let mut in_property_drawer = false;
+
+    for line in &lines[start_index..] {
+        let trimmed = line.trim();
+        if parse_heading(line).is_some() {
+            break;
+        }
+
+        if in_property_drawer {
+            if trimmed.eq_ignore_ascii_case(":END:") {
+                break;
+            }
+            if let Some(value) = strip_keyword(trimmed, ":ROAM_EXCLUDE:") {
+                return parse_roam_exclude(value);
+            }
+            continue;
+        }
+
+        if trimmed.eq_ignore_ascii_case(":PROPERTIES:") {
+            in_property_drawer = true;
+            continue;
+        }
+
+        if trimmed.is_empty() || is_planning_line(trimmed) {
+            continue;
+        }
+
+        break;
+    }
+
+    NodeExclusionDirective::Inherit
 }
 
 fn parse_filetags(lines: &[&str]) -> Vec<String> {
@@ -374,6 +485,15 @@ fn parse_refs(input: &str) -> Vec<String> {
     )
 }
 
+fn parse_roam_exclude(input: &str) -> NodeExclusionDirective {
+    let value = input.trim();
+    if value.eq_ignore_ascii_case("nil") {
+        NodeExclusionDirective::Include
+    } else {
+        NodeExclusionDirective::Exclude
+    }
+}
+
 fn parse_quoted_values(input: &str) -> Vec<String> {
     let mut values = Vec::new();
     let mut current = String::new();
@@ -435,6 +555,7 @@ struct NodeProperties {
     explicit_id: Option<String>,
     aliases: Vec<String>,
     refs: Vec<String>,
+    roam_exclude: NodeExclusionDirective,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -442,9 +563,28 @@ struct HeadingMetadata {
     explicit_id: Option<String>,
     aliases: Vec<String>,
     refs: Vec<String>,
+    roam_exclude: NodeExclusionDirective,
     scheduled_for: Option<String>,
     deadline_for: Option<String>,
     closed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+enum NodeExclusionDirective {
+    #[default]
+    Inherit,
+    Exclude,
+    Include,
+}
+
+impl NodeExclusionDirective {
+    fn resolve(self, inherited: bool) -> bool {
+        match self {
+            Self::Inherit => inherited,
+            Self::Exclude => true,
+            Self::Include => false,
+        }
+    }
 }
 
 fn parse_planning_line(line: &str, metadata: &mut HeadingMetadata) -> bool {
@@ -464,6 +604,12 @@ fn parse_planning_line(line: &str, metadata: &mut HeadingMetadata) -> bool {
     }
 
     matched
+}
+
+fn is_planning_line(line: &str) -> bool {
+    ["SCHEDULED:", "DEADLINE:", "CLOSED:"]
+        .iter()
+        .any(|keyword| extract_planning_timestamp(line, keyword).is_some())
 }
 
 fn extract_planning_timestamp(line: &str, keyword: &str) -> Option<String> {

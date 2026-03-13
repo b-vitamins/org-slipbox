@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
@@ -8,8 +8,8 @@ use slipbox_core::{IndexedLink, NodeRecord, UnlinkedReferenceRecord};
 use slipbox_store::Database;
 
 use crate::text_query::{
-    build_node_ranges, byte_offset_for_column, column_number, has_phrase_boundaries,
-    node_range_for_key, source_range_for_row,
+    build_structural_ranges, byte_offset_for_column, column_number, has_phrase_boundaries,
+    structural_range_for_key, structural_range_for_row,
 };
 
 /// Return structured title and alias mentions that are not already linked.
@@ -54,22 +54,29 @@ pub(crate) fn query_unlinked_references(
         let source = slipbox_index::read_source(&absolute_path)
             .with_context(|| format!("failed to read indexed file {}", absolute_path.display()))?;
         let lines = source.lines().collect::<Vec<_>>();
-        let nodes = database
+        let visible_nodes = database
             .nodes_in_file(&file_path)
             .with_context(|| format!("failed to read indexed nodes for {file_path}"))?;
-        if nodes.is_empty() {
+        if visible_nodes.is_empty() {
             continue;
         }
+        let nodes_by_key = visible_nodes
+            .iter()
+            .map(|candidate| (candidate.node_key.as_str(), candidate))
+            .collect::<HashMap<_, _>>();
+        let outline = slipbox_index::scan_source_outline(&file_path, &source);
 
-        let ranges = build_node_ranges(&nodes, lines.len().max(1) as u32);
+        let ranges = build_structural_ranges(&outline, lines.len().max(1) as u32);
         let current_range = if file_path == node.file_path {
-            Some(node_range_for_key(&ranges, &node.node_key).ok_or_else(|| {
-                anyhow!(
-                    "queried node {} was not found in indexed file {}",
-                    node.node_key,
-                    file_path
-                )
-            })?)
+            Some(
+                structural_range_for_key(&ranges, &node.node_key).ok_or_else(|| {
+                    anyhow!(
+                        "queried node {} was not found in indexed file {}",
+                        node.node_key,
+                        file_path
+                    )
+                })?,
+            )
         } else {
             None
         };
@@ -86,9 +93,22 @@ pub(crate) fn query_unlinked_references(
                 continue;
             }
 
-            let Some(source_range) = source_range_for_row(&ranges, row, &mut source_index) else {
+            let Some(source_range) = structural_range_for_row(&ranges, row, &mut source_index)
+            else {
                 continue;
             };
+            if source_range.excluded {
+                continue;
+            }
+            let source_node = nodes_by_key
+                .get(source_range.node_key.as_str())
+                .ok_or_else(|| {
+                    anyhow!(
+                        "indexed source node {} was not found in visible node map for {}",
+                        source_range.node_key,
+                        file_path
+                    )
+                })?;
             let covered_spans = linked_spans.get(&row);
 
             for matched in matcher.find_iter(line) {
@@ -102,7 +122,7 @@ pub(crate) fn query_unlinked_references(
                 }
 
                 let result = UnlinkedReferenceRecord {
-                    source_node: source_range.node.clone(),
+                    source_node: (*source_node).clone(),
                     row,
                     col: column_number(line, start),
                     preview: line.trim_end().to_owned(),

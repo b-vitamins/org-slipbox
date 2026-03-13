@@ -245,6 +245,41 @@
       (delete-directory root t)
       (delete-directory extra-dir t))))
 
+(ert-deftest org-slipbox-test-org-id-find-falls-back-to-org-id-locations-for-node-excluded-files ()
+  "The org-id bridge should preserve fallback for node-excluded file IDs."
+  (require 'org-id)
+  (let* ((root (make-temp-file "org-slipbox-id-" t))
+         (excluded (expand-file-name "excluded.org" root))
+         (org-directory nil)
+         (org-id-track-globally t)
+         (org-id-locations nil)
+         (org-id-files nil)
+         (org-id-locations-file (expand-file-name ".org-id-locations" root))
+         (org-id-extra-files nil)
+         (org-agenda-files nil)
+         (org-id--locations-checksum nil))
+    (unwind-protect
+        (progn
+          (write-region ":PROPERTIES:\n:ID: excluded-id\n:ROAM_EXCLUDE: t\n:END:\n#+title: Excluded\n"
+                        nil excluded nil 'silent)
+          (let ((org-slipbox-directory root))
+            (org-slipbox-update-org-id-locations)
+            (should (equal (gethash "excluded-id" org-id-locations)
+                           (abbreviate-file-name excluded)))
+            (cl-letf (((symbol-function 'org-slipbox-node-from-id) (lambda (_id) nil)))
+              (unwind-protect
+                  (progn
+                    (org-slipbox-id-mode 1)
+                    (let ((location (org-id-find "excluded-id")))
+                      (should (equal (car location) (abbreviate-file-name excluded)))
+                      (with-temp-buffer
+                        (insert-file-contents excluded)
+                        (goto-char (cdr location))
+                        (should (= (line-number-at-pos) 1)))))
+                (when org-slipbox-id-mode
+                  (org-slipbox-id-mode -1))))))
+      (delete-directory root t))))
+
 (ert-deftest org-slipbox-test-file-p-respects-discovery-policy ()
   "File eligibility should honor extensions, encrypted suffixes, and exclusions."
   (let* ((root (make-temp-file "org-slipbox-files-" t))

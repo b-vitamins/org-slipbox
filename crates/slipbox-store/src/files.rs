@@ -10,7 +10,7 @@ impl Database {
         let normalized_query = query.trim();
         let mut statement = self.connection.prepare(
             "SELECT f.path,
-                    COALESCE(file_node.title, f.path) AS title,
+                    f.title,
                     f.mtime_ns,
                     COALESCE(
                       (SELECT COUNT(*)
@@ -19,11 +19,9 @@ impl Database {
                       0
                     ) AS node_count
                FROM files AS f
-               LEFT JOIN nodes AS file_node
-                 ON file_node.node_key = 'file:' || f.path
               WHERE (?1 = ''
                      OR instr(lower(f.path), lower(?1)) > 0
-                     OR instr(lower(COALESCE(file_node.title, '')), lower(?1)) > 0)
+                     OR instr(lower(f.title), lower(?1)) > 0)
               ORDER BY f.path COLLATE NOCASE, f.path
               LIMIT ?2",
         )?;
