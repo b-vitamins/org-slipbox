@@ -512,7 +512,8 @@ These stay opt-in and isolated from startup:
 
 - Scan an Org directory and build a SQLite index.
 - Search indexed nodes through the Rust query engine.
-- Format interactive node candidates with configurable display templates or functions.
+- Format interactive node candidates with configurable display templates or
+  functions, including indexed modification-time and graph-count metadata.
 - Read nodes through a single-step chooser with configurable filter, sort, annotation, and insertion-format hooks.
 - Search nodes by aliases and tags stored in Org metadata.
 - Resolve nodes by exact `ID`, exact title or alias, and current point location.

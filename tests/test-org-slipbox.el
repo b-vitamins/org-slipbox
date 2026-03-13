@@ -516,6 +516,24 @@
      30)
     "Heading #one #tw notes/foo.org")))
 
+(ert-deftest org-slipbox-test-node-candidate-display-supports-metadata-template-fields ()
+  "Node candidate templates should interpolate indexed metadata fields."
+  (let* ((mtime-ns 1741353600000000000)
+         (expected-mtime
+          (format-time-string
+           "%Y-%m-%d"
+           (seconds-to-time (/ (float mtime-ns) 1000000000.0)))))
+    (should
+      (equal
+      (org-slipbox--format-node-template
+       "${title} ${backlinkscount} ${forwardlinkscount} ${modtime} ${mtime-ns}"
+       `(:title "Heading"
+         :backlink_count 3
+         :forward_link_count 5
+         :file_mtime_ns ,mtime-ns)
+       80)
+      (format "Heading 3 5 %s %s" expected-mtime mtime-ns)))))
+
 (ert-deftest org-slipbox-test-search-node-choices-use-configured-display-template ()
   "Interactive node choices should use the configured candidate formatter."
   (let ((org-slipbox-node-display-template
@@ -544,7 +562,10 @@
   (let ((org-slipbox-node-default-sort 'title)
         (org-slipbox-node-annotation-function
          (lambda (node)
-           (format " [%s]" (plist-get node :file_path))))
+           (format " [%s|%s|%s]"
+                   (plist-get node :file_path)
+                   (plist-get node :backlink_count)
+                   (plist-get node :forward_link_count))))
         rpc-sort
         metadata
         candidates)
@@ -552,10 +573,18 @@
                (lambda (_query _limit &optional sort)
                  (setq rpc-sort sort)
                  (if (eq sort 'title)
-                     '(:nodes [(:title "Alpha" :file_path "a.org" :line 1)
-                               (:title "Zulu" :file_path "z.org" :line 2)])
-                   '(:nodes [(:title "Zulu" :file_path "z.org" :line 2)
-                             (:title "Alpha" :file_path "a.org" :line 1)]))))
+                     '(:nodes [(:title "Alpha" :file_path "a.org" :line 1
+                                :backlink_count 7 :forward_link_count 3
+                                :file_mtime_ns 1741353600000000000)
+                               (:title "Zulu" :file_path "z.org" :line 2
+                                :backlink_count 1 :forward_link_count 0
+                                :file_mtime_ns 1741267200000000000)])
+                   '(:nodes [(:title "Zulu" :file_path "z.org" :line 2
+                              :backlink_count 1 :forward_link_count 0
+                              :file_mtime_ns 1741267200000000000)
+                             (:title "Alpha" :file_path "a.org" :line 1
+                              :backlink_count 7 :forward_link_count 3
+                              :file_mtime_ns 1741353600000000000)]))))
               ((symbol-function 'completing-read)
                (lambda (_prompt collection _predicate _require-match _initial-input _history)
                  (setq candidates (all-completions "" collection nil)
@@ -568,7 +597,7 @@
         (should (equal (plist-get node :title) "Alpha"))
         (should (eq rpc-sort 'title))
         (should (eq (cdr (assq 'display-sort-function props)) 'identity))
-        (should (equal annotation " [a.org]"))))))
+        (should (equal annotation " [a.org|7|3]"))))))
 
 (ert-deftest org-slipbox-test-node-read-file-mtime-sort-avoids-file-attributes ()
   "Supported file-mtime sorting should be delegated to the daemon."
@@ -589,6 +618,40 @@
                  (car candidates))))
       (let ((node (org-slipbox-node-read)))
         (should (eq rpc-sort 'file-mtime))
+        (should (equal (plist-get node :title) "Newest"))))))
+
+(ert-deftest org-slipbox-test-node-read-metadata-display-template-avoids-file-attributes ()
+  "Metadata-backed display templates should not stat files on the hot path."
+  (let* ((mtime-ns 1741353600000000000)
+         (expected-mtime
+          (format-time-string
+           "%Y-%m-%d"
+           (seconds-to-time (/ (float mtime-ns) 1000000000.0))))
+         (org-slipbox-node-default-sort 'title)
+         (org-slipbox-node-display-template
+          "${title} ${modtime} ${backlinks} ${forward-links}")
+         rpc-sort
+         candidates)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
+               (lambda (_query _limit &optional sort)
+                 (setq rpc-sort sort)
+                 `(:nodes [(:title "Newest"
+                            :file_path "new.org"
+                            :line 1
+                            :file_mtime_ns ,mtime-ns
+                            :backlink_count 4
+                            :forward_link_count 2)])))
+              ((symbol-function 'file-attributes)
+               (lambda (&rest _args)
+                 (ert-fail "metadata-backed display should not call file-attributes")))
+              ((symbol-function 'completing-read)
+               (lambda (_prompt collection _predicate _require-match _initial-input _history)
+                 (setq candidates (all-completions "" collection nil))
+                 (car candidates))))
+      (let ((node (org-slipbox-node-read)))
+        (should (eq rpc-sort 'title))
+        (should (equal (substring-no-properties (car candidates))
+                       (format "Newest %s 4 2" expected-mtime)))
         (should (equal (plist-get node :title) "Newest"))))))
 
 (ert-deftest org-slipbox-test-node-read-file-atime-sort-errors ()
@@ -612,6 +675,34 @@
       (let ((node (org-slipbox-node-read nil nil #'org-slipbox-node-read-sort-by-title)))
         (should (null rpc-sort))
         (should (equal (plist-get node :title) "Alpha"))))))
+
+(ert-deftest org-slipbox-test-node-read-custom-file-mtime-sort-uses-indexed-metadata ()
+  "Built-in file-mtime comparator should use indexed metadata, not file stats."
+  (let (rpc-sort
+        candidates)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
+               (lambda (_query _limit &optional sort)
+                 (setq rpc-sort sort)
+                 '(:nodes [(:title "Older"
+                            :file_path "old.org"
+                            :line 2
+                            :file_mtime_ns 10)
+                           (:title "Newest"
+                            :file_path "new.org"
+                            :line 1
+                            :file_mtime_ns 20)])))
+              ((symbol-function 'file-attributes)
+               (lambda (&rest _args)
+                 (ert-fail "custom file-mtime sort should not call file-attributes")))
+              ((symbol-function 'completing-read)
+               (lambda (_prompt collection _predicate _require-match _initial-input _history)
+                 (setq candidates (all-completions "" collection nil))
+                 (car candidates))))
+      (let ((node (org-slipbox-node-read nil nil #'org-slipbox-node-read-sort-by-file-mtime)))
+        (should (null rpc-sort))
+        (should (equal (substring-no-properties (car candidates))
+                       "Newest | new.org:1"))
+        (should (equal (plist-get node :title) "Newest"))))))
 
 (ert-deftest org-slipbox-test-ref-read-exposes-dedicated-chooser-metadata ()
   "Ref read should expose annotation metadata, history, and duplicate refs."

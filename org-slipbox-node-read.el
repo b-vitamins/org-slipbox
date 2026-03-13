@@ -55,8 +55,11 @@ return the display string.
 When this is a string, patterns of the form `${field}' or
 `${field:length}' are expanded from the current node. Supported fields
 include `title', `outline', `olp', `tags', `aliases', `refs', `todo', `kind',
-`file', `line', and `id'. A `length' of `*' uses the remaining candidate width; an
-integer width pads or truncates the rendered field."
+`file', `line', `id', and indexed metadata fields such as `modtime',
+`file-mtime', `mtime-ns', `backlinks', and `forward-links'. Migration-friendly
+aliases such as `backlinkscount' and `forwardlinkscount' are also accepted. A
+`length' of `*' uses the remaining candidate width; an integer width pads or
+truncates the rendered field."
   :type '(choice function string)
   :group 'org-slipbox)
 
@@ -75,7 +78,9 @@ When nil, preserve the Rust query engine ranking."
 
 (defcustom org-slipbox-node-annotation-function #'org-slipbox-node-read--annotation
   "Function used to annotate `org-slipbox-node-read' completion candidates.
-The function receives one NODE plist and must return a string."
+The function receives one NODE plist and must return a string.
+Indexed node payloads include daemon-owned metadata such as
+`:file_mtime_ns', `:backlink_count', and `:forward_link_count'."
   :type 'function
   :group 'org-slipbox)
 
@@ -306,7 +311,32 @@ FILTER-FN filters indexed nodes. SORT configures ordering."
                 (number-to-string line)
               ""))
     ("id" (or (plist-get node :explicit_id) ""))
+    ((or "modtime" "mtime" "file-mtime")
+     (org-slipbox--node-template-file-mtime-value node))
+    ((or "mtime-ns" "file-mtime-ns")
+     (org-slipbox--node-template-number-value (plist-get node :file_mtime_ns)))
+    ((or "backlinks" "backlink-count" "backlinkscount")
+     (org-slipbox--node-template-number-value (plist-get node :backlink_count)))
+    ((or "forward-links" "forward-link-count" "forwardlinkscount")
+     (org-slipbox--node-template-number-value
+      (plist-get node :forward_link_count)))
     (_ "")))
+
+(defun org-slipbox--node-template-number-value (value)
+  "Return VALUE rendered as a decimal string when numeric."
+  (if (numberp value)
+      (number-to-string value)
+    ""))
+
+(defun org-slipbox--node-template-file-mtime-value (node)
+  "Return NODE file modification time rendered for display templates."
+  (let ((mtime-ns (plist-get node :file_mtime_ns)))
+    (if (and (integerp mtime-ns)
+             (> mtime-ns 0))
+        (format-time-string
+         "%Y-%m-%d"
+         (seconds-to-time (/ (float mtime-ns) 1000000000.0)))
+      "")))
 
 (defun org-slipbox--node-template-list-value (field values)
   "Return VALUES joined for template FIELD."
@@ -356,17 +386,12 @@ FILTER-FN filters indexed nodes. SORT configures ordering."
       (string-collate-lessp file-a file-b nil t))))
 
 (defun org-slipbox-node-read-sort-by-file-mtime (completion-a completion-b)
-  "Sort COMPLETION-A and COMPLETION-B by descending file modification time."
-  (time-less-p (org-slipbox--node-file-modification-time (cdr completion-b))
-               (org-slipbox--node-file-modification-time (cdr completion-a))))
-
-(defun org-slipbox--node-file-modification-time (node)
-  "Return NODE file modification time, or the epoch when unavailable."
-  (let* ((file (expand-file-name (plist-get node :file_path) org-slipbox-directory))
-         (attributes (and (file-exists-p file)
-                          (file-attributes file 'string))))
-    (or (file-attribute-modification-time attributes)
-        '(0 0 0 0))))
+  "Sort COMPLETION-A and COMPLETION-B by descending indexed file mtime."
+  (let ((mtime-a (or (plist-get (cdr completion-a) :file_mtime_ns) 0))
+        (mtime-b (or (plist-get (cdr completion-b) :file_mtime_ns) 0)))
+    (if (/= mtime-a mtime-b)
+        (> mtime-a mtime-b)
+      (org-slipbox-node-read-sort-by-file completion-a completion-b))))
 
 (defun org-slipbox-node-read--annotation (_node)
   "Default empty annotation for node completions."
