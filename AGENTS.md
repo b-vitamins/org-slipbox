@@ -14,12 +14,13 @@
 - Avoid load-time side effects in Elisp. User-facing commands may start the daemon, but simply loading the package must not mutate user state.
 - Keep expensive discovery off the persistent redisplay path. Grep-backed sections belong in dedicated buffers or explicit refresh flows.
 - Treat capture, search, backlinks, refs, and agenda as first-class product surfaces. Do not bolt them on through incidental internals.
-- Do not add competitive copy, migration pressure, or dismissive comparisons to any documentation or code comments.
+- Keep comparisons factual, specific, and user-serving. Compatibility notes and migration guidance are fine when they reduce friction, but avoid dismissive or salesy competitive copy.
 - Keep documentation tight. Use `README.md`, `CHANGELOG.md`, `doc/*.org`, and code comments; do not create ad hoc planning markdown files.
 
 ## Release Policy
-- Work under `Unreleased` in `CHANGELOG.md`.
-- Do not tag or claim `v0.1.0` until the project genuinely reaches full replacement status.
+- Work under `Unreleased` in `CHANGELOG.md` for ongoing development, and keep released sections authoritative once shipped.
+- Treat current tagged releases and version metadata as legitimate. Do not retroactively downplay shipped versions.
+- Do not claim `1.0.0`, stable-platform finality, or full replacement status until the project genuinely reaches that bar.
 - Use Conventional Commits for every commit message.
 - Keep history readable: commit at coherent milestones after tests pass.
 
