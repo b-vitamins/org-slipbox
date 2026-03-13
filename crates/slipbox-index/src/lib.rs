@@ -7,7 +7,9 @@ use std::process::Command;
 use std::time::UNIX_EPOCH;
 
 use anyhow::{Context, Result, anyhow};
-use slipbox_core::{IndexedFile, IndexedLink, IndexedNode, NodeKind, normalize_reference};
+use slipbox_core::{
+    IndexedFile, IndexedLink, IndexedNode, IndexedOccurrenceDocument, NodeKind, normalize_reference,
+};
 
 pub use discovery::DiscoveryPolicy;
 
@@ -108,6 +110,8 @@ fn parse_document(file_path: &str, mtime_ns: i64, source: &str) -> IndexedFile {
         });
     }
     let mut links = Vec::new();
+    let mut occurrence_line_rows = Vec::new();
+    let mut occurrence_search_lines = Vec::new();
     let mut current_source_node_key = (!file_excluded).then_some(file_node_key);
     let mut outline_stack: Vec<String> = Vec::new();
     let mut exclusion_stack: Vec<bool> = Vec::new();
@@ -158,6 +162,10 @@ fn parse_document(file_path: &str, mtime_ns: i64, source: &str) -> IndexedFile {
         }
 
         if let Some(source_node_key) = current_source_node_key.as_deref() {
+            if !line.trim().is_empty() {
+                occurrence_line_rows.push((index + 1) as u32);
+                occurrence_search_lines.push((*line).to_owned());
+            }
             extract_id_links(line, source_node_key, (index + 1) as u32, &mut links);
         }
     }
@@ -166,12 +174,23 @@ fn parse_document(file_path: &str, mtime_ns: i64, source: &str) -> IndexedFile {
         links.retain(|link| !excluded_explicit_ids.contains(&link.destination_explicit_id));
     }
 
+    let occurrence_document = if occurrence_search_lines.is_empty() {
+        None
+    } else {
+        Some(IndexedOccurrenceDocument {
+            file_path: file_path.to_owned(),
+            search_text: occurrence_search_lines.join("\n"),
+            line_rows: occurrence_line_rows,
+        })
+    };
+
     IndexedFile {
         file_path: file_path.to_owned(),
         title: file_title,
         mtime_ns,
         nodes,
         links,
+        occurrence_document,
     }
 }
 

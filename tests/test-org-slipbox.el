@@ -348,13 +348,36 @@
                            :mtime_ns 42
                            :node_count 2)]))))
       (should
-       (equal
-        (org-slipbox-search-files "beta" 25)
-        '((:file_path "notes/beta.org"
+      (equal
+       (org-slipbox-search-files "beta" 25)
+       '((:file_path "notes/beta.org"
            :title "Project Beta"
            :mtime_ns 42
            :node_count 2)))))
     (should (equal rpc-args '("beta" 25)))))
+
+(ert-deftest org-slipbox-test-search-occurrences-uses-indexed-rpc-results ()
+  "Occurrence search should use the dedicated RPC surface."
+  (let (rpc-args)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-search-occurrences)
+               (lambda (query limit)
+                 (setq rpc-args (list query limit))
+                 '(:occurrences [(:file_path "notes/beta.org"
+                                  :row 7
+                                  :col 4
+                                  :preview "Needle in body."
+                                  :matched_text "Needle"
+                                  :owning_node (:title "Project Beta"))]))))
+      (should
+       (equal
+        (org-slipbox-search-occurrences "needle" 25)
+        '((:file_path "notes/beta.org"
+           :row 7
+           :col 4
+           :preview "Needle in body."
+           :matched_text "Needle"
+           :owning_node (:title "Project Beta"))))))
+    (should (equal rpc-args '("needle" 25)))))
 
 (ert-deftest org-slipbox-test-discovery-policy-normalizes-command-args ()
   "Discovery helpers should normalize extensions and exclusions once."
@@ -2842,6 +2865,18 @@
       (org-slipbox-rpc-search-files "beta" 25))
     (should (equal method "slipbox/searchFiles"))
     (should (equal params '(:query "beta" :limit 25)))))
+
+(ert-deftest org-slipbox-test-rpc-search-occurrences-encodes-params ()
+  "Occurrence search RPC should encode query and limit explicitly."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:occurrences []))))
+      (org-slipbox-rpc-search-occurrences "needle" 25))
+    (should (equal method "slipbox/searchOccurrences"))
+    (should (equal params '(:query "needle" :limit 25)))))
 
 (ert-deftest org-slipbox-test-rpc-forward-links-encodes-params ()
   "Forward-link RPC should encode limit and unique parameters explicitly."

@@ -1,3 +1,5 @@
+#[path = "../occurrences_query.rs"]
+mod occurrences_query;
 #[path = "../reflinks_query.rs"]
 mod reflinks_query;
 #[path = "../text_query.rs"]
@@ -6,6 +8,7 @@ mod text_query;
 mod unlinked_references_query;
 
 use std::collections::BTreeSet;
+use std::env;
 use std::fs;
 use std::hint::black_box;
 use std::path::{Path, PathBuf};
@@ -20,6 +23,7 @@ use slipbox_index::{DiscoveryPolicy, scan_path_with_policy, scan_root_with_polic
 use slipbox_store::Database;
 use tempfile::TempDir;
 
+use occurrences_query::query_occurrences;
 use reflinks_query::query_reflinks;
 use unlinked_references_query::query_unlinked_references;
 
@@ -86,6 +90,7 @@ struct IterationConfig {
     index_file: usize,
     search_nodes: usize,
     search_files: usize,
+    search_occurrences: usize,
     backlinks: usize,
     forward_links: usize,
     reflinks: usize,
@@ -107,6 +112,7 @@ struct ThresholdConfig {
     index_file_p95_ms: f64,
     search_nodes_p95_ms: f64,
     search_files_p95_ms: f64,
+    search_occurrences_p95_ms: f64,
     backlinks_p95_ms: f64,
     forward_links_p95_ms: f64,
     reflinks_p95_ms: f64,
@@ -124,6 +130,7 @@ struct BenchmarkReport {
     index_file: TimingReport,
     search_nodes: TimingReport,
     search_files: TimingReport,
+    search_occurrences: TimingReport,
     backlinks: TimingReport,
     forward_links: TimingReport,
     reflinks: TimingReport,
@@ -309,6 +316,7 @@ fn run_profile(
 
     let search_nodes = benchmark_search_nodes(&mut database, profile, fixture)?;
     let search_files = benchmark_search_files(&mut database, profile, fixture)?;
+    let search_occurrences = benchmark_search_occurrences(&mut database, profile, fixture)?;
     let backlinks = benchmark_backlinks(&mut database, profile, &hot_node)?;
     let forward_links = benchmark_forward_links(&mut database, profile, &forward_node)?;
     let reflinks = benchmark_reflinks(&mut database, profile, &fixture.root, &hot_node)?;
@@ -354,6 +362,7 @@ fn run_profile(
         index_file,
         search_nodes,
         search_files,
+        search_occurrences,
         backlinks,
         forward_links,
         reflinks,
@@ -466,6 +475,32 @@ fn benchmark_search_files(
             bail!("benchmark file search query {query} returned no files");
         }
         black_box(files.len());
+        Ok(())
+    })
+}
+
+fn benchmark_search_occurrences(
+    database: &mut Database,
+    profile: &BenchmarkProfile,
+    fixture: &CorpusFixture,
+) -> Result<TimingReport> {
+    let trace_occurrences = env::var_os("SLIPBOX_BENCH_TRACE_OCCURRENCES").is_some();
+    measure_iterations(profile.iterations.search_occurrences, |iteration| {
+        let query = &fixture.search_queries[iteration % fixture.search_queries.len()];
+        let start = Instant::now();
+        let occurrences = query_occurrences(database, query, profile.iterations.search_limit)
+            .with_context(|| format!("failed to search occurrences for query {query}"))?;
+        if occurrences.is_empty() {
+            bail!("benchmark occurrence query {query} returned no hits");
+        }
+        if trace_occurrences {
+            eprintln!(
+                "searchOccurrences query={query:?} elapsed_ms={:.2} hits={}",
+                elapsed_ms(start),
+                occurrences.len()
+            );
+        }
+        black_box(occurrences.len());
         Ok(())
     })
 }
@@ -919,6 +954,11 @@ fn enforce_thresholds(report: &BenchmarkReport, thresholds: &ThresholdConfig) ->
         thresholds.search_files_p95_ms,
     )?;
     check_threshold(
+        "search_occurrences",
+        report.search_occurrences.p95_ms,
+        thresholds.search_occurrences_p95_ms,
+    )?;
+    check_threshold(
         "backlinks",
         report.backlinks.p95_ms,
         thresholds.backlinks_p95_ms,
@@ -977,6 +1017,7 @@ fn print_summary(report: &BenchmarkReport, check: bool, output_path: &Path) {
     print_metric("indexFile", &report.index_file);
     print_metric("searchNodes", &report.search_nodes);
     print_metric("searchFiles", &report.search_files);
+    print_metric("searchOccurrences", &report.search_occurrences);
     print_metric("backlinks", &report.backlinks);
     print_metric("forwardLinks", &report.forward_links);
     print_metric("reflinks", &report.reflinks);
@@ -1108,6 +1149,7 @@ impl BenchmarkProfile {
             ("index_file", self.iterations.index_file),
             ("search_nodes", self.iterations.search_nodes),
             ("search_files", self.iterations.search_files),
+            ("search_occurrences", self.iterations.search_occurrences),
             ("backlinks", self.iterations.backlinks),
             ("forward_links", self.iterations.forward_links),
             ("reflinks", self.iterations.reflinks),

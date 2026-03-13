@@ -63,6 +63,7 @@ resolves it through `exec-path'."
 (defconst org-slipbox-rpc-method-index-file "slipbox/indexFile")
 (defconst org-slipbox-rpc-method-indexed-files "slipbox/indexedFiles")
 (defconst org-slipbox-rpc-method-search-files "slipbox/searchFiles")
+(defconst org-slipbox-rpc-method-search-occurrences "slipbox/searchOccurrences")
 (defconst org-slipbox-rpc-method-graph-dot "slipbox/graphDot")
 (defconst org-slipbox-rpc-method-search-nodes "slipbox/searchNodes")
 (defconst org-slipbox-rpc-method-random-node "slipbox/randomNode")
@@ -145,6 +146,14 @@ resolves it through `exec-path'."
    ((listp value)
     (apply #'vector (mapcar #'org-slipbox-rpc--json-normalize value)))
    (t value)))
+
+(defun org-slipbox--plist-sequence (value)
+  "Normalize JSON-derived VALUE into an Emacs list."
+  (cond
+   ((null value) nil)
+   ((vectorp value) (append value nil))
+   ((listp value) value)
+   (t (list value))))
 
 (defun org-slipbox-rpc-live-p ()
   "Return non-nil when the org-slipbox JSON-RPC process is live."
@@ -265,6 +274,12 @@ resolves it through `exec-path'."
   "Search indexed files matching QUERY with LIMIT."
   (org-slipbox-rpc-request
    org-slipbox-rpc-method-search-files
+   `(:query ,query :limit ,limit)))
+
+(defun org-slipbox-rpc-search-occurrences (query limit)
+  "Search indexed text occurrences matching QUERY with LIMIT."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-search-occurrences
    `(:query ,query :limit ,limit)))
 
 (defun org-slipbox-rpc-graph-dot (params)

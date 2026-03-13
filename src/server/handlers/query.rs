@@ -3,11 +3,13 @@ use slipbox_core::{
     ForwardLinksResult, GraphParams, GraphResult, IndexFileParams, IndexedFilesResult,
     NodeAtPointParams, NodeFromIdParams, NodeFromRefParams, NodeFromTitleOrAliasParams, PingInfo,
     RandomNodeResult, ReflinksParams, ReflinksResult, SearchFilesParams, SearchFilesResult,
-    SearchNodesParams, SearchNodesResult, SearchRefsParams, SearchRefsResult, SearchTagsParams,
-    SearchTagsResult, StatusInfo, UnlinkedReferencesParams, UnlinkedReferencesResult,
+    SearchNodesParams, SearchNodesResult, SearchOccurrencesParams, SearchOccurrencesResult,
+    SearchRefsParams, SearchRefsResult, SearchTagsParams, SearchTagsResult, StatusInfo,
+    UnlinkedReferencesParams, UnlinkedReferencesResult,
 };
 use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
 
+use crate::occurrences_query::query_occurrences;
 use crate::reflinks_query::query_reflinks;
 use crate::server::rpc::{internal_error, parse_params, to_value};
 use crate::server::state::ServerState;
@@ -115,6 +117,16 @@ pub(crate) fn search_files(
         .search_files(&params.query, params.normalized_limit())
         .map_err(|error| internal_error(error.context("failed to query indexed files")))?;
     to_value(SearchFilesResult { files })
+}
+
+pub(crate) fn search_occurrences(
+    state: &ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: SearchOccurrencesParams = parse_params(params)?;
+    let occurrences = query_occurrences(&state.database, &params.query, params.normalized_limit())
+        .map_err(|error| internal_error(error.context("failed to query text occurrences")))?;
+    to_value(SearchOccurrencesResult { occurrences })
 }
 
 pub(crate) fn search_tags(

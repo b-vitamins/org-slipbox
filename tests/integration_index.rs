@@ -1,3 +1,5 @@
+#[path = "../src/occurrences_query.rs"]
+mod occurrences_query;
 #[path = "../src/reflinks_query.rs"]
 mod reflinks_query;
 #[path = "../src/text_query.rs"]
@@ -9,6 +11,7 @@ use std::fs;
 use std::{thread, time::Duration};
 
 use anyhow::Result;
+use occurrences_query::query_occurrences;
 use reflinks_query::query_reflinks;
 use slipbox_core::SearchNodesSort;
 use slipbox_index::{
@@ -451,6 +454,97 @@ fn unlinked_references_query_supports_quoted_multi_word_aliases() -> Result<()> 
     assert_eq!(unlinked_references[1].col, 1);
     assert_eq!(unlinked_references[1].preview, "ATLAS PLAN should surface.");
     assert_eq!(unlinked_references[1].matched_text, "ATLAS PLAN");
+
+    Ok(())
+}
+
+#[test]
+fn occurrence_query_returns_structured_hits_and_honors_limits() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    fs::write(
+        root.join("alpha.org"),
+        "#+title: Alpha\n:PROPERTIES:\n:ROAM_REFS: @cite000000\n:END:\n\nNeedle in preamble.\n* First heading\nNeedle in first heading body.\n",
+    )?;
+    fs::write(
+        root.join("beta.org"),
+        "#+title: Beta\n\n* Second heading\nNeedle in beta heading body.\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    assert!(query_occurrences(&database, "   ", 10)?.is_empty());
+
+    let occurrences = query_occurrences(&database, "needle", 10)?;
+    assert_eq!(occurrences.len(), 3);
+
+    assert_eq!(occurrences[0].file_path, "alpha.org");
+    assert_eq!(occurrences[0].row, 6);
+    assert_eq!(occurrences[0].col, 1);
+    assert_eq!(occurrences[0].preview, "Needle in preamble.");
+    assert_eq!(occurrences[0].matched_text, "Needle");
+    assert_eq!(
+        occurrences[0]
+            .owning_node
+            .as_ref()
+            .expect("file preamble should resolve file node")
+            .title,
+        "Alpha"
+    );
+
+    assert_eq!(occurrences[1].file_path, "alpha.org");
+    assert_eq!(occurrences[1].row, 8);
+    assert_eq!(occurrences[1].col, 1);
+    assert_eq!(occurrences[1].preview, "Needle in first heading body.");
+    assert_eq!(
+        occurrences[1]
+            .owning_node
+            .as_ref()
+            .expect("heading body should resolve heading node")
+            .title,
+        "First heading"
+    );
+
+    assert_eq!(occurrences[2].file_path, "beta.org");
+    assert_eq!(occurrences[2].row, 4);
+    assert_eq!(occurrences[2].col, 1);
+    assert_eq!(occurrences[2].preview, "Needle in beta heading body.");
+    assert_eq!(
+        occurrences[2]
+            .owning_node
+            .as_ref()
+            .expect("heading body should resolve heading node")
+            .title,
+        "Second heading"
+    );
+
+    let limited = query_occurrences(&database, "NEEDLE", 2)?;
+    assert_eq!(limited.len(), 2);
+    assert_eq!(limited[0].file_path, "alpha.org");
+    assert_eq!(limited[0].row, 6);
+    assert_eq!(limited[1].file_path, "alpha.org");
+    assert_eq!(limited[1].row, 8);
+
+    let infix = query_occurrences(&database, "eedl", 10)?;
+    assert_eq!(infix.len(), 3);
+    assert_eq!(infix[0].file_path, "alpha.org");
+    assert_eq!(infix[0].row, 6);
+    assert_eq!(infix[0].matched_text, "eedl");
+
+    let short = query_occurrences(&database, "NE", 10)?;
+    assert!(short.is_empty());
+
+    let punctuated = query_occurrences(&database, "@cite000000", 10)?;
+    assert_eq!(punctuated.len(), 1);
+    assert_eq!(punctuated[0].file_path, "alpha.org");
+    assert_eq!(punctuated[0].row, 3);
+    assert_eq!(punctuated[0].preview, ":ROAM_REFS: @cite000000");
+    assert_eq!(punctuated[0].matched_text, "@cite000000");
 
     Ok(())
 }

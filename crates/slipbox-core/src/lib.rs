@@ -175,6 +175,7 @@ pub struct IndexedFile {
     pub mtime_ns: i64,
     pub nodes: Vec<IndexedNode>,
     pub links: Vec<IndexedLink>,
+    pub occurrence_document: Option<IndexedOccurrenceDocument>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -252,6 +253,13 @@ pub struct IndexedLink {
     pub preview: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IndexedOccurrenceDocument {
+    pub file_path: String,
+    pub search_text: String,
+    pub line_rows: Vec<u32>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndexStats {
     pub files_indexed: u64,
@@ -316,6 +324,36 @@ impl SearchFilesParams {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchFilesResult {
     pub files: Vec<FileRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchOccurrencesParams {
+    pub query: String,
+    #[serde(default = "default_backlink_limit")]
+    pub limit: usize,
+}
+
+impl SearchOccurrencesParams {
+    #[must_use]
+    pub fn normalized_limit(&self) -> usize {
+        self.limit.clamp(1, 1_000)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchOccurrencesResult {
+    pub occurrences: Vec<OccurrenceRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OccurrenceRecord {
+    pub file_path: String,
+    pub row: u32,
+    pub col: u32,
+    pub preview: String,
+    pub matched_text: String,
+    #[serde(default)]
+    pub owning_node: Option<NodeRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

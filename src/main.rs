@@ -1,3 +1,4 @@
+mod occurrences_query;
 mod reflinks_query;
 mod server;
 mod text_query;

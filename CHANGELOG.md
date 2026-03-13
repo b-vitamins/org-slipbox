@@ -17,6 +17,10 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Added a dedicated `searchFiles` query plus thin Emacs helpers for indexed
   file records, including indexed file title, mtime, and node-count metadata
   for future frontend consumers.
+- Added a first-class indexed `slipbox/searchOccurrences` query plus a thin
+  Emacs helper so frontend text-search surfaces can resolve structured
+  occurrence hits without shelling out from Emacs, with indexed literal
+  matching for queries of three or more characters.
 - Added a first-class `slipbox/reflinks` query and dedicated-buffer adoption so
   ref occurrences are resolved in Rust as structured source-node hits instead
   of shelling out to `rg`.

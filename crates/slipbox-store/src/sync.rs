@@ -144,6 +144,29 @@ impl Database {
             )?;
         }
 
+        if let Some(occurrence_document) = &file.occurrence_document {
+            transaction.execute(
+                "INSERT INTO occurrence_documents (
+                   file_path,
+                   search_text,
+                   line_rows_json
+                 )
+                 VALUES (?1, ?2, ?3)",
+                params![
+                    occurrence_document.file_path,
+                    occurrence_document.search_text,
+                    serde_json::to_string(&occurrence_document.line_rows)
+                        .context("failed to serialize occurrence document line rows")?
+                ],
+            )?;
+            let row_id = transaction.last_insert_rowid();
+            transaction.execute(
+                "INSERT INTO occurrence_document_fts (rowid, search_text)
+                 VALUES (?1, ?2)",
+                params![row_id, occurrence_document.search_text],
+            )?;
+        }
+
         transaction.commit()?;
 
         Ok(IndexStats {
@@ -208,6 +231,19 @@ fn delete_file_rows(transaction: &Transaction<'_>, file_path: &str) -> Result<()
                   FROM nodes
                  WHERE file_path = ?1
           )",
+        params![file_path],
+    )?;
+    transaction.execute(
+        "DELETE FROM occurrence_document_fts
+          WHERE rowid IN (
+                SELECT id
+                  FROM occurrence_documents
+                 WHERE file_path = ?1
+          )",
+        params![file_path],
+    )?;
+    transaction.execute(
+        "DELETE FROM occurrence_documents WHERE file_path = ?1",
         params![file_path],
     )?;
     transaction.execute(

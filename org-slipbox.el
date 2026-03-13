@@ -45,6 +45,7 @@
 (require 'org-slipbox-node)
 (require 'org-slipbox-protocol)
 (require 'org-slipbox-rpc)
+(require 'org-slipbox-search)
 (require 'org-slipbox-dailies)
 (require 'org-slipbox-sync)
 
@@ -72,6 +73,7 @@
 ;;;###autoload(autoload 'org-slipbox-file-p "org-slipbox-files" nil t)
 ;;;###autoload(autoload 'org-slipbox-list-files "org-slipbox-files" nil t)
 ;;;###autoload(autoload 'org-slipbox-search-files "org-slipbox-files" nil t)
+;;;###autoload(autoload 'org-slipbox-search-occurrences "org-slipbox-search" nil t)
 ;;;###autoload(autoload 'org-slipbox-id-mode "org-slipbox-id" nil t)
 ;;;###autoload(autoload 'org-slipbox-update-org-id-locations "org-slipbox-id" nil t)
 ;;;###autoload(autoload 'org-slipbox-mode "org-slipbox-mode" nil t)

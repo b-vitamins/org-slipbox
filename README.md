@@ -524,6 +524,9 @@ These stay opt-in and isolated from startup:
 
 - Scan an Org directory and build a SQLite index.
 - Search indexed nodes through the Rust query engine.
+- Search indexed raw text occurrences through a structured Rust query surface
+  that returns file, location, preview, and owning-node metadata, with indexed
+  literal matching for queries of three or more characters.
 - Format interactive node candidates with configurable display templates or
   functions, including indexed modification-time and graph-count metadata.
 - Read nodes through a single-step chooser with configurable filter, sort, annotation, and insertion-format hooks.

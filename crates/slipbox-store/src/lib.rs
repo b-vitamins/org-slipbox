@@ -6,6 +6,7 @@ mod forward_links;
 mod graph;
 mod links;
 mod nodes;
+mod occurrences;
 mod refs;
 mod schema;
 mod sync;

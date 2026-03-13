@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::Database;
 
-const SCHEMA_VERSION: i32 = 8;
+const SCHEMA_VERSION: i32 = 12;
 
 impl Database {
     pub(crate) fn migrate(&self) -> Result<()> {
@@ -34,6 +34,8 @@ impl Database {
              DROP TABLE IF EXISTS aliases;
              DROP TABLE IF EXISTS tags;
              DROP TABLE IF EXISTS refs;
+             DROP TABLE IF EXISTS occurrence_document_fts;
+             DROP TABLE IF EXISTS occurrence_documents;
              DROP TABLE IF EXISTS node_fts;
              DROP TABLE IF EXISTS nodes;
              DROP TABLE IF EXISTS files;
@@ -72,6 +74,20 @@ impl Database {
                tag_text
              );
 
+             CREATE TABLE IF NOT EXISTS occurrence_documents (
+               id INTEGER PRIMARY KEY,
+               file_path TEXT NOT NULL UNIQUE,
+               search_text TEXT NOT NULL,
+               line_rows_json TEXT NOT NULL
+             );
+
+             CREATE VIRTUAL TABLE IF NOT EXISTS occurrence_document_fts USING fts5(
+               search_text,
+               content='occurrence_documents',
+               content_rowid='id',
+               tokenize='trigram'
+             );
+
              CREATE TABLE IF NOT EXISTS refs (
                node_key TEXT NOT NULL,
                ref TEXT NOT NULL
@@ -104,6 +120,9 @@ impl Database {
              CREATE INDEX IF NOT EXISTS idx_nodes_title_nocase
                ON nodes (title COLLATE NOCASE);
 
+             CREATE INDEX IF NOT EXISTS idx_occurrence_documents_file_path
+               ON occurrence_documents (file_path);
+
              CREATE INDEX IF NOT EXISTS idx_nodes_explicit_id
                ON nodes (explicit_id)
                WHERE explicit_id IS NOT NULL;
@@ -134,7 +153,7 @@ impl Database {
                ON nodes (deadline_for)
                WHERE deadline_for IS NOT NULL;
 
-             PRAGMA user_version = 8;",
+             PRAGMA user_version = 12;",
         )?;
         Ok(())
     }

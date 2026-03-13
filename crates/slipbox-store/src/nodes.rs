@@ -1,5 +1,7 @@
+use std::collections::HashMap;
+
 use anyhow::{Context, Result};
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{OptionalExtension, params, params_from_iter};
 use serde_json::Value;
 
 use slipbox_core::{NodeKind, NodeRecord, SearchNodesSort};
@@ -197,6 +199,42 @@ impl Database {
         let rows = statement.query_map(params![file_path], row_to_node)?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .context("failed to read nodes for indexed file")
+    }
+
+    pub fn nodes_in_files(
+        &self,
+        file_paths: &[String],
+    ) -> Result<HashMap<String, Vec<NodeRecord>>> {
+        if file_paths.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let placeholders = (1..=file_paths.len())
+            .map(|index| format!("?{index}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "SELECT {}
+               FROM nodes AS n
+              WHERE n.file_path IN ({})
+              ORDER BY n.file_path COLLATE NOCASE, n.file_path, n.line, n.level",
+            node_select_columns("n"),
+            placeholders
+        );
+        let mut statement = self.connection.prepare(&sql)?;
+        let rows = statement.query_map(params_from_iter(file_paths.iter()), row_to_node)?;
+        let nodes = rows
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .context("failed to read nodes for indexed files")?;
+
+        let mut grouped = HashMap::new();
+        for node in nodes {
+            grouped
+                .entry(node.file_path.clone())
+                .or_insert_with(Vec::new)
+                .push(node);
+        }
+        Ok(grouped)
     }
 }
 

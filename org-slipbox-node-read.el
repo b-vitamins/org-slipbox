@@ -167,14 +167,6 @@ return a plist with only `:title'."
         (plist-get node :title)
       formatted)))
 
-(defun org-slipbox--plist-sequence (value)
-  "Normalize JSON-derived VALUE into an Emacs list."
-  (cond
-   ((null value) nil)
-   ((vectorp value) (append value nil))
-   ((listp value) value)
-   (t (list value))))
-
 (defun org-slipbox--read-existing-node (prompt)
   "Read and return an existing node using PROMPT."
   (or (org-slipbox-node-read nil nil nil t prompt)
