@@ -71,6 +71,7 @@ resolves it through `exec-path'."
 (defconst org-slipbox-rpc-method-node-from-ref "slipbox/nodeFromRef")
 (defconst org-slipbox-rpc-method-node-at-point "slipbox/nodeAtPoint")
 (defconst org-slipbox-rpc-method-backlinks "slipbox/backlinks")
+(defconst org-slipbox-rpc-method-forward-links "slipbox/forwardLinks")
 (defconst org-slipbox-rpc-method-agenda "slipbox/agenda")
 (defconst org-slipbox-rpc-method-search-refs "slipbox/searchRefs")
 (defconst org-slipbox-rpc-method-capture-node "slipbox/captureNode")
@@ -329,6 +330,15 @@ When UNIQUE is non-nil, only return the first backlink occurrence
 per source node."
   (org-slipbox-rpc-request
    org-slipbox-rpc-method-backlinks
+   `(:node_key ,node-key :limit ,(or limit 200)
+               :unique ,(org-slipbox-rpc--bool unique))))
+
+(defun org-slipbox-rpc-forward-links (node-key &optional limit unique)
+  "Return forward links for NODE-KEY, optionally capped by LIMIT.
+When UNIQUE is non-nil, only return the first forward-link occurrence
+per destination node."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-forward-links
    `(:node_key ,node-key :limit ,(or limit 200)
                :unique ,(org-slipbox-rpc--bool unique))))
 

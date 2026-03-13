@@ -1,8 +1,9 @@
 use slipbox_core::{
-    AgendaParams, AgendaResult, BacklinksParams, BacklinksResult, GraphParams, GraphResult,
-    IndexFileParams, IndexedFilesResult, NodeAtPointParams, NodeFromIdParams, NodeFromRefParams,
-    NodeFromTitleOrAliasParams, PingInfo, RandomNodeResult, SearchNodesParams, SearchNodesResult,
-    SearchRefsParams, SearchRefsResult, SearchTagsParams, SearchTagsResult, StatusInfo,
+    AgendaParams, AgendaResult, BacklinksParams, BacklinksResult, ForwardLinksParams,
+    ForwardLinksResult, GraphParams, GraphResult, IndexFileParams, IndexedFilesResult,
+    NodeAtPointParams, NodeFromIdParams, NodeFromRefParams, NodeFromTitleOrAliasParams, PingInfo,
+    RandomNodeResult, SearchNodesParams, SearchNodesResult, SearchRefsParams, SearchRefsResult,
+    SearchTagsParams, SearchTagsResult, StatusInfo,
 };
 use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
 
@@ -167,6 +168,18 @@ pub(crate) fn backlinks(
         .backlinks(&params.node_key, params.normalized_limit(), params.unique)
         .map_err(|error| internal_error(error.context("failed to query backlinks")))?;
     to_value(BacklinksResult { backlinks })
+}
+
+pub(crate) fn forward_links(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: ForwardLinksParams = parse_params(params)?;
+    let forward_links = state
+        .database
+        .forward_links(&params.node_key, params.normalized_limit(), params.unique)
+        .map_err(|error| internal_error(error.context("failed to query forward links")))?;
+    to_value(ForwardLinksResult { forward_links })
 }
 
 pub(crate) fn search_refs(

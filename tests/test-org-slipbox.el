@@ -1944,6 +1944,59 @@
      (equal visited
             '((:title "Random" :file_path "random.org" :line 4) t)))))
 
+(ert-deftest org-slipbox-test-node-link-occurrence-renderer-uses-related-node-slot ()
+  "Link occurrence rendering should use the related node slot structurally."
+  (with-temp-buffer
+    (org-slipbox-node--insert-link-occurrence
+     '(:destination_node (:title "Target heading"
+                          :file_path "beta.org"
+                          :line 7)
+       :row 9
+       :col 5
+       :preview "See [[id:beta-target][Beta]].")
+     :destination_node)
+    (let ((contents (buffer-string)))
+      (should (string-match-p "Target heading" contents))
+      (should (string-match-p "beta.org:9:5" contents))
+      (should (string-match-p "See \\[\\[id:beta-target\\]\\[Beta\\]\\]" contents)))))
+
+(ert-deftest org-slipbox-test-node-forward-links-uses-rpc-and-renders-results ()
+  "Forward-link command should use the dedicated RPC and render results."
+  (let* ((response
+          (list :forward_links
+                (vector
+                 (list :destination_node
+                       (list :title "Target heading"
+                             :file_path "beta.org"
+                             :line 7)
+                       :row 9
+                       :col 5
+                       :preview "See [[id:beta-target][Beta]]."))))
+         rpc-args
+         rendered)
+    (cl-letf (((symbol-function 'org-slipbox-node-read)
+               (lambda (&rest _args)
+                 '(:node_key "heading:alpha.org:3"
+                   :title "Source heading"
+                   :file_path "alpha.org"
+                   :line 3)))
+              ((symbol-function 'org-slipbox-rpc-forward-links)
+               (lambda (node-key &optional limit unique)
+                 (setq rpc-args (list node-key limit unique))
+                 response))
+              ((symbol-function 'display-buffer)
+               (lambda (buffer-or-name &optional _action _frame)
+                 (setq rendered
+                       (with-current-buffer (get-buffer buffer-or-name)
+                         (buffer-string)))
+                 nil)))
+      (org-slipbox-node-forward-links))
+    (should (equal rpc-args '("heading:alpha.org:3" 200 nil)))
+    (should (string-match-p "Forward links for Source heading" rendered))
+    (should (string-match-p "Target heading" rendered))
+    (should (string-match-p "beta.org:9:5" rendered))
+    (should (string-match-p "See \\[\\[id:beta-target\\]\\[Beta\\]\\]" rendered))))
+
 (ert-deftest org-slipbox-test-node-at-point-syncs-modified-buffer ()
   "Point-based lookup should sync modified buffers before querying."
   (let* ((root (make-temp-file "org-slipbox-node-" t))
@@ -2541,6 +2594,20 @@
   (should-error
    (org-slipbox-rpc-search-nodes "Heading" 10 "file-atime")
    :type 'user-error))
+
+(ert-deftest org-slipbox-test-rpc-forward-links-encodes-params ()
+  "Forward-link RPC should encode limit and unique parameters explicitly."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:forward_links []))))
+      (org-slipbox-rpc-forward-links "heading:alpha.org:3" 25 t))
+    (should (equal method "slipbox/forwardLinks"))
+    (should (equal params '(:node_key "heading:alpha.org:3"
+                            :limit 25
+                            :unique t)))))
 
 (ert-deftest org-slipbox-test-refile-calls-rust-rpc-and-refreshes-buffers ()
   "Refile should delegate subtree movement to the Rust RPC layer."

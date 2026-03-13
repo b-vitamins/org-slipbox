@@ -321,6 +321,35 @@ pub struct BacklinkRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ForwardLinksParams {
+    pub node_key: String,
+    #[serde(default = "default_backlink_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub unique: bool,
+}
+
+impl ForwardLinksParams {
+    #[must_use]
+    pub fn normalized_limit(&self) -> usize {
+        self.limit.clamp(1, 1_000)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ForwardLinksResult {
+    pub forward_links: Vec<ForwardLinkRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ForwardLinkRecord {
+    pub destination_node: NodeRecord,
+    pub row: u32,
+    pub col: u32,
+    pub preview: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgendaParams {
     pub start: String,
     pub end: String,

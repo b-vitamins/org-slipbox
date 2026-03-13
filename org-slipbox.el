@@ -86,6 +86,7 @@
 ;;;###autoload(autoload 'org-slipbox-node-random "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-node-insert "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-node-backlinks "org-slipbox-node" nil t)
+;;;###autoload(autoload 'org-slipbox-node-forward-links "org-slipbox-node" nil t)
 ;;;###autoload(autoload 'org-slipbox-demote-entire-buffer "org-slipbox-edit" nil t)
 ;;;###autoload(autoload 'org-slipbox-promote-entire-buffer "org-slipbox-edit" nil t)
 ;;;###autoload(autoload 'org-slipbox-refile "org-slipbox-edit" nil t)

@@ -230,6 +230,67 @@ fn backlinks_support_unique_sources() -> Result<()> {
 }
 
 #[test]
+fn forward_links_support_unique_destinations_and_skip_missing_targets() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    fs::write(
+        root.join("alpha.org"),
+        "#+title: Alpha\n\n* Source heading\n:PROPERTIES:\n:ID: alpha-source\n:END:\nSee [[id:beta-target][Beta]].\nSee [[id:missing-target][Missing]].\nSee [[id:beta-target][Beta again]].\nSee [[id:gamma-target][Gamma]].\n",
+    )?;
+    fs::write(
+        root.join("beta.org"),
+        "#+title: Beta\n\n* Target heading\n:PROPERTIES:\n:ID: beta-target\n:END:\nTarget body.\n",
+    )?;
+    fs::write(
+        root.join("gamma.org"),
+        "#+title: Gamma\n\n* Another target\n:PROPERTIES:\n:ID: gamma-target\n:END:\nTarget body.\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let source = database
+        .search_nodes("source", 10, None)?
+        .into_iter()
+        .next()
+        .expect("expected source node");
+
+    let forward_links = database.forward_links(&source.node_key, 10, false)?;
+    assert_eq!(forward_links.len(), 3);
+    assert_eq!(forward_links[0].destination_node.title, "Target heading");
+    assert_eq!(forward_links[0].row, 7);
+    assert_eq!(forward_links[0].col, 5);
+    assert_eq!(forward_links[1].destination_node.title, "Target heading");
+    assert_eq!(forward_links[1].row, 9);
+    assert_eq!(forward_links[2].destination_node.title, "Another target");
+    assert_eq!(forward_links[2].row, 10);
+    assert!(
+        forward_links
+            .iter()
+            .all(|record| record.destination_node.title != "Missing")
+    );
+
+    let unique_forward_links = database.forward_links(&source.node_key, 10, true)?;
+    assert_eq!(unique_forward_links.len(), 2);
+    assert_eq!(
+        unique_forward_links[0].destination_node.title,
+        "Target heading"
+    );
+    assert_eq!(unique_forward_links[0].row, 7);
+    assert_eq!(
+        unique_forward_links[1].destination_node.title,
+        "Another target"
+    );
+    assert_eq!(unique_forward_links[1].row, 10);
+
+    Ok(())
+}
+
+#[test]
 fn reports_index_stats_and_indexed_files() -> Result<()> {
     let workspace = tempdir()?;
     let root = workspace.path().join("notes");

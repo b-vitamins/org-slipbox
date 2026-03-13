@@ -106,25 +106,66 @@ INITIAL-INPUT seeds the minibuffer. FILTER-FN filters indexed nodes."
                          (org-slipbox--plist-sequence
                           (plist-get response :backlinks)))))
     (when node
-      (with-current-buffer (get-buffer-create "*org-slipbox backlinks*")
-        (let ((inhibit-read-only t))
-          (erase-buffer)
-          (special-mode)
-          (insert (format "Backlinks for %s\n\n" (plist-get node :title)))
-          (if backlinks
-              (dolist (backlink backlinks)
-                (insert
-                 (org-slipbox--node-display (plist-get backlink :source_node))
-                 "\n  "
-                 (format "%s:%s:%s"
-                         (plist-get (plist-get backlink :source_node) :file_path)
-                         (plist-get backlink :row)
-                         (plist-get backlink :col))
-                 " "
-                 (plist-get backlink :preview)
-                 "\n"))
-            (insert "No backlinks found.\n")))
-        (display-buffer (current-buffer))))))
+      (org-slipbox-node--display-link-occurrences
+       "*org-slipbox backlinks*"
+       (format "Backlinks for %s" (plist-get node :title))
+       backlinks
+       :source_node
+       "No backlinks found."))))
+
+(defun org-slipbox-node-forward-links (&optional initial-input filter-fn)
+  "Show forward links for a selected existing node.
+INITIAL-INPUT seeds the minibuffer. FILTER-FN filters indexed nodes."
+  (interactive)
+  (let* ((node (org-slipbox-node-read
+                initial-input
+                filter-fn
+                nil
+                t
+                "Forward links for node: "))
+         (node-key (plist-get node :node_key))
+         (response (and node (org-slipbox-rpc-forward-links node-key 200)))
+         (forward-links (and response
+                             (org-slipbox--plist-sequence
+                              (plist-get response :forward_links)))))
+    (when node
+      (org-slipbox-node--display-link-occurrences
+       "*org-slipbox forward-links*"
+       (format "Forward links for %s" (plist-get node :title))
+       forward-links
+       :destination_node
+       "No forward links found."))))
+
+(defun org-slipbox-node--display-link-occurrences
+    (buffer-name heading records related-node-slot empty-message)
+  "Render link RECORDS into BUFFER-NAME under HEADING.
+RELATED-NODE-SLOT names the nested node plist in each record.
+EMPTY-MESSAGE is shown when RECORDS is empty."
+  (with-current-buffer (get-buffer-create buffer-name)
+    (let ((inhibit-read-only t))
+      (erase-buffer)
+      (special-mode)
+      (insert heading "\n\n")
+      (if records
+          (dolist (record records)
+            (org-slipbox-node--insert-link-occurrence record related-node-slot))
+        (insert empty-message "\n")))
+    (display-buffer (current-buffer))))
+
+(defun org-slipbox-node--insert-link-occurrence (record related-node-slot)
+  "Insert RECORD using RELATED-NODE-SLOT for the linked node payload."
+  (let* ((related-node (plist-get record related-node-slot))
+         (file (plist-get related-node :file_path)))
+    (insert
+     (org-slipbox--node-display related-node)
+     "\n  "
+     (format "%s:%s:%s"
+             file
+             (plist-get record :row)
+             (plist-get record :col))
+     " "
+     (plist-get record :preview)
+     "\n")))
 
 (provide 'org-slipbox-node)
 

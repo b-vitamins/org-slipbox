@@ -13,6 +13,7 @@
     "index_file": 12,
     "search_nodes": 40,
     "backlinks": 40,
+    "forward_links": 40,
     "node_at_point": 80,
     "agenda": 40,
     "persistent_buffer_samples": 5,
@@ -26,6 +27,7 @@
     "index_file_p95_ms": 80.0,
     "search_nodes_p95_ms": 15.0,
     "backlinks_p95_ms": 30.0,
+    "forward_links_p95_ms": 30.0,
     "node_at_point_p95_ms": 2.0,
     "agenda_p95_ms": 25.0,
     "persistent_buffer_p95_ms": 20.0

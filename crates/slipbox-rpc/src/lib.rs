@@ -17,6 +17,7 @@ pub const METHOD_NODE_FROM_ID: &str = "slipbox/nodeFromId";
 pub const METHOD_NODE_FROM_TITLE_OR_ALIAS: &str = "slipbox/nodeFromTitleOrAlias";
 pub const METHOD_NODE_AT_POINT: &str = "slipbox/nodeAtPoint";
 pub const METHOD_BACKLINKS: &str = "slipbox/backlinks";
+pub const METHOD_FORWARD_LINKS: &str = "slipbox/forwardLinks";
 pub const METHOD_AGENDA: &str = "slipbox/agenda";
 pub const METHOD_SEARCH_REFS: &str = "slipbox/searchRefs";
 pub const METHOD_NODE_FROM_REF: &str = "slipbox/nodeFromRef";

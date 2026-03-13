@@ -76,6 +76,7 @@ struct IterationConfig {
     index_file: usize,
     search_nodes: usize,
     backlinks: usize,
+    forward_links: usize,
     node_at_point: usize,
     agenda: usize,
     persistent_buffer_samples: usize,
@@ -91,6 +92,7 @@ struct ThresholdConfig {
     index_file_p95_ms: f64,
     search_nodes_p95_ms: f64,
     backlinks_p95_ms: f64,
+    forward_links_p95_ms: f64,
     node_at_point_p95_ms: f64,
     agenda_p95_ms: f64,
     persistent_buffer_p95_ms: Option<f64>,
@@ -104,6 +106,7 @@ struct BenchmarkReport {
     index_file: TimingReport,
     search_nodes: TimingReport,
     backlinks: TimingReport,
+    forward_links: TimingReport,
     node_at_point: TimingReport,
     agenda: TimingReport,
     persistent_buffer: Option<TimingReport>,
@@ -136,6 +139,7 @@ struct CorpusFixture {
     mutable_relative_path: String,
     mutable_template: String,
     hot_node_id: String,
+    forward_node_id: String,
     search_queries: Vec<String>,
     point_queries: Vec<PointQuery>,
     expected_files: usize,
@@ -276,9 +280,13 @@ fn run_profile(
     let hot_node = database
         .node_from_id(&fixture.hot_node_id)?
         .context("failed to resolve hot benchmark node")?;
+    let forward_node = database
+        .node_from_id(&fixture.forward_node_id)?
+        .context("failed to resolve forward-link benchmark node")?;
 
     let search_nodes = benchmark_search_nodes(&mut database, profile, fixture)?;
     let backlinks = benchmark_backlinks(&mut database, profile, &hot_node)?;
+    let forward_links = benchmark_forward_links(&mut database, profile, &forward_node)?;
     let node_at_point = benchmark_node_at_point(&mut database, profile, fixture)?;
     let agenda = benchmark_agenda(&mut database, profile)?;
     let persistent_buffer = if skip_elisp {
@@ -313,6 +321,7 @@ fn run_profile(
         index_file,
         search_nodes,
         backlinks,
+        forward_links,
         node_at_point,
         agenda,
         persistent_buffer,
@@ -403,6 +412,34 @@ fn benchmark_backlinks(
             )
             .context("failed to query backlinks")?;
         black_box(backlinks.len());
+        Ok(())
+    })
+}
+
+fn benchmark_forward_links(
+    database: &mut Database,
+    profile: &BenchmarkProfile,
+    source_node: &NodeRecord,
+) -> Result<TimingReport> {
+    let sample = database
+        .forward_links(
+            &source_node.node_key,
+            profile.iterations.backlinks_limit,
+            false,
+        )
+        .context("failed to fetch forward-link sample")?;
+    if sample.is_empty() {
+        bail!("benchmark source node produced no forward links");
+    }
+    measure_iterations(profile.iterations.forward_links, |_| {
+        let forward_links = database
+            .forward_links(
+                &source_node.node_key,
+                profile.iterations.backlinks_limit,
+                false,
+            )
+            .context("failed to query forward links")?;
+        black_box(forward_links.len());
         Ok(())
     })
 }
@@ -600,6 +637,7 @@ fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result<CorpusFixt
     let mut mutable_file = PathBuf::new();
     let mut mutable_relative_path = String::new();
     let mut mutable_template = String::new();
+    let mut forward_node_id = None;
     let mut expected_links = 0_usize;
 
     for file_index in 0..config.files {
@@ -630,6 +668,9 @@ fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result<CorpusFixt
             let tag = format!("tag{}", global_index % 17);
             let todo = if global_index % 4 == 0 { "TODO " } else { "" };
             let day = (global_index % 28) + 1;
+            if global_index > 0 && forward_node_id.is_none() {
+                forward_node_id = Some(format!("node-{global_index:06}"));
+            }
 
             lines.push(format!("* {todo}{title} :{tag}:{bucket_tag}:"));
             lines.push(String::from(":PROPERTIES:"));
@@ -684,6 +725,8 @@ fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result<CorpusFixt
         mutable_relative_path,
         mutable_template,
         hot_node_id: HOT_NODE_ID.to_owned(),
+        forward_node_id: forward_node_id
+            .context("benchmark corpus did not produce a forward-link source node")?,
         search_queries: search_queries
             .into_iter()
             .take(config.query_count)
@@ -745,6 +788,11 @@ fn enforce_thresholds(report: &BenchmarkReport, thresholds: &ThresholdConfig) ->
         thresholds.backlinks_p95_ms,
     )?;
     check_threshold(
+        "forward_links",
+        report.forward_links.p95_ms,
+        thresholds.forward_links_p95_ms,
+    )?;
+    check_threshold(
         "node_at_point",
         report.node_at_point.p95_ms,
         thresholds.node_at_point_p95_ms,
@@ -783,6 +831,7 @@ fn print_summary(report: &BenchmarkReport, check: bool, output_path: &Path) {
     print_metric("indexFile", &report.index_file);
     print_metric("searchNodes", &report.search_nodes);
     print_metric("backlinks", &report.backlinks);
+    print_metric("forwardLinks", &report.forward_links);
     print_metric("nodeAtPoint", &report.node_at_point);
     print_metric("agenda", &report.agenda);
     if let Some(persistent_buffer) = &report.persistent_buffer {
@@ -910,6 +959,7 @@ impl BenchmarkProfile {
             ("index_file", self.iterations.index_file),
             ("search_nodes", self.iterations.search_nodes),
             ("backlinks", self.iterations.backlinks),
+            ("forward_links", self.iterations.forward_links),
             ("node_at_point", self.iterations.node_at_point),
             ("agenda", self.iterations.agenda),
             (
