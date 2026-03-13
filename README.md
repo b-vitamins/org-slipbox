@@ -226,15 +226,20 @@ expect:
 - `org-slipbox-buffer-display-dedicated` opens a dedicated buffer for one node without replacing it as point moves
 
 The persistent buffer keeps the cheap indexed sections on the hot path. By
-default, expensive discovery sections such as reflinks and unlinked
-references render only in dedicated buffers, where their daemon-backed query
-cost is explicit.
+default, backlinks and forward links render from indexed daemon queries, while
+expensive discovery sections such as reflinks and unlinked references render
+only in dedicated buffers, where their daemon-backed query cost is explicit.
+
+When the current node record includes indexed metadata, the node summary also
+renders file modification time plus backlink and forward-link counts without
+local filesystem stats.
 
 The buffer surface is configurable:
 
 ```emacs-lisp
 (setq org-slipbox-buffer-sections
       '((org-slipbox-buffer-backlinks-section :unique t)
+        org-slipbox-buffer-forward-links-section
         org-slipbox-buffer-refs-section
         org-slipbox-buffer-reflinks-section))
 
@@ -248,7 +253,7 @@ can be shaped with:
 - `org-slipbox-buffer-postrender-functions`
 - `org-slipbox-buffer-expensive-sections`
 
-Entries in the buffer are ordinary buttons that visit the source node or the
+Entries in the buffer are ordinary buttons that visit the related node or the
 exact match location. This is an intentional divergence from `org-roam`:
 `org-slipbox` preserves the workflow surface without depending on
 `magit-section`, which keeps the persistent path simpler and cheaper.

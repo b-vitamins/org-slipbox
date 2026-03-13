@@ -55,6 +55,7 @@
   (list #'org-slipbox-buffer-node-section
         #'org-slipbox-buffer-refs-section
         #'org-slipbox-buffer-backlinks-section
+        #'org-slipbox-buffer-forward-links-section
         #'org-slipbox-buffer-reflinks-section
         #'org-slipbox-buffer-unlinked-references-section)
   "Section specifications rendered by `org-slipbox-buffer-render-contents'.
@@ -228,11 +229,23 @@ HEADING overrides the default section title, which is the node title."
   (let ((heading (or heading (plist-get node :title))))
     (org-slipbox-buffer--insert-heading heading)
     (org-slipbox-buffer--insert-metadata-line "File" (plist-get node :file_path))
+    (when-let ((mtime (plist-get node :file_mtime_ns)))
+      (org-slipbox-buffer--insert-metadata-line
+       "Modified"
+       (org-slipbox-buffer--format-file-mtime mtime)))
     (when-let ((outline (plist-get node :outline_path)))
       (unless (string-empty-p outline)
         (org-slipbox-buffer--insert-metadata-line "Outline" outline)))
     (when-let ((explicit-id (plist-get node :explicit_id)))
       (org-slipbox-buffer--insert-metadata-line "ID" explicit-id))
+    (when-let ((backlink-count (plist-get node :backlink_count)))
+      (org-slipbox-buffer--insert-metadata-line
+       "Backlinks"
+       (number-to-string backlink-count)))
+    (when-let ((forward-link-count (plist-get node :forward_link_count)))
+      (org-slipbox-buffer--insert-metadata-line
+       "Forward Links"
+       (number-to-string forward-link-count)))
     (when-let ((aliases (org-slipbox--plist-sequence (plist-get node :aliases))))
       (when aliases
         (org-slipbox-buffer--insert-metadata-line "Aliases" (string-join aliases ", "))))
@@ -269,6 +282,24 @@ SECTION-HEADING overrides the rendered heading. LIMIT bounds the query."
      "No backlinks found."
      #'org-slipbox-buffer--insert-backlink-entry)))
 
+(cl-defun org-slipbox-buffer-forward-links-section
+    (node &key unique show-forward-link-p (section-heading "Forward Links") (limit 200))
+  "Insert a forward-links section for NODE.
+When UNIQUE is non-nil, only show the first forward-link occurrence per
+destination node. SHOW-FORWARD-LINK-P filters forward-link entries when
+non-nil. SECTION-HEADING overrides the rendered heading. LIMIT bounds the
+query."
+  (let* ((forward-links (org-slipbox-buffer--forward-links node unique limit))
+         (forward-links (if show-forward-link-p
+                            (seq-filter show-forward-link-p forward-links)
+                          forward-links)))
+    (org-slipbox-buffer--insert-occurrence-section
+     section-heading
+     forward-links
+     "No forward links found."
+     (lambda (entry)
+       (org-slipbox-buffer--insert-forward-link-entry node entry)))))
+
 (cl-defun org-slipbox-buffer-reflinks-section (node &key (section-heading "Reflinks"))
   "Insert a reflink section for NODE using SECTION-HEADING."
   (when (org-slipbox-buffer--render-expensive-sections-p)
@@ -299,6 +330,17 @@ node. LIMIT bounds the number of rows requested."
          (backlinks (plist-get response :backlinks)))
     (org-slipbox--plist-sequence backlinks)))
 
+(defun org-slipbox-buffer--forward-links (node &optional unique limit)
+  "Return forward links for NODE.
+When UNIQUE is non-nil, only return the first occurrence per destination
+node. LIMIT bounds the number of rows requested."
+  (let* ((response (org-slipbox-rpc-forward-links
+                    (plist-get node :node_key)
+                    (or limit 200)
+                    unique))
+         (forward-links (plist-get response :forward_links)))
+    (org-slipbox--plist-sequence forward-links)))
+
 (defun org-slipbox-buffer--insert-heading (text)
   "Insert section heading TEXT."
   (insert text "\n")
@@ -309,6 +351,12 @@ node. LIMIT bounds the number of rows requested."
   (insert (propertize (format "%-7s " (concat label ":")) 'face 'bold)
           value
           "\n"))
+
+(defun org-slipbox-buffer--format-file-mtime (mtime-ns)
+  "Return a display string for MTIME-NS."
+  (format-time-string
+   "%Y-%m-%d"
+   (seconds-to-time (/ (float mtime-ns) 1000000000.0))))
 
 (defun org-slipbox-buffer--insert-occurrence-section (title entries empty-message inserter)
   "Insert section TITLE using ENTRIES or EMPTY-MESSAGE via INSERTER."
@@ -344,6 +392,24 @@ node. LIMIT bounds the number of rows requested."
      'help-echo "Visit backlink"
      'action (lambda (_button)
                (org-slipbox-buffer--visit-location file row col)))
+    (insert " "
+            (propertize (format "%s:%s:%s" file row col) 'face 'shadow)
+            "\n  "
+            preview)))
+
+(defun org-slipbox-buffer--insert-forward-link-entry (node entry)
+  "Insert a preview-rich forward-link ENTRY for source NODE."
+  (let* ((destination-node (plist-get entry :destination_node))
+         (file (plist-get node :file_path))
+         (row (plist-get entry :row))
+         (col (plist-get entry :col))
+         (preview (plist-get entry :preview)))
+    (insert-text-button
+     (org-slipbox--node-display destination-node)
+     'follow-link t
+     'help-echo "Visit linked node"
+     'action (lambda (_button)
+               (org-slipbox--visit-node destination-node)))
     (insert " "
             (propertize (format "%s:%s:%s" file row col) 'face 'shadow)
             "\n  "

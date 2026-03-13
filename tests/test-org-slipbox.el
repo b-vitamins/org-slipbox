@@ -2168,6 +2168,32 @@
           (should (string-match-p "See \\[\\[id:heading\\]\\]" (buffer-string))))
       (kill-buffer (current-buffer)))))
 
+(ert-deftest org-slipbox-test-buffer-node-section-renders-indexed-metadata ()
+  "Node sections should render indexed metadata when it is present."
+  (let* ((mtime-ns 1741353600000000000)
+         (expected-mtime
+          (format-time-string
+           "%Y-%m-%d"
+           (seconds-to-time (/ (float mtime-ns) 1000000000.0))))
+         (org-slipbox-buffer-sections '(org-slipbox-buffer-node-section)))
+    (with-current-buffer (get-buffer-create "*org-slipbox metadata test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-current-node
+                        `(:node_key "heading:note.org:3"
+                          :title "Heading"
+                          :file_path "note.org"
+                          :line 3
+                          :file_mtime_ns ,mtime-ns
+                          :backlink_count 4
+                          :forward_link_count 2))
+            (org-slipbox-buffer-render-contents)
+            (let ((contents (buffer-string)))
+              (should (string-match-p (regexp-quote expected-mtime) contents))
+              (should (string-match-p "Backlinks:[[:space:]]+4" contents))
+              (should (string-match-p "Forward Links:[[:space:]]+2" contents))))
+        (kill-buffer (current-buffer))))))
+
 (ert-deftest org-slipbox-test-buffer-render-honors-section-order-and-postrender-hook ()
   "Configured sections should render in order and support postrender hooks."
   (let ((org-slipbox-buffer-sections
@@ -2417,7 +2443,7 @@
                  (ert-fail "reflinks should not shell out"))))
       (should
        (equal
-        (org-slipbox-buffer--reflinks
+         (org-slipbox-buffer--reflinks
          '(:node_key "heading:note.org:3" :refs ["@smith2024"]))
         '((:source_node (:title "Sibling"
                     :file_path "note.org"
@@ -2427,6 +2453,33 @@
            :preview "cite:smith2024"
            :matched_reference "cite:smith2024")))))
     (should (equal rpc-args '("heading:note.org:3" 200))))
+
+(ert-deftest org-slipbox-test-buffer-forward-links-use-daemon-query ()
+  "Forward-link discovery should use the dedicated daemon query."
+  (let (rpc-args)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-forward-links)
+               (lambda (node-key &optional limit unique)
+                 (setq rpc-args (list node-key limit unique))
+                 '(:forward_links
+                   [(:destination_node (:title "Target heading"
+                                       :file_path "target.org"
+                                       :line 12)
+                     :row 8
+                     :col 5
+                     :preview "[[id:target][Target heading]]")]))))
+      (let ((expected
+             '((:destination_node (:title "Target heading"
+                                  :file_path "target.org"
+                                  :line 12)
+                :row 8
+                :col 5
+                :preview "[[id:target][Target heading]]"))))
+        (should
+         (equal
+          (org-slipbox-buffer--forward-links
+           '(:node_key "heading:note.org:3"))
+          expected))))
+    (should (equal rpc-args '("heading:note.org:3" 200 nil)))))
 
 (ert-deftest org-slipbox-test-buffer-unlinked-references-use-daemon-query ()
   "Unlinked discovery should use the dedicated daemon query."
@@ -2467,19 +2520,35 @@
 
 (ert-deftest org-slipbox-test-buffer-dedicated-render-includes-discovery-sections ()
   "Dedicated buffers should render expensive discovery sections by default."
-  (let ((org-slipbox-directory "/tmp")
-        (org-slipbox-buffer-expensive-sections 'dedicated))
+  (let* ((mtime-ns 1741353600000000000)
+         (expected-mtime
+          (format-time-string
+           "%Y-%m-%d"
+           (seconds-to-time (/ (float mtime-ns) 1000000000.0))))
+         (org-slipbox-directory "/tmp")
+         (org-slipbox-buffer-expensive-sections 'dedicated))
     (with-current-buffer (get-buffer-create "*org-slipbox: Note<note.org>*")
       (unwind-protect
           (progn
             (setq-local org-slipbox-buffer-current-node
-                        '(:node_key "file:note.org"
+                        `(:node_key "file:note.org"
                           :title "Note"
                           :file_path "note.org"
                           :line 1
-                          :kind "file"))
+                          :kind "file"
+                          :file_mtime_ns ,mtime-ns
+                          :backlink_count 3
+                          :forward_link_count 2))
             (cl-letf (((symbol-function 'org-slipbox-buffer--backlinks)
                        (lambda (&rest _args) nil))
+                      ((symbol-function 'org-slipbox-buffer--forward-links)
+                       (lambda (&rest _args)
+                         '((:destination_node (:title "Target"
+                                         :file_path "target.org"
+                                         :line 11)
+                            :row 4
+                            :col 5
+                            :preview "[[id:target][Target]]"))))
                       ((symbol-function 'org-slipbox-buffer--reflinks)
                        (lambda (_node)
                          '((:source_node (:title "Sibling"
@@ -2499,8 +2568,13 @@
                             :preview "Note mention"
                             :matched_text "Note")))))
               (org-slipbox-buffer-render-contents))
+            (should (string-match-p (regexp-quote expected-mtime) (buffer-string)))
+            (should (string-match-p "Backlinks:[[:space:]]+3" (buffer-string)))
+            (should (string-match-p "Forward Links:[[:space:]]+2" (buffer-string)))
+            (should (string-match-p "Forward Links" (buffer-string)))
             (should (string-match-p "Reflinks" (buffer-string)))
             (should (string-match-p "Unlinked References" (buffer-string)))
+            (should (string-match-p "Target" (buffer-string)))
             (should (string-match-p "Sibling" (buffer-string)))
             (should (string-match-p "Atlas" (buffer-string)))
             (should (string-match-p "cite:smith2024" (buffer-string)))
@@ -2511,7 +2585,8 @@
   "Persistent buffers should skip expensive discovery sections by default."
   (let ((org-slipbox-directory "/tmp")
         (org-slipbox-buffer-expensive-sections 'dedicated)
-        (called nil))
+        expensive-called
+        forward-called)
     (with-current-buffer (get-buffer-create org-slipbox-buffer)
       (unwind-protect
           (progn
@@ -2523,16 +2598,21 @@
                           :kind "file"))
             (cl-letf (((symbol-function 'org-slipbox-buffer--backlinks)
                        (lambda (&rest _args) nil))
+                      ((symbol-function 'org-slipbox-buffer--forward-links)
+                       (lambda (&rest _args)
+                         (setq forward-called t)
+                         nil))
                       ((symbol-function 'org-slipbox-buffer--reflinks)
                        (lambda (_node)
-                         (setq called t)
+                         (setq expensive-called t)
                          nil))
                       ((symbol-function 'org-slipbox-buffer--unlinked-references)
                        (lambda (_node)
-                         (setq called t)
+                         (setq expensive-called t)
                          nil)))
               (org-slipbox-buffer-render-contents))
-            (should-not called))
+            (should forward-called)
+            (should-not expensive-called))
         (kill-buffer (current-buffer))))))
 
 (ert-deftest org-slipbox-test-diagnose-node-renders-status-file-and-node ()

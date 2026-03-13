@@ -33,6 +33,9 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Extended the node chooser template and annotation surface so candidate
   formatting can use indexed file modification time plus backlink and
   forward-link counts without local filesystem stats.
+- Switched the dedicated buffer to the daemon-backed forward-links, reflinks,
+  and unlinked-reference surfaces, and render indexed file mtime plus graph
+  counts in the node summary without local filesystem stats.
 - Split capture-template preview payloads away from indexed `NodeRecord`
   semantics by returning an explicit `preview_node` shape for unsaved preview
   materialization.

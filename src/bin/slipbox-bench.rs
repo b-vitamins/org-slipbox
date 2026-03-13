@@ -15,7 +15,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use serde::{Deserialize, Serialize};
-use slipbox_core::{BacklinkRecord, NodeRecord};
+use slipbox_core::{BacklinkRecord, ForwardLinkRecord, NodeRecord};
 use slipbox_index::{DiscoveryPolicy, scan_path_with_policy, scan_root_with_policy};
 use slipbox_store::Database;
 use tempfile::TempDir;
@@ -179,6 +179,7 @@ struct PointQuery {
 struct BufferFixture<'a> {
     node: &'a NodeRecord,
     backlinks: &'a [BacklinkRecord],
+    forward_links: &'a [ForwardLinkRecord],
 }
 
 #[derive(Debug, Deserialize)]
@@ -323,11 +324,17 @@ fn run_profile(
             profile.iterations.backlinks_limit,
             false,
         )?;
+        let buffer_forward_links = database.forward_links(
+            &hot_node.node_key,
+            profile.iterations.backlinks_limit,
+            false,
+        )?;
         Some(benchmark_persistent_buffer(
             repo_root,
             profile,
             &hot_node,
             &buffer_backlinks,
+            &buffer_forward_links,
         )?)
     };
     let index_file = benchmark_index_file(&mut database, profile, fixture, &policy)?;
@@ -656,8 +663,13 @@ fn benchmark_persistent_buffer(
     profile: &BenchmarkProfile,
     node: &NodeRecord,
     backlinks: &[BacklinkRecord],
+    forward_links: &[ForwardLinkRecord],
 ) -> Result<TimingReport> {
-    let fixture = BufferFixture { node, backlinks };
+    let fixture = BufferFixture {
+        node,
+        backlinks,
+        forward_links,
+    };
     let fixture_file = repo_root
         .join("target")
         .join("bench")

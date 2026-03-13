@@ -29,13 +29,10 @@ ITERATIONS is the number of redisplay runs per sample."
                     (json-parse-buffer :object-type 'plist :array-type 'list)))
          (node (plist-get fixture :node))
          (backlinks (plist-get fixture :backlinks))
+         (forward-links (plist-get fixture :forward_links))
          (buffer-name "*org-slipbox-bench*")
          (org-slipbox-buffer buffer-name)
          (org-slipbox-buffer-expensive-sections nil)
-         (org-slipbox-buffer-sections
-          (list #'org-slipbox-buffer-node-section
-                #'org-slipbox-buffer-refs-section
-                #'org-slipbox-buffer-backlinks-section))
          (org-slipbox-buffer-postrender-functions nil)
          (org-slipbox-buffer-section-filter-function nil)
          samples-ms)
@@ -43,7 +40,9 @@ ITERATIONS is the number of redisplay runs per sample."
         (cl-letf (((symbol-function 'org-slipbox-node-at-point)
                    (lambda () node))
                   ((symbol-function 'org-slipbox-buffer--backlinks)
-                   (lambda (_node &optional _unique _limit) backlinks)))
+                   (lambda (_node &optional _unique _limit) backlinks))
+                  ((symbol-function 'org-slipbox-buffer--forward-links)
+                   (lambda (_node &optional _unique _limit) forward-links)))
           (dotimes (_ samples)
             (with-current-buffer (get-buffer-create buffer-name)
               (setq-local org-slipbox-buffer-current-node nil)
