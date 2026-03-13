@@ -198,6 +198,8 @@ Then try the core workflow:
 2. Enter a new title and press `RET`
 3. Finalize the draft with `C-c C-c`, or abort it with `C-c C-k`
 4. Insert a link from another note with `M-x org-slipbox-node-insert`
+   Use `M-x org-slipbox-node-insert-immediate` to skip the draft buffer for
+   newly captured insertions.
 5. Open the current-node context buffer with `M-x org-slipbox-buffer-toggle`
 
 The first full sync builds the database. After that, autosync keeps the index
@@ -209,6 +211,7 @@ current incrementally.
 
 - `org-slipbox-node-find` visits an existing node or starts capture for a new one.
 - `org-slipbox-node-insert` inserts a link to an existing node or captures a new one.
+- `org-slipbox-node-insert-immediate` inserts a link and commits newly captured nodes directly.
 - `org-slipbox-capture` starts the same draft-based capture flow directly.
 - `org-slipbox-buffer-toggle` shows the current node's context buffer.
 - `org-slipbox-buffer-display-dedicated` opens a dedicated context buffer for one node.
@@ -512,6 +515,7 @@ These are the most common command-level equivalents:
 | `org-roam-db-sync` | `org-slipbox-sync` | Full rebuild/sync entry point. |
 | `org-roam-node-find` | `org-slipbox-node-find` | Find existing node or start capture for a new one. |
 | `org-roam-node-insert` | `org-slipbox-node-insert` | Insert an `id:` link or capture a new node. |
+| immediate-insert wrapper | `org-slipbox-node-insert-immediate` | Same insert-link flow, but newly captured nodes commit without opening a draft. |
 | `org-roam-capture` | `org-slipbox-capture` | Direct capture entry point. |
 | `org-roam-buffer-toggle` | `org-slipbox-buffer-toggle` | Persistent current-node buffer. |
 | `org-roam-buffer-display-dedicated` | `org-slipbox-buffer-display-dedicated` | Dedicated current-node buffer. |

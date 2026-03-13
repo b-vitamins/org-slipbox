@@ -891,6 +891,45 @@
       (should (equal (buffer-string)
                      "[[id:fresh-1][Fresh title]]")))))
 
+(ert-deftest org-slipbox-test-node-insert-immediate-commits-new-node-without-draft ()
+  "Immediate node insertion should finalize new captures without opening a draft."
+  (with-temp-buffer
+    (org-mode)
+    (let* ((original-templates
+            '(("d" "default" plain "${title}"
+               :target (file "notes/${slug}.org"))))
+           (org-slipbox-capture-templates (copy-tree original-templates))
+           method
+           params)
+      (cl-letf (((symbol-function 'org-slipbox-node-read)
+                 (lambda (&rest _args)
+                   '(:title "Fresh title")))
+                ((symbol-function 'org-slipbox-rpc-request)
+                 (lambda (request-method request-params)
+                   (setq method request-method
+                         params request-params)
+                   '(:title "Fresh title"
+                     :file_path "notes/fresh-title.org"
+                     :line 1
+                     :explicit_id "fresh-1")))
+                ((symbol-function 'org-slipbox--ensure-node-id)
+                 (lambda (node)
+                   node)))
+        (org-slipbox-node-insert-immediate)
+        (should-not (get-buffer "*org-slipbox capture: Fresh title*"))
+        (should (equal (buffer-string)
+                       "[[id:fresh-1][Fresh title]]"))
+        (should (equal method "slipbox/captureTemplate"))
+        (should (equal params
+                       '(:title "Fresh title"
+                         :capture_type "plain"
+                         :content "Fresh title"
+                         :prepend :json-false
+                         :empty_lines_before 0
+                         :empty_lines_after 0
+                         :file_path "notes/fresh-title.org"))))
+      (should (equal org-slipbox-capture-templates original-templates)))))
+
 (ert-deftest org-slipbox-test-capture-template-expansion ()
   "Capture templates should expand built-in and contextual placeholders."
   (should

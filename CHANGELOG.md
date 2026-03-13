@@ -11,6 +11,9 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
   capability milestones, and release-band roadmap so future work can stay
   anchored to the slip-box-as-conversation-partner thesis without relying on
   transient planning notes.
+- Added a first-class `org-slipbox-node-insert-immediate` command so
+  insert-link capture flows can commit newly created nodes directly without
+  downstream template rebinding tricks.
 - Added a public `org-slipbox-dailies-map` so downstream configs can bind the
   documented dailies workflow through one stable prefix keymap instead of
   recreating the command surface locally.
