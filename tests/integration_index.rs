@@ -1,5 +1,9 @@
 #[path = "../src/reflinks_query.rs"]
 mod reflinks_query;
+#[path = "../src/text_query.rs"]
+mod text_query;
+#[path = "../src/unlinked_references_query.rs"]
+mod unlinked_references_query;
 
 use std::fs;
 use std::{thread, time::Duration};
@@ -12,6 +16,7 @@ use slipbox_index::{
 };
 use slipbox_store::Database;
 use tempfile::tempdir;
+use unlinked_references_query::query_unlinked_references;
 
 #[test]
 fn indexes_nodes_searches_and_returns_backlinks() -> Result<()> {
@@ -343,6 +348,109 @@ fn reflinks_query_returns_structured_hits_and_skips_current_subtree() -> Result<
     assert_eq!(reflinks[2].col, 6);
     assert_eq!(reflinks[2].preview, "Body cite:smith2024 should surface.");
     assert_eq!(reflinks[2].matched_reference, "cite:smith2024");
+
+    Ok(())
+}
+
+#[test]
+fn unlinked_references_query_returns_title_and_alias_hits() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    fs::write(
+        root.join("current.org"),
+        "#+title: Current\n\n* Project Atlas\n:PROPERTIES:\n:ID: atlas-id\n:ROAM_ALIASES: AtlasPlan\n:END:\nProject Atlas should stay hidden.\n** Child heading\nAtlasPlan should stay hidden.\n* Sibling heading\nProject Atlas should surface.\nLinked [[id:atlas-id][Project Atlas]] should stay hidden as linked.\nLinked [[id:atlas-id][AtlasPlan]] should stay hidden as linked.\n",
+    )?;
+    fs::write(
+        root.join("other.org"),
+        "#+title: Other\n\nproject atlas should surface.\nATLASPLAN should surface.\nAtlasPlanner should stay out.\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let source = database
+        .search_nodes("project atlas", 10, None)?
+        .into_iter()
+        .next()
+        .expect("expected project atlas node");
+
+    let unlinked_references = query_unlinked_references(&database, &root, &source, 10)?;
+    assert_eq!(unlinked_references.len(), 3);
+
+    assert_eq!(unlinked_references[0].source_node.title, "Sibling heading");
+    assert_eq!(unlinked_references[0].row, 12);
+    assert_eq!(unlinked_references[0].col, 1);
+    assert_eq!(
+        unlinked_references[0].preview,
+        "Project Atlas should surface."
+    );
+    assert_eq!(unlinked_references[0].matched_text, "Project Atlas");
+
+    assert_eq!(unlinked_references[1].source_node.title, "Other");
+    assert_eq!(unlinked_references[1].row, 3);
+    assert_eq!(unlinked_references[1].col, 1);
+    assert_eq!(
+        unlinked_references[1].preview,
+        "project atlas should surface."
+    );
+    assert_eq!(unlinked_references[1].matched_text, "project atlas");
+
+    assert_eq!(unlinked_references[2].source_node.title, "Other");
+    assert_eq!(unlinked_references[2].row, 4);
+    assert_eq!(unlinked_references[2].col, 1);
+    assert_eq!(unlinked_references[2].preview, "ATLASPLAN should surface.");
+    assert_eq!(unlinked_references[2].matched_text, "ATLASPLAN");
+
+    Ok(())
+}
+
+#[test]
+fn unlinked_references_query_supports_quoted_multi_word_aliases() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    fs::write(
+        root.join("current.org"),
+        "#+title: Current\n\n* Project Atlas\n:PROPERTIES:\n:ID: atlas-id\n:ROAM_ALIASES: \"Atlas Plan\"\n:END:\nProject Atlas should stay hidden.\n** Child heading\nAtlas Plan should stay hidden.\n* Sibling heading\nAtlas Plan should surface here.\nLinked [[id:atlas-id][Atlas Plan]] should stay hidden as linked.\n",
+    )?;
+    fs::write(
+        root.join("other.org"),
+        "#+title: Other\n\nATLAS PLAN should surface.\nAtlas Planner should stay out.\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let source = database
+        .node_from_title_or_alias("Atlas Plan", true)?
+        .into_iter()
+        .next()
+        .expect("expected project atlas node");
+
+    let unlinked_references = query_unlinked_references(&database, &root, &source, 10)?;
+    assert_eq!(unlinked_references.len(), 2);
+
+    assert_eq!(unlinked_references[0].source_node.title, "Sibling heading");
+    assert_eq!(unlinked_references[0].row, 12);
+    assert_eq!(unlinked_references[0].col, 1);
+    assert_eq!(
+        unlinked_references[0].preview,
+        "Atlas Plan should surface here."
+    );
+    assert_eq!(unlinked_references[0].matched_text, "Atlas Plan");
+
+    assert_eq!(unlinked_references[1].source_node.title, "Other");
+    assert_eq!(unlinked_references[1].row, 3);
+    assert_eq!(unlinked_references[1].col, 1);
+    assert_eq!(unlinked_references[1].preview, "ATLAS PLAN should surface.");
+    assert_eq!(unlinked_references[1].matched_text, "ATLAS PLAN");
 
     Ok(())
 }

@@ -4,6 +4,7 @@ mod backlinks;
 mod files;
 mod forward_links;
 mod graph;
+mod links;
 mod nodes;
 mod refs;
 mod schema;

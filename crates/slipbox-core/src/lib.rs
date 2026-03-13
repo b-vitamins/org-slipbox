@@ -453,6 +453,34 @@ pub struct ReflinkRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnlinkedReferencesParams {
+    pub node_key: String,
+    #[serde(default = "default_backlink_limit")]
+    pub limit: usize,
+}
+
+impl UnlinkedReferencesParams {
+    #[must_use]
+    pub fn normalized_limit(&self) -> usize {
+        self.limit.clamp(1, 1_000)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnlinkedReferencesResult {
+    pub unlinked_references: Vec<UnlinkedReferenceRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnlinkedReferenceRecord {
+    pub source_node: NodeRecord,
+    pub row: u32,
+    pub col: u32,
+    pub preview: String,
+    pub matched_text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgendaParams {
     pub start: String,
     pub end: String,
@@ -918,7 +946,8 @@ fn normalize_string_values(values: &[String], nocase: bool) -> Vec<String> {
 mod tests {
     use super::{
         CaptureNodeParams, CaptureTemplatePreviewResult, NodeKind, NodeRecord, PreviewNodeRecord,
-        SearchNodesParams, SearchNodesSort, UpdateNodeMetadataParams, normalize_reference,
+        SearchNodesParams, SearchNodesSort, UnlinkedReferencesParams, UpdateNodeMetadataParams,
+        normalize_reference,
     };
     use serde_json::json;
 
@@ -1142,6 +1171,24 @@ mod tests {
                 "query": "alpha",
                 "limit": 10,
                 "sort": "forward-link-count"
+            })
+        );
+    }
+
+    #[test]
+    fn unlinked_references_params_normalize_limit() {
+        let params: UnlinkedReferencesParams =
+            serde_json::from_value(json!({ "node_key": "heading:alpha.org:3", "limit": 0 }))
+                .expect("unlinked reference params should deserialize");
+
+        assert_eq!(params.node_key, "heading:alpha.org:3");
+        assert_eq!(params.normalized_limit(), 1);
+
+        assert_eq!(
+            serde_json::to_value(&params).expect("unlinked reference params should serialize"),
+            json!({
+                "node_key": "heading:alpha.org:3",
+                "limit": 0
             })
         );
     }

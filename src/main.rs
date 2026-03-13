@@ -1,5 +1,7 @@
 mod reflinks_query;
 mod server;
+mod text_query;
+mod unlinked_references_query;
 
 use std::path::PathBuf;
 

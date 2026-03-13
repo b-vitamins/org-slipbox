@@ -20,6 +20,9 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Added a first-class `slipbox/reflinks` query and dedicated-buffer adoption so
   ref occurrences are resolved in Rust as structured source-node hits instead
   of shelling out to `rg`.
+- Added a first-class `slipbox/unlinkedReferences` query and dedicated-buffer
+  adoption so title and alias mention discovery now runs as a structured Rust
+  query with explicit subtree and linked-occurrence exclusion rules.
 
 ### Changed
 - Clarified `AGENTS.md` and `README.md` so durable strategy documents belong in

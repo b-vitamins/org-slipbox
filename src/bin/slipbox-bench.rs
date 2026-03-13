@@ -1,5 +1,9 @@
 #[path = "../reflinks_query.rs"]
 mod reflinks_query;
+#[path = "../text_query.rs"]
+mod text_query;
+#[path = "../unlinked_references_query.rs"]
+mod unlinked_references_query;
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -17,6 +21,7 @@ use slipbox_store::Database;
 use tempfile::TempDir;
 
 use reflinks_query::query_reflinks;
+use unlinked_references_query::query_unlinked_references;
 
 const HOT_NODE_ID: &str = "node-000000";
 const AGENDA_START: &str = "2026-03-01";
@@ -84,6 +89,7 @@ struct IterationConfig {
     backlinks: usize,
     forward_links: usize,
     reflinks: usize,
+    unlinked_references: usize,
     node_at_point: usize,
     agenda: usize,
     persistent_buffer_samples: usize,
@@ -91,6 +97,7 @@ struct IterationConfig {
     search_limit: usize,
     backlinks_limit: usize,
     reflinks_limit: usize,
+    unlinked_references_limit: usize,
     agenda_limit: usize,
 }
 
@@ -103,6 +110,7 @@ struct ThresholdConfig {
     backlinks_p95_ms: f64,
     forward_links_p95_ms: f64,
     reflinks_p95_ms: f64,
+    unlinked_references_p95_ms: f64,
     node_at_point_p95_ms: f64,
     agenda_p95_ms: f64,
     persistent_buffer_p95_ms: Option<f64>,
@@ -119,6 +127,7 @@ struct BenchmarkReport {
     backlinks: TimingReport,
     forward_links: TimingReport,
     reflinks: TimingReport,
+    unlinked_references: TimingReport,
     node_at_point: TimingReport,
     agenda: TimingReport,
     persistent_buffer: Option<TimingReport>,
@@ -302,6 +311,8 @@ fn run_profile(
     let backlinks = benchmark_backlinks(&mut database, profile, &hot_node)?;
     let forward_links = benchmark_forward_links(&mut database, profile, &forward_node)?;
     let reflinks = benchmark_reflinks(&mut database, profile, &fixture.root, &hot_node)?;
+    let unlinked_references =
+        benchmark_unlinked_references(&mut database, profile, &fixture.root, &hot_node)?;
     let node_at_point = benchmark_node_at_point(&mut database, profile, fixture)?;
     let agenda = benchmark_agenda(&mut database, profile)?;
     let persistent_buffer = if skip_elisp {
@@ -339,6 +350,7 @@ fn run_profile(
         backlinks,
         forward_links,
         reflinks,
+        unlinked_references,
         node_at_point,
         agenda,
         persistent_buffer,
@@ -504,6 +516,36 @@ fn benchmark_reflinks(
         )
         .context("failed to query reflinks")?;
         black_box(reflinks.len());
+        Ok(())
+    })
+}
+
+fn benchmark_unlinked_references(
+    database: &mut Database,
+    profile: &BenchmarkProfile,
+    root: &Path,
+    node: &NodeRecord,
+) -> Result<TimingReport> {
+    let sample = query_unlinked_references(
+        database,
+        root,
+        node,
+        profile.iterations.unlinked_references_limit,
+    )
+    .context("failed to query unlinked references")?;
+    if sample.is_empty() {
+        bail!("benchmark hot node produced no unlinked references");
+    }
+
+    measure_iterations(profile.iterations.unlinked_references, |_| {
+        let unlinked_references = query_unlinked_references(
+            database,
+            root,
+            node,
+            profile.iterations.unlinked_references_limit,
+        )
+        .context("failed to query unlinked references")?;
+        black_box(unlinked_references.len());
         Ok(())
     })
 }
@@ -766,6 +808,9 @@ fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result<CorpusFixt
             }
             if global_index % config.hot_link_stride == 0 {
                 lines.push(String::from("Reference cite:cite000000."));
+                lines.push(String::from("Mention Bench Topic 000000."));
+                lines.push(String::from("[[id:node-000000][Bench Topic 000000]]."));
+                expected_links += 1;
             }
             lines.push(String::new());
 
@@ -877,6 +922,11 @@ fn enforce_thresholds(report: &BenchmarkReport, thresholds: &ThresholdConfig) ->
         thresholds.reflinks_p95_ms,
     )?;
     check_threshold(
+        "unlinked_references",
+        report.unlinked_references.p95_ms,
+        thresholds.unlinked_references_p95_ms,
+    )?;
+    check_threshold(
         "node_at_point",
         report.node_at_point.p95_ms,
         thresholds.node_at_point_p95_ms,
@@ -918,6 +968,7 @@ fn print_summary(report: &BenchmarkReport, check: bool, output_path: &Path) {
     print_metric("backlinks", &report.backlinks);
     print_metric("forwardLinks", &report.forward_links);
     print_metric("reflinks", &report.reflinks);
+    print_metric("unlinkedReferences", &report.unlinked_references);
     print_metric("nodeAtPoint", &report.node_at_point);
     print_metric("agenda", &report.agenda);
     if let Some(persistent_buffer) = &report.persistent_buffer {
@@ -1048,6 +1099,7 @@ impl BenchmarkProfile {
             ("backlinks", self.iterations.backlinks),
             ("forward_links", self.iterations.forward_links),
             ("reflinks", self.iterations.reflinks),
+            ("unlinked_references", self.iterations.unlinked_references),
             ("node_at_point", self.iterations.node_at_point),
             ("agenda", self.iterations.agenda),
             (
@@ -1061,6 +1113,10 @@ impl BenchmarkProfile {
             ("search_limit", self.iterations.search_limit),
             ("backlinks_limit", self.iterations.backlinks_limit),
             ("reflinks_limit", self.iterations.reflinks_limit),
+            (
+                "unlinked_references_limit",
+                self.iterations.unlinked_references_limit,
+            ),
             ("agenda_limit", self.iterations.agenda_limit),
         ] {
             if value == 0 {

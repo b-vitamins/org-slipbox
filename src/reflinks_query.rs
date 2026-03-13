@@ -4,8 +4,12 @@ use std::path::Path;
 use anyhow::{Context, Result, anyhow};
 use regex::{Regex, RegexBuilder};
 
-use slipbox_core::{NodeKind, NodeRecord, ReflinkRecord};
+use slipbox_core::{NodeRecord, ReflinkRecord};
 use slipbox_store::Database;
+
+use crate::text_query::{
+    build_node_ranges, column_number, node_range_for_key, source_range_for_row,
+};
 
 /// Return structured textual ref occurrences across indexed files.
 ///
@@ -107,14 +111,6 @@ pub(crate) fn query_reflinks(
 
     Ok(results)
 }
-
-#[derive(Debug, Clone)]
-struct NodeRange {
-    node: NodeRecord,
-    start_line: u32,
-    end_line: u32,
-}
-
 fn reflink_patterns(refs: &[String]) -> Vec<String> {
     let mut patterns = Vec::new();
 
@@ -145,64 +141,4 @@ fn build_reflink_matcher(patterns: &[String]) -> Result<Regex> {
         .case_insensitive(true)
         .build()
         .context("failed to build reflink matcher")
-}
-
-fn build_node_ranges(nodes: &[NodeRecord], total_lines: u32) -> Vec<NodeRange> {
-    nodes
-        .iter()
-        .enumerate()
-        .map(|(index, node)| NodeRange {
-            node: node.clone(),
-            start_line: node.line.max(1),
-            end_line: node_end_line(nodes, index, total_lines),
-        })
-        .collect()
-}
-
-fn node_end_line(nodes: &[NodeRecord], index: usize, total_lines: u32) -> u32 {
-    let node = &nodes[index];
-    if node.kind == NodeKind::File {
-        return total_lines.max(node.line);
-    }
-
-    for candidate in &nodes[index + 1..] {
-        if candidate.line > node.line && candidate.level <= node.level {
-            return candidate.line.saturating_sub(1).max(node.line);
-        }
-    }
-
-    total_lines.max(node.line)
-}
-
-fn node_range_for_key(ranges: &[NodeRange], node_key: &str) -> Option<(u32, u32)> {
-    ranges
-        .iter()
-        .find(|range| range.node.node_key == node_key)
-        .map(|range| (range.start_line, range.end_line))
-}
-
-fn source_range_for_row<'a>(
-    ranges: &'a [NodeRange],
-    row: u32,
-    source_index: &mut usize,
-) -> Option<&'a NodeRange> {
-    while *source_index + 1 < ranges.len() && ranges[*source_index + 1].start_line <= row {
-        *source_index += 1;
-    }
-
-    let mut index = (*source_index).min(ranges.len().saturating_sub(1));
-    loop {
-        let range = &ranges[index];
-        if range.start_line <= row && row <= range.end_line {
-            return Some(range);
-        }
-        if index == 0 {
-            return None;
-        }
-        index -= 1;
-    }
-}
-
-fn column_number(line: &str, byte_offset: usize) -> u32 {
-    line[..byte_offset].chars().count() as u32 + 1
 }

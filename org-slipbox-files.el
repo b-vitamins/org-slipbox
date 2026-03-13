@@ -117,17 +117,6 @@ LIMIT defaults to 200 when omitted."
             (org-slipbox--supported-file-p file)))
      (directory-files-recursively expanded-root (org-slipbox--file-recursive-regexp)))))
 
-(defun org-slipbox--file-globs ()
-  "Return ripgrep glob patterns for eligible files."
-  (delete-dups
-   (apply #'append
-          (mapcar
-           (lambda (extension)
-             (list (format "*.%s" extension)
-                   (format "*.%s.gpg" extension)
-                   (format "*.%s.age" extension)))
-           (org-slipbox-discovery-file-extensions)))))
-
 (provide 'org-slipbox-files)
 
 ;;; org-slipbox-files.el ends here

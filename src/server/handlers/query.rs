@@ -4,13 +4,14 @@ use slipbox_core::{
     NodeAtPointParams, NodeFromIdParams, NodeFromRefParams, NodeFromTitleOrAliasParams, PingInfo,
     RandomNodeResult, ReflinksParams, ReflinksResult, SearchFilesParams, SearchFilesResult,
     SearchNodesParams, SearchNodesResult, SearchRefsParams, SearchRefsResult, SearchTagsParams,
-    SearchTagsResult, StatusInfo,
+    SearchTagsResult, StatusInfo, UnlinkedReferencesParams, UnlinkedReferencesResult,
 };
 use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
 
 use crate::reflinks_query::query_reflinks;
 use crate::server::rpc::{internal_error, parse_params, to_value};
 use crate::server::state::ServerState;
+use crate::unlinked_references_query::query_unlinked_references;
 
 pub(crate) fn ping(state: &ServerState) -> Result<serde_json::Value, JsonRpcError> {
     to_value(PingInfo {
@@ -210,6 +211,24 @@ pub(crate) fn reflinks(
     )
     .map_err(|error| internal_error(error.context("failed to query reflinks")))?;
     to_value(ReflinksResult { reflinks })
+}
+
+pub(crate) fn unlinked_references(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: UnlinkedReferencesParams = parse_params(params)?;
+    let node = state.known_node(&params.node_key, "unlinked-reference query node")?;
+    let unlinked_references = query_unlinked_references(
+        &state.database,
+        &state.root,
+        &node,
+        params.normalized_limit(),
+    )
+    .map_err(|error| internal_error(error.context("failed to query unlinked references")))?;
+    to_value(UnlinkedReferencesResult {
+        unlinked_references,
+    })
 }
 
 pub(crate) fn search_refs(

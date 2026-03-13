@@ -8,7 +8,7 @@ use slipbox_rpc::{
     METHOD_NODE_FROM_ID, METHOD_NODE_FROM_REF, METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING,
     METHOD_PROMOTE_ENTIRE_FILE, METHOD_RANDOM_NODE, METHOD_REFILE_REGION, METHOD_REFILE_SUBTREE,
     METHOD_REFLINKS, METHOD_SEARCH_FILES, METHOD_SEARCH_NODES, METHOD_SEARCH_REFS,
-    METHOD_SEARCH_TAGS, METHOD_STATUS, METHOD_UPDATE_NODE_METADATA,
+    METHOD_SEARCH_TAGS, METHOD_STATUS, METHOD_UNLINKED_REFERENCES, METHOD_UPDATE_NODE_METADATA,
 };
 
 use crate::server::handlers::{query, write};
@@ -47,6 +47,7 @@ fn dispatch_request(
         METHOD_BACKLINKS => query::backlinks(state, params),
         METHOD_FORWARD_LINKS => query::forward_links(state, params),
         METHOD_REFLINKS => query::reflinks(state, params),
+        METHOD_UNLINKED_REFERENCES => query::unlinked_references(state, params),
         METHOD_SEARCH_REFS => query::search_refs(state, params),
         METHOD_NODE_FROM_REF => query::node_from_ref(state, params),
         METHOD_AGENDA => query::agenda(state, params),

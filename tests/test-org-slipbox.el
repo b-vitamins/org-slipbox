@@ -2284,17 +2284,6 @@
       (when org-slipbox-buffer-persistent-mode
         (org-slipbox-buffer-persistent-mode -1)))))
 
-(ert-deftest org-slipbox-test-buffer-unlinked-rg-command-quotes-root ()
-  "Unlinked-reference grep commands should quote the slipbox root."
-  (let ((org-slipbox-directory "/tmp/org slipbox"))
-    (should
-     (equal
-      (org-slipbox-buffer--unlinked-rg-command '("foo" "bar") "/tmp/regex")
-      (concat
-       "rg --follow --only-matching --vimgrep --pcre2 --ignore-case "
-       "--glob \\*.org --glob \\*.org.gpg --glob \\*.org.age "
-       "--file /tmp/regex /tmp/org\\ slipbox")))))
-
 (ert-deftest org-slipbox-test-graph-write-dot-uses-rpc-and-writes-file ()
   "Graph DOT export should request DOT from the daemon and write it to disk."
   (require 'org-slipbox-graph)
@@ -2437,33 +2426,44 @@
            :col 3
            :preview "cite:smith2024"
            :matched_reference "cite:smith2024")))))
-    (should (equal rpc-args '("heading:note.org:3" 200)))))
+    (should (equal rpc-args '("heading:note.org:3" 200))))
 
-(ert-deftest org-slipbox-test-buffer-unlinked-references-pass-rg-command-to-grep-runner ()
-  "Unlinked discovery should hand an rg command string to the grep runner."
-  (let ((org-slipbox-directory "/tmp/org-slipbox")
-        captured-command)
-    (cl-letf (((symbol-function 'executable-find)
-               (lambda (program)
-                 (and (string= program "rg") "/usr/bin/rg")))
-              ((symbol-function 'org-slipbox-buffer--rg-supports-pcre2-p)
-               (lambda () t))
-              ((symbol-function 'org-slipbox-buffer--with-pattern-file)
-               (lambda (_patterns builder)
-                 (funcall builder "/tmp/patterns")))
+(ert-deftest org-slipbox-test-buffer-unlinked-references-use-daemon-query ()
+  "Unlinked discovery should use the dedicated daemon query."
+  (let (rpc-args)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-unlinked-references)
+               (lambda (node-key &optional limit)
+                 (setq rpc-args (list node-key limit))
+                 '(:unlinked_references
+                   [(:source_node (:title "Sibling"
+                                  :file_path "note.org"
+                                  :line 9)
+                     :row 10
+                     :col 3
+                     :preview "Project Atlas should surface."
+                     :matched_text "Project Atlas")]))))
+              ((symbol-function 'executable-find)
+               (lambda (&rest _args)
+                 (ert-fail "unlinked references should not depend on rg")))
               ((symbol-function 'shell-command-to-string)
-               (lambda (command)
-                 (concat "OUTPUT:" command)))
-              ((symbol-function 'org-slipbox-buffer--grep-results)
-               (lambda (command _node)
-                 (setq captured-command command)
-                 nil)))
-      (org-slipbox-buffer--unlinked-references
-       '(:title "Project Atlas" :aliases ["Atlas Plan"] :file_path "note.org" :line 1)))
-    (should
-     (equal
-      captured-command
-      (org-slipbox-buffer--unlinked-rg-command nil "/tmp/patterns")))))
+               (lambda (&rest _args)
+                 (ert-fail "unlinked references should not shell out"))))
+      (let ((expected
+             '((:source_node (:title "Sibling"
+                             :file_path "note.org"
+                             :line 9)
+                :row 10
+                :col 3
+                :preview "Project Atlas should surface."
+                :matched_text "Project Atlas"))))
+        (should
+         (equal
+          (org-slipbox-buffer--unlinked-references
+           '(:node_key "heading:note.org:3"
+             :title "Project Atlas"
+             :aliases ["Atlas Plan"]))
+          expected))))
+    (should (equal rpc-args '("heading:note.org:3" 200)))))
 
 (ert-deftest org-slipbox-test-buffer-dedicated-render-includes-discovery-sections ()
   "Dedicated buffers should render expensive discovery sections by default."
@@ -2491,14 +2491,18 @@
                             :matched_reference "cite:smith2024"))))
                       ((symbol-function 'org-slipbox-buffer--unlinked-references)
                        (lambda (_node)
-                         '((:file "/tmp/unlinked.org"
+                         '((:source_node (:title "Atlas"
+                                      :file_path "unlinked.org"
+                                      :line 8)
                             :row 9
                             :col 2
-                            :preview "Note mention")))))
+                            :preview "Note mention"
+                            :matched_text "Note")))))
               (org-slipbox-buffer-render-contents))
             (should (string-match-p "Reflinks" (buffer-string)))
             (should (string-match-p "Unlinked References" (buffer-string)))
             (should (string-match-p "Sibling" (buffer-string)))
+            (should (string-match-p "Atlas" (buffer-string)))
             (should (string-match-p "cite:smith2024" (buffer-string)))
             (should (string-match-p "Note mention" (buffer-string))))
         (kill-buffer (current-buffer))))))
@@ -2748,6 +2752,19 @@
                  '(:reflinks []))))
       (org-slipbox-rpc-reflinks "heading:alpha.org:3" 25))
     (should (equal method "slipbox/reflinks"))
+    (should (equal params '(:node_key "heading:alpha.org:3"
+                            :limit 25)))))
+
+(ert-deftest org-slipbox-test-rpc-unlinked-references-encodes-params ()
+  "Unlinked-reference RPC should encode node key and limit explicitly."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:unlinked_references []))))
+      (org-slipbox-rpc-unlinked-references "heading:alpha.org:3" 25))
+    (should (equal method "slipbox/unlinkedReferences"))
     (should (equal params '(:node_key "heading:alpha.org:3"
                             :limit 25)))))
 

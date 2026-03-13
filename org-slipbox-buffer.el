@@ -87,18 +87,6 @@ Return non-nil to render the section, or nil to skip it."
 (defvar-local org-slipbox-buffer-current-node nil
   "Node currently rendered in the org-slipbox context buffer.")
 
-(defconst org-slipbox-buffer--grep-result-re
-  (rx bol
-      (group (+ any))
-      ":"
-      (group (+ digit))
-      ":"
-      (group (+ digit))
-      ":"
-      (group (* any))
-      eol)
-  "Regexp for parsing `rg --vimgrep --only-matching' output.")
-
 (define-derived-mode org-slipbox-buffer-mode special-mode "org-slipbox"
   "Major mode for org-slipbox context buffers.")
 
@@ -294,10 +282,11 @@ SECTION-HEADING overrides the rendered heading. LIMIT bounds the query."
     (node &key (section-heading "Unlinked References"))
   "Insert an unlinked-reference section for NODE using SECTION-HEADING."
   (when (org-slipbox-buffer--render-expensive-sections-p)
-    (org-slipbox-buffer--insert-result-section
+    (org-slipbox-buffer--insert-occurrence-section
      section-heading
      (org-slipbox-buffer--unlinked-references node)
-     "No unlinked references found.")))
+     "No unlinked references found."
+     #'org-slipbox-buffer--insert-unlinked-reference-entry)))
 
 (defun org-slipbox-buffer--backlinks (node &optional unique limit)
   "Return backlinks for NODE.
@@ -381,38 +370,26 @@ node. LIMIT bounds the number of rows requested."
               (propertize matched-reference 'face 'italic)))
     (insert "\n  " preview)))
 
-(defun org-slipbox-buffer--insert-result-section (title results empty-message)
-  "Insert result section TITLE using RESULTS or EMPTY-MESSAGE."
-  (org-slipbox-buffer--insert-occurrence-section
-   title
-   results
-   empty-message
-   #'org-slipbox-buffer--insert-result-entry))
-
-(defun org-slipbox-buffer--insert-result-entry (entry)
-  "Insert a preview-rich grep ENTRY."
-  (let* ((file (plist-get entry :file))
+(defun org-slipbox-buffer--insert-unlinked-reference-entry (entry)
+  "Insert a preview-rich unlinked-reference ENTRY."
+  (let* ((source-node (plist-get entry :source_node))
+         (file (plist-get source-node :file_path))
          (row (plist-get entry :row))
          (col (plist-get entry :col))
          (preview (plist-get entry :preview))
-         (label (format "%s:%s:%s"
-                        (file-relative-name file org-slipbox-directory)
-                        row
-                        col)))
+         (matched-text (plist-get entry :matched_text)))
     (insert-text-button
-     label
+     (org-slipbox--node-display source-node)
      'follow-link t
-     'help-echo "Visit result"
+     'help-echo "Visit unlinked-reference source"
      'action (lambda (_button)
-               (org-slipbox-buffer--visit-result entry)))
+               (org-slipbox-buffer--visit-location file row col)))
+    (insert " "
+            (propertize (format "%s:%s:%s" file row col) 'face 'shadow))
+    (when matched-text
+      (insert " "
+              (propertize matched-text 'face 'italic)))
     (insert "\n  " preview)))
-
-(defun org-slipbox-buffer--visit-result (entry)
-  "Visit grep result ENTRY."
-  (org-slipbox-buffer--visit-location
-   (plist-get entry :file)
-   (plist-get entry :row)
-   (plist-get entry :col)))
 
 (defun org-slipbox-buffer--visit-location (file row col)
   "Visit FILE at ROW and COL."
@@ -433,125 +410,11 @@ node. LIMIT bounds the number of rows requested."
      (plist-get (org-slipbox-rpc-reflinks node-key 200) :reflinks))))
 
 (defun org-slipbox-buffer--unlinked-references (node)
-  "Return grep-backed unlinked references for NODE."
-  (let ((titles (delete-dups
-                 (append (list (plist-get node :title))
-                         (org-slipbox--plist-sequence (plist-get node :aliases))))))
-    (when (and (executable-find "rg")
-               (org-slipbox-buffer--rg-supports-pcre2-p)
-               titles)
-      (seq-filter
-       (lambda (entry)
-         (org-slipbox-buffer--member-ignore-case-p
-          (plist-get entry :match)
-          titles))
-       (org-slipbox-buffer--grep-results
-        (org-slipbox-buffer--with-pattern-file
-         (list
-          (concat "\\[([^[]]++|(?R))*\\]"
-                  (mapconcat
-                   (lambda (title)
-                     (format "|(\\b%s\\b)" (regexp-quote title)))
-                   titles
-                   "")))
-         (lambda (pattern-file)
-           (org-slipbox-buffer--unlinked-rg-command titles pattern-file)))
-        node)))))
-
-(defun org-slipbox-buffer--unlinked-rg-command (_titles pattern-file)
-  "Return ripgrep command for unlinked references using PATTERN-FILE."
-  (format
-   "rg --follow --only-matching --vimgrep --pcre2 --ignore-case %s --file %s %s"
-   (org-slipbox-buffer--rg-glob-arguments)
-   (shell-quote-argument pattern-file)
-   (shell-quote-argument (expand-file-name org-slipbox-directory))))
-
-(defun org-slipbox-buffer--rg-glob-arguments ()
-  "Return shell-quoted ripgrep glob arguments for eligible files."
-  (mapconcat (lambda (glob)
-               (format "--glob %s" (shell-quote-argument glob)))
-             (org-slipbox--file-globs)
-             " "))
-
-(defun org-slipbox-buffer--grep-results (command node)
-  "Run grep COMMAND and return filtered results for NODE."
-  (let* ((range (org-slipbox-buffer--node-line-range node))
-         (output (shell-command-to-string command))
-         results)
-    (dolist (line (split-string output "\n" t))
-      (when-let ((entry (org-slipbox-buffer--parse-grep-result line)))
-        (unless (org-slipbox-buffer--entry-in-node-p entry node range)
-          (push entry results))))
-    (nreverse (cl-delete-duplicates results :test #'equal))))
-
-(defun org-slipbox-buffer--parse-grep-result (line)
-  "Parse a ripgrep LINE into a result plist."
-  (when (string-match org-slipbox-buffer--grep-result-re line)
-    (let ((file (match-string 1 line))
-          (row (string-to-number (match-string 2 line)))
-          (col (string-to-number (match-string 3 line)))
-          (match (match-string 4 line)))
-      (list :file file
-            :row row
-            :col col
-            :match match
-            :preview (org-slipbox-buffer--result-preview-line file row)))))
-
-(defun org-slipbox-buffer--result-preview-line (file row)
-  "Return preview text from FILE at ROW."
-  (with-temp-buffer
-    (insert-file-contents file)
-    (forward-line (1- row))
-    (string-trim-right
-     (buffer-substring-no-properties
-      (line-beginning-position)
-      (line-end-position)))))
-
-(defun org-slipbox-buffer--entry-in-node-p (entry node range)
-  "Return non-nil when ENTRY falls within NODE RANGE."
-  (and (equal (expand-file-name (plist-get entry :file))
-              (expand-file-name (plist-get node :file_path) org-slipbox-directory))
-       (<= (car range) (plist-get entry :row))
-       (<= (plist-get entry :row) (cdr range))))
-
-(defun org-slipbox-buffer--node-line-range (node)
-  "Return the inclusive line range occupied by NODE."
-  (let ((absolute-file (expand-file-name (plist-get node :file_path) org-slipbox-directory)))
-    (if (equal (plist-get node :kind) "file")
-        (cons 1 most-positive-fixnum)
-      (with-temp-buffer
-        (insert-file-contents absolute-file)
-        (org-mode)
-        (goto-char (point-min))
-        (forward-line (1- (plist-get node :line)))
-        (cons (plist-get node :line)
-              (save-excursion
-                (org-end-of-subtree t t)
-                (line-number-at-pos)))))))
-
-(defun org-slipbox-buffer--with-pattern-file (patterns builder)
-  "Call BUILDER with a temporary pattern file containing PATTERNS."
-  (let ((pattern-file (make-temp-file "org-slipbox-rg-pattern-")))
-    (unwind-protect
-        (progn
-          (with-temp-file pattern-file
-            (insert (string-join patterns "\n")))
-          (funcall builder pattern-file))
-      (when (file-exists-p pattern-file)
-        (delete-file pattern-file)))))
-
-(defun org-slipbox-buffer--rg-supports-pcre2-p ()
-  "Return non-nil when the installed `rg' supports PCRE2."
-  (not (string-match-p
-        "PCRE2 is not available"
-        (shell-command-to-string "rg --pcre2-version"))))
-
-(defun org-slipbox-buffer--member-ignore-case-p (item items)
-  "Return non-nil when ITEM case-insensitively matches an element of ITEMS."
-  (let ((needle (downcase item)))
-    (cl-some (lambda (candidate)
-               (string-equal needle (downcase candidate)))
-             items)))
+  "Return daemon-backed unlinked references for NODE."
+  (when-let ((node-key (plist-get node :node_key)))
+    (org-slipbox--plist-sequence
+     (plist-get (org-slipbox-rpc-unlinked-references node-key 200)
+                :unlinked_references))))
 
 (provide 'org-slipbox-buffer)
 

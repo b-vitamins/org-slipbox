@@ -227,7 +227,8 @@ expect:
 
 The persistent buffer keeps the cheap indexed sections on the hot path. By
 default, expensive discovery sections such as reflinks and unlinked
-references render only in dedicated buffers, where their cost is explicit.
+references render only in dedicated buffers, where their daemon-backed query
+cost is explicit.
 
 The buffer surface is configurable:
 

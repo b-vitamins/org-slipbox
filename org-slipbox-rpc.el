@@ -74,6 +74,7 @@ resolves it through `exec-path'."
 (defconst org-slipbox-rpc-method-backlinks "slipbox/backlinks")
 (defconst org-slipbox-rpc-method-forward-links "slipbox/forwardLinks")
 (defconst org-slipbox-rpc-method-reflinks "slipbox/reflinks")
+(defconst org-slipbox-rpc-method-unlinked-references "slipbox/unlinkedReferences")
 (defconst org-slipbox-rpc-method-agenda "slipbox/agenda")
 (defconst org-slipbox-rpc-method-search-refs "slipbox/searchRefs")
 (defconst org-slipbox-rpc-method-capture-node "slipbox/captureNode")
@@ -354,6 +355,12 @@ per destination node."
   "Return reflinks for NODE-KEY, optionally capped by LIMIT."
   (org-slipbox-rpc-request
    org-slipbox-rpc-method-reflinks
+   `(:node_key ,node-key :limit ,(or limit 200))))
+
+(defun org-slipbox-rpc-unlinked-references (node-key &optional limit)
+  "Return unlinked references for NODE-KEY, optionally capped by LIMIT."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-unlinked-references
    `(:node_key ,node-key :limit ,(or limit 200))))
 
 (defun org-slipbox-rpc-agenda (start end)

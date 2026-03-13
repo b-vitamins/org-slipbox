@@ -16,6 +16,7 @@
     "backlinks": 80,
     "forward_links": 80,
     "reflinks": 40,
+    "unlinked_references": 40,
     "node_at_point": 120,
     "agenda": 80,
     "persistent_buffer_samples": 7,
@@ -23,6 +24,7 @@
     "search_limit": 25,
     "backlinks_limit": 200,
     "reflinks_limit": 200,
+    "unlinked_references_limit": 200,
     "agenda_limit": 200
   },
   "thresholds": {
@@ -33,6 +35,7 @@
     "backlinks_p95_ms": 120.0,
     "forward_links_p95_ms": 120.0,
     "reflinks_p95_ms": 600.0,
+    "unlinked_references_p95_ms": 750.0,
     "node_at_point_p95_ms": 2.0,
     "agenda_p95_ms": 220.0,
     "persistent_buffer_p95_ms": 20.0
