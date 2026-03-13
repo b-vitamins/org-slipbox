@@ -3513,6 +3513,28 @@
       (org-slipbox-dailies--path (encode-time 0 0 0 7 3 2026)))
     "daily/2026-03-07.org")))
 
+(ert-deftest org-slipbox-test-dailies-map-exposes-public-prefix-bindings ()
+  "Dailies should export a public prefix keymap with stable bindings."
+  (should (keymapp org-slipbox-dailies-map))
+  (should (eq (lookup-key org-slipbox-dailies-map (kbd "d"))
+              #'org-slipbox-dailies-goto-today))
+  (should (eq (lookup-key org-slipbox-dailies-map (kbd "y"))
+              #'org-slipbox-dailies-goto-yesterday))
+  (should (eq (lookup-key org-slipbox-dailies-map (kbd "t"))
+              #'org-slipbox-dailies-goto-tomorrow))
+  (should (eq (lookup-key org-slipbox-dailies-map (kbd "n"))
+              #'org-slipbox-dailies-capture-today))
+  (should (eq (lookup-key org-slipbox-dailies-map (kbd "f"))
+              #'org-slipbox-dailies-goto-next-note))
+  (should (eq (lookup-key org-slipbox-dailies-map (kbd "b"))
+              #'org-slipbox-dailies-goto-previous-note))
+  (should (eq (lookup-key org-slipbox-dailies-map (kbd "c"))
+              #'org-slipbox-dailies-goto-date))
+  (should (eq (lookup-key org-slipbox-dailies-map (kbd "v"))
+              #'org-slipbox-dailies-capture-date))
+  (should (eq (lookup-key org-slipbox-dailies-map (kbd "."))
+              #'org-slipbox-dailies-find-directory)))
+
 (ert-deftest org-slipbox-test-dailies-goto-uses-rpc ()
   "Daily note lookup should go through the file-node RPC."
   (let (method params visited hook-ran)

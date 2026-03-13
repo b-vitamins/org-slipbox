@@ -77,6 +77,21 @@ When non-nil, templates use the same format as
   "Face used for calendar dates with an existing daily note."
   :group 'org-slipbox)
 
+;;; Bindings
+
+;;;###autoload
+(defvar-keymap org-slipbox-dailies-map
+  :doc "Keymap for `org-slipbox-dailies' commands."
+  "d" #'org-slipbox-dailies-goto-today
+  "y" #'org-slipbox-dailies-goto-yesterday
+  "t" #'org-slipbox-dailies-goto-tomorrow
+  "n" #'org-slipbox-dailies-capture-today
+  "f" #'org-slipbox-dailies-goto-next-note
+  "b" #'org-slipbox-dailies-goto-previous-note
+  "c" #'org-slipbox-dailies-goto-date
+  "v" #'org-slipbox-dailies-capture-date
+  "." #'org-slipbox-dailies-find-directory)
+
 (define-minor-mode org-slipbox-dailies-calendar-mode
   "Mark visible calendar dates for existing daily notes.
 

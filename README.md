@@ -415,6 +415,19 @@ The main commands mirror the documented `org-roam-dailies` workflow:
 - `org-slipbox-dailies-goto-next-note`
 - `org-slipbox-dailies-find-directory`
 
+`org-slipbox-dailies-map` provides a public prefix keymap for these commands
+using the conventional bindings:
+
+- `d` today
+- `y` yesterday
+- `t` tomorrow
+- `n` capture today
+- `f` next note
+- `b` previous note
+- `c` goto date
+- `v` capture date
+- `.` dailies directory
+
 Calendar marking remains optional through `org-slipbox-dailies-calendar-mode`,
 so dailies discovery does not bleed into startup or the main buffer hot path.
 

@@ -11,6 +11,9 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
   capability milestones, and release-band roadmap so future work can stay
   anchored to the slip-box-as-conversation-partner thesis without relying on
   transient planning notes.
+- Added a public `org-slipbox-dailies-map` so downstream configs can bind the
+  documented dailies workflow through one stable prefix keymap instead of
+  recreating the command surface locally.
 - Added a first-class `slipbox/forwardLinks` query and thin Emacs consumer so
   outgoing links can be queried as structured indexed records rather than
   reconstructed from graph output or other incidental surfaces.
