@@ -40,11 +40,17 @@ fn indexes_refs_and_resolves_nodes_from_them() -> Result<()> {
     assert_eq!(refs.len(), 1);
     assert_eq!(refs[0].reference, "@smith2024");
     assert_eq!(refs[0].node.title, "Probabilistic Robotics");
+    assert!(refs[0].node.file_mtime_ns > 0);
+    assert_eq!(refs[0].node.backlink_count, 0);
+    assert_eq!(refs[0].node.forward_link_count, 0);
 
     let from_cite = database
         .node_from_ref("cite:thrun2005")?
         .expect("cite ref should resolve");
     assert_eq!(from_cite.title, "Probabilistic Robotics");
+    assert!(from_cite.file_mtime_ns > 0);
+    assert_eq!(from_cite.backlink_count, 0);
+    assert_eq!(from_cite.forward_link_count, 0);
 
     let from_org_cite = database
         .node_from_ref("[cite:@smith2024]")?

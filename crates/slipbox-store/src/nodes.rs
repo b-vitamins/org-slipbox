@@ -6,56 +6,34 @@ use slipbox_core::{NodeKind, NodeRecord};
 
 use crate::Database;
 
+pub(crate) const NODE_SELECT_COLUMN_COUNT: usize = 18;
+
 impl Database {
     pub fn search_nodes(&self, query: &str, limit: usize) -> Result<Vec<NodeRecord>> {
         let limit = limit.clamp(1, 200) as i64;
         if let Some(fts_query) = build_fts_query(query) {
-            let mut statement = self.connection.prepare(
-                "SELECT n.node_key,
-                        n.explicit_id,
-                        n.file_path,
-                        n.title,
-                        n.outline_path,
-                        n.aliases_json,
-                        n.tags_json,
-                        n.refs_json,
-                        n.todo_keyword,
-                        n.scheduled_for,
-                        n.deadline_for,
-                        n.closed_at,
-                        n.level,
-                        n.line,
-                        n.kind
+            let sql = format!(
+                "SELECT {}
                    FROM node_fts
                    JOIN nodes AS n ON n.id = node_fts.rowid
                   WHERE node_fts MATCH ?1
                   ORDER BY bm25(node_fts, 1.0, 0.3, 0.2, 0.7, 0.8, 0.4), n.file_path, n.line
                   LIMIT ?2",
-            )?;
+                node_select_columns("n")
+            );
+            let mut statement = self.connection.prepare(&sql)?;
             let rows = statement.query_map(params![fts_query, limit], row_to_node)?;
             rows.collect::<rusqlite::Result<Vec<_>>>()
                 .context("failed to read search results")
         } else {
-            let mut statement = self.connection.prepare(
-                "SELECT node_key,
-                        explicit_id,
-                        file_path,
-                        title,
-                        outline_path,
-                        aliases_json,
-                        tags_json,
-                        refs_json,
-                        todo_keyword,
-                        scheduled_for,
-                        deadline_for,
-                        closed_at,
-                        level,
-                        line,
-                        kind
-                   FROM nodes
-                  ORDER BY file_path, line
+            let sql = format!(
+                "SELECT {}
+                   FROM nodes AS n
+                  ORDER BY n.file_path, n.line
                   LIMIT ?1",
-            )?;
+                node_select_columns("n")
+            );
+            let mut statement = self.connection.prepare(&sql)?;
             let rows = statement.query_map(params![limit], row_to_node)?;
             rows.collect::<rusqlite::Result<Vec<_>>>()
                 .context("failed to read node listing")
@@ -81,30 +59,16 @@ impl Database {
             return Ok(None);
         };
 
+        let sql = format!(
+            "SELECT {}
+               FROM nodes AS n
+              WHERE n.id >= ((ABS(random()) % (?2 - ?1 + 1)) + ?1)
+              ORDER BY n.id
+              LIMIT 1",
+            node_select_columns("n")
+        );
         self.connection
-            .query_row(
-                "SELECT node_key,
-                        explicit_id,
-                        file_path,
-                        title,
-                        outline_path,
-                        aliases_json,
-                        tags_json,
-                        refs_json,
-                        todo_keyword,
-                        scheduled_for,
-                        deadline_for,
-                        closed_at,
-                        level,
-                        line,
-                        kind
-                   FROM nodes
-                  WHERE id >= ((ABS(random()) % (?2 - ?1 + 1)) + ?1)
-                  ORDER BY id
-                  LIMIT 1",
-                params![min_id, max_id],
-                row_to_node,
-            )
+            .query_row(&sql, params![min_id, max_id], row_to_node)
             .optional()
             .context("failed to fetch random node")
     }
@@ -138,29 +102,15 @@ impl Database {
     }
 
     pub fn node_from_id(&self, explicit_id: &str) -> Result<Option<NodeRecord>> {
+        let sql = format!(
+            "SELECT {}
+               FROM nodes AS n
+              WHERE n.explicit_id = ?1
+              LIMIT 1",
+            node_select_columns("n")
+        );
         self.connection
-            .query_row(
-                "SELECT node_key,
-                        explicit_id,
-                        file_path,
-                        title,
-                        outline_path,
-                        aliases_json,
-                        tags_json,
-                        refs_json,
-                        todo_keyword,
-                        scheduled_for,
-                        deadline_for,
-                        closed_at,
-                        level,
-                        line,
-                        kind
-                   FROM nodes
-                  WHERE explicit_id = ?1
-                  LIMIT 1",
-                params![explicit_id],
-                row_to_node,
-            )
+            .query_row(&sql, params![explicit_id], row_to_node)
             .optional()
             .context("failed to fetch node from ID")
     }
@@ -171,112 +121,92 @@ impl Database {
         nocase: bool,
     ) -> Result<Vec<NodeRecord>> {
         let sql = if nocase {
-            "SELECT DISTINCT n.node_key,
-                             n.explicit_id,
-                             n.file_path,
-                             n.title,
-                             n.outline_path,
-                             n.aliases_json,
-                             n.tags_json,
-                             n.refs_json,
-                             n.todo_keyword,
-                             n.scheduled_for,
-                             n.deadline_for,
-                             n.closed_at,
-                             n.level,
-                             n.line,
-                             n.kind
+            format!(
+                "SELECT DISTINCT {}
                FROM nodes AS n
                LEFT JOIN aliases AS a ON a.node_key = n.node_key
               WHERE n.title = ?1 COLLATE NOCASE
                  OR a.alias = ?1 COLLATE NOCASE
               ORDER BY n.file_path, n.line
-              LIMIT 2"
+              LIMIT 2",
+                node_select_columns("n")
+            )
         } else {
-            "SELECT DISTINCT n.node_key,
-                             n.explicit_id,
-                             n.file_path,
-                             n.title,
-                             n.outline_path,
-                             n.aliases_json,
-                             n.tags_json,
-                             n.refs_json,
-                             n.todo_keyword,
-                             n.scheduled_for,
-                             n.deadline_for,
-                             n.closed_at,
-                             n.level,
-                             n.line,
-                             n.kind
+            format!(
+                "SELECT DISTINCT {}
                FROM nodes AS n
                LEFT JOIN aliases AS a ON a.node_key = n.node_key
               WHERE n.title = ?1
                  OR a.alias = ?1
               ORDER BY n.file_path, n.line
-              LIMIT 2"
+              LIMIT 2",
+                node_select_columns("n")
+            )
         };
-        let mut statement = self.connection.prepare(sql)?;
+        let mut statement = self.connection.prepare(&sql)?;
         let rows = statement.query_map(params![title_or_alias], row_to_node)?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .context("failed to fetch node from title or alias")
     }
 
     pub fn node_at_point(&self, file_path: &str, line: u32) -> Result<Option<NodeRecord>> {
+        let sql = format!(
+            "SELECT {}
+               FROM nodes AS n
+              WHERE n.file_path = ?1
+                AND n.line <= ?2
+              ORDER BY n.line DESC, n.level DESC
+              LIMIT 1",
+            node_select_columns("n")
+        );
         self.connection
-            .query_row(
-                "SELECT node_key,
-                        explicit_id,
-                        file_path,
-                        title,
-                        outline_path,
-                        aliases_json,
-                        tags_json,
-                        refs_json,
-                        todo_keyword,
-                        scheduled_for,
-                        deadline_for,
-                        closed_at,
-                        level,
-                        line,
-                        kind
-                   FROM nodes
-                  WHERE file_path = ?1
-                    AND line <= ?2
-                  ORDER BY line DESC, level DESC
-                  LIMIT 1",
-                params![file_path, line],
-                row_to_node,
-            )
+            .query_row(&sql, params![file_path, line], row_to_node)
             .optional()
             .context("failed to fetch node at point")
     }
 
     pub fn node_by_key(&self, node_key: &str) -> Result<Option<NodeRecord>> {
+        let sql = format!(
+            "SELECT {}
+               FROM nodes AS n
+              WHERE n.node_key = ?1",
+            node_select_columns("n")
+        );
         self.connection
-            .query_row(
-                "SELECT node_key,
-                        explicit_id,
-                        file_path,
-                        title,
-                        outline_path,
-                        aliases_json,
-                        tags_json,
-                        refs_json,
-                        todo_keyword,
-                        scheduled_for,
-                        deadline_for,
-                        closed_at,
-                        level,
-                        line,
-                        kind
-                   FROM nodes
-                  WHERE node_key = ?1",
-                params![node_key],
-                row_to_node,
-            )
+            .query_row(&sql, params![node_key], row_to_node)
             .optional()
             .context("failed to fetch node by key")
     }
+}
+
+pub(crate) fn node_select_columns(alias: &str) -> String {
+    format!(
+        "{alias}.node_key,
+         {alias}.explicit_id,
+         {alias}.file_path,
+         {alias}.title,
+         {alias}.outline_path,
+         {alias}.aliases_json,
+         {alias}.tags_json,
+         {alias}.refs_json,
+         {alias}.todo_keyword,
+         {alias}.scheduled_for,
+         {alias}.deadline_for,
+         {alias}.closed_at,
+         {alias}.level,
+         {alias}.line,
+         {alias}.kind,
+         COALESCE((SELECT f.mtime_ns
+                     FROM files AS f
+                    WHERE f.path = {alias}.file_path), 0) AS file_mtime_ns,
+         COALESCE((SELECT COUNT(*)
+                     FROM links AS incoming
+                    WHERE incoming.destination_explicit_id = {alias}.explicit_id), 0) AS backlink_count,
+         COALESCE((SELECT COUNT(*)
+                     FROM links AS outgoing
+                     JOIN nodes AS dest ON dest.explicit_id = outgoing.destination_explicit_id
+                    WHERE outgoing.source_node_key = {alias}.node_key), 0) AS forward_link_count"
+    )
 }
 
 pub(crate) fn row_to_node(row: &rusqlite::Row<'_>) -> rusqlite::Result<NodeRecord> {
@@ -297,6 +227,9 @@ pub(crate) fn row_to_node(row: &rusqlite::Row<'_>) -> rusqlite::Result<NodeRecor
         level: row.get(12)?,
         line: row.get(13)?,
         kind: kind_text.parse().unwrap_or(NodeKind::Heading),
+        file_mtime_ns: row.get(15)?,
+        backlink_count: row.get(16)?,
+        forward_link_count: row.get(17)?,
     })
 }
 
@@ -321,6 +254,9 @@ pub(crate) fn row_to_node_with_offset(
         level: row.get(offset + 12)?,
         line: row.get(offset + 13)?,
         kind: kind_text.parse().unwrap_or(NodeKind::Heading),
+        file_mtime_ns: row.get(offset + 15)?,
+        backlink_count: row.get(offset + 16)?,
+        forward_link_count: row.get(offset + 17)?,
     })
 }
 

@@ -126,6 +126,12 @@ pub struct NodeRecord {
     pub level: u32,
     pub line: u32,
     pub kind: NodeKind,
+    #[serde(default)]
+    pub file_mtime_ns: i64,
+    #[serde(default)]
+    pub backlink_count: u64,
+    #[serde(default)]
+    pub forward_link_count: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -173,6 +179,9 @@ impl From<IndexedNode> for NodeRecord {
             level: node.level,
             line: node.line,
             kind: node.kind,
+            file_mtime_ns: 0,
+            backlink_count: 0,
+            forward_link_count: 0,
         }
     }
 }
@@ -762,7 +771,10 @@ fn normalize_string_values(values: &[String], nocase: bool) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CaptureNodeParams, UpdateNodeMetadataParams, normalize_reference};
+    use super::{
+        CaptureNodeParams, NodeKind, NodeRecord, UpdateNodeMetadataParams, normalize_reference,
+    };
+    use serde_json::json;
 
     #[test]
     fn normalizes_common_reference_forms() {
@@ -822,6 +834,54 @@ mod tests {
         assert_eq!(
             params.normalized_tags(),
             Some(vec!["alpha".to_owned(), "beta".to_owned()])
+        );
+    }
+
+    #[test]
+    fn node_record_serialization_includes_metadata_fields() {
+        let node = NodeRecord {
+            node_key: "heading:note.org:3".to_owned(),
+            explicit_id: Some("note-id".to_owned()),
+            file_path: "note.org".to_owned(),
+            title: "Note".to_owned(),
+            outline_path: "Parent".to_owned(),
+            aliases: vec!["Alias".to_owned()],
+            tags: vec!["tag".to_owned()],
+            refs: vec!["@smith2024".to_owned()],
+            todo_keyword: None,
+            scheduled_for: None,
+            deadline_for: None,
+            closed_at: None,
+            level: 1,
+            line: 3,
+            kind: NodeKind::Heading,
+            file_mtime_ns: 123,
+            backlink_count: 2,
+            forward_link_count: 4,
+        };
+
+        assert_eq!(
+            serde_json::to_value(node).expect("node record should serialize"),
+            json!({
+                "node_key": "heading:note.org:3",
+                "explicit_id": "note-id",
+                "file_path": "note.org",
+                "title": "Note",
+                "outline_path": "Parent",
+                "aliases": ["Alias"],
+                "tags": ["tag"],
+                "refs": ["@smith2024"],
+                "todo_keyword": null,
+                "scheduled_for": null,
+                "deadline_for": null,
+                "closed_at": null,
+                "level": 1,
+                "line": 3,
+                "kind": "heading",
+                "file_mtime_ns": 123,
+                "backlink_count": 2,
+                "forward_link_count": 4
+            })
         );
     }
 }

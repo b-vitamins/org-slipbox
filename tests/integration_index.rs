@@ -45,6 +45,58 @@ fn indexes_nodes_searches_and_returns_backlinks() -> Result<()> {
 }
 
 #[test]
+fn node_queries_return_indexed_metadata_and_graph_counts() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    fs::write(
+        root.join("alpha.org"),
+        "#+title: Alpha\n\n* First heading\n:PROPERTIES:\n:ID: alpha-first\n:END:\nSee [[id:beta-target][Beta]].\n",
+    )?;
+    fs::write(
+        root.join("gamma.org"),
+        "#+title: Gamma\n\n* Second heading\n:PROPERTIES:\n:ID: gamma-second\n:END:\nSee [[id:beta-target][Beta again]].\n",
+    )?;
+    fs::write(
+        root.join("beta.org"),
+        "#+title: Beta\n\n* Target heading\n:PROPERTIES:\n:ID: beta-target\n:END:\nTarget body.\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let target = database
+        .search_nodes("target", 10)?
+        .into_iter()
+        .next()
+        .expect("expected target node");
+    assert!(target.file_mtime_ns > 0);
+    assert_eq!(target.backlink_count, 2);
+    assert_eq!(target.forward_link_count, 0);
+
+    let source = database
+        .search_nodes("first", 10)?
+        .into_iter()
+        .next()
+        .expect("expected source node");
+    assert!(source.file_mtime_ns > 0);
+    assert_eq!(source.backlink_count, 0);
+    assert_eq!(source.forward_link_count, 1);
+
+    let backlinks = database.backlinks(&target.node_key, 10, false)?;
+    assert_eq!(backlinks.len(), 2);
+    assert_eq!(backlinks[0].source_node.title, "First heading");
+    assert!(backlinks[0].source_node.file_mtime_ns > 0);
+    assert_eq!(backlinks[0].source_node.backlink_count, 0);
+    assert_eq!(backlinks[0].source_node.forward_link_count, 1);
+
+    Ok(())
+}
+
+#[test]
 fn backlinks_support_unique_sources() -> Result<()> {
     let workspace = tempdir()?;
     let root = workspace.path().join("notes");

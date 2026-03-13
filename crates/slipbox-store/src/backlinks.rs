@@ -4,7 +4,7 @@ use rusqlite::{OptionalExtension, params};
 use slipbox_core::BacklinkRecord;
 
 use crate::Database;
-use crate::nodes::row_to_node_with_offset;
+use crate::nodes::{NODE_SELECT_COLUMN_COUNT, node_select_columns, row_to_node_with_offset};
 
 impl Database {
     pub fn backlinks(
@@ -31,22 +31,8 @@ impl Database {
         };
 
         let mut statement = if unique {
-            self.connection.prepare(
-                "SELECT n.node_key,
-                        n.explicit_id,
-                        n.file_path,
-                        n.title,
-                        n.outline_path,
-                        n.aliases_json,
-                        n.tags_json,
-                        n.refs_json,
-                        n.todo_keyword,
-                        n.scheduled_for,
-                        n.deadline_for,
-                        n.closed_at,
-                        n.level,
-                        n.line,
-                        n.kind,
+            let sql = format!(
+                "SELECT {},
                         l.line,
                         l.column,
                         l.preview
@@ -66,24 +52,12 @@ impl Database {
                   WHERE l.occurrence_rank = 1
                   ORDER BY n.file_path, l.line, l.column
                   LIMIT ?2",
-            )?
+                node_select_columns("n")
+            );
+            self.connection.prepare(&sql)?
         } else {
-            self.connection.prepare(
-                "SELECT n.node_key,
-                        n.explicit_id,
-                        n.file_path,
-                        n.title,
-                        n.outline_path,
-                        n.aliases_json,
-                        n.tags_json,
-                        n.refs_json,
-                        n.todo_keyword,
-                        n.scheduled_for,
-                        n.deadline_for,
-                        n.closed_at,
-                        n.level,
-                        n.line,
-                        n.kind,
+            let sql = format!(
+                "SELECT {},
                         l.line,
                         l.column,
                         l.preview
@@ -92,7 +66,9 @@ impl Database {
                   WHERE l.destination_explicit_id = ?1
                   ORDER BY n.file_path, l.line, l.column
                   LIMIT ?2",
-            )?
+                node_select_columns("n")
+            );
+            self.connection.prepare(&sql)?
         };
         let rows = statement.query_map(
             params![explicit_id, limit.clamp(1, 1_000) as i64],
@@ -106,8 +82,8 @@ impl Database {
 fn row_to_backlink(row: &rusqlite::Row<'_>) -> rusqlite::Result<BacklinkRecord> {
     Ok(BacklinkRecord {
         source_node: row_to_node_with_offset(row, 0)?,
-        row: row.get(15)?,
-        col: row.get(16)?,
-        preview: row.get(17)?,
+        row: row.get(NODE_SELECT_COLUMN_COUNT)?,
+        col: row.get(NODE_SELECT_COLUMN_COUNT + 1)?,
+        preview: row.get(NODE_SELECT_COLUMN_COUNT + 2)?,
     })
 }

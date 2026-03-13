@@ -5,7 +5,7 @@ use rusqlite::params;
 use slipbox_core::{GraphParams, GraphTitleShortening, NodeRecord};
 
 use crate::Database;
-use crate::nodes::row_to_node;
+use crate::nodes::{node_select_columns, row_to_node};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct GraphEdge {
@@ -50,25 +50,13 @@ impl Database {
     }
 
     fn graph_nodes(&self) -> Result<Vec<NodeRecord>> {
-        let mut statement = self.connection.prepare(
-            "SELECT node_key,
-                    explicit_id,
-                    file_path,
-                    title,
-                    outline_path,
-                    aliases_json,
-                    tags_json,
-                    refs_json,
-                    todo_keyword,
-                    scheduled_for,
-                    deadline_for,
-                    closed_at,
-                    level,
-                    line,
-                    kind
-               FROM nodes
-              ORDER BY file_path, line",
-        )?;
+        let sql = format!(
+            "SELECT {}
+               FROM nodes AS n
+              ORDER BY n.file_path, n.line",
+            node_select_columns("n")
+        );
+        let mut statement = self.connection.prepare(&sql)?;
         let rows = statement.query_map([], row_to_node)?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .context("failed to read graph nodes")
