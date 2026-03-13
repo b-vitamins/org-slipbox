@@ -491,7 +491,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "slipbox"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -508,7 +508,7 @@ dependencies = [
 
 [[package]]
 name = "slipbox-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -516,7 +516,7 @@ dependencies = [
 
 [[package]]
 name = "slipbox-index"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "regex",
@@ -527,7 +527,7 @@ dependencies = [
 
 [[package]]
 name = "slipbox-rpc"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -536,7 +536,7 @@ dependencies = [
 
 [[package]]
 name = "slipbox-store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "rusqlite",
@@ -546,7 +546,7 @@ dependencies = [
 
 [[package]]
 name = "slipbox-write"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "serde_json",

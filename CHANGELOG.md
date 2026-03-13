@@ -2,9 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
-The format follows Keep a Changelog, and this project will follow SemVer once it starts making releases.
+The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
+
+## [0.2.0] - 2026-03-14
 
 ### Added
 - Added durable product documents in `doc/` for the project's vision,
