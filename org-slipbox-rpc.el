@@ -62,6 +62,7 @@ resolves it through `exec-path'."
 (defconst org-slipbox-rpc-method-index "slipbox/index")
 (defconst org-slipbox-rpc-method-index-file "slipbox/indexFile")
 (defconst org-slipbox-rpc-method-indexed-files "slipbox/indexedFiles")
+(defconst org-slipbox-rpc-method-search-files "slipbox/searchFiles")
 (defconst org-slipbox-rpc-method-graph-dot "slipbox/graphDot")
 (defconst org-slipbox-rpc-method-search-nodes "slipbox/searchNodes")
 (defconst org-slipbox-rpc-method-random-node "slipbox/randomNode")
@@ -257,6 +258,12 @@ resolves it through `exec-path'."
 (defun org-slipbox-rpc-indexed-files ()
   "Return the relative paths currently stored in the index."
   (org-slipbox-rpc-request org-slipbox-rpc-method-indexed-files))
+
+(defun org-slipbox-rpc-search-files (query limit)
+  "Search indexed files matching QUERY with LIMIT."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-search-files
+   `(:query ,query :limit ,limit)))
 
 (defun org-slipbox-rpc-graph-dot (params)
   "Return Graphviz DOT for graph generation PARAMS."

@@ -75,6 +75,7 @@ struct IterationConfig {
     full_index: usize,
     index_file: usize,
     search_nodes: usize,
+    search_files: usize,
     backlinks: usize,
     forward_links: usize,
     node_at_point: usize,
@@ -91,6 +92,7 @@ struct ThresholdConfig {
     full_index_p95_ms: f64,
     index_file_p95_ms: f64,
     search_nodes_p95_ms: f64,
+    search_files_p95_ms: f64,
     backlinks_p95_ms: f64,
     forward_links_p95_ms: f64,
     node_at_point_p95_ms: f64,
@@ -105,6 +107,7 @@ struct BenchmarkReport {
     full_index: TimingReport,
     index_file: TimingReport,
     search_nodes: TimingReport,
+    search_files: TimingReport,
     backlinks: TimingReport,
     forward_links: TimingReport,
     node_at_point: TimingReport,
@@ -141,6 +144,7 @@ struct CorpusFixture {
     hot_node_id: String,
     forward_node_id: String,
     search_queries: Vec<String>,
+    file_queries: Vec<String>,
     point_queries: Vec<PointQuery>,
     expected_files: usize,
     expected_nodes: usize,
@@ -285,6 +289,7 @@ fn run_profile(
         .context("failed to resolve forward-link benchmark node")?;
 
     let search_nodes = benchmark_search_nodes(&mut database, profile, fixture)?;
+    let search_files = benchmark_search_files(&mut database, profile, fixture)?;
     let backlinks = benchmark_backlinks(&mut database, profile, &hot_node)?;
     let forward_links = benchmark_forward_links(&mut database, profile, &forward_node)?;
     let node_at_point = benchmark_node_at_point(&mut database, profile, fixture)?;
@@ -320,6 +325,7 @@ fn run_profile(
         full_index,
         index_file,
         search_nodes,
+        search_files,
         backlinks,
         forward_links,
         node_at_point,
@@ -412,6 +418,24 @@ fn benchmark_backlinks(
             )
             .context("failed to query backlinks")?;
         black_box(backlinks.len());
+        Ok(())
+    })
+}
+
+fn benchmark_search_files(
+    database: &mut Database,
+    profile: &BenchmarkProfile,
+    fixture: &CorpusFixture,
+) -> Result<TimingReport> {
+    measure_iterations(profile.iterations.search_files, |iteration| {
+        let query = &fixture.file_queries[iteration % fixture.file_queries.len()];
+        let files = database
+            .search_files(query, profile.iterations.search_limit)
+            .with_context(|| format!("failed to search files for query {query}"))?;
+        if files.is_empty() {
+            bail!("benchmark file search query {query} returned no files");
+        }
+        black_box(files.len());
         Ok(())
     })
 }
@@ -633,6 +657,7 @@ fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result<CorpusFixt
         .with_context(|| format!("failed to create notes directory {}", notes_dir.display()))?;
 
     let mut search_queries = BTreeSet::new();
+    let mut file_queries = BTreeSet::new();
     let mut point_queries = Vec::new();
     let mut mutable_file = PathBuf::new();
     let mut mutable_relative_path = String::new();
@@ -644,8 +669,13 @@ fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result<CorpusFixt
         let relative_path = format!("notes/file-{file_index:04}.org");
         let absolute_path = root.join(&relative_path);
         let bucket_tag = format!("bucket{}", file_index % 8);
+        let file_title = format!("Bench File {file_index:04}");
+        if file_queries.len() < config.query_count {
+            file_queries.insert(relative_path.clone());
+            file_queries.insert(file_title.clone());
+        }
         let mut lines = vec![
-            format!("#+title: Bench File {file_index:04}"),
+            format!("#+title: {file_title}"),
             format!("#+filetags: :bench:{bucket_tag}:"),
             String::from(":PROPERTIES:"),
             format!(":ID: file-{file_index:04}"),
@@ -731,6 +761,7 @@ fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result<CorpusFixt
             .into_iter()
             .take(config.query_count)
             .collect(),
+        file_queries: file_queries.into_iter().take(config.query_count).collect(),
         point_queries,
         expected_files: config.files,
         expected_nodes: config.files * (config.headings_per_file + 1),
@@ -783,6 +814,11 @@ fn enforce_thresholds(report: &BenchmarkReport, thresholds: &ThresholdConfig) ->
         thresholds.search_nodes_p95_ms,
     )?;
     check_threshold(
+        "search_files",
+        report.search_files.p95_ms,
+        thresholds.search_files_p95_ms,
+    )?;
+    check_threshold(
         "backlinks",
         report.backlinks.p95_ms,
         thresholds.backlinks_p95_ms,
@@ -830,6 +866,7 @@ fn print_summary(report: &BenchmarkReport, check: bool, output_path: &Path) {
     print_metric("index", &report.full_index);
     print_metric("indexFile", &report.index_file);
     print_metric("searchNodes", &report.search_nodes);
+    print_metric("searchFiles", &report.search_files);
     print_metric("backlinks", &report.backlinks);
     print_metric("forwardLinks", &report.forward_links);
     print_metric("nodeAtPoint", &report.node_at_point);
@@ -958,6 +995,7 @@ impl BenchmarkProfile {
             ("full_index", self.iterations.full_index),
             ("index_file", self.iterations.index_file),
             ("search_nodes", self.iterations.search_nodes),
+            ("search_files", self.iterations.search_files),
             ("backlinks", self.iterations.backlinks),
             ("forward_links", self.iterations.forward_links),
             ("node_at_point", self.iterations.node_at_point),

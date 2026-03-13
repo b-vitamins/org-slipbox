@@ -2,8 +2,8 @@ use slipbox_core::{
     AgendaParams, AgendaResult, BacklinksParams, BacklinksResult, ForwardLinksParams,
     ForwardLinksResult, GraphParams, GraphResult, IndexFileParams, IndexedFilesResult,
     NodeAtPointParams, NodeFromIdParams, NodeFromRefParams, NodeFromTitleOrAliasParams, PingInfo,
-    RandomNodeResult, SearchNodesParams, SearchNodesResult, SearchRefsParams, SearchRefsResult,
-    SearchTagsParams, SearchTagsResult, StatusInfo,
+    RandomNodeResult, SearchFilesParams, SearchFilesResult, SearchNodesParams, SearchNodesResult,
+    SearchRefsParams, SearchRefsResult, SearchTagsParams, SearchTagsResult, StatusInfo,
 };
 use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
 
@@ -100,6 +100,18 @@ pub(crate) fn indexed_files(state: &ServerState) -> Result<serde_json::Value, Js
         .indexed_files()
         .map_err(|error| internal_error(error.context("failed to read indexed files")))?;
     to_value(IndexedFilesResult { files })
+}
+
+pub(crate) fn search_files(
+    state: &ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: SearchFilesParams = parse_params(params)?;
+    let files = state
+        .database
+        .search_files(&params.query, params.normalized_limit())
+        .map_err(|error| internal_error(error.context("failed to query indexed files")))?;
+    to_value(SearchFilesResult { files })
 }
 
 pub(crate) fn search_tags(

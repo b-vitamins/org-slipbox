@@ -71,6 +71,7 @@
 ;;;###autoload(autoload 'org-slipbox-capture-to-node "org-slipbox-capture" nil t)
 ;;;###autoload(autoload 'org-slipbox-file-p "org-slipbox-files" nil t)
 ;;;###autoload(autoload 'org-slipbox-list-files "org-slipbox-files" nil t)
+;;;###autoload(autoload 'org-slipbox-search-files "org-slipbox-files" nil t)
 ;;;###autoload(autoload 'org-slipbox-id-mode "org-slipbox-id" nil t)
 ;;;###autoload(autoload 'org-slipbox-update-org-id-locations "org-slipbox-id" nil t)
 ;;;###autoload(autoload 'org-slipbox-mode "org-slipbox-mode" nil t)

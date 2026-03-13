@@ -32,6 +32,7 @@
 (require 'seq)
 (require 'subr-x)
 (require 'org-slipbox-discovery)
+(require 'org-slipbox-rpc)
 
 (defvar org-slipbox-directory)
 
@@ -62,6 +63,13 @@ Otherwise use `org-slipbox-directory'."
         (org-slipbox-file-p file expanded-root))
       (org-slipbox--list-supported-files expanded-root))
      #'string-lessp)))
+
+;;;###autoload
+(defun org-slipbox-search-files (query &optional limit)
+  "Return indexed file records matching QUERY.
+LIMIT defaults to 200 when omitted."
+  (org-slipbox--plist-sequence
+   (plist-get (org-slipbox-rpc-search-files query (or limit 200)) :files)))
 
 (defun org-slipbox--file-recursive-regexp ()
   "Return the recursive listing regexp for eligible files."

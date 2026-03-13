@@ -7,8 +7,8 @@ use slipbox_rpc::{
     METHOD_INDEX, METHOD_INDEX_FILE, METHOD_INDEXED_FILES, METHOD_NODE_AT_POINT,
     METHOD_NODE_FROM_ID, METHOD_NODE_FROM_REF, METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING,
     METHOD_PROMOTE_ENTIRE_FILE, METHOD_RANDOM_NODE, METHOD_REFILE_REGION, METHOD_REFILE_SUBTREE,
-    METHOD_SEARCH_NODES, METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS, METHOD_STATUS,
-    METHOD_UPDATE_NODE_METADATA,
+    METHOD_SEARCH_FILES, METHOD_SEARCH_NODES, METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS,
+    METHOD_STATUS, METHOD_UPDATE_NODE_METADATA,
 };
 
 use crate::server::handlers::{query, write};
@@ -37,6 +37,7 @@ fn dispatch_request(
         METHOD_INDEX => query::index(state),
         METHOD_GRAPH_DOT => query::graph_dot(state, params),
         METHOD_INDEXED_FILES => query::indexed_files(state),
+        METHOD_SEARCH_FILES => query::search_files(state, params),
         METHOD_SEARCH_NODES => query::search_nodes(state, params),
         METHOD_RANDOM_NODE => query::random_node(state),
         METHOD_SEARCH_TAGS => query::search_tags(state, params),

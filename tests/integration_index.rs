@@ -318,6 +318,49 @@ fn reports_index_stats_and_indexed_files() -> Result<()> {
 }
 
 #[test]
+fn search_files_returns_indexed_records_and_matches_path_and_title() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(root.join("nested"))?;
+
+    fs::write(root.join("alpha.org"), "#+title: Alpha File\n")?;
+    fs::write(
+        root.join("nested").join("beta.org"),
+        "#+title: Project Beta\n\n* Heading\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let all_files = database.search_files("", 10)?;
+    assert_eq!(
+        all_files
+            .iter()
+            .map(|file| file.file_path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["alpha.org", "nested/beta.org"]
+    );
+    assert_eq!(all_files[0].title, "Alpha File");
+    assert!(all_files[0].mtime_ns > 0);
+    assert_eq!(all_files[0].node_count, 1);
+    assert_eq!(all_files[1].title, "Project Beta");
+    assert!(all_files[1].mtime_ns > 0);
+    assert_eq!(all_files[1].node_count, 2);
+
+    let path_match = database.search_files("nested/beta", 10)?;
+    assert_eq!(path_match.len(), 1);
+    assert_eq!(path_match[0].file_path, "nested/beta.org");
+
+    let title_match = database.search_files("project beta", 10)?;
+    assert_eq!(title_match.len(), 1);
+    assert_eq!(title_match[0].title, "Project Beta");
+
+    Ok(())
+}
+
+#[test]
 fn indexes_and_queries_distinct_tags() -> Result<()> {
     let workspace = tempdir()?;
     let root = workspace.path().join("notes");

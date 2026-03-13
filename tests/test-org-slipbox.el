@@ -302,6 +302,25 @@
               '("note.org" "readme.md" "secret.md.gpg")))))
       (delete-directory root t))))
 
+(ert-deftest org-slipbox-test-search-files-uses-indexed-rpc-results ()
+  "Indexed file search should use the dedicated RPC surface."
+  (let (rpc-args)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-search-files)
+               (lambda (query limit)
+                 (setq rpc-args (list query limit))
+                 '(:files [(:file_path "notes/beta.org"
+                           :title "Project Beta"
+                           :mtime_ns 42
+                           :node_count 2)]))))
+      (should
+       (equal
+        (org-slipbox-search-files "beta" 25)
+        '((:file_path "notes/beta.org"
+           :title "Project Beta"
+           :mtime_ns 42
+           :node_count 2)))))
+    (should (equal rpc-args '("beta" 25)))))
+
 (ert-deftest org-slipbox-test-discovery-policy-normalizes-command-args ()
   "Discovery helpers should normalize extensions and exclusions once."
   (let ((org-slipbox-file-extensions '("org" ".md" "ORG" ""))
@@ -2594,6 +2613,18 @@
   (should-error
    (org-slipbox-rpc-search-nodes "Heading" 10 "file-atime")
    :type 'user-error))
+
+(ert-deftest org-slipbox-test-rpc-search-files-encodes-params ()
+  "File search RPC should encode query and limit explicitly."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:files []))))
+      (org-slipbox-rpc-search-files "beta" 25))
+    (should (equal method "slipbox/searchFiles"))
+    (should (equal params '(:query "beta" :limit 25)))))
 
 (ert-deftest org-slipbox-test-rpc-forward-links-encodes-params ()
   "Forward-link RPC should encode limit and unique parameters explicitly."

@@ -14,6 +14,9 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Added a first-class `slipbox/forwardLinks` query and thin Emacs consumer so
   outgoing links can be queried as structured indexed records rather than
   reconstructed from graph output or other incidental surfaces.
+- Added a dedicated `searchFiles` query plus thin Emacs helpers for indexed
+  file records, including indexed file title, mtime, and node-count metadata
+  for future frontend consumers.
 
 ### Changed
 - Clarified `AGENTS.md` and `README.md` so durable strategy documents belong in
