@@ -20,6 +20,12 @@
 ## Release Policy
 - Work under `Unreleased` in `CHANGELOG.md` for ongoing development, and keep released sections authoritative once shipped.
 - Treat current tagged releases and version metadata as legitimate. Do not retroactively downplay shipped versions.
+- Keep the default branch focused on the next planned minor release.
+- Use issue-tracker milestones as the literal release buckets for upcoming versions. Keep broad direction in `doc/*.org`, and keep per-release cut lists out of the repository.
+- Allow patch releases for important fixes to the latest shipped line when users should not have to wait for the next minor release.
+- Keep patch releases minimal and scoped to shipped behavior. Do not bundle unrelated feature work into a patch release.
+- When a patch release is needed during ongoing next-minor work, cut a short-lived maintenance branch from the latest tag, cherry-pick the minimal fix, and keep the equivalent fix on the default branch unless the code has materially diverged.
+- Unless explicitly stated otherwise, support only the latest shipped release line.
 - Do not claim `1.0.0`, stable-platform finality, or full replacement status until the project genuinely reaches that bar.
 - Use Conventional Commits for every commit message.
 - Keep history readable: commit at coherent milestones after tests pass.
@@ -29,6 +35,7 @@
 - Keep Emacs package entry files at the repository root for straightforward ELPA packaging.
 - Keep package headers strict: lexical binding, `Package-Requires`, `Version`, commentary, and no false metadata.
 - Maintain GPL-3.0-or-later licensing across Rust and Elisp code.
+- Keep automation credentials out of version control. For GitHub API work in this repository, use the ignored `/.env.github.local` path when a repo-local token is needed, prefer least-privilege fine-grained tokens, and keep expirations short.
 - Favor stable protocol boundaries over in-process integration tricks. JSON-RPC over stdio is the default boundary.
 - Keep the daemon and Emacs package separable. The Emacs side should work with a `slipbox` executable on `PATH` or an explicit `org-slipbox-server-program`, so downstream packaging stays simple.
 - Keep `manifest.scm` as an optional contributor convenience layer. It may smooth local development and comparison runs, but it must not become the only supported build or install path.

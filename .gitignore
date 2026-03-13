@@ -2,3 +2,4 @@
 /.dir-locals.el
 /*.elc
 /.DS_Store
+/.env.github.local
