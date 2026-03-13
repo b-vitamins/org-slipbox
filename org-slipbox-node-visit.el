@@ -119,13 +119,15 @@ If ASSERT is non-nil, signal a user error when no node is available."
   "Return the current base buffer file path."
   (buffer-file-name (or (buffer-base-buffer) (current-buffer))))
 
-(defun org-slipbox--visit-node (node &optional other-window)
-  "Visit NODE in its source file.
+(defun org-slipbox-node-visit (node &optional other-window)
+  "Visit indexed NODE in its source file.
 With OTHER-WINDOW, visit it in another window."
   (funcall (if other-window #'find-file-other-window #'find-file)
            (expand-file-name (plist-get node :file_path) org-slipbox-directory))
   (goto-char (point-min))
   (forward-line (1- (plist-get node :line))))
+
+(defalias 'org-slipbox--visit-node #'org-slipbox-node-visit)
 
 (provide 'org-slipbox-node-visit)
 

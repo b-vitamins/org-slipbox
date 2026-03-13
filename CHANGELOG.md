@@ -40,6 +40,10 @@ The format follows Keep a Changelog, and this project will follow SemVer once it
 - Clarified the current-node buffer docs so the persistent point-tracking
   buffer and the dedicated fuller inspection buffer are described as distinct
   entry points with different discovery-cost expectations.
+- Exported public Emacs helpers for node/ref completion candidates,
+  completion annotations, node visiting, and direct link insertion so
+  downstream frontend packages no longer need double-hyphen internals for
+  integration.
 - Extended indexed node query payloads to include file modification time plus
   backlink and forward-link counts, so frontend consumers can rely on
   engine-backed metadata instead of filesystem stats or local graph counting.

@@ -124,10 +124,10 @@ return a plist with only `:title'."
                         (cycle-sort-function . identity)))
                   (annotation-function
                    . ,(lambda (title)
-                        (org-slipbox--node-completion-annotation title)))
+                        (org-slipbox-node-completion-annotation title)))
                   (category . org-slipbox-node))
               (setq completions
-                    (org-slipbox-node-read--completions string filter-fn sort))
+                    (org-slipbox-node-completion-candidates string filter-fn sort))
               (complete-with-action action completions string pred))))
          (selection (completing-read
                      prompt
@@ -142,7 +142,7 @@ return a plist with only `:title'."
      ((string-empty-p selection) nil)
      (t
       (let ((refreshed (cdr (assoc selection
-                                   (org-slipbox-node-read--completions
+                                   (org-slipbox-node-completion-candidates
                                     selection
                                     filter-fn
                                     sort)))))
@@ -172,10 +172,12 @@ return a plist with only `:title'."
   (or (org-slipbox-node-read nil nil nil t prompt)
       (user-error "No node selected")))
 
-(defun org-slipbox-node-read--completions (query &optional filter-fn sort)
-  "Return formatted completion candidates for QUERY.
-FILTER-FN filters indexed nodes. SORT configures ordering."
-  (let* ((response (org-slipbox-rpc-search-nodes
+(defun org-slipbox-node-completion-candidates (query &optional filter-fn sort-fn)
+  "Return formatted node completion candidates for QUERY.
+FILTER-FN filters indexed nodes. SORT-FN names an engine-backed sort or
+provides a custom comparator."
+  (let* ((sort (org-slipbox--resolve-node-sort sort-fn))
+         (response (org-slipbox-rpc-search-nodes
                     query
                     org-slipbox-node-read-limit
                     (org-slipbox--node-sort-rpc-value sort)))
@@ -188,9 +190,20 @@ FILTER-FN filters indexed nodes. SORT configures ordering."
         (seq-sort comparator completions)
       completions)))
 
+(defun org-slipbox-node-read--completions (query &optional filter-fn sort)
+  "Return formatted completion candidates for QUERY.
+FILTER-FN filters indexed nodes. SORT configures ordering."
+  (org-slipbox-node-completion-candidates query filter-fn sort))
+
+(defun org-slipbox-node-completion-annotation (candidate)
+  "Return the annotation string for node completion CANDIDATE."
+  (if-let ((node (get-text-property 0 'node candidate)))
+      (funcall org-slipbox-node-annotation-function node)
+    ""))
+
 (defun org-slipbox--search-node-choices (query)
   "Return display-to-node choices for QUERY."
-  (org-slipbox-node-read--completions query))
+  (org-slipbox-node-completion-candidates query))
 
 (defun org-slipbox--node-completion-candidate (node)
   "Return a display-to-node completion pair for NODE."
@@ -210,11 +223,8 @@ FILTER-FN filters indexed nodes. SORT configures ordering."
    (t
     (org-slipbox--node-display node))))
 
-(defun org-slipbox--node-completion-annotation (candidate)
-  "Return the annotation string for completion CANDIDATE."
-  (if-let ((node (get-text-property 0 'node candidate)))
-      (funcall org-slipbox-node-annotation-function node)
-    ""))
+(defalias 'org-slipbox--node-completion-annotation
+  #'org-slipbox-node-completion-annotation)
 
 (defun org-slipbox--node-display (node)
   "Return a display string for NODE."

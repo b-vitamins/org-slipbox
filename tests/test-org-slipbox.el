@@ -608,12 +608,28 @@
 
 (ert-deftest org-slipbox-test-node-read-returns-new-title-when-no-match ()
   "Node read should return a new-title placeholder when no match is required."
-  (cl-letf (((symbol-function 'org-slipbox-node-read--completions)
+  (cl-letf (((symbol-function 'org-slipbox-node-completion-candidates)
              (lambda (&rest _args) nil))
             ((symbol-function 'completing-read)
              (lambda (&rest _args)
                "Fresh Node")))
     (should (equal (org-slipbox-node-read) '(:title "Fresh Node")))))
+
+(ert-deftest org-slipbox-test-node-completion-candidates-expose-public-helper ()
+  "Public node completion helpers should expose formatted candidates."
+  (let ((org-slipbox-node-annotation-function
+         (lambda (node)
+           (format " [%s]" (plist-get node :file_path)))))
+    (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
+               (lambda (_query _limit &optional sort)
+                 (should (eq sort 'title))
+                 '(:nodes [(:title "Alpha" :file_path "alpha.org" :line 3)]))))
+      (let* ((candidates (org-slipbox-node-completion-candidates "Alpha" nil 'title))
+             (candidate (caar candidates)))
+        (should (equal (cdar candidates)
+                       '(:title "Alpha" :file_path "alpha.org" :line 3)))
+        (should (equal (org-slipbox-node-completion-annotation candidate)
+                       " [alpha.org]"))))))
 
 (ert-deftest org-slipbox-test-node-read-delegates-default-sort-and-annotation ()
   "Node read should delegate supported sorts and expose annotation metadata."
@@ -825,6 +841,24 @@
         (should (= (length candidates) 1))
         (should (equal (plist-get node :title) "Beta"))))))
 
+(ert-deftest org-slipbox-test-ref-completion-candidates-expose-public-helper ()
+  "Public ref completion helpers should expose formatted candidates."
+  (let ((org-slipbox-ref-annotation-function
+         (lambda (entry)
+           (format " [%s]" (plist-get entry :reference)))))
+    (cl-letf (((symbol-function 'org-slipbox-rpc-search-refs)
+               (lambda (_query _limit)
+                 '(:refs [(:reference "@alpha"
+                           :node (:title "Alpha"
+                                  :file_path "alpha.org"
+                                  :line 1))]))))
+      (let* ((candidates (org-slipbox-ref-completion-candidates "@a"))
+             (candidate (caar candidates)))
+        (should (equal (cdar candidates)
+                       '(:title "Alpha" :file_path "alpha.org" :line 1)))
+        (should (equal (org-slipbox-ref-completion-annotation candidate)
+                       " [@alpha]"))))))
+
 (ert-deftest org-slipbox-test-node-insert-uses-node-formatter ()
   "Node insertion should honor `org-slipbox-node-formatter'."
   (with-temp-buffer
@@ -843,6 +877,20 @@
         (org-slipbox-node-insert)
         (should (equal (buffer-string)
                        "[[id:node-1][Heading t:TODO #one]]"))))))
+
+(ert-deftest org-slipbox-test-node-insert-link-exposes-public-helper ()
+  "Public node link insertion helper should insert the expected id link."
+  (with-temp-buffer
+    (let (hook-args)
+      (cl-letf (((symbol-function 'run-hook-with-args)
+                 (lambda (_hook id description)
+                   (setq hook-args (list id description)))))
+        (org-slipbox-node-insert-link
+         '(:explicit_id "node-1")
+         "Heading")
+        (should (equal (buffer-string)
+                       "[[id:node-1][Heading]]"))
+        (should (equal hook-args '("node-1" "Heading")))))))
 
 (ert-deftest org-slipbox-test-node-insert-replaces-active-region ()
   "Node insertion should use the active region as the link description."
@@ -3177,6 +3225,22 @@
     (should (eq (cadr read-args) #'identity))
     (should (equal (caddr read-args) "Lookup ref: "))
     (should (equal visited '(:title "Paper" :file_path "paper.org" :line 1)))))
+
+(ert-deftest org-slipbox-test-node-visit-exposes-public-helper ()
+  "Public node visit helper should visit the indexed file and line."
+  (let ((org-slipbox-directory "/tmp/slipbox/")
+        visited)
+    (cl-letf (((symbol-function 'find-file-other-window)
+               (lambda (path)
+                 (setq visited path)
+                 (current-buffer))))
+      (with-temp-buffer
+        (insert "one\ntwo\nthree\n")
+        (org-slipbox-node-visit
+         '(:file_path "notes/alpha.org" :line 2)
+         t)
+        (should (equal visited "/tmp/slipbox/notes/alpha.org"))
+        (should (= (line-number-at-pos) 2))))))
 
 (ert-deftest org-slipbox-test-tag-completions-merge-indexed-and-org-tags ()
   "Tag completions should include indexed and configured Org tags."

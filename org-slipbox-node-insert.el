@@ -69,7 +69,7 @@ INITIAL-INPUT seeds the minibuffer. FILTER-FN filters indexed nodes."
                 (let* ((node-with-id (org-slipbox--ensure-node-id node))
                        (description (or description
                                         (org-slipbox-node-formatted node-with-id))))
-                  (org-slipbox--insert-node-link node-with-id description region)
+                  (org-slipbox-node-insert-link node-with-id description region)
                   node-with-id)
               (org-slipbox--capture-node
                (plist-get node :title)
@@ -122,13 +122,15 @@ INITIAL-INPUT seeds the minibuffer. FILTER-FN filters indexed nodes."
       (set-marker (plist-get region :beg) nil)
       (set-marker (plist-get region :end) nil))))
 
-(defun org-slipbox--insert-node-link (node description &optional region)
+(defun org-slipbox-node-insert-link (node description &optional region)
   "Insert a link to NODE using DESCRIPTION, replacing REGION when present."
   (let ((id (plist-get node :explicit_id)))
     (org-slipbox--replace-node-insert-region
      region
      (format "[[id:%s][%s]]" id description))
     (run-hook-with-args 'org-slipbox-post-node-insert-hook id description)))
+
+(defalias 'org-slipbox--insert-node-link #'org-slipbox-node-insert-link)
 
 (provide 'org-slipbox-node-insert)
 

@@ -67,10 +67,10 @@ to refs. PROMPT defaults to \"Ref: \"."
                 `(metadata
                   (annotation-function
                    . ,(lambda (candidate)
-                        (org-slipbox--ref-completion-annotation candidate)))
+                        (org-slipbox-ref-completion-annotation candidate)))
                   (category . org-slipbox-ref))
               (setq completions
-                    (org-slipbox-ref-read--completions string filter-fn))
+                    (org-slipbox-ref-completion-candidates string filter-fn))
               (complete-with-action action completions string pred))))
          (selection
           (completing-read
@@ -83,7 +83,7 @@ to refs. PROMPT defaults to \"Ref: \"."
          (node (cdr (assoc selection completions))))
     (or node
         (cdr (assoc selection
-                    (org-slipbox-ref-read--completions selection filter-fn))))))
+                    (org-slipbox-ref-completion-candidates selection filter-fn))))))
 
 ;;;###autoload
 (defun org-slipbox-ref-find (&optional initial-input filter-fn prompt)
@@ -214,7 +214,7 @@ When PREFIX is non-nil, only return tags matching PREFIX."
   "Return KEY values from NODE as a list."
   (org-slipbox--plist-sequence (plist-get node key)))
 
-(defun org-slipbox-ref-read--completions (query &optional filter-fn)
+(defun org-slipbox-ref-completion-candidates (query &optional filter-fn)
   "Return formatted ref completion candidates for QUERY.
 FILTER-FN filters nodes attached to refs."
   (let* ((response (org-slipbox-rpc-search-refs query org-slipbox-ref-read-limit))
@@ -226,6 +226,11 @@ FILTER-FN filters nodes attached to refs."
                     refs)
                  refs)))
     (mapcar #'org-slipbox--ref-completion-candidate refs)))
+
+(defun org-slipbox-ref-read--completions (query &optional filter-fn)
+  "Return formatted ref completion candidates for QUERY.
+FILTER-FN filters nodes attached to refs."
+  (org-slipbox-ref-completion-candidates query filter-fn))
 
 (defun org-slipbox-ref-read--annotation (entry)
   "Return the default completion annotation for ref ENTRY."
@@ -253,11 +258,14 @@ FILTER-FN filters nodes attached to refs."
            'invisible t)))
     (cons (concat visible hidden) node)))
 
-(defun org-slipbox--ref-completion-annotation (candidate)
+(defun org-slipbox-ref-completion-annotation (candidate)
   "Return the annotation string for ref completion CANDIDATE."
   (if-let ((entry (get-text-property 0 'org-slipbox-ref-entry candidate)))
       (funcall org-slipbox-ref-annotation-function entry)
     ""))
+
+(defalias 'org-slipbox--ref-completion-annotation
+  #'org-slipbox-ref-completion-annotation)
 
 (defun org-slipbox--tag-completion-table (string pred action)
   "Completion table for tags using STRING, PRED, and ACTION."
