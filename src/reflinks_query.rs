@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::{Context, Result, anyhow};
 use regex::{Regex, RegexBuilder};
 
-use slipbox_core::{NodeRecord, ReflinkRecord};
+use slipbox_core::{AnchorRecord, ReflinkRecord};
 use slipbox_store::Database;
 
 use crate::text_query::{
@@ -25,7 +25,7 @@ use crate::text_query::{
 pub(crate) fn query_reflinks(
     database: &Database,
     root: &Path,
-    node: &NodeRecord,
+    node: &AnchorRecord,
     limit: usize,
 ) -> Result<Vec<ReflinkRecord>> {
     let patterns = reflink_patterns(&node.refs);
@@ -51,13 +51,13 @@ pub(crate) fn query_reflinks(
 
         let source = slipbox_index::read_source(&absolute_path)
             .with_context(|| format!("failed to read indexed file {}", absolute_path.display()))?;
-        let visible_nodes = database
-            .nodes_in_file(&file_path)
-            .with_context(|| format!("failed to read indexed nodes for {file_path}"))?;
-        if visible_nodes.is_empty() {
+        let visible_anchors = database
+            .anchors_in_file(&file_path)
+            .with_context(|| format!("failed to read indexed anchors for {file_path}"))?;
+        if visible_anchors.is_empty() {
             continue;
         }
-        let nodes_by_key = visible_nodes
+        let anchors_by_key = visible_anchors
             .iter()
             .map(|candidate| (candidate.node_key.as_str(), candidate))
             .collect::<HashMap<_, _>>();
@@ -96,11 +96,11 @@ pub(crate) fn query_reflinks(
             if source_range.excluded {
                 continue;
             }
-            let source_node = nodes_by_key
+            let source_anchor = anchors_by_key
                 .get(source_range.node_key.as_str())
                 .ok_or_else(|| {
                     anyhow!(
-                        "indexed source node {} was not found in visible node map for {}",
+                        "indexed source anchor {} was not found in visible anchor map for {}",
                         source_range.node_key,
                         file_path
                     )
@@ -108,14 +108,14 @@ pub(crate) fn query_reflinks(
 
             for matched in matcher.find_iter(line) {
                 let result = ReflinkRecord {
-                    source_node: (*source_node).clone(),
+                    source_anchor: (*source_anchor).clone(),
                     row,
                     col: column_number(line, matched.start()),
                     preview: line.trim_end().to_owned(),
                     matched_reference: matched.as_str().to_owned(),
                 };
                 let key = (
-                    result.source_node.node_key.clone(),
+                    result.source_anchor.node_key.clone(),
                     result.row,
                     result.col,
                     result.matched_reference.clone(),

@@ -381,7 +381,7 @@ node. LIMIT bounds the number of rows requested."
 
 (defun org-slipbox-buffer--insert-backlink-entry (entry)
   "Insert a preview-rich backlink ENTRY."
-  (let* ((source-node (plist-get entry :source_node))
+  (let* ((source-node (plist-get entry :source_note))
          (file (plist-get source-node :file_path))
          (row (plist-get entry :row))
          (col (plist-get entry :col))
@@ -399,7 +399,7 @@ node. LIMIT bounds the number of rows requested."
 
 (defun org-slipbox-buffer--insert-forward-link-entry (node entry)
   "Insert a preview-rich forward-link ENTRY for source NODE."
-  (let* ((destination-node (plist-get entry :destination_node))
+  (let* ((destination-node (plist-get entry :destination_note))
          (file (plist-get node :file_path))
          (row (plist-get entry :row))
          (col (plist-get entry :col))
@@ -417,7 +417,7 @@ node. LIMIT bounds the number of rows requested."
 
 (defun org-slipbox-buffer--insert-reflink-entry (entry)
   "Insert a preview-rich reflink ENTRY."
-  (let* ((source-node (plist-get entry :source_node))
+  (let* ((source-node (plist-get entry :source_anchor))
          (file (plist-get source-node :file_path))
          (row (plist-get entry :row))
          (col (plist-get entry :col))
@@ -438,7 +438,7 @@ node. LIMIT bounds the number of rows requested."
 
 (defun org-slipbox-buffer--insert-unlinked-reference-entry (entry)
   "Insert a preview-rich unlinked-reference ENTRY."
-  (let* ((source-node (plist-get entry :source_node))
+  (let* ((source-node (plist-get entry :source_anchor))
          (file (plist-get source-node :file_path))
          (row (plist-get entry :row))
          (col (plist-get entry :col))

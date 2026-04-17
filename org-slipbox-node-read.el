@@ -106,16 +106,14 @@ uses the same placeholder syntax as `org-slipbox-node-display-template'."
   "Minibuffer history for `org-slipbox-node-read'.")
 
 (defun org-slipbox-node-read
-    (&optional initial-input filter-fn sort-fn require-match prompt scope)
+    (&optional initial-input filter-fn sort-fn require-match prompt)
   "Read and return an indexed node plist.
 INITIAL-INPUT seeds the minibuffer. FILTER-FN filters indexed nodes.
 SORT-FN names an engine-backed sort or provides a custom comparator.
 REQUIRE-MATCH enforces an indexed selection. PROMPT defaults to
-\"Node: \". SCOPE defaults to `selectable', which excludes anonymous
-heading nodes from default chooser results. When REQUIRE-MATCH is nil
-and the user enters a new title, return a plist with only `:title'."
+\"Node: \". When REQUIRE-MATCH is nil and the user enters a new title,
+return a plist with only `:title'."
   (let* ((prompt (or prompt "Node: "))
-         (scope (or scope 'selectable))
          (sort (org-slipbox--resolve-node-sort sort-fn))
          completions
          (collection
@@ -130,7 +128,7 @@ and the user enters a new title, return a plist with only `:title'."
                         (org-slipbox-node-completion-annotation title)))
                   (category . org-slipbox-node))
               (setq completions
-                    (org-slipbox-node-completion-candidates string filter-fn sort scope))
+                    (org-slipbox-node-completion-candidates string filter-fn sort))
               (complete-with-action action completions string pred))))
          (selection (completing-read
                      prompt
@@ -148,8 +146,7 @@ and the user enters a new title, return a plist with only `:title'."
                                    (org-slipbox-node-completion-candidates
                                     selection
                                     filter-fn
-                                    sort
-                                    scope)))))
+                                    sort)))))
         (or refreshed
             (and (not require-match)
                  (list :title selection))))))))
@@ -176,17 +173,15 @@ and the user enters a new title, return a plist with only `:title'."
   (or (org-slipbox-node-read nil nil nil t prompt)
       (user-error "No node selected")))
 
-(defun org-slipbox-node-completion-candidates (query &optional filter-fn sort-fn scope)
+(defun org-slipbox-node-completion-candidates (query &optional filter-fn sort-fn)
   "Return formatted node completion candidates for QUERY.
 FILTER-FN filters indexed nodes. SORT-FN names an engine-backed sort or
-provides a custom comparator. SCOPE defaults to `selectable'."
+provides a custom comparator."
   (let* ((sort (org-slipbox--resolve-node-sort sort-fn))
-         (scope (or scope 'selectable))
          (response (org-slipbox-rpc-search-nodes
                     query
                     org-slipbox-node-read-limit
-                    (org-slipbox--node-sort-rpc-value sort)
-                    scope))
+                    (org-slipbox--node-sort-rpc-value sort)))
          (nodes (org-slipbox--plist-sequence (plist-get response :nodes)))
          (nodes (if filter-fn
                     (seq-filter filter-fn nodes)
@@ -196,11 +191,10 @@ provides a custom comparator. SCOPE defaults to `selectable'."
         (seq-sort comparator completions)
       completions)))
 
-(defun org-slipbox-node-read--completions (query &optional filter-fn sort scope)
+(defun org-slipbox-node-read--completions (query &optional filter-fn sort)
   "Return formatted completion candidates for QUERY.
-FILTER-FN filters indexed nodes. SORT configures ordering. SCOPE
-defaults to `selectable'."
-  (org-slipbox-node-completion-candidates query filter-fn sort scope))
+FILTER-FN filters indexed nodes. SORT configures ordering."
+  (org-slipbox-node-completion-candidates query filter-fn sort))
 
 (defun org-slipbox-node-completion-annotation (candidate)
   "Return the annotation string for node completion CANDIDATE."

@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
-use slipbox_core::{NodeKind, NodeRecord};
+use slipbox_core::{AnchorRecord, NodeKind, NodeRecord};
 
 use crate::document::{OrgDocument, shift_subtree_levels};
 use crate::path::normalize_relative_org_path;
@@ -15,7 +15,7 @@ pub struct RegionRewriteOutcome {
 
 pub fn refile_subtree(
     root: &Path,
-    source: &NodeRecord,
+    source: &AnchorRecord,
     target: &NodeRecord,
 ) -> Result<RewriteOutcome> {
     if source.node_key == target.node_key {
@@ -216,7 +216,7 @@ pub fn refile_region(
 
 pub fn extract_subtree(
     root: &Path,
-    source: &NodeRecord,
+    source: &AnchorRecord,
     file_path: &str,
 ) -> Result<RewriteOutcome> {
     if source.kind != NodeKind::Heading {

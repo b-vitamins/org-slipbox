@@ -72,6 +72,7 @@ resolves it through `exec-path'."
 (defconst org-slipbox-rpc-method-node-from-title-or-alias "slipbox/nodeFromTitleOrAlias")
 (defconst org-slipbox-rpc-method-node-from-ref "slipbox/nodeFromRef")
 (defconst org-slipbox-rpc-method-node-at-point "slipbox/nodeAtPoint")
+(defconst org-slipbox-rpc-method-anchor-at-point "slipbox/anchorAtPoint")
 (defconst org-slipbox-rpc-method-backlinks "slipbox/backlinks")
 (defconst org-slipbox-rpc-method-forward-links "slipbox/forwardLinks")
 (defconst org-slipbox-rpc-method-reflinks "slipbox/reflinks")
@@ -306,32 +307,19 @@ resolves it through `exec-path'."
    (t
     (user-error "Unsupported searchNodes sort %s" sort))))
 
-(defun org-slipbox-rpc--search-node-scope-name (scope)
-  "Return SCOPE encoded for the `searchNodes' RPC surface."
-  (cond
-   ((null scope) "selectable")
-   ((member scope '("selectable" "indexed"))
-    scope)
-   ((eq scope 'selectable) "selectable")
-   ((eq scope 'indexed) "indexed")
-   (t
-    (user-error "Unsupported searchNodes scope %s" scope))))
-
-(defun org-slipbox-rpc-search-nodes (query limit &optional sort scope)
-  "Search nodes matching QUERY with LIMIT, optional SORT, and optional SCOPE.
-SCOPE defaults to `selectable', which excludes anonymous heading nodes."
+(defun org-slipbox-rpc-search-nodes (query limit &optional sort)
+  "Search canonical nodes matching QUERY with LIMIT and optional SORT."
   (let ((params `(:query ,query :limit ,limit)))
     (when-let ((sort-name (org-slipbox-rpc--search-node-sort-name sort)))
       (setq params (append params `(:sort ,sort-name))))
-    (setq params
-          (append params `(:scope ,(org-slipbox-rpc--search-node-scope-name scope))))
     (org-slipbox-rpc-request
      org-slipbox-rpc-method-search-nodes
      params)))
 
 (defun org-slipbox-rpc-random-node ()
-  "Return a random indexed node."
-  (org-slipbox-rpc-request org-slipbox-rpc-method-random-node))
+  "Return a random canonical node."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-random-node))
 
 (defun org-slipbox-rpc-search-tags (query limit)
   "Search indexed tags matching QUERY with LIMIT."
@@ -340,7 +328,7 @@ SCOPE defaults to `selectable', which excludes anonymous heading nodes."
    `(:query ,query :limit ,limit)))
 
 (defun org-slipbox-rpc-node-from-id (id)
-  "Resolve the indexed node identified by ID."
+  "Resolve the canonical node identified by ID."
   (org-slipbox-rpc-request org-slipbox-rpc-method-node-from-id `(:id ,id)))
 
 (defun org-slipbox-rpc-node-from-title-or-alias (title-or-alias &optional nocase)
@@ -348,7 +336,8 @@ SCOPE defaults to `selectable', which excludes anonymous heading nodes."
 When NOCASE is non-nil, use case-insensitive matching."
   (org-slipbox-rpc-request
    org-slipbox-rpc-method-node-from-title-or-alias
-   `(:title_or_alias ,title-or-alias :nocase ,(org-slipbox-rpc--bool nocase))))
+   `(:title_or_alias ,title-or-alias
+                     :nocase ,(org-slipbox-rpc--bool nocase))))
 
 (defun org-slipbox-rpc-node-from-ref (reference)
   "Resolve a node by REFERENCE."
@@ -357,9 +346,15 @@ When NOCASE is non-nil, use case-insensitive matching."
    `(:reference ,reference)))
 
 (defun org-slipbox-rpc-node-at-point (file-path line)
-  "Resolve the indexed node at FILE-PATH and LINE."
+  "Resolve the canonical node at FILE-PATH and LINE."
   (org-slipbox-rpc-request
    org-slipbox-rpc-method-node-at-point
+   `(:file_path ,(expand-file-name file-path) :line ,line)))
+
+(defun org-slipbox-rpc-anchor-at-point (file-path line)
+  "Resolve the indexed anchor at FILE-PATH and LINE."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-anchor-at-point
    `(:file_path ,(expand-file-name file-path) :line ,line)))
 
 (defun org-slipbox-rpc-backlinks (node-key &optional limit unique)

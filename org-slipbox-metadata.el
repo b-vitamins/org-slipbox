@@ -193,7 +193,7 @@ When PREFIX is non-nil, only return tags matching PREFIX."
      (seq-remove (lambda (tag) (member tag tags)) current-tags))))
 
 (defun org-slipbox--current-indexed-node ()
-  "Return the indexed node at point, syncing the buffer if needed."
+  "Return the canonical node at point, syncing the buffer if needed."
   (org-slipbox-node-at-point t))
 
 (defun org-slipbox--set-current-node-metadata (node field values)

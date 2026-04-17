@@ -28,7 +28,7 @@ fn capture_creates_file_node_with_explicit_id() -> Result<()> {
     database.sync_file_index(&indexed)?;
 
     let node = database
-        .node_by_key(&captured.node_key)?
+        .note_by_key(&captured.node_key)?
         .expect("captured node should exist");
     assert_eq!(node.title, "Captured Note");
     assert!(node.explicit_id.is_some());
@@ -53,7 +53,7 @@ fn ensure_node_id_updates_heading_in_place() -> Result<()> {
     database.sync_index(&files)?;
 
     let node = database
-        .search_indexed_nodes("unidentified", 10, None)?
+        .search_anchors("unidentified", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Unidentified heading")
         .expect("heading node should exist");
@@ -64,7 +64,7 @@ fn ensure_node_id_updates_heading_in_place() -> Result<()> {
     database.sync_file_index(&indexed)?;
 
     let refreshed = database
-        .node_by_key(&node.node_key)?
+        .note_by_key(&node.node_key)?
         .expect("refreshed node should exist");
     assert!(refreshed.explicit_id.is_some());
 
@@ -84,7 +84,7 @@ fn ensure_file_note_creates_nested_org_file_with_explicit_id() -> Result<()> {
     database.sync_file_index(&indexed)?;
 
     let node = database
-        .node_by_key(&ensured.node_key)?
+        .note_by_key(&ensured.node_key)?
         .expect("ensured daily note should exist");
     assert_eq!(node.title, "2026-03-07");
     assert!(node.explicit_id.is_some());
@@ -105,7 +105,7 @@ fn append_heading_creates_indexed_heading_node() -> Result<()> {
     database.sync_index(&files)?;
 
     let node = database
-        .node_by_key(&captured.node_key)?
+        .anchor_by_key(&captured.node_key)?
         .expect("captured heading should exist");
     assert_eq!(node.title, "Meeting");
     assert_eq!(node.file_path, "daily/2026-03-07.org");
@@ -156,7 +156,7 @@ fn capture_file_note_at_with_head_preserves_head_and_assigns_identity() -> Resul
     assert!(source.contains(":ROAM_REFS: https://example.test/seed"));
 
     let node = database
-        .node_by_key(&captured.node_key)?
+        .note_by_key(&captured.node_key)?
         .expect("captured file node should exist");
     assert_eq!(node.title, "Seed");
     assert_eq!(node.tags, vec!["seed"]);
@@ -191,7 +191,7 @@ fn append_heading_at_outline_path_creates_missing_outline_chain() -> Result<()> 
     assert!(source.contains("*** Meeting"));
 
     let node = database
-        .node_by_key(&captured.node_key)?
+        .anchor_by_key(&captured.node_key)?
         .expect("captured outline heading should exist");
     assert_eq!(node.title, "Meeting");
     assert_eq!(node.outline_path, "Inbox / Calls / Meeting");
@@ -263,7 +263,7 @@ fn capture_template_entry_inserts_child_under_outline_target() -> Result<()> {
     assert!(source.contains("** Meeting\nCaptured.\n"));
 
     let node = database
-        .node_by_key(&captured.node_key)?
+        .anchor_by_key(&captured.node_key)?
         .expect("captured entry should exist");
     assert_eq!(node.title, "Meeting");
     assert_eq!(node.level, 2);
@@ -307,7 +307,7 @@ fn capture_template_entry_uses_title_for_blank_heading_templates() -> Result<()>
     assert!(source.contains("* Daily substitution entry\n"));
 
     let node = database
-        .node_by_key(&captured.node_key)?
+        .anchor_by_key(&captured.node_key)?
         .expect("captured daily entry should exist");
     assert_eq!(node.title, "Daily substitution entry");
     assert_eq!(node.file_path, "daily/2026-03-08.org");
@@ -324,7 +324,7 @@ fn capture_template_item_appends_inside_existing_list_body() -> Result<()> {
     let note_path = root.join("project.org");
     fs::write(
         &note_path,
-        "#+title: Project\n\n* Parent\n- First\n- Second\n\n** Child\n",
+        "#+title: Project\n\n* Parent\n:PROPERTIES:\n:ID: parent-id\n:END:\n- First\n- Second\n\n** Child\n",
     )?;
 
     let files = scan_root(&root)?;
@@ -333,7 +333,7 @@ fn capture_template_item_appends_inside_existing_list_body() -> Result<()> {
     database.sync_index(&files)?;
 
     let parent = database
-        .search_indexed_nodes("parent", 10, None)?
+        .search_nodes("parent", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Parent")
         .expect("parent node should exist");
@@ -361,7 +361,9 @@ fn capture_template_item_appends_inside_existing_list_body() -> Result<()> {
     database.sync_file_index(&indexed)?;
 
     let source = fs::read_to_string(&note_path)?;
-    assert!(source.contains("* Parent\n- First\n- Second\n- Third\n\n** Child"));
+    assert!(source.contains(
+        "* Parent\n:PROPERTIES:\n:ID: parent-id\n:END:\n- First\n- Second\n- Third\n\n** Child"
+    ));
     assert_eq!(captured.node_key, parent.node_key);
 
     Ok(())
@@ -375,7 +377,7 @@ fn capture_template_table_line_uses_existing_table_block() -> Result<()> {
     let note_path = root.join("project.org");
     fs::write(
         &note_path,
-        "#+title: Project\n\n* Parent\n| Name | Value |\n|------+-------|\n| One  | 1     |\n",
+        "#+title: Project\n\n* Parent\n:PROPERTIES:\n:ID: parent-id\n:END:\n| Name | Value |\n|------+-------|\n| One  | 1     |\n",
     )?;
 
     let files = scan_root(&root)?;
@@ -384,7 +386,7 @@ fn capture_template_table_line_uses_existing_table_block() -> Result<()> {
     database.sync_index(&files)?;
 
     let parent = database
-        .search_indexed_nodes("parent", 10, None)?
+        .search_nodes("parent", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Parent")
         .expect("parent node should exist");
@@ -426,7 +428,7 @@ fn capture_template_table_line_honors_explicit_table_line_position() -> Result<(
     let note_path = root.join("project.org");
     fs::write(
         &note_path,
-        "#+title: Project\n\n* Parent\n| Name | Value |\n|------+-------|\n| One  | 1     |\n| Two  | 2     |\n",
+        "#+title: Project\n\n* Parent\n:PROPERTIES:\n:ID: parent-id\n:END:\n| Name | Value |\n|------+-------|\n| One  | 1     |\n| Two  | 2     |\n",
     )?;
 
     let files = scan_root(&root)?;
@@ -435,7 +437,7 @@ fn capture_template_table_line_honors_explicit_table_line_position() -> Result<(
     database.sync_index(&files)?;
 
     let parent = database
-        .search_indexed_nodes("parent", 10, None)?
+        .search_nodes("parent", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Parent")
         .expect("parent node should exist");
@@ -461,7 +463,7 @@ fn capture_template_table_line_honors_explicit_table_line_position() -> Result<(
 
     assert_eq!(
         fs::read_to_string(&note_path)?,
-        "#+title: Project\n\n* Parent\n| Name | Value |\n|------+-------|\n| Zero | 0 |\n| One  | 1     |\n| Two  | 2     |\n"
+        "#+title: Project\n\n* Parent\n:PROPERTIES:\n:ID: parent-id\n:END:\n| Name | Value |\n|------+-------|\n| Zero | 0 |\n| One  | 1     |\n| Two  | 2     |\n"
     );
 
     Ok(())
@@ -582,14 +584,17 @@ fn capture_template_item_prepend_renumbers_existing_ordered_lists() -> Result<()
     let root = workspace.path().join("notes");
     fs::create_dir_all(&root)?;
     let note_path = root.join("project.org");
-    fs::write(&note_path, "#+title: Project\n\n* Parent\n1. One\n2. Two\n")?;
+    fs::write(
+        &note_path,
+        "#+title: Project\n\n* Parent\n:PROPERTIES:\n:ID: parent-id\n:END:\n1. One\n2. Two\n",
+    )?;
 
     let files = scan_root(&root)?;
     let database_path = workspace.path().join("slipbox.sqlite");
     let mut database = Database::open(&database_path)?;
     database.sync_index(&files)?;
     let parent = database
-        .search_indexed_nodes("parent", 10, None)?
+        .search_nodes("parent", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Parent")
         .expect("parent node should exist");
@@ -615,7 +620,7 @@ fn capture_template_item_prepend_renumbers_existing_ordered_lists() -> Result<()
 
     assert_eq!(
         fs::read_to_string(&note_path)?,
-        "#+title: Project\n\n* Parent\n1. Zero\n2. One\n3. Two\n"
+        "#+title: Project\n\n* Parent\n:PROPERTIES:\n:ID: parent-id\n:END:\n1. Zero\n2. One\n3. Two\n"
     );
 
     Ok(())
@@ -627,14 +632,17 @@ fn capture_template_table_line_creates_table_when_missing() -> Result<()> {
     let root = workspace.path().join("notes");
     fs::create_dir_all(&root)?;
     let note_path = root.join("project.org");
-    fs::write(&note_path, "#+title: Project\n\n* Parent\nText\n")?;
+    fs::write(
+        &note_path,
+        "#+title: Project\n\n* Parent\n:PROPERTIES:\n:ID: parent-id\n:END:\nText\n",
+    )?;
 
     let files = scan_root(&root)?;
     let database_path = workspace.path().join("slipbox.sqlite");
     let mut database = Database::open(&database_path)?;
     database.sync_index(&files)?;
     let parent = database
-        .search_indexed_nodes("parent", 10, None)?
+        .search_nodes("parent", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Parent")
         .expect("parent node should exist");
@@ -660,7 +668,7 @@ fn capture_template_table_line_creates_table_when_missing() -> Result<()> {
 
     assert_eq!(
         fs::read_to_string(&note_path)?,
-        "#+title: Project\n\n* Parent\nText\n|   |\n|---|\n| Two | 2 |\n"
+        "#+title: Project\n\n* Parent\n:PROPERTIES:\n:ID: parent-id\n:END:\nText\n|   |\n|---|\n| Two | 2 |\n"
     );
 
     Ok(())
@@ -791,7 +799,7 @@ fn append_heading_to_existing_node_inserts_child_before_next_sibling() -> Result
     let note_path = root.join("project.org");
     fs::write(
         &note_path,
-        "#+title: Project\n\n* Parent\nBody.\n* Sibling\nSibling body.\n",
+        "#+title: Project\n\n* Parent\n:PROPERTIES:\n:ID: parent-id\n:END:\nBody.\n* Sibling\nSibling body.\n",
     )?;
 
     let files = scan_root(&root)?;
@@ -799,7 +807,7 @@ fn append_heading_to_existing_node_inserts_child_before_next_sibling() -> Result
     let mut database = Database::open(&database_path)?;
     database.sync_index(&files)?;
     let parent = database
-        .search_indexed_nodes("parent", 10, None)?
+        .search_nodes("parent", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Parent")
         .expect("parent node should exist");
@@ -809,10 +817,12 @@ fn append_heading_to_existing_node_inserts_child_before_next_sibling() -> Result
     database.sync_file_index(&indexed)?;
 
     let source = fs::read_to_string(&note_path)?;
-    assert!(source.contains("* Parent\nBody.\n\n** Child Task\n* Sibling"));
+    assert!(source.contains(
+        "* Parent\n:PROPERTIES:\n:ID: parent-id\n:END:\nBody.\n\n** Child Task\n* Sibling"
+    ));
 
     let child = database
-        .node_by_key(&captured.node_key)?
+        .anchor_by_key(&captured.node_key)?
         .expect("captured child should exist");
     assert_eq!(child.title, "Child Task");
     assert_eq!(child.level, 2);
@@ -834,7 +844,7 @@ fn update_node_metadata_rewrites_file_level_refs_and_tags() -> Result<()> {
     database.sync_index(&files)?;
 
     let node = database
-        .node_by_key("file:note.org")?
+        .note_by_key("file:note.org")?
         .expect("file node should exist");
     let updated_path = update_node_metadata(
         &root,
@@ -853,7 +863,7 @@ fn update_node_metadata_rewrites_file_level_refs_and_tags() -> Result<()> {
     assert!(source.contains(":ROAM_REFS: https://example.test/ref"));
 
     let refreshed = database
-        .node_by_key("file:note.org")?
+        .note_by_key("file:note.org")?
         .expect("updated file node should exist");
     assert_eq!(refreshed.tags, vec!["beta"]);
     assert_eq!(refreshed.refs, vec!["https://example.test/ref"]);
@@ -867,7 +877,10 @@ fn update_node_metadata_rewrites_heading_aliases_and_tags() -> Result<()> {
     let root = workspace.path().join("notes");
     fs::create_dir_all(&root)?;
     let note_path = root.join("note.org");
-    fs::write(&note_path, "#+title: Note\n\n* Heading :one:two:\n")?;
+    fs::write(
+        &note_path,
+        "#+title: Note\n\n* Heading :one:two:\n:PROPERTIES:\n:ID: heading-id\n:END:\n",
+    )?;
 
     let files = scan_root(&root)?;
     let database_path = workspace.path().join("slipbox.sqlite");
@@ -875,7 +888,7 @@ fn update_node_metadata_rewrites_heading_aliases_and_tags() -> Result<()> {
     database.sync_index(&files)?;
 
     let node = database
-        .search_indexed_nodes("heading", 10, None)?
+        .search_nodes("heading", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Heading")
         .expect("heading node should exist");
@@ -896,7 +909,7 @@ fn update_node_metadata_rewrites_heading_aliases_and_tags() -> Result<()> {
     assert!(source.contains(":ROAM_ALIASES: Batman"));
 
     let refreshed = database
-        .node_by_key(&node.node_key)?
+        .note_by_key(&node.node_key)?
         .expect("updated heading should exist");
     assert_eq!(refreshed.aliases, vec!["Batman"]);
     assert_eq!(refreshed.tags, vec!["two"]);
@@ -926,7 +939,7 @@ fn demote_entire_file_converts_file_metadata_into_a_root_heading() -> Result<()>
     let mut database = Database::open(&database_path)?;
     database.sync_file_index(&indexed)?;
     let node = database
-        .node_by_key("heading:note.org:1")?
+        .note_by_key("heading:note.org:1")?
         .expect("demoted heading should exist");
     assert_eq!(node.title, "Note");
     assert_eq!(node.tags, vec!["alpha"]);
@@ -960,7 +973,7 @@ fn promote_entire_file_converts_a_single_root_heading_into_a_file_node() -> Resu
     let mut database = Database::open(&database_path)?;
     database.sync_file_index(&indexed)?;
     let node = database
-        .node_by_key("file:note.org")?
+        .note_by_key("file:note.org")?
         .expect("promoted file node should exist");
     assert_eq!(node.title, "Note");
     assert_eq!(node.tags, vec!["alpha"]);
@@ -977,7 +990,10 @@ fn refile_subtree_moves_heading_between_files_and_preserves_source_file_note() -
     let source_path = root.join("source.org");
     let target_path = root.join("target.org");
     fs::write(&source_path, "#+title: Source\n\n* Move Me\nBody\n")?;
-    fs::write(&target_path, "#+title: Target\n\n* Parent\n")?;
+    fs::write(
+        &target_path,
+        "#+title: Target\n\n* Parent\n:PROPERTIES:\n:ID: parent-id\n:END:\n",
+    )?;
 
     let files = scan_root(&root)?;
     let database_path = workspace.path().join("slipbox.sqlite");
@@ -985,12 +1001,12 @@ fn refile_subtree_moves_heading_between_files_and_preserves_source_file_note() -
     database.sync_index(&files)?;
 
     let source = database
-        .search_indexed_nodes("move me", 10, None)?
+        .search_anchors("move me", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Move Me")
         .expect("source heading should exist");
     let target = database
-        .search_indexed_nodes("parent", 10, None)?
+        .search_nodes("parent", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Parent")
         .expect("target heading should exist");
@@ -1000,7 +1016,9 @@ fn refile_subtree_moves_heading_between_files_and_preserves_source_file_note() -
 
     assert_eq!(fs::read_to_string(&source_path)?, "#+title: Source\n\n");
     let target_source = fs::read_to_string(&target_path)?;
-    assert!(target_source.contains("* Parent\n** Move Me\n:PROPERTIES:\n:ID: "));
+    assert!(target_source.contains(
+        "* Parent\n:PROPERTIES:\n:ID: parent-id\n:END:\n** Move Me\n:PROPERTIES:\n:ID: "
+    ));
     assert!(target_source.contains("\nBody\n"));
 
     let moved = database
@@ -1021,7 +1039,10 @@ fn refile_region_moves_selected_text_under_target_heading() -> Result<()> {
     let target_path = root.join("target.org");
     let source_body = "#+title: Source\nBody line one.\nBody line two.\n";
     fs::write(&source_path, source_body)?;
-    fs::write(&target_path, "#+title: Target\n\n* Parent\n")?;
+    fs::write(
+        &target_path,
+        "#+title: Target\n\n* Parent\n:PROPERTIES:\n:ID: parent-id\n:END:\n",
+    )?;
 
     let files = scan_root(&root)?;
     let database_path = workspace.path().join("slipbox.sqlite");
@@ -1029,7 +1050,7 @@ fn refile_region_moves_selected_text_under_target_heading() -> Result<()> {
     database.sync_index(&files)?;
 
     let target = database
-        .search_indexed_nodes("parent", 10, None)?
+        .search_nodes("parent", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Parent")
         .expect("target heading should exist");
@@ -1048,7 +1069,7 @@ fn refile_region_moves_selected_text_under_target_heading() -> Result<()> {
     assert_eq!(fs::read_to_string(&source_path)?, "#+title: Source\n");
     assert_eq!(
         fs::read_to_string(&target_path)?,
-        "#+title: Target\n\n* Parent\nBody line one.\nBody line two.\n"
+        "#+title: Target\n\n* Parent\n:PROPERTIES:\n:ID: parent-id\n:END:\nBody line one.\nBody line two.\n"
     );
 
     Ok(())
@@ -1060,7 +1081,7 @@ fn refile_region_same_file_adjusts_insertion_and_heading_levels() -> Result<()> 
     let root = workspace.path().join("notes");
     fs::create_dir_all(&root)?;
     let note_path = root.join("note.org");
-    let source = "#+title: Note\n\n* Parent\n** Keep\nText\n** Move\nBody\n";
+    let source = "#+title: Note\n\n* Parent\n** Keep\n:PROPERTIES:\n:ID: keep-id\n:END:\nText\n** Move\nBody\n";
     fs::write(&note_path, source)?;
 
     let files = scan_root(&root)?;
@@ -1069,7 +1090,7 @@ fn refile_region_same_file_adjusts_insertion_and_heading_levels() -> Result<()> 
     database.sync_index(&files)?;
 
     let keep = database
-        .search_indexed_nodes("keep", 10, None)?
+        .search_nodes("keep", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Keep")
         .expect("target heading should exist");
@@ -1086,11 +1107,11 @@ fn refile_region_same_file_adjusts_insertion_and_heading_levels() -> Result<()> 
 
     assert_eq!(
         fs::read_to_string(&note_path)?,
-        "#+title: Note\n\n* Parent\n** Keep\nText\n*** Move\nBody\n"
+        "#+title: Note\n\n* Parent\n** Keep\n:PROPERTIES:\n:ID: keep-id\n:END:\nText\n*** Move\nBody\n"
     );
 
     let moved = database
-        .search_indexed_nodes("move", 10, None)?
+        .search_anchors("move", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Move")
         .expect("moved heading should still be indexed");
@@ -1109,7 +1130,10 @@ fn refile_region_removes_source_file_when_selection_empties_it() -> Result<()> {
     let target_path = root.join("target.org");
     let source = "* Move Me\nBody\n";
     fs::write(&source_path, source)?;
-    fs::write(&target_path, "#+title: Target\n\n* Parent\n")?;
+    fs::write(
+        &target_path,
+        "#+title: Target\n\n* Parent\n:PROPERTIES:\n:ID: parent-id\n:END:\n",
+    )?;
 
     let files = scan_root(&root)?;
     let database_path = workspace.path().join("slipbox.sqlite");
@@ -1117,7 +1141,7 @@ fn refile_region_removes_source_file_when_selection_empties_it() -> Result<()> {
     database.sync_index(&files)?;
 
     let target = database
-        .search_indexed_nodes("parent", 10, None)?
+        .search_nodes("parent", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Parent")
         .expect("target heading should exist");
@@ -1127,7 +1151,9 @@ fn refile_region_removes_source_file_when_selection_empties_it() -> Result<()> {
 
     assert!(!source_path.exists());
     let target_source = fs::read_to_string(&target_path)?;
-    assert!(target_source.contains("* Parent\n** Move Me\nBody\n"));
+    assert!(
+        target_source.contains("* Parent\n:PROPERTIES:\n:ID: parent-id\n:END:\n** Move Me\nBody\n")
+    );
 
     Ok(())
 }
@@ -1149,7 +1175,7 @@ fn extract_subtree_promotes_heading_into_a_file_node() -> Result<()> {
     database.sync_index(&files)?;
 
     let source = database
-        .search_indexed_nodes("move me", 10, None)?
+        .search_anchors("move me", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Move Me")
         .expect("source heading should exist");

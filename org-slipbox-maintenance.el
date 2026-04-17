@@ -111,7 +111,7 @@
        (org-slipbox--maintenance-insert-heading "Current Node")
        (if node
            (insert (pp-to-string node))
-         (insert "No indexed node at point.\n"))))))
+         (insert "No canonical node at point.\n"))))))
 
 ;;;###autoload
 (defun org-slipbox-diagnose-file (&optional file)

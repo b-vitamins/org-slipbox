@@ -4,7 +4,7 @@ use rusqlite::{OptionalExtension, params};
 use slipbox_core::{NodeRecord, RefRecord, normalize_reference};
 
 use crate::Database;
-use crate::nodes::{node_select_columns, row_to_node, row_to_node_with_offset};
+use crate::nodes::{anchor_select_columns, row_to_note, row_to_note_with_offset};
 
 impl Database {
     pub fn search_refs(&self, query: &str, limit: usize) -> Result<Vec<RefRecord>> {
@@ -15,9 +15,11 @@ impl Database {
                         {}
                    FROM refs AS r
                    JOIN nodes AS n ON n.node_key = r.node_key
+                  WHERE {}
                   ORDER BY r.ref, n.file_path, n.line
                   LIMIT ?1",
-                node_select_columns("n")
+                anchor_select_columns("n"),
+                crate::nodes::note_where("n")
             );
             let mut statement = self.connection.prepare(&sql)?;
             let rows = statement.query_map(params![limit], row_to_ref)?;
@@ -35,12 +37,14 @@ impl Database {
                         {}
                    FROM refs AS r
                    JOIN nodes AS n ON n.node_key = r.node_key
-                  WHERE r.ref LIKE ?1
+                  WHERE {}
+                    AND (r.ref LIKE ?1
                      OR r.ref LIKE ?2
-                     OR r.ref LIKE ?3
+                     OR r.ref LIKE ?3)
                   ORDER BY r.ref, n.file_path, n.line
                   LIMIT ?4",
-                node_select_columns("n")
+                anchor_select_columns("n"),
+                crate::nodes::note_where("n")
             );
             let mut statement = self.connection.prepare(&sql)?;
             let rows = statement.query_map(
@@ -67,13 +71,15 @@ impl Database {
             "SELECT {}
                FROM refs AS r
                JOIN nodes AS n ON n.node_key = r.node_key
-              WHERE r.ref = ?1
+              WHERE {}
+                AND r.ref = ?1
               ORDER BY n.file_path, n.line
               LIMIT 1",
-            node_select_columns("n")
+            anchor_select_columns("n"),
+            crate::nodes::note_where("n")
         );
         self.connection
-            .query_row(&sql, params![reference], row_to_node)
+            .query_row(&sql, params![reference], row_to_note)
             .optional()
             .context("failed to fetch node from ref")
     }
@@ -82,6 +88,6 @@ impl Database {
 fn row_to_ref(row: &rusqlite::Row<'_>) -> rusqlite::Result<RefRecord> {
     Ok(RefRecord {
         reference: row.get(0)?,
-        node: row_to_node_with_offset(row, 1)?,
+        node: row_to_note_with_offset(row, 1)?,
     })
 }

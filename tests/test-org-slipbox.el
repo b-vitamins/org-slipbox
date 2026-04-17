@@ -367,7 +367,7 @@
                                   :col 4
                                   :preview "Needle in body."
                                   :matched_text "Needle"
-                                  :owning_node (:title "Project Beta"))]))))
+                                  :owning_anchor (:title "Project Beta"))]))))
       (should
        (equal
         (org-slipbox-search-occurrences "needle" 25)
@@ -376,7 +376,7 @@
            :col 4
            :preview "Needle in body."
            :matched_text "Needle"
-           :owning_node (:title "Project Beta"))))))
+           :owning_anchor (:title "Project Beta"))))))
     (should (equal rpc-args '("needle" 25)))))
 
 (ert-deftest org-slipbox-test-discovery-policy-normalizes-command-args ()
@@ -594,13 +594,12 @@
 
 (ert-deftest org-slipbox-test-search-node-choices-use-configured-display-template ()
   "Interactive node choices should use the configured candidate formatter."
-  (let ((org-slipbox-node-display-template
-         (lambda (node)
-           (format "Choice: %s" (plist-get node :title)))))
-    (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
-               (lambda (_query _limit &optional _sort scope)
-                 (should (eq scope 'selectable))
-                 '(:nodes [(:title "One" :file_path "one.org" :line 1)]))))
+    (let ((org-slipbox-node-display-template
+           (lambda (node)
+             (format "Choice: %s" (plist-get node :title)))))
+      (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
+	               (lambda (_query _limit &optional _sort)
+	                 '(:nodes [(:title "One" :file_path "one.org" :line 1)]))))
       (let ((choices (org-slipbox--search-node-choices "o")))
         (should (equal (mapcar #'substring-no-properties (mapcar #'car choices))
                        '("Choice: One")))
@@ -618,14 +617,13 @@
 
 (ert-deftest org-slipbox-test-node-completion-candidates-expose-public-helper ()
   "Public node completion helpers should expose formatted candidates."
-  (let ((org-slipbox-node-annotation-function
-         (lambda (node)
-           (format " [%s]" (plist-get node :file_path)))))
-    (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
-               (lambda (_query _limit &optional sort scope)
-                 (should (eq sort 'title))
-                 (should (eq scope 'selectable))
-                 '(:nodes [(:title "Alpha" :file_path "alpha.org" :line 3)]))))
+    (let ((org-slipbox-node-annotation-function
+           (lambda (node)
+             (format " [%s]" (plist-get node :file_path)))))
+      (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
+	               (lambda (_query _limit &optional sort)
+	                 (should (eq sort 'title))
+	                 '(:nodes [(:title "Alpha" :file_path "alpha.org" :line 3)]))))
       (let* ((candidates (org-slipbox-node-completion-candidates "Alpha" nil 'title))
              (candidate (caar candidates)))
         (should (equal (cdar candidates)
@@ -646,10 +644,9 @@
         metadata
         candidates)
     (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
-               (lambda (_query _limit &optional sort scope)
-                 (setq rpc-sort sort)
-                 (should (eq scope 'selectable))
-                 (if (eq sort 'title)
+	               (lambda (_query _limit &optional sort)
+	                 (setq rpc-sort sort)
+	                 (if (eq sort 'title)
                      '(:nodes [(:title "Alpha" :file_path "a.org" :line 1
                                 :backlink_count 7 :forward_link_count 3
                                 :file_mtime_ns 1741353600000000000)
@@ -682,10 +679,9 @@
         rpc-sort
         candidates)
     (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
-               (lambda (_query _limit &optional sort scope)
-                 (setq rpc-sort sort)
-                 (should (eq scope 'selectable))
-                 '(:nodes [(:title "Newest" :file_path "new.org" :line 1)
+	               (lambda (_query _limit &optional sort)
+	                 (setq rpc-sort sort)
+	                 '(:nodes [(:title "Newest" :file_path "new.org" :line 1)
                            (:title "Older" :file_path "old.org" :line 1)])))
               ((symbol-function 'file-attributes)
                (lambda (&rest _args)
@@ -711,10 +707,9 @@
          rpc-sort
          candidates)
     (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
-               (lambda (_query _limit &optional sort scope)
-                 (setq rpc-sort sort)
-                 (should (eq scope 'selectable))
-                 `(:nodes [(:title "Newest"
+	               (lambda (_query _limit &optional sort)
+	                 (setq rpc-sort sort)
+	                 `(:nodes [(:title "Newest"
                             :file_path "new.org"
                             :line 1
                             :file_mtime_ns ,mtime-ns
@@ -740,13 +735,12 @@
 
 (ert-deftest org-slipbox-test-node-read-custom-sort-remains-local ()
   "Custom sort comparators should still run client-side."
-  (let (rpc-sort
-        candidates)
-    (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
-               (lambda (_query _limit &optional sort scope)
-                 (setq rpc-sort sort)
-                 (should (eq scope 'selectable))
-                 '(:nodes [(:title "Zulu" :file_path "z.org" :line 2)
+    (let (rpc-sort
+          candidates)
+      (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
+	               (lambda (_query _limit &optional sort)
+	                 (setq rpc-sort sort)
+	                 '(:nodes [(:title "Zulu" :file_path "z.org" :line 2)
                            (:title "Alpha" :file_path "a.org" :line 1)])))
               ((symbol-function 'completing-read)
                (lambda (_prompt collection _predicate _require-match _initial-input _history)
@@ -758,13 +752,12 @@
 
 (ert-deftest org-slipbox-test-node-read-custom-file-mtime-sort-uses-indexed-metadata ()
   "Built-in file-mtime comparator should use indexed metadata, not file stats."
-  (let (rpc-sort
-        candidates)
-    (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
-               (lambda (_query _limit &optional sort scope)
-                 (setq rpc-sort sort)
-                 (should (eq scope 'selectable))
-                 '(:nodes [(:title "Older"
+    (let (rpc-sort
+          candidates)
+      (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
+	               (lambda (_query _limit &optional sort)
+	                 (setq rpc-sort sort)
+	                 '(:nodes [(:title "Older"
                             :file_path "old.org"
                             :line 2
                             :file_mtime_ns 10)
@@ -2177,7 +2170,8 @@
         (org-slipbox-node-from-title-or-alias "batman" t)
         '(:title "Bruce Wayne" :file_path "wayne.org" :line 1))))
     (should (equal method "slipbox/nodeFromTitleOrAlias"))
-    (should (equal params '(:title_or_alias "batman" :nocase t)))))
+    (should (equal params '(:title_or_alias "batman"
+                            :nocase t)))))
 
 (ert-deftest org-slipbox-test-node-from-title-or-alias-encodes-false-nocase ()
   "Exact title lookup should encode false JSON booleans explicitly."
@@ -2189,7 +2183,8 @@
                  nil)))
       (org-slipbox-node-from-title-or-alias "batman"))
     (should (equal method "slipbox/nodeFromTitleOrAlias"))
-    (should (equal params '(:title_or_alias "batman" :nocase :json-false)))))
+    (should (equal params '(:title_or_alias "batman"
+                            :nocase :json-false)))))
 
 (ert-deftest org-slipbox-test-node-random-uses-rpc ()
   "Random node selection should use the dedicated RPC."
@@ -2204,7 +2199,7 @@
                  (setq visited (list node other-window)))))
       (org-slipbox-node-random t))
     (should (equal method "slipbox/randomNode"))
-    (should (null params))
+    (should-not params)
     (should
      (equal visited
             '((:title "Random" :file_path "random.org" :line 4) t)))))
@@ -2213,13 +2208,13 @@
   "Link occurrence rendering should use the related node slot structurally."
   (with-temp-buffer
     (org-slipbox-node--insert-link-occurrence
-     '(:destination_node (:title "Target heading"
+     '(:destination_note (:title "Target heading"
                           :file_path "beta.org"
                           :line 7)
        :row 9
        :col 5
        :preview "See [[id:beta-target][Beta]].")
-     :destination_node)
+     :destination_note)
     (let ((contents (buffer-string)))
       (should (string-match-p "Target heading" contents))
       (should (string-match-p "beta.org:9:5" contents))
@@ -2230,7 +2225,7 @@
   (let* ((response
           (list :forward_links
                 (vector
-                 (list :destination_node
+                 (list :destination_note
                        (list :title "Target heading"
                              :file_path "beta.org"
                              :line 7)
@@ -2266,11 +2261,13 @@
   "Point-based lookup should sync modified buffers before querying."
   (let* ((root (make-temp-file "org-slipbox-node-" t))
          (file (expand-file-name "note.org" root))
-         calls)
+         calls
+         buffer)
     (unwind-protect
         (progn
           (write-region "#+title: Note\n\n* Heading\n" nil file nil 'silent)
-          (with-current-buffer (find-file-noselect file)
+          (setq buffer (find-file-noselect file))
+          (with-current-buffer buffer
             (goto-char (point-max))
             (insert "Body\n")
             (search-backward "* Heading")
@@ -2283,12 +2280,13 @@
                 (should
                  (equal
                   (org-slipbox-node-at-point)
-                  '(:title "Heading" :file_path "note.org" :line 3)))))
-            (kill-buffer (current-buffer)))
+                  '(:title "Heading" :file_path "note.org" :line 3))))))
           (should
            (equal
             (mapcar #'car (nreverse calls))
             '("slipbox/indexFile" "slipbox/nodeAtPoint"))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer))
       (delete-directory root t))))
 
 (ert-deftest org-slipbox-test-buffer-render-includes-refs-and-backlinks ()
@@ -2304,12 +2302,13 @@
                         :refs ["@smith2024"]))
           (cl-letf (((symbol-function 'org-slipbox-rpc-request)
                      (lambda (_method _params)
-                       '(:backlinks [(:source_node (:title "Backlink"
-                                              :file_path "other.org"
-                                              :line 10)
-                                     :row 12
-                                     :col 4
-                                     :preview "See [[id:heading]].")]))))
+                       '(:backlinks
+                         [(:source_note (:title "Backlink"
+                                         :file_path "other.org"
+                                         :line 10)
+                           :row 12
+                           :col 4
+                           :preview "See [[id:heading]].")]))))
             (org-slipbox-buffer-render-contents))
           (should (derived-mode-p 'org-slipbox-buffer-mode))
           (should (string-match-p "Refs" (buffer-string)))
@@ -2369,12 +2368,13 @@
             (cl-letf (((symbol-function 'org-slipbox-rpc-backlinks)
                        (lambda (node-key &optional limit unique)
                          (setq rpc-args (list node-key limit unique))
-                         '(:backlinks [(:source_node (:title "Backlink"
-                                                :file_path "other.org"
-                                                :line 10)
-                                       :row 12
-                                       :col 4
-                                       :preview "See [[id:heading]].")]))))
+                         '(:backlinks
+                           [(:source_note (:title "Backlink"
+                                           :file_path "other.org"
+                                           :line 10)
+                             :row 12
+                             :col 4
+                             :preview "See [[id:heading]].")]))))
               (org-slipbox-buffer-render-contents))
             (let ((contents (buffer-string)))
               (should (< (string-match-p "Unique Backlinks" contents)
@@ -2580,13 +2580,14 @@
     (cl-letf (((symbol-function 'org-slipbox-rpc-reflinks)
                (lambda (node-key &optional limit)
                  (setq rpc-args (list node-key limit))
-                 '(:reflinks [(:source_node (:title "Sibling"
-                                       :file_path "note.org"
-                                       :line 9)
-                              :row 10
-                              :col 3
-                              :preview "cite:smith2024"
-                              :matched_reference "cite:smith2024")])))
+                 '(:reflinks
+                   [(:source_anchor (:title "Sibling"
+                                     :file_path "note.org"
+                                     :line 9)
+                     :row 10
+                     :col 3
+                     :preview "cite:smith2024"
+                     :matched_reference "cite:smith2024")])))
               ((symbol-function 'executable-find)
                (lambda (&rest _args)
                  (ert-fail "reflinks should not depend on rg")))
@@ -2595,16 +2596,16 @@
                  (ert-fail "reflinks should not shell out"))))
       (should
        (equal
-         (org-slipbox-buffer--reflinks
+        (org-slipbox-buffer--reflinks
          '(:node_key "heading:note.org:3" :refs ["@smith2024"]))
-        '((:source_node (:title "Sibling"
-                    :file_path "note.org"
-                    :line 9)
+        '((:source_anchor (:title "Sibling"
+                           :file_path "note.org"
+                           :line 9)
            :row 10
            :col 3
            :preview "cite:smith2024"
-           :matched_reference "cite:smith2024")))))
-    (should (equal rpc-args '("heading:note.org:3" 200))))
+           :matched_reference "cite:smith2024"))))
+      (should (equal rpc-args '("heading:note.org:3" 200))))))
 
 (ert-deftest org-slipbox-test-buffer-forward-links-use-daemon-query ()
   "Forward-link discovery should use the dedicated daemon query."
@@ -2613,14 +2614,14 @@
                (lambda (node-key &optional limit unique)
                  (setq rpc-args (list node-key limit unique))
                  '(:forward_links
-                   [(:destination_node (:title "Target heading"
-                                       :file_path "target.org"
-                                       :line 12)
+                   [(:destination_note (:title "Target heading"
+                                        :file_path "target.org"
+                                        :line 12)
                      :row 8
                      :col 5
                      :preview "[[id:target][Target heading]]")]))))
       (let ((expected
-             '((:destination_node (:title "Target heading"
+             '((:destination_note (:title "Target heading"
                                   :file_path "target.org"
                                   :line 12)
                 :row 8
@@ -2630,8 +2631,8 @@
          (equal
           (org-slipbox-buffer--forward-links
            '(:node_key "heading:note.org:3"))
-          expected))))
-    (should (equal rpc-args '("heading:note.org:3" 200 nil)))))
+          expected)))
+      (should (equal rpc-args '("heading:note.org:3" 200 nil))))))
 
 (ert-deftest org-slipbox-test-buffer-unlinked-references-use-daemon-query ()
   "Unlinked discovery should use the dedicated daemon query."
@@ -2640,13 +2641,13 @@
                (lambda (node-key &optional limit)
                  (setq rpc-args (list node-key limit))
                  '(:unlinked_references
-                   [(:source_node (:title "Sibling"
-                                  :file_path "note.org"
-                                  :line 9)
+                   [(:source_anchor (:title "Sibling"
+                                     :file_path "note.org"
+                                     :line 9)
                      :row 10
                      :col 3
                      :preview "Project Atlas should surface."
-                     :matched_text "Project Atlas")]))))
+                     :matched_text "Project Atlas")])))
               ((symbol-function 'executable-find)
                (lambda (&rest _args)
                  (ert-fail "unlinked references should not depend on rg")))
@@ -2654,9 +2655,9 @@
                (lambda (&rest _args)
                  (ert-fail "unlinked references should not shell out"))))
       (let ((expected
-             '((:source_node (:title "Sibling"
-                             :file_path "note.org"
-                             :line 9)
+             '((:source_anchor (:title "Sibling"
+                               :file_path "note.org"
+                               :line 9)
                 :row 10
                 :col 3
                 :preview "Project Atlas should surface."
@@ -2667,8 +2668,8 @@
            '(:node_key "heading:note.org:3"
              :title "Project Atlas"
              :aliases ["Atlas Plan"]))
-          expected))))
-    (should (equal rpc-args '("heading:note.org:3" 200)))))
+          expected)))
+      (should (equal rpc-args '("heading:note.org:3" 200))))))
 
 (ert-deftest org-slipbox-test-buffer-dedicated-render-includes-discovery-sections ()
   "Dedicated buffers should render expensive discovery sections by default."
@@ -2691,31 +2692,31 @@
                           :file_mtime_ns ,mtime-ns
                           :backlink_count 3
                           :forward_link_count 2))
-            (cl-letf (((symbol-function 'org-slipbox-buffer--backlinks)
-                       (lambda (&rest _args) nil))
-                      ((symbol-function 'org-slipbox-buffer--forward-links)
-                       (lambda (&rest _args)
-                         '((:destination_node (:title "Target"
-                                         :file_path "target.org"
-                                         :line 11)
-                            :row 4
+	            (cl-letf (((symbol-function 'org-slipbox-buffer--backlinks)
+	                       (lambda (&rest _args) nil))
+	                      ((symbol-function 'org-slipbox-buffer--forward-links)
+	                       (lambda (&rest _args)
+	                         '((:destination_note (:title "Target"
+	                                         :file_path "target.org"
+	                                         :line 11)
+	                            :row 4
                             :col 5
                             :preview "[[id:target][Target]]"))))
-                      ((symbol-function 'org-slipbox-buffer--reflinks)
-                       (lambda (_node)
-                         '((:source_node (:title "Sibling"
-                                      :file_path "refs.org"
-                                      :line 2)
-                            :row 3
+	                      ((symbol-function 'org-slipbox-buffer--reflinks)
+	                       (lambda (_node)
+	                         '((:source_anchor (:title "Sibling"
+	                                      :file_path "refs.org"
+	                                      :line 2)
+	                            :row 3
                             :col 7
                             :preview "cite:smith2024"
                             :matched_reference "cite:smith2024"))))
-                      ((symbol-function 'org-slipbox-buffer--unlinked-references)
-                       (lambda (_node)
-                         '((:source_node (:title "Atlas"
-                                      :file_path "unlinked.org"
-                                      :line 8)
-                            :row 9
+	                      ((symbol-function 'org-slipbox-buffer--unlinked-references)
+	                       (lambda (_node)
+	                         '((:source_anchor (:title "Atlas"
+	                                      :file_path "unlinked.org"
+	                                      :line 8)
+	                            :row 9
                             :col 2
                             :preview "Note mention"
                             :matched_text "Note")))))
@@ -2910,23 +2911,26 @@
                    '(:title "Heading" :explicit_id "abc123"))))
         (org-slipbox-link-replace-all)
         (should (= replace-count 1))
-        (should (string-match-p "\\[\\[id:abc123\\]\\[Heading\\]\\]" (buffer-string)))))))
+        (should
+         (string-match-p "\\[\\[id:abc123\\]\\[Heading\\]\\]"
+                         (buffer-string)))))))
 
 (ert-deftest org-slipbox-test-title-completion-candidates-use-indexed-search ()
   "Link completions should come from the indexed node search."
   (let (method params)
     (cl-letf (((symbol-function 'org-slipbox-rpc-request)
                (lambda (request-method request-params)
-                 (setq method request-method
+                (setq method request-method
                        params request-params)
                  '(:nodes [(:title "Heading"
-                           :aliases ["Head" "Alias"])
-                          (:title "Other"
+                            :aliases ["Head" "Alias"])
+                           (:title "Other"
                            :aliases ["Hidden"])]))))
-      (should (equal (org-slipbox--title-completion-candidates "He")
-                     '("Heading" "Head"))))
+      (should
+       (equal (org-slipbox--title-completion-candidates "He")
+              '("Heading" "Head"))))
     (should (equal method "slipbox/searchNodes"))
-    (should (equal params '(:query "He" :limit 50 :scope "selectable")))))
+    (should (equal params '(:query "He" :limit 50)))))
 
 (ert-deftest org-slipbox-test-rpc-search-nodes-encodes-sort-param ()
   "Node search RPC should encode named sort modes explicitly."
@@ -2940,20 +2944,7 @@
     (should (equal method "slipbox/searchNodes"))
     (should (equal params '(:query "Heading"
                             :limit 10
-                            :sort "forward-link-count"
-                            :scope "selectable")))))
-
-(ert-deftest org-slipbox-test-rpc-search-nodes-encodes-indexed-scope ()
-  "Node search RPC should encode explicit indexed scope."
-  (let (params)
-    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
-               (lambda (_request-method request-params)
-                 (setq params request-params)
-                 '(:nodes []))))
-      (org-slipbox-rpc-search-nodes "Heading" 10 nil 'indexed))
-    (should (equal params '(:query "Heading"
-                            :limit 10
-                            :scope "indexed")))))
+                            :sort "forward-link-count")))))
 
 (ert-deftest org-slipbox-test-rpc-search-nodes-rejects-unsupported-string-sort ()
   "Node search RPC should reject unsupported string sort names."
@@ -3036,13 +3027,13 @@
     (unwind-protect
         (progn
           (write-region "" nil source nil 'silent)
-          (write-region "" nil target nil 'silent)
-          (with-current-buffer (find-file-noselect source)
-            (let ((org-slipbox-directory root))
-              (cl-letf (((symbol-function 'org-slipbox-node-at-point)
-                         (lambda (&optional _assert)
-                           '(:node_key "heading:source.org:3"
-                             :file_path "source.org"
+	          (write-region "" nil target nil 'silent)
+	          (with-current-buffer (find-file-noselect source)
+	            (let ((org-slipbox-directory root))
+	              (cl-letf (((symbol-function 'org-slipbox-anchor-at-point)
+	                         (lambda (&optional _assert)
+	                           '(:node_key "heading:source.org:3"
+	                             :file_path "source.org"
                              :line 3
                              :kind "heading"
                              :title "Move Me")))
@@ -3087,17 +3078,17 @@
          rpc-args)
     (unwind-protect
         (progn
-          (write-region "Body\n" nil source nil 'silent)
-          (write-region "" nil target nil 'silent)
-          (with-current-buffer (find-file-noselect source)
-            (let ((org-slipbox-directory root))
-              (cl-letf (((symbol-function 'use-region-p) (lambda () t))
-                        ((symbol-function 'region-beginning) (lambda () 2))
-                        ((symbol-function 'region-end) (lambda () 5))
-                        ((symbol-function 'org-slipbox-node-at-point)
-                         (lambda (&optional _assert)
-                           '(:node_key "file:source.org"
-                             :file_path "source.org"
+	          (write-region "Body\n" nil source nil 'silent)
+	          (write-region "" nil target nil 'silent)
+	          (with-current-buffer (find-file-noselect source)
+	            (let ((org-slipbox-directory root))
+	              (cl-letf (((symbol-function 'use-region-p) (lambda () t))
+	                        ((symbol-function 'region-beginning) (lambda () 2))
+	                        ((symbol-function 'region-end) (lambda () 5))
+	                        ((symbol-function 'org-slipbox-anchor-at-point)
+	                         (lambda (&optional _assert)
+	                           '(:node_key "file:source.org"
+	                             :file_path "source.org"
                              :line 1
                              :kind "file"
                              :title "Source")))
@@ -3141,13 +3132,13 @@
          refresh-calls)
     (unwind-protect
         (progn
-          (write-region "" nil source nil 'silent)
-          (with-current-buffer (find-file-noselect source)
-            (let ((org-slipbox-directory root))
-              (cl-letf (((symbol-function 'org-slipbox-node-at-point)
-                         (lambda (&optional _assert)
-                           '(:node_key "heading:source.org:3"
-                             :file_path "source.org"
+	          (write-region "" nil source nil 'silent)
+	          (with-current-buffer (find-file-noselect source)
+	            (let ((org-slipbox-directory root))
+	              (cl-letf (((symbol-function 'org-slipbox-anchor-at-point)
+	                         (lambda (&optional _assert)
+	                           '(:node_key "heading:source.org:3"
+	                             :file_path "source.org"
                              :line 3
                              :kind "heading"
                              :title "Move Me")))

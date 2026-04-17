@@ -67,7 +67,7 @@
     (user-error "No target node selected"))
   (unless buffer-file-name
     (user-error "Current buffer is not visiting a file"))
-  (let* ((source-node (org-slipbox-node-at-point t))
+  (let* ((source-node (org-slipbox-anchor-at-point t))
          (region (org-slipbox--refile-active-region))
          (source-file (expand-file-name (plist-get source-node :file_path)
                                         org-slipbox-directory))
@@ -104,7 +104,7 @@
   (interactive)
   (unless buffer-file-name
     (user-error "Current buffer is not visiting a file"))
-  (let* ((source-node (org-slipbox-node-at-point t))
+  (let* ((source-node (org-slipbox-anchor-at-point t))
          (source-file (expand-file-name (plist-get source-node :file_path)
                                         org-slipbox-directory))
          (target-path (org-slipbox--extract-target-path

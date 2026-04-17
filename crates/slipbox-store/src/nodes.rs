@@ -4,11 +4,11 @@ use anyhow::{Context, Result};
 use rusqlite::{OptionalExtension, params, params_from_iter};
 use serde_json::Value;
 
-use slipbox_core::{NodeKind, NodeRecord, SearchNodesScope, SearchNodesSort};
+use slipbox_core::{AnchorRecord, NodeKind, NodeRecord, SearchNodesSort};
 
 use crate::Database;
 
-pub(crate) const NODE_SELECT_COLUMN_COUNT: usize = 18;
+pub(crate) const ANCHOR_SELECT_COLUMN_COUNT: usize = 18;
 
 impl Database {
     pub fn search_nodes(
@@ -17,27 +17,26 @@ impl Database {
         limit: usize,
         sort: Option<SearchNodesSort>,
     ) -> Result<Vec<NodeRecord>> {
-        self.search_nodes_with_scope(query, limit, sort, SearchNodesScope::Selectable)
+        self.search_note_records(query, limit, sort)
     }
 
-    pub fn search_indexed_nodes(
+    pub fn search_anchors(
         &self,
         query: &str,
         limit: usize,
         sort: Option<SearchNodesSort>,
-    ) -> Result<Vec<NodeRecord>> {
-        self.search_nodes_with_scope(query, limit, sort, SearchNodesScope::Indexed)
+    ) -> Result<Vec<AnchorRecord>> {
+        self.search_anchor_records(query, limit, sort)
     }
 
-    pub fn search_nodes_with_scope(
+    fn search_note_records(
         &self,
         query: &str,
         limit: usize,
         sort: Option<SearchNodesSort>,
-        scope: SearchNodesScope,
     ) -> Result<Vec<NodeRecord>> {
         let limit = limit.clamp(1, 200) as i64;
-        let scope_where = search_nodes_scope_where(scope);
+        let note_where = note_where("n");
         if let Some(fts_query) = build_fts_query(query) {
             let sql = format!(
                 "SELECT {}
@@ -47,14 +46,14 @@ impl Database {
                     AND {}
                   ORDER BY {}
                   LIMIT ?2",
-                node_select_columns("n"),
-                scope_where,
+                anchor_select_columns("n"),
+                note_where,
                 search_nodes_order_by(sort.as_ref(), true)
             );
             let mut statement = self.connection.prepare(&sql)?;
-            let rows = statement.query_map(params![fts_query, limit], row_to_node)?;
+            let rows = statement.query_map(params![fts_query, limit], row_to_note)?;
             rows.collect::<rusqlite::Result<Vec<_>>>()
-                .context("failed to read search results")
+                .context("failed to read note search results")
         } else {
             let sql = format!(
                 "SELECT {}
@@ -62,48 +61,69 @@ impl Database {
                   WHERE {}
                   ORDER BY {}
                   LIMIT ?1",
-                node_select_columns("n"),
-                scope_where,
+                anchor_select_columns("n"),
+                note_where,
                 search_nodes_order_by(sort.as_ref(), false)
             );
             let mut statement = self.connection.prepare(&sql)?;
-            let rows = statement.query_map(params![limit], row_to_node)?;
+            let rows = statement.query_map(params![limit], row_to_note)?;
             rows.collect::<rusqlite::Result<Vec<_>>>()
-                .context("failed to read node listing")
+                .context("failed to read note listing")
+        }
+    }
+
+    fn search_anchor_records(
+        &self,
+        query: &str,
+        limit: usize,
+        sort: Option<SearchNodesSort>,
+    ) -> Result<Vec<AnchorRecord>> {
+        let limit = limit.clamp(1, 200) as i64;
+        if let Some(fts_query) = build_fts_query(query) {
+            let sql = format!(
+                "SELECT {}
+                   FROM node_fts
+                   JOIN nodes AS n ON n.id = node_fts.rowid
+                  WHERE node_fts MATCH ?1
+                  ORDER BY {}
+                  LIMIT ?2",
+                anchor_select_columns("n"),
+                search_nodes_order_by(sort.as_ref(), true)
+            );
+            let mut statement = self.connection.prepare(&sql)?;
+            let rows = statement.query_map(params![fts_query, limit], row_to_anchor)?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .context("failed to read anchor search results")
+        } else {
+            let sql = format!(
+                "SELECT {}
+                   FROM nodes AS n
+                  ORDER BY {}
+                  LIMIT ?1",
+                anchor_select_columns("n"),
+                search_nodes_order_by(sort.as_ref(), false)
+            );
+            let mut statement = self.connection.prepare(&sql)?;
+            let rows = statement.query_map(params![limit], row_to_anchor)?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .context("failed to read anchor listing")
         }
     }
 
     pub fn random_node(&self) -> Result<Option<NodeRecord>> {
-        let Some((min_id, max_id)) = self
-            .connection
-            .query_row(
-                "SELECT MIN(id), MAX(id)
-                   FROM nodes",
-                [],
-                |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, Option<i64>>(1)?)),
-            )
-            .optional()
-            .context("failed to determine node ID bounds")?
-        else {
-            return Ok(None);
-        };
-
-        let (Some(min_id), Some(max_id)) = (min_id, max_id) else {
-            return Ok(None);
-        };
-
         let sql = format!(
             "SELECT {}
                FROM nodes AS n
-              WHERE n.id >= ((ABS(random()) % (?2 - ?1 + 1)) + ?1)
-              ORDER BY n.id
+              WHERE {}
+              ORDER BY random()
               LIMIT 1",
-            node_select_columns("n")
+            anchor_select_columns("n"),
+            note_where("n"),
         );
         self.connection
-            .query_row(&sql, params![min_id, max_id], row_to_node)
+            .query_row(&sql, [], row_to_note)
             .optional()
-            .context("failed to fetch random node")
+            .context("failed to fetch random note")
     }
 
     pub fn search_tags(&self, query: &str, limit: usize) -> Result<Vec<String>> {
@@ -140,12 +160,12 @@ impl Database {
                FROM nodes AS n
               WHERE n.explicit_id = ?1
               LIMIT 1",
-            node_select_columns("n")
+            anchor_select_columns("n")
         );
         self.connection
-            .query_row(&sql, params![explicit_id], row_to_node)
+            .query_row(&sql, params![explicit_id], row_to_note)
             .optional()
-            .context("failed to fetch node from ID")
+            .context("failed to fetch note from ID")
     }
 
     pub fn node_from_title_or_alias(
@@ -153,36 +173,48 @@ impl Database {
         title_or_alias: &str,
         nocase: bool,
     ) -> Result<Vec<NodeRecord>> {
+        let note_where = note_where("n");
         let sql = if nocase {
             format!(
                 "SELECT DISTINCT {}
-               FROM nodes AS n
-               LEFT JOIN aliases AS a ON a.node_key = n.node_key
-              WHERE n.title = ?1 COLLATE NOCASE
-                 OR a.alias = ?1 COLLATE NOCASE
-              ORDER BY n.file_path, n.line
-              LIMIT 2",
-                node_select_columns("n")
+                   FROM nodes AS n
+                   LEFT JOIN aliases AS a ON a.node_key = n.node_key
+                  WHERE {}
+                    AND (n.title = ?1 COLLATE NOCASE
+                     OR a.alias = ?1 COLLATE NOCASE)
+                  ORDER BY n.file_path, n.line
+                  LIMIT 2",
+                anchor_select_columns("n"),
+                note_where,
             )
         } else {
             format!(
                 "SELECT DISTINCT {}
-               FROM nodes AS n
-               LEFT JOIN aliases AS a ON a.node_key = n.node_key
-              WHERE n.title = ?1
-                 OR a.alias = ?1
-              ORDER BY n.file_path, n.line
-              LIMIT 2",
-                node_select_columns("n")
+                   FROM nodes AS n
+                   LEFT JOIN aliases AS a ON a.node_key = n.node_key
+                  WHERE {}
+                    AND (n.title = ?1
+                     OR a.alias = ?1)
+                  ORDER BY n.file_path, n.line
+                  LIMIT 2",
+                anchor_select_columns("n"),
+                note_where,
             )
         };
         let mut statement = self.connection.prepare(&sql)?;
-        let rows = statement.query_map(params![title_or_alias], row_to_node)?;
+        let rows = statement.query_map(params![title_or_alias], row_to_note)?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
-            .context("failed to fetch node from title or alias")
+            .context("failed to fetch note from title or alias")
     }
 
     pub fn node_at_point(&self, file_path: &str, line: u32) -> Result<Option<NodeRecord>> {
+        let Some(anchor) = self.anchor_at_point(file_path, line)? else {
+            return Ok(None);
+        };
+        self.note_for_anchor(&anchor)
+    }
+
+    pub fn anchor_at_point(&self, file_path: &str, line: u32) -> Result<Option<AnchorRecord>> {
         let sql = format!(
             "SELECT {}
                FROM nodes AS n
@@ -190,45 +222,60 @@ impl Database {
                 AND n.line <= ?2
               ORDER BY n.line DESC, n.level DESC
               LIMIT 1",
-            node_select_columns("n")
+            anchor_select_columns("n")
         );
         self.connection
-            .query_row(&sql, params![file_path, line], row_to_node)
+            .query_row(&sql, params![file_path, line], row_to_anchor)
             .optional()
-            .context("failed to fetch node at point")
+            .context("failed to fetch anchor at point")
     }
 
-    pub fn node_by_key(&self, node_key: &str) -> Result<Option<NodeRecord>> {
+    pub fn note_by_key(&self, node_key: &str) -> Result<Option<NodeRecord>> {
+        let sql = format!(
+            "SELECT {}
+               FROM nodes AS n
+              WHERE n.node_key = ?1
+                AND {}",
+            anchor_select_columns("n"),
+            note_where("n"),
+        );
+        self.connection
+            .query_row(&sql, params![node_key], row_to_note)
+            .optional()
+            .context("failed to fetch note by key")
+    }
+
+    pub fn anchor_by_key(&self, node_key: &str) -> Result<Option<AnchorRecord>> {
         let sql = format!(
             "SELECT {}
                FROM nodes AS n
               WHERE n.node_key = ?1",
-            node_select_columns("n")
+            anchor_select_columns("n")
         );
         self.connection
-            .query_row(&sql, params![node_key], row_to_node)
+            .query_row(&sql, params![node_key], row_to_anchor)
             .optional()
-            .context("failed to fetch node by key")
+            .context("failed to fetch anchor by key")
     }
 
-    pub fn nodes_in_file(&self, file_path: &str) -> Result<Vec<NodeRecord>> {
+    pub fn anchors_in_file(&self, file_path: &str) -> Result<Vec<AnchorRecord>> {
         let sql = format!(
             "SELECT {}
                FROM nodes AS n
               WHERE n.file_path = ?1
               ORDER BY n.line, n.level",
-            node_select_columns("n")
+            anchor_select_columns("n")
         );
         let mut statement = self.connection.prepare(&sql)?;
-        let rows = statement.query_map(params![file_path], row_to_node)?;
+        let rows = statement.query_map(params![file_path], row_to_anchor)?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
-            .context("failed to read nodes for indexed file")
+            .context("failed to read anchors for indexed file")
     }
 
-    pub fn nodes_in_files(
+    pub fn anchors_in_files(
         &self,
         file_paths: &[String],
-    ) -> Result<HashMap<String, Vec<NodeRecord>>> {
+    ) -> Result<HashMap<String, Vec<AnchorRecord>>> {
         if file_paths.is_empty() {
             return Ok(HashMap::new());
         }
@@ -242,27 +289,40 @@ impl Database {
                FROM nodes AS n
               WHERE n.file_path IN ({})
               ORDER BY n.file_path COLLATE NOCASE, n.file_path, n.line, n.level",
-            node_select_columns("n"),
+            anchor_select_columns("n"),
             placeholders
         );
         let mut statement = self.connection.prepare(&sql)?;
-        let rows = statement.query_map(params_from_iter(file_paths.iter()), row_to_node)?;
-        let nodes = rows
+        let rows = statement.query_map(params_from_iter(file_paths.iter()), row_to_anchor)?;
+        let anchors = rows
             .collect::<rusqlite::Result<Vec<_>>>()
-            .context("failed to read nodes for indexed files")?;
+            .context("failed to read anchors for indexed files")?;
 
         let mut grouped = HashMap::new();
-        for node in nodes {
+        for anchor in anchors {
             grouped
-                .entry(node.file_path.clone())
+                .entry(anchor.file_path.clone())
                 .or_insert_with(Vec::new)
-                .push(node);
+                .push(anchor);
         }
         Ok(grouped)
     }
+
+    pub fn note_for_anchor(&self, anchor: &AnchorRecord) -> Result<Option<NodeRecord>> {
+        let anchors = self.anchors_in_file(&anchor.file_path)?;
+        Ok(note_for_anchor_in_file(&anchors, &anchor.node_key))
+    }
+
+    pub(crate) fn note_owners_by_anchor_key(
+        &self,
+        file_path: &str,
+    ) -> Result<HashMap<String, NodeRecord>> {
+        let anchors = self.anchors_in_file(file_path)?;
+        Ok(note_owners_by_anchor_key(&anchors))
+    }
 }
 
-pub(crate) fn node_select_columns(alias: &str) -> String {
+pub(crate) fn anchor_select_columns(alias: &str) -> String {
     format!(
         "{alias}.node_key,
          {alias}.explicit_id,
@@ -292,6 +352,10 @@ pub(crate) fn node_select_columns(alias: &str) -> String {
     )
 }
 
+pub(crate) fn note_where(alias: &str) -> String {
+    format!("({alias}.kind = 'file' OR {alias}.explicit_id IS NOT NULL)")
+}
+
 fn search_nodes_order_by(sort: Option<&SearchNodesSort>, using_fts: bool) -> &'static str {
     match sort {
         None | Some(SearchNodesSort::Relevance) if using_fts => {
@@ -306,16 +370,9 @@ fn search_nodes_order_by(sort: Option<&SearchNodesSort>, using_fts: bool) -> &'s
     }
 }
 
-fn search_nodes_scope_where(scope: SearchNodesScope) -> &'static str {
-    match scope {
-        SearchNodesScope::Selectable => "(n.kind = 'file' OR n.explicit_id IS NOT NULL)",
-        SearchNodesScope::Indexed => "1 = 1",
-    }
-}
-
-pub(crate) fn row_to_node(row: &rusqlite::Row<'_>) -> rusqlite::Result<NodeRecord> {
+pub(crate) fn row_to_anchor(row: &rusqlite::Row<'_>) -> rusqlite::Result<AnchorRecord> {
     let kind_text: String = row.get(14)?;
-    Ok(NodeRecord {
+    Ok(AnchorRecord {
         node_key: row.get(0)?,
         explicit_id: row.get(1)?,
         file_path: row.get(2)?,
@@ -337,12 +394,26 @@ pub(crate) fn row_to_node(row: &rusqlite::Row<'_>) -> rusqlite::Result<NodeRecor
     })
 }
 
-pub(crate) fn row_to_node_with_offset(
+pub(crate) fn row_to_note(row: &rusqlite::Row<'_>) -> rusqlite::Result<NodeRecord> {
+    let anchor = row_to_anchor(row)?;
+    NodeRecord::try_from(anchor).map_err(|anchor| {
+        rusqlite::Error::FromSqlConversionFailure(
+            0,
+            rusqlite::types::Type::Text,
+            Box::new(std::io::Error::other(format!(
+                "anchor {} is not a canonical note",
+                anchor.node_key
+            ))),
+        )
+    })
+}
+
+pub(crate) fn row_to_anchor_with_offset(
     row: &rusqlite::Row<'_>,
     offset: usize,
-) -> rusqlite::Result<NodeRecord> {
+) -> rusqlite::Result<AnchorRecord> {
     let kind_text: String = row.get(offset + 14)?;
-    Ok(NodeRecord {
+    Ok(AnchorRecord {
         node_key: row.get(offset)?,
         explicit_id: row.get(offset + 1)?,
         file_path: row.get(offset + 2)?,
@@ -364,50 +435,132 @@ pub(crate) fn row_to_node_with_offset(
     })
 }
 
+pub(crate) fn row_to_note_with_offset(
+    row: &rusqlite::Row<'_>,
+    offset: usize,
+) -> rusqlite::Result<NodeRecord> {
+    let anchor = row_to_anchor_with_offset(row, offset)?;
+    NodeRecord::try_from(anchor).map_err(|anchor| {
+        rusqlite::Error::FromSqlConversionFailure(
+            offset,
+            rusqlite::types::Type::Text,
+            Box::new(std::io::Error::other(format!(
+                "anchor {} is not a canonical note",
+                anchor.node_key
+            ))),
+        )
+    })
+}
+
+fn note_for_anchor_in_file(anchors: &[AnchorRecord], anchor_key: &str) -> Option<NodeRecord> {
+    note_owners_by_anchor_key(anchors).remove(anchor_key)
+}
+
+pub(crate) fn note_owners_by_anchor_key(anchors: &[AnchorRecord]) -> HashMap<String, NodeRecord> {
+    let anchor_lookup = anchors
+        .iter()
+        .map(|anchor| (anchor.node_key.as_str(), anchor))
+        .collect::<HashMap<_, _>>();
+    let owner_keys = anchor_owner_note_keys(anchors);
+    owner_keys
+        .into_iter()
+        .filter_map(|(anchor_key, owner_key)| {
+            let owner = anchor_lookup.get(owner_key.as_str())?;
+            let note = NodeRecord::try_from((*owner).clone()).ok()?;
+            Some((anchor_key, note))
+        })
+        .collect()
+}
+
+fn anchor_owner_note_keys(anchors: &[AnchorRecord]) -> HashMap<String, String> {
+    let mut owner_keys = HashMap::new();
+    let mut ancestry: Vec<&AnchorRecord> = Vec::new();
+    let mut note_stack: Vec<&AnchorRecord> = Vec::new();
+
+    for anchor in anchors {
+        while let Some(last) = ancestry.last().copied() {
+            if matches!(last.kind, NodeKind::File) && !matches!(anchor.kind, NodeKind::File) {
+                break;
+            }
+            if last.level < anchor.level {
+                break;
+            }
+            ancestry.pop();
+            if note_stack
+                .last()
+                .is_some_and(|candidate| candidate.node_key == last.node_key)
+            {
+                note_stack.pop();
+            }
+        }
+
+        let owner_key = if anchor.is_note() {
+            anchor.node_key.clone()
+        } else {
+            note_stack
+                .last()
+                .map(|candidate| candidate.node_key.clone())
+                .unwrap_or_else(|| anchor.node_key.clone())
+        };
+        owner_keys.insert(anchor.node_key.clone(), owner_key);
+
+        ancestry.push(anchor);
+        if anchor.is_note() {
+            note_stack.push(anchor);
+        }
+    }
+
+    owner_keys
+}
+
+fn build_fts_query(query: &str) -> Option<String> {
+    let terms = query
+        .split_whitespace()
+        .filter_map(|term| {
+            let trimmed = term.trim_matches(|character: char| !character.is_alphanumeric());
+            if trimmed.len() >= 3 {
+                Some(trimmed)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    if terms.is_empty() {
+        None
+    } else {
+        Some(
+            terms
+                .into_iter()
+                .map(|term| format!("\"{}\"*", term.replace('"', "\"\"")))
+                .collect::<Vec<_>>()
+                .join(" "),
+        )
+    }
+}
+
+fn escape_like_pattern(input: &str) -> String {
+    let mut escaped = String::new();
+    for character in input.chars() {
+        match character {
+            '\\' | '%' | '_' => {
+                escaped.push('\\');
+                escaped.push(character);
+            }
+            _ => escaped.push(character),
+        }
+    }
+    escaped
+}
+
 fn parse_string_list(value: String) -> Vec<String> {
     match serde_json::from_str::<Value>(&value) {
         Ok(Value::Array(items)) => items
             .into_iter()
             .filter_map(|item| match item {
-                Value::String(string) if !string.is_empty() => Some(string),
+                Value::String(text) => Some(text),
                 _ => None,
             })
             .collect(),
         _ => Vec::new(),
     }
-}
-
-fn build_fts_query(input: &str) -> Option<String> {
-    let tokens = input
-        .split_whitespace()
-        .filter_map(|token| {
-            let cleaned = token
-                .chars()
-                .filter(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
-                .collect::<String>();
-            if cleaned.is_empty() {
-                None
-            } else {
-                Some(format!("{cleaned}*"))
-            }
-        })
-        .collect::<Vec<_>>();
-
-    if tokens.is_empty() {
-        None
-    } else {
-        Some(tokens.join(" "))
-    }
-}
-
-fn escape_like_pattern(input: &str) -> String {
-    input
-        .chars()
-        .flat_map(|character| match character {
-            '\\' => ['\\', '\\'].into_iter().collect::<Vec<_>>(),
-            '%' => ['\\', '%'].into_iter().collect::<Vec<_>>(),
-            '_' => ['\\', '_'].into_iter().collect::<Vec<_>>(),
-            _ => [character].into_iter().collect::<Vec<_>>(),
-        })
-        .collect()
 }

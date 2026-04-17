@@ -5,8 +5,7 @@ use rusqlite::params;
 use slipbox_core::{GraphParams, GraphTitleShortening, NodeRecord};
 
 use crate::Database;
-use crate::nodes::{node_select_columns, row_to_node};
-
+use crate::nodes::{anchor_select_columns, note_where, row_to_note};
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct GraphEdge {
     source_node_key: String,
@@ -53,11 +52,13 @@ impl Database {
         let sql = format!(
             "SELECT {}
                FROM nodes AS n
+              WHERE {}
               ORDER BY n.file_path, n.line",
-            node_select_columns("n")
+            anchor_select_columns("n"),
+            note_where("n"),
         );
         let mut statement = self.connection.prepare(&sql)?;
-        let rows = statement.query_map([], row_to_node)?;
+        let rows = statement.query_map([], row_to_note)?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .context("failed to read graph nodes")
     }
@@ -71,14 +72,68 @@ impl Database {
               ORDER BY l.source_node_key, dest.node_key",
         )?;
         let rows = statement.query_map(params![], |row| {
-            Ok(GraphEdge {
-                source_node_key: row.get(0)?,
-                destination_node_key: row.get(1)?,
-            })
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?;
-        rows.collect::<rusqlite::Result<Vec<_>>>()
-            .context("failed to read graph edges")
+        let raw_edges = rows
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .context("failed to read graph edges")?;
+
+        let notes_by_file = self
+            .indexed_files()?
+            .into_iter()
+            .map(|file_path| {
+                let owners = self.note_owners_by_anchor_key(&file_path)?;
+                Ok((file_path, owners))
+            })
+            .collect::<Result<HashMap<_, _>>>()?;
+        let notes_by_key = self
+            .graph_nodes()?
+            .into_iter()
+            .map(|node| (node.node_key.clone(), node))
+            .collect::<HashMap<_, _>>();
+
+        let mut edges = Vec::new();
+        let mut seen = HashSet::new();
+        for (source_anchor_key, destination_key) in raw_edges {
+            let file_path = anchor_file_path(&source_anchor_key);
+            let Some(source_note) = notes_by_file
+                .get(file_path)
+                .and_then(|owners| owners.get(&source_anchor_key))
+            else {
+                continue;
+            };
+            let Some(destination_note) = notes_by_key.get(&destination_key) else {
+                continue;
+            };
+            let edge = GraphEdge {
+                source_node_key: source_note.node_key.clone(),
+                destination_node_key: destination_note.node_key.clone(),
+            };
+            if seen.insert((
+                edge.source_node_key.clone(),
+                edge.destination_node_key.clone(),
+            )) {
+                edges.push(edge);
+            }
+        }
+        edges.sort_by(|left, right| {
+            left.source_node_key
+                .cmp(&right.source_node_key)
+                .then_with(|| left.destination_node_key.cmp(&right.destination_node_key))
+        });
+        Ok(edges)
     }
+}
+
+fn anchor_file_path(anchor_key: &str) -> &str {
+    anchor_key
+        .strip_prefix("file:")
+        .or_else(|| {
+            anchor_key
+                .strip_prefix("heading:")
+                .and_then(|rest| rest.rsplit_once(':').map(|(file_path, _)| file_path))
+        })
+        .unwrap_or(anchor_key)
 }
 
 fn select_graph_scope(
@@ -182,26 +237,37 @@ fn format_graph_dot(nodes: &[NodeRecord], edges: &[GraphEdge], params: &GraphPar
 }
 
 fn format_graph_node(node: &NodeRecord, params: &GraphParams) -> String {
-    let max_title_length = params.normalized_max_title_length();
-    let title = shorten_title(&node.title, params.shorten_titles, max_title_length);
-    let tooltip = if node.kind.as_str() == "file" {
-        node.file_path.clone()
-    } else {
-        format!("{}:{} {}", node.file_path, node.line, node.title)
-    };
+    let label = format_graph_label(node, params);
+    let tooltip = graph_node_tooltip(node);
     let mut attributes = vec![
-        format!("label=\"{}\"", dot_escape(&title)),
+        format!("label=\"{}\"", dot_escape(&label)),
         format!("tooltip=\"{}\"", dot_escape(&tooltip)),
     ];
     if let Some(url) = graph_node_url(node, params) {
         attributes.push(format!("URL=\"{}\"", dot_escape(&url)));
     }
-
     format!(
         "  \"{}\" [{}];\n",
         dot_escape(&node.node_key),
         attributes.join(", ")
     )
+}
+
+fn format_graph_label(node: &NodeRecord, params: &GraphParams) -> String {
+    let title = node.title.trim();
+    if title.is_empty() {
+        return node.node_key.clone();
+    }
+
+    let max_length = params.normalized_max_title_length();
+    if title.chars().count() <= max_length {
+        return title.to_owned();
+    }
+
+    match params.shorten_titles {
+        Some(GraphTitleShortening::Wrap) => wrap_title(title, max_length),
+        _ => truncate_title(title, max_length),
+    }
 }
 
 fn graph_node_url(node: &NodeRecord, params: &GraphParams) -> Option<String> {
@@ -210,116 +276,51 @@ fn graph_node_url(node: &NodeRecord, params: &GraphParams) -> Option<String> {
         .as_deref()
         .map(str::trim)
         .filter(|prefix| !prefix.is_empty())?;
-    let explicit_id = node
+    let target = node
         .explicit_id
         .as_deref()
         .map(str::trim)
         .filter(|explicit_id| !explicit_id.is_empty())?;
-    Some(format!(
-        "{prefix}{}",
-        percent_encode_query_value(explicit_id)
-    ))
+    Some(format!("{prefix}{}", urlencoding::encode(target)))
 }
 
-fn shorten_title(
-    title: &str,
-    mode: Option<GraphTitleShortening>,
-    max_title_length: usize,
-) -> String {
-    match mode {
-        Some(GraphTitleShortening::Truncate) => truncate_title(title, max_title_length),
-        Some(GraphTitleShortening::Wrap) => wrap_title(title, max_title_length),
-        None => title.to_owned(),
+fn graph_node_tooltip(node: &NodeRecord) -> String {
+    match node.kind.as_str() {
+        "file" => node.file_path.clone(),
+        _ => format!("{}:{} {}", node.file_path, node.line, node.title),
     }
 }
 
-fn truncate_title(title: &str, max_title_length: usize) -> String {
-    let count = title.chars().count();
-    if count <= max_title_length {
-        return title.to_owned();
-    }
-
-    let shortened = title
-        .chars()
-        .take(max_title_length.saturating_sub(3))
-        .collect::<String>();
-    format!("{shortened}...")
+fn truncate_title(title: &str, max_length: usize) -> String {
+    let ellipsis = "...";
+    let visible = max_length.saturating_sub(ellipsis.chars().count()).max(1);
+    let mut truncated = title.chars().take(visible).collect::<String>();
+    truncated.push_str(ellipsis);
+    truncated
 }
 
-fn wrap_title(title: &str, max_title_length: usize) -> String {
-    if title.chars().count() <= max_title_length {
-        return title.to_owned();
-    }
-
-    let mut lines = Vec::new();
-    let mut current = String::new();
-
+fn wrap_title(title: &str, max_length: usize) -> String {
+    let mut wrapped = String::new();
+    let mut line_length = 0_usize;
     for word in title.split_whitespace() {
         let word_length = word.chars().count();
-        let current_length = current.chars().count();
-        let separator = usize::from(!current.is_empty());
-
-        if current_length + separator + word_length <= max_title_length {
-            if !current.is_empty() {
-                current.push(' ');
+        let separator = usize::from(line_length > 0);
+        if line_length + separator + word_length > max_length && line_length > 0 {
+            wrapped.push('\n');
+            wrapped.push_str(word);
+            line_length = word_length;
+        } else {
+            if line_length > 0 {
+                wrapped.push(' ');
+                line_length += 1;
             }
-            current.push_str(word);
-            continue;
-        }
-
-        if !current.is_empty() {
-            lines.push(current);
-            current = String::new();
-        }
-
-        if word_length <= max_title_length {
-            current.push_str(word);
-            continue;
-        }
-
-        let mut chunk = String::new();
-        for character in word.chars() {
-            chunk.push(character);
-            if chunk.chars().count() >= max_title_length {
-                lines.push(chunk);
-                chunk = String::new();
-            }
-        }
-        if !chunk.is_empty() {
-            current = chunk;
+            wrapped.push_str(word);
+            line_length += word_length;
         }
     }
-
-    if !current.is_empty() {
-        lines.push(current);
-    }
-
-    lines.join("\n")
+    wrapped
 }
 
-fn dot_escape(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len());
-    for character in value.chars() {
-        match character {
-            '\\' => escaped.push_str("\\\\"),
-            '"' => escaped.push_str("\\\""),
-            '\n' => escaped.push_str("\\n"),
-            '\r' => {}
-            _ => escaped.push(character),
-        }
-    }
-    escaped
-}
-
-fn percent_encode_query_value(value: &str) -> String {
-    let mut encoded = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                encoded.push(char::from(byte));
-            }
-            _ => encoded.push_str(&format!("%{byte:02X}")),
-        }
-    }
-    encoded
+fn dot_escape(text: &str) -> String {
+    text.replace('\\', "\\\\").replace('"', "\\\"")
 }

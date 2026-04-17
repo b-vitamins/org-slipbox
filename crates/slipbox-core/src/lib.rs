@@ -111,6 +111,45 @@ impl FromStr for NodeKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnchorRecord {
+    pub node_key: String,
+    pub explicit_id: Option<String>,
+    pub file_path: String,
+    pub title: String,
+    pub outline_path: String,
+    #[serde(default)]
+    pub aliases: Vec<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub refs: Vec<String>,
+    #[serde(default)]
+    pub todo_keyword: Option<String>,
+    #[serde(default)]
+    pub scheduled_for: Option<String>,
+    #[serde(default)]
+    pub deadline_for: Option<String>,
+    #[serde(default)]
+    pub closed_at: Option<String>,
+    pub level: u32,
+    pub line: u32,
+    pub kind: NodeKind,
+    #[serde(default)]
+    pub file_mtime_ns: i64,
+    #[serde(default)]
+    pub backlink_count: u64,
+    #[serde(default)]
+    pub forward_link_count: u64,
+}
+
+impl AnchorRecord {
+    #[must_use]
+    pub fn is_note(&self) -> bool {
+        matches!(self.kind, NodeKind::File) || self.explicit_id.is_some()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeRecord {
     pub node_key: String,
     pub explicit_id: Option<String>,
@@ -222,6 +261,62 @@ impl From<IndexedNode> for NodeRecord {
     }
 }
 
+impl TryFrom<AnchorRecord> for NodeRecord {
+    type Error = AnchorRecord;
+
+    fn try_from(anchor: AnchorRecord) -> Result<Self, Self::Error> {
+        if anchor.is_note() {
+            Ok(Self {
+                node_key: anchor.node_key,
+                explicit_id: anchor.explicit_id,
+                file_path: anchor.file_path,
+                title: anchor.title,
+                outline_path: anchor.outline_path,
+                aliases: anchor.aliases,
+                tags: anchor.tags,
+                refs: anchor.refs,
+                todo_keyword: anchor.todo_keyword,
+                scheduled_for: anchor.scheduled_for,
+                deadline_for: anchor.deadline_for,
+                closed_at: anchor.closed_at,
+                level: anchor.level,
+                line: anchor.line,
+                kind: anchor.kind,
+                file_mtime_ns: anchor.file_mtime_ns,
+                backlink_count: anchor.backlink_count,
+                forward_link_count: anchor.forward_link_count,
+            })
+        } else {
+            Err(anchor)
+        }
+    }
+}
+
+impl From<NodeRecord> for AnchorRecord {
+    fn from(node: NodeRecord) -> Self {
+        Self {
+            node_key: node.node_key,
+            explicit_id: node.explicit_id,
+            file_path: node.file_path,
+            title: node.title,
+            outline_path: node.outline_path,
+            aliases: node.aliases,
+            tags: node.tags,
+            refs: node.refs,
+            todo_keyword: node.todo_keyword,
+            scheduled_for: node.scheduled_for,
+            deadline_for: node.deadline_for,
+            closed_at: node.closed_at,
+            level: node.level,
+            line: node.line,
+            kind: node.kind,
+            file_mtime_ns: node.file_mtime_ns,
+            backlink_count: node.backlink_count,
+            forward_link_count: node.forward_link_count,
+        }
+    }
+}
+
 impl From<IndexedNode> for PreviewNodeRecord {
     fn from(node: IndexedNode) -> Self {
         Self {
@@ -286,14 +381,6 @@ pub enum SearchNodesSort {
     ForwardLinkCount,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SearchNodesScope {
-    #[default]
-    Selectable,
-    Indexed,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchNodesParams {
     pub query: String,
@@ -301,8 +388,6 @@ pub struct SearchNodesParams {
     pub limit: usize,
     #[serde(default)]
     pub sort: Option<SearchNodesSort>,
-    #[serde(default)]
-    pub scope: SearchNodesScope,
 }
 
 impl SearchNodesParams {
@@ -363,7 +448,7 @@ pub struct OccurrenceRecord {
     pub preview: String,
     pub matched_text: String,
     #[serde(default)]
-    pub owning_node: Option<NodeRecord>,
+    pub owning_anchor: Option<AnchorRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -438,7 +523,9 @@ pub struct BacklinksResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BacklinkRecord {
-    pub source_node: NodeRecord,
+    pub source_note: NodeRecord,
+    #[serde(default)]
+    pub source_anchor: Option<AnchorRecord>,
     pub row: u32,
     pub col: u32,
     pub preview: String,
@@ -467,7 +554,7 @@ pub struct ForwardLinksResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ForwardLinkRecord {
-    pub destination_node: NodeRecord,
+    pub destination_note: NodeRecord,
     pub row: u32,
     pub col: u32,
     pub preview: String,
@@ -494,7 +581,7 @@ pub struct ReflinksResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReflinkRecord {
-    pub source_node: NodeRecord,
+    pub source_anchor: AnchorRecord,
     pub row: u32,
     pub col: u32,
     pub preview: String,
@@ -522,7 +609,7 @@ pub struct UnlinkedReferencesResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UnlinkedReferenceRecord {
-    pub source_node: NodeRecord,
+    pub source_anchor: AnchorRecord,
     pub row: u32,
     pub col: u32,
     pub preview: String,
@@ -546,7 +633,7 @@ impl AgendaParams {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgendaResult {
-    pub nodes: Vec<NodeRecord>,
+    pub nodes: Vec<AnchorRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -994,9 +1081,9 @@ fn normalize_string_values(values: &[String], nocase: bool) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        CaptureNodeParams, CaptureTemplatePreviewResult, NodeKind, NodeRecord, PreviewNodeRecord,
-        SearchNodesParams, SearchNodesScope, SearchNodesSort, UnlinkedReferencesParams,
-        UpdateNodeMetadataParams, normalize_reference,
+        CaptureNodeParams, CaptureTemplatePreviewResult, NodeFromTitleOrAliasParams, NodeKind,
+        NodeRecord, PreviewNodeRecord, SearchNodesParams, SearchNodesSort,
+        UnlinkedReferencesParams, UpdateNodeMetadataParams, normalize_reference,
     };
     use serde_json::json;
 
@@ -1206,34 +1293,49 @@ mod tests {
         let params: SearchNodesParams = serde_json::from_value(json!({
             "query": "alpha",
             "limit": 10,
-            "sort": "forward-link-count",
-            "scope": "indexed"
+            "sort": "forward-link-count"
         }))
         .expect("search node params should deserialize");
 
         assert_eq!(params.query, "alpha");
         assert_eq!(params.limit, 10);
         assert_eq!(params.sort, Some(SearchNodesSort::ForwardLinkCount));
-        assert_eq!(params.scope, SearchNodesScope::Indexed);
 
         assert_eq!(
             serde_json::to_value(&params).expect("search node params should serialize"),
             json!({
                 "query": "alpha",
                 "limit": 10,
-                "sort": "forward-link-count",
-                "scope": "indexed"
+                "sort": "forward-link-count"
             })
         );
     }
 
     #[test]
-    fn search_nodes_params_default_to_selectable_scope() {
+    fn search_nodes_params_default_to_unspecified_sort() {
         let params: SearchNodesParams =
             serde_json::from_value(json!({ "query": "alpha", "limit": 10 }))
                 .expect("search node params should deserialize");
 
-        assert_eq!(params.scope, SearchNodesScope::Selectable);
+        assert_eq!(params.sort, None);
+    }
+
+    #[test]
+    fn node_from_title_or_alias_params_round_trip_without_scope() {
+        let params: NodeFromTitleOrAliasParams =
+            serde_json::from_value(json!({ "title_or_alias": "alpha", "nocase": true }))
+                .expect("title-or-alias params should deserialize");
+
+        assert_eq!(params.title_or_alias, "alpha");
+        assert!(params.nocase);
+
+        assert_eq!(
+            serde_json::to_value(&params).expect("title-or-alias params should serialize"),
+            json!({
+                "title_or_alias": "alpha",
+                "nocase": true
+            })
+        );
     }
 
     #[test]

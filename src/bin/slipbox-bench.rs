@@ -573,10 +573,11 @@ fn benchmark_reflinks(
     root: &Path,
     source_node: &NodeRecord,
 ) -> Result<TimingReport> {
+    let source_anchor = source_node.clone().into();
     let sample = query_reflinks(
         database,
         root,
-        source_node,
+        &source_anchor,
         profile.iterations.reflinks_limit,
     )
     .context("failed to fetch reflink sample")?;
@@ -587,7 +588,7 @@ fn benchmark_reflinks(
         let reflinks = query_reflinks(
             database,
             root,
-            source_node,
+            &source_anchor,
             profile.iterations.reflinks_limit,
         )
         .context("failed to query reflinks")?;
@@ -602,10 +603,11 @@ fn benchmark_unlinked_references(
     root: &Path,
     node: &NodeRecord,
 ) -> Result<TimingReport> {
+    let node_anchor = node.clone().into();
     let sample = query_unlinked_references(
         database,
         root,
-        node,
+        &node_anchor,
         profile.iterations.unlinked_references_limit,
     )
     .context("failed to query unlinked references")?;
@@ -617,7 +619,7 @@ fn benchmark_unlinked_references(
         let unlinked_references = query_unlinked_references(
             database,
             root,
-            node,
+            &node_anchor,
             profile.iterations.unlinked_references_limit,
         )
         .context("failed to query unlinked references")?;

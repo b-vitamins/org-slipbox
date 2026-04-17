@@ -13,7 +13,7 @@ use std::{thread, time::Duration};
 use anyhow::Result;
 use occurrences_query::query_occurrences;
 use reflinks_query::query_reflinks;
-use slipbox_core::{SearchNodesScope, SearchNodesSort};
+use slipbox_core::{AnchorRecord, SearchNodesSort};
 use slipbox_index::{
     DiscoveryPolicy, scan_path, scan_path_with_policy, scan_root, scan_root_with_policy,
 };
@@ -50,7 +50,7 @@ fn indexes_nodes_searches_and_returns_backlinks() -> Result<()> {
 
     let backlinks = database.backlinks(&results[0].node_key, 10, false)?;
     assert_eq!(backlinks.len(), 1);
-    assert_eq!(backlinks[0].source_node.title, "First heading");
+    assert_eq!(backlinks[0].source_note.title, "First heading");
     assert_eq!(backlinks[0].row, 7);
     assert_eq!(backlinks[0].col, 5);
     assert_eq!(backlinks[0].preview, "See [[id:beta-target][Beta]].");
@@ -102,10 +102,10 @@ fn node_queries_return_indexed_metadata_and_graph_counts() -> Result<()> {
 
     let backlinks = database.backlinks(&target.node_key, 10, false)?;
     assert_eq!(backlinks.len(), 2);
-    assert_eq!(backlinks[0].source_node.title, "First heading");
-    assert!(backlinks[0].source_node.file_mtime_ns > 0);
-    assert_eq!(backlinks[0].source_node.backlink_count, 0);
-    assert_eq!(backlinks[0].source_node.forward_link_count, 1);
+    assert_eq!(backlinks[0].source_note.title, "First heading");
+    assert!(backlinks[0].source_note.file_mtime_ns > 0);
+    assert_eq!(backlinks[0].source_note.backlink_count, 0);
+    assert_eq!(backlinks[0].source_note.forward_link_count, 1);
 
     Ok(())
 }
@@ -200,7 +200,7 @@ fn search_nodes_support_named_sorts() -> Result<()> {
 }
 
 #[test]
-fn search_nodes_default_to_selectable_scope() -> Result<()> {
+fn public_node_search_excludes_anonymous_headings() -> Result<()> {
     let workspace = tempdir()?;
     let root = workspace.path().join("notes");
     fs::create_dir_all(&root)?;
@@ -224,8 +224,7 @@ fn search_nodes_default_to_selectable_scope() -> Result<()> {
         vec!["Alpha Target", "Identified Target"]
     );
 
-    let indexed =
-        database.search_nodes_with_scope("target", 10, None, SearchNodesScope::Indexed)?;
+    let indexed = database.search_anchors("target", 10, None)?;
     assert_eq!(
         indexed
             .iter()
@@ -233,6 +232,35 @@ fn search_nodes_default_to_selectable_scope() -> Result<()> {
             .collect::<Vec<_>>(),
         vec!["Alpha Target", "Anonymous Target", "Identified Target"]
     );
+
+    Ok(())
+}
+
+#[test]
+fn exact_title_lookup_excludes_anonymous_headings() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    fs::write(
+        root.join("alpha.org"),
+        "#+title: Target\n\n* Target\nAnonymous heading.\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let selectable = database.node_from_title_or_alias("Target", true)?;
+    assert_eq!(selectable.len(), 1);
+    assert_eq!(selectable[0].kind.as_str(), "file");
+
+    let indexed = database.search_anchors("Target", 10, Some(SearchNodesSort::Title))?;
+    assert_eq!(indexed.len(), 2);
+    assert_eq!(indexed[0].kind.as_str(), "file");
+    assert_eq!(indexed[1].kind.as_str(), "heading");
+    assert!(indexed[1].explicit_id.is_none());
 
     Ok(())
 }
@@ -272,9 +300,9 @@ fn backlinks_support_unique_sources() -> Result<()> {
 
     let unique_backlinks = database.backlinks(&target.node_key, 10, true)?;
     assert_eq!(unique_backlinks.len(), 2);
-    assert_eq!(unique_backlinks[0].source_node.title, "First heading");
+    assert_eq!(unique_backlinks[0].source_note.title, "First heading");
     assert_eq!(unique_backlinks[0].row, 7);
-    assert_eq!(unique_backlinks[1].source_node.title, "Second heading");
+    assert_eq!(unique_backlinks[1].source_note.title, "Second heading");
 
     Ok(())
 }
@@ -311,28 +339,28 @@ fn forward_links_support_unique_destinations_and_skip_missing_targets() -> Resul
 
     let forward_links = database.forward_links(&source.node_key, 10, false)?;
     assert_eq!(forward_links.len(), 3);
-    assert_eq!(forward_links[0].destination_node.title, "Target heading");
+    assert_eq!(forward_links[0].destination_note.title, "Target heading");
     assert_eq!(forward_links[0].row, 7);
     assert_eq!(forward_links[0].col, 5);
-    assert_eq!(forward_links[1].destination_node.title, "Target heading");
+    assert_eq!(forward_links[1].destination_note.title, "Target heading");
     assert_eq!(forward_links[1].row, 9);
-    assert_eq!(forward_links[2].destination_node.title, "Another target");
+    assert_eq!(forward_links[2].destination_note.title, "Another target");
     assert_eq!(forward_links[2].row, 10);
     assert!(
         forward_links
             .iter()
-            .all(|record| record.destination_node.title != "Missing")
+            .all(|record| record.destination_note.title != "Missing")
     );
 
     let unique_forward_links = database.forward_links(&source.node_key, 10, true)?;
     assert_eq!(unique_forward_links.len(), 2);
     assert_eq!(
-        unique_forward_links[0].destination_node.title,
+        unique_forward_links[0].destination_note.title,
         "Target heading"
     );
     assert_eq!(unique_forward_links[0].row, 7);
     assert_eq!(
-        unique_forward_links[1].destination_node.title,
+        unique_forward_links[1].destination_note.title,
         "Another target"
     );
     assert_eq!(unique_forward_links[1].row, 10);
@@ -366,10 +394,11 @@ fn reflinks_query_returns_structured_hits_and_skips_current_subtree() -> Result<
         .next()
         .expect("expected source node");
 
-    let reflinks = query_reflinks(&database, &root, &source, 10)?;
+    let source_anchor = AnchorRecord::from(source.clone());
+    let reflinks = query_reflinks(&database, &root, &source_anchor, 10)?;
     assert_eq!(reflinks.len(), 3);
 
-    assert_eq!(reflinks[0].source_node.title, "Sibling heading");
+    assert_eq!(reflinks[0].source_anchor.title, "Sibling heading");
     assert_eq!(reflinks[0].row, 12);
     assert_eq!(reflinks[0].col, 9);
     assert_eq!(
@@ -378,13 +407,13 @@ fn reflinks_query_returns_structured_hits_and_skips_current_subtree() -> Result<
     );
     assert_eq!(reflinks[0].matched_reference, "cite:smith2024");
 
-    assert_eq!(reflinks[1].source_node.title, "Other");
+    assert_eq!(reflinks[1].source_anchor.title, "Other");
     assert_eq!(reflinks[1].row, 3);
     assert_eq!(reflinks[1].col, 10);
     assert_eq!(reflinks[1].preview, "Preamble @SMITH2024 should surface.");
     assert_eq!(reflinks[1].matched_reference, "@SMITH2024");
 
-    assert_eq!(reflinks[2].source_node.title, "Another heading");
+    assert_eq!(reflinks[2].source_anchor.title, "Another heading");
     assert_eq!(reflinks[2].row, 5);
     assert_eq!(reflinks[2].col, 6);
     assert_eq!(reflinks[2].preview, "Body cite:smith2024 should surface.");
@@ -419,10 +448,14 @@ fn unlinked_references_query_returns_title_and_alias_hits() -> Result<()> {
         .next()
         .expect("expected project atlas node");
 
-    let unlinked_references = query_unlinked_references(&database, &root, &source, 10)?;
+    let source_anchor = AnchorRecord::from(source.clone());
+    let unlinked_references = query_unlinked_references(&database, &root, &source_anchor, 10)?;
     assert_eq!(unlinked_references.len(), 3);
 
-    assert_eq!(unlinked_references[0].source_node.title, "Sibling heading");
+    assert_eq!(
+        unlinked_references[0].source_anchor.title,
+        "Sibling heading"
+    );
     assert_eq!(unlinked_references[0].row, 12);
     assert_eq!(unlinked_references[0].col, 1);
     assert_eq!(
@@ -431,7 +464,7 @@ fn unlinked_references_query_returns_title_and_alias_hits() -> Result<()> {
     );
     assert_eq!(unlinked_references[0].matched_text, "Project Atlas");
 
-    assert_eq!(unlinked_references[1].source_node.title, "Other");
+    assert_eq!(unlinked_references[1].source_anchor.title, "Other");
     assert_eq!(unlinked_references[1].row, 3);
     assert_eq!(unlinked_references[1].col, 1);
     assert_eq!(
@@ -440,7 +473,7 @@ fn unlinked_references_query_returns_title_and_alias_hits() -> Result<()> {
     );
     assert_eq!(unlinked_references[1].matched_text, "project atlas");
 
-    assert_eq!(unlinked_references[2].source_node.title, "Other");
+    assert_eq!(unlinked_references[2].source_anchor.title, "Other");
     assert_eq!(unlinked_references[2].row, 4);
     assert_eq!(unlinked_references[2].col, 1);
     assert_eq!(unlinked_references[2].preview, "ATLASPLAN should surface.");
@@ -475,10 +508,14 @@ fn unlinked_references_query_supports_quoted_multi_word_aliases() -> Result<()> 
         .next()
         .expect("expected project atlas node");
 
-    let unlinked_references = query_unlinked_references(&database, &root, &source, 10)?;
+    let source_anchor = AnchorRecord::from(source.clone());
+    let unlinked_references = query_unlinked_references(&database, &root, &source_anchor, 10)?;
     assert_eq!(unlinked_references.len(), 2);
 
-    assert_eq!(unlinked_references[0].source_node.title, "Sibling heading");
+    assert_eq!(
+        unlinked_references[0].source_anchor.title,
+        "Sibling heading"
+    );
     assert_eq!(unlinked_references[0].row, 12);
     assert_eq!(unlinked_references[0].col, 1);
     assert_eq!(
@@ -487,7 +524,7 @@ fn unlinked_references_query_supports_quoted_multi_word_aliases() -> Result<()> 
     );
     assert_eq!(unlinked_references[0].matched_text, "Atlas Plan");
 
-    assert_eq!(unlinked_references[1].source_node.title, "Other");
+    assert_eq!(unlinked_references[1].source_anchor.title, "Other");
     assert_eq!(unlinked_references[1].row, 3);
     assert_eq!(unlinked_references[1].col, 1);
     assert_eq!(unlinked_references[1].preview, "ATLAS PLAN should surface.");
@@ -528,7 +565,7 @@ fn occurrence_query_returns_structured_hits_and_honors_limits() -> Result<()> {
     assert_eq!(occurrences[0].matched_text, "Needle");
     assert_eq!(
         occurrences[0]
-            .owning_node
+            .owning_anchor
             .as_ref()
             .expect("file preamble should resolve file node")
             .title,
@@ -541,7 +578,7 @@ fn occurrence_query_returns_structured_hits_and_honors_limits() -> Result<()> {
     assert_eq!(occurrences[1].preview, "Needle in first heading body.");
     assert_eq!(
         occurrences[1]
-            .owning_node
+            .owning_anchor
             .as_ref()
             .expect("heading body should resolve heading node")
             .title,
@@ -554,7 +591,7 @@ fn occurrence_query_returns_structured_hits_and_honors_limits() -> Result<()> {
     assert_eq!(occurrences[2].preview, "Needle in beta heading body.");
     assert_eq!(
         occurrences[2]
-            .owning_node
+            .owning_anchor
             .as_ref()
             .expect("heading body should resolve heading node")
             .title,
@@ -645,8 +682,8 @@ fn node_exclusion_respects_file_heading_inheritance_and_explicit_clearing() -> R
         .expect("target heading should remain indexed");
     let backlinks = database.backlinks(&target.node_key, 10, false)?;
     assert_eq!(backlinks.len(), 2);
-    assert_eq!(backlinks[0].source_node.title, "Reincluded child");
-    assert_eq!(backlinks[1].source_node.title, "Reincluded file heading");
+    assert_eq!(backlinks[0].source_note.title, "Reincluded child");
+    assert_eq!(backlinks[1].source_note.title, "Reincluded file heading");
 
     let files = database.search_files("", 10)?;
     let excluded_file = files
@@ -686,28 +723,33 @@ fn node_exclusion_keeps_text_queries_out_of_excluded_subtrees() -> Result<()> {
         .node_from_id("atlas-id")?
         .expect("target node should remain indexed");
 
-    let reflinks = query_reflinks(&database, &root, &target, 10)?;
+    let target_anchor = AnchorRecord::from(target.clone());
+    let reflinks = query_reflinks(&database, &root, &target_anchor, 10)?;
     assert_eq!(reflinks.len(), 2);
-    assert_eq!(reflinks[0].source_node.title, "Visible heading");
+    assert_eq!(reflinks[0].source_anchor.title, "Visible heading");
     assert_eq!(
         reflinks[0].preview,
         "Visible cite:smith2024 should surface."
     );
-    assert_eq!(reflinks[1].source_node.title, "Reincluded heading");
+    assert_eq!(reflinks[1].source_anchor.title, "Reincluded heading");
     assert_eq!(
         reflinks[1].preview,
         "Reincluded cite:smith2024 should surface."
     );
 
-    let unlinked_references = query_unlinked_references(&database, &root, &target, 10)?;
+    let target_anchor = AnchorRecord::from(target.clone());
+    let unlinked_references = query_unlinked_references(&database, &root, &target_anchor, 10)?;
     assert_eq!(unlinked_references.len(), 2);
-    assert_eq!(unlinked_references[0].source_node.title, "Visible heading");
+    assert_eq!(
+        unlinked_references[0].source_anchor.title,
+        "Visible heading"
+    );
     assert_eq!(
         unlinked_references[0].preview,
         "Visible AtlasPlan should surface."
     );
     assert_eq!(
-        unlinked_references[1].source_node.title,
+        unlinked_references[1].source_anchor.title,
         "Reincluded heading"
     );
     assert_eq!(
@@ -834,6 +876,31 @@ fn selects_a_random_node_from_the_index() -> Result<()> {
 }
 
 #[test]
+fn random_node_excludes_anonymous_headings() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    fs::write(
+        root.join("alpha.org"),
+        "#+title: Alpha\n\n* Hidden random heading\nAnonymous heading.\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let node = database
+        .random_node()?
+        .expect("expected selectable random node");
+    assert_eq!(node.title, "Alpha");
+    assert_eq!(node.kind.as_str(), "file");
+
+    Ok(())
+}
+
+#[test]
 fn incremental_file_sync_keeps_unrelated_files_indexed() -> Result<()> {
     let workspace = tempdir()?;
     let root = workspace.path().join("notes");
@@ -855,14 +922,14 @@ fn incremental_file_sync_keeps_unrelated_files_indexed() -> Result<()> {
 
     assert_eq!(
         database
-            .node_by_key("file:alpha.org")?
+            .note_by_key("file:alpha.org")?
             .expect("alpha node should still exist")
             .title,
         "Alpha Updated"
     );
     assert_eq!(
         database
-            .node_by_key("file:beta.org")?
+            .note_by_key("file:beta.org")?
             .expect("beta node should still exist")
             .title,
         "Beta"

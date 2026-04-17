@@ -65,7 +65,7 @@ pub(crate) fn graph_dot(
     params.hidden_link_types = hidden_link_types;
 
     if let Some(root_node_key) = params.root_node_key.as_deref() {
-        state.known_node(root_node_key, "graph root node")?;
+        state.known_note(root_node_key, "graph root node")?;
     }
 
     let dot = state
@@ -82,17 +82,19 @@ pub(crate) fn search_nodes(
     let params: SearchNodesParams = parse_params(params)?;
     let nodes = state
         .database
-        .search_nodes_with_scope(
+        .search_nodes(
             &params.query,
             params.normalized_limit(),
             params.sort.clone(),
-            params.scope,
         )
         .map_err(|error| internal_error(error.context("failed to query nodes")))?;
     to_value(SearchNodesResult { nodes })
 }
 
-pub(crate) fn random_node(state: &mut ServerState) -> Result<serde_json::Value, JsonRpcError> {
+pub(crate) fn random_node(
+    state: &mut ServerState,
+    _params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
     let node = state
         .database
         .random_node()
@@ -186,6 +188,21 @@ pub(crate) fn node_at_point(
     to_value(node)
 }
 
+pub(crate) fn anchor_at_point(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: NodeAtPointParams = parse_params(params)?;
+    let (relative_path, _) = state
+        .resolve_index_path(&params.file_path)
+        .map_err(|error| internal_error(error.context("failed to resolve file path")))?;
+    let anchor = state
+        .database
+        .anchor_at_point(&relative_path, params.normalized_line())
+        .map_err(|error| internal_error(error.context("failed to resolve anchor at point")))?;
+    to_value(anchor)
+}
+
 pub(crate) fn backlinks(
     state: &mut ServerState,
     params: serde_json::Value,
@@ -215,7 +232,7 @@ pub(crate) fn reflinks(
     params: serde_json::Value,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let params: ReflinksParams = parse_params(params)?;
-    let node = state.known_node(&params.node_key, "reflink query node")?;
+    let node = state.known_anchor(&params.node_key, "reflink query anchor")?;
     let reflinks = query_reflinks(
         &state.database,
         &state.root,
@@ -231,7 +248,7 @@ pub(crate) fn unlinked_references(
     params: serde_json::Value,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let params: UnlinkedReferencesParams = parse_params(params)?;
-    let node = state.known_node(&params.node_key, "unlinked-reference query node")?;
+    let node = state.known_anchor(&params.node_key, "unlinked-reference query anchor")?;
     let unlinked_references = query_unlinked_references(
         &state.database,
         &state.root,

@@ -11,6 +11,9 @@ The format follows Keep a Changelog, and this project follows SemVer.
   so `org-slipbox-node-find`, `org-slipbox-node-insert`, and other default
   chooser consumers no longer surface anonymous heading nodes while those
   headings remain indexed for structural and discovery queries.
+- Aligned exact title-or-alias lookup and random-node selection with the same
+  canonical selectable-node default, so anonymous headings no longer leak back
+  into user-facing lookup and navigation flows through non-chooser paths.
 
 ## [0.2.0] - 2026-03-14
 

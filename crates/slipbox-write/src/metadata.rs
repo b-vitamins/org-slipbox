@@ -2,13 +2,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use slipbox_core::{NodeKind, NodeRecord};
+use slipbox_core::{AnchorRecord, NodeKind, NodeRecord};
 use uuid::Uuid;
 
 use crate::MetadataUpdate;
 use crate::document::{OrgDocument, keyword_value, property_value};
 
-pub fn ensure_node_id(root: &Path, node: &NodeRecord) -> Result<PathBuf> {
+pub fn ensure_node_id(root: &Path, node: &AnchorRecord) -> Result<PathBuf> {
     if node.explicit_id.is_some() {
         return Ok(root.join(&node.file_path));
     }

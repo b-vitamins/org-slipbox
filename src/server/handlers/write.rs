@@ -52,7 +52,7 @@ pub(crate) fn capture_template(
         params.file_path = Some(relative_path);
     }
     let target = match params.node_key.as_deref() {
-        Some(node_key) => Some(state.known_node(node_key, "target node")?),
+        Some(node_key) => Some(state.known_note(node_key, "target node")?),
         None => None,
     };
     let captured = slipbox_write::capture_template(&state.root, target.as_ref(), &params)
@@ -72,7 +72,7 @@ pub(crate) fn capture_template_preview(
         params.capture.file_path = Some(relative_path);
     }
     let target = match params.capture.node_key.as_deref() {
-        Some(node_key) => Some(state.known_node(node_key, "target node")?),
+        Some(node_key) => Some(state.known_note(node_key, "target node")?),
         None => None,
     };
     let preview = slipbox_write::preview_capture_template(
@@ -117,7 +117,7 @@ pub(crate) fn append_heading_to_node(
     params: serde_json::Value,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let params: AppendHeadingToNodeParams = parse_params(params)?;
-    let target = state.known_node(&params.node_key, "node")?;
+    let target = state.known_note(&params.node_key, "node")?;
     let captured = slipbox_write::append_heading_to_node(&state.root, &target, &params.heading)
         .map_err(|error| internal_error(error.context("failed to append heading to node")))?;
     to_value(state.sync_capture(&captured, "captured heading")?)
@@ -144,7 +144,7 @@ pub(crate) fn ensure_node_id(
     params: serde_json::Value,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let params: EnsureNodeIdParams = parse_params(params)?;
-    let node = state.known_node(&params.node_key, "node")?;
+    let node = state.known_anchor(&params.node_key, "node")?;
 
     if node.explicit_id.is_none() {
         let updated_path = slipbox_write::ensure_node_id(&state.root, &node)
@@ -152,7 +152,7 @@ pub(crate) fn ensure_node_id(
         state.sync_path(&updated_path)?;
     }
 
-    to_value(state.require_node(&params.node_key, "updated node")?)
+    to_value(state.require_anchor(&params.node_key, "updated node")?)
 }
 
 pub(crate) fn update_node_metadata(
@@ -160,7 +160,7 @@ pub(crate) fn update_node_metadata(
     params: serde_json::Value,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let params: UpdateNodeMetadataParams = parse_params(params)?;
-    let node = state.known_node(&params.node_key, "node")?;
+    let node = state.known_note(&params.node_key, "node")?;
     let updated_path = slipbox_write::update_node_metadata(
         &state.root,
         &node,
@@ -179,8 +179,8 @@ pub(crate) fn refile_subtree(
     params: serde_json::Value,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let params: RefileSubtreeParams = parse_params(params)?;
-    let source = state.known_node(&params.source_node_key, "source node")?;
-    let target = state.known_node(&params.target_node_key, "target node")?;
+    let source = state.known_anchor(&params.source_node_key, "source node")?;
+    let target = state.known_note(&params.target_node_key, "target node")?;
     let outcome = slipbox_write::refile_subtree(&state.root, &source, &target)
         .map_err(|error| internal_error(error.context("failed to refile subtree")))?;
     to_value(state.sync_rewrite(&outcome, "refiled node")?)
@@ -194,7 +194,7 @@ pub(crate) fn refile_region(
     let (relative_path, _) = state
         .resolve_index_path(&params.file_path)
         .map_err(|error| internal_error(error.context("failed to resolve file path")))?;
-    let target = state.known_node(&params.target_node_key, "target node")?;
+    let target = state.known_note(&params.target_node_key, "target node")?;
     let (start, end) = params.normalized_range();
     let outcome = slipbox_write::refile_region(&state.root, &relative_path, start, end, &target)
         .map_err(|error| internal_error(error.context("failed to refile region")))?;
@@ -207,7 +207,7 @@ pub(crate) fn extract_subtree(
     params: serde_json::Value,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let params: ExtractSubtreeParams = parse_params(params)?;
-    let source = state.known_node(&params.source_node_key, "source node")?;
+    let source = state.known_anchor(&params.source_node_key, "source node")?;
     let (relative_path, _) = state
         .resolve_index_path(&params.file_path)
         .map_err(|error| internal_error(error.context("failed to resolve file path")))?;

@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
-use slipbox_core::{CaptureTemplatePreviewResult, NodeRecord, PreviewNodeRecord};
+use slipbox_core::{AnchorRecord, CaptureTemplatePreviewResult, NodeRecord, PreviewNodeRecord};
 use slipbox_index::DiscoveryPolicy;
 use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
 use slipbox_store::Database;
@@ -109,13 +109,13 @@ impl ServerState {
         self.remove_deleted_paths(removed_paths)
     }
 
-    pub(super) fn require_node(
+    pub(super) fn require_note(
         &mut self,
         node_key: &str,
         description: &str,
     ) -> Result<NodeRecord, JsonRpcError> {
         self.database
-            .node_by_key(node_key)
+            .note_by_key(node_key)
             .map_err(|error| {
                 internal_error(error.context(format!("failed to fetch {description}")))
             })?
@@ -126,7 +126,7 @@ impl ServerState {
             })
     }
 
-    pub(super) fn require_node_by_id(
+    pub(super) fn require_note_by_id(
         &mut self,
         explicit_id: &str,
         description: &str,
@@ -143,13 +143,47 @@ impl ServerState {
             })
     }
 
-    pub(super) fn known_node(
+    pub(super) fn known_note(
         &mut self,
         node_key: &str,
         description: &str,
     ) -> Result<NodeRecord, JsonRpcError> {
         self.database
-            .node_by_key(node_key)
+            .note_by_key(node_key)
+            .map_err(|error| {
+                internal_error(error.context(format!("failed to fetch {description}")))
+            })?
+            .ok_or_else(|| {
+                JsonRpcError::new(JsonRpcErrorObject::invalid_request(format!(
+                    "unknown {description}: {node_key}"
+                )))
+            })
+    }
+
+    pub(super) fn require_anchor(
+        &mut self,
+        node_key: &str,
+        description: &str,
+    ) -> Result<AnchorRecord, JsonRpcError> {
+        self.database
+            .anchor_by_key(node_key)
+            .map_err(|error| {
+                internal_error(error.context(format!("failed to fetch {description}")))
+            })?
+            .ok_or_else(|| {
+                internal_error(anyhow!(
+                    "{description} {node_key} was not found after indexing"
+                ))
+            })
+    }
+
+    pub(super) fn known_anchor(
+        &mut self,
+        node_key: &str,
+        description: &str,
+    ) -> Result<AnchorRecord, JsonRpcError> {
+        self.database
+            .anchor_by_key(node_key)
             .map_err(|error| {
                 internal_error(error.context(format!("failed to fetch {description}")))
             })?
@@ -166,7 +200,7 @@ impl ServerState {
         description: &str,
     ) -> Result<NodeRecord, JsonRpcError> {
         self.sync_path(&outcome.absolute_path)?;
-        self.require_node(&outcome.node_key, description)
+        self.require_note(&outcome.node_key, description)
     }
 
     pub(super) fn sync_path_and_read_node(
@@ -176,7 +210,7 @@ impl ServerState {
         description: &str,
     ) -> Result<NodeRecord, JsonRpcError> {
         self.sync_path(path)?;
-        self.require_node(node_key, description)
+        self.require_note(node_key, description)
     }
 
     pub(super) fn sync_rewrite(
@@ -185,7 +219,7 @@ impl ServerState {
         description: &str,
     ) -> Result<NodeRecord, JsonRpcError> {
         self.reconcile_paths(&outcome.changed_paths, &outcome.removed_paths)?;
-        self.require_node_by_id(&outcome.explicit_id, description)
+        self.require_note_by_id(&outcome.explicit_id, description)
     }
 
     fn relative_root_path(&self, path: &Path) -> Result<String> {

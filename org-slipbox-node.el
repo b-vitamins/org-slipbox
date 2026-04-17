@@ -46,16 +46,16 @@
     response))
 
 (defun org-slipbox-node-from-id (id)
-  "Return the indexed node with explicit ID."
+  "Return the canonical node with explicit ID."
   (org-slipbox-rpc-node-from-id id))
 
 (defun org-slipbox-node-from-title-or-alias (title-or-alias &optional nocase)
-  "Return the indexed node matching TITLE-OR-ALIAS.
+  "Return the canonical node matching TITLE-OR-ALIAS.
 When NOCASE is non-nil, use case-insensitive matching."
   (org-slipbox-rpc-node-from-title-or-alias title-or-alias nocase))
 
 (defun org-slipbox-node-from-ref (reference)
-  "Return the indexed node for REFERENCE, or nil when none exists."
+  "Return the canonical node for REFERENCE, or nil when none exists."
   (org-slipbox-rpc-node-from-ref reference))
 
 (defun org-slipbox-node-find (&optional initial-input filter-fn other-window)
@@ -80,13 +80,13 @@ With OTHER-WINDOW, visit the result in another window."
 
 ;;;###autoload
 (defun org-slipbox-node-random (&optional other-window)
-  "Visit a random indexed node.
+  "Visit a random canonical node.
 With prefix argument OTHER-WINDOW, visit it in another window."
   (interactive "P")
   (let* ((response (org-slipbox-rpc-random-node))
          (node (plist-get response :node)))
     (unless node
-      (user-error "No indexed nodes available"))
+      (user-error "No canonical nodes available"))
     (org-slipbox--visit-node node other-window)
     node))
 
@@ -110,7 +110,7 @@ INITIAL-INPUT seeds the minibuffer. FILTER-FN filters indexed nodes."
        "*org-slipbox backlinks*"
        (format "Backlinks for %s" (plist-get node :title))
        backlinks
-       :source_node
+       :source_note
        "No backlinks found."))))
 
 (defun org-slipbox-node-forward-links (&optional initial-input filter-fn)
@@ -133,7 +133,7 @@ INITIAL-INPUT seeds the minibuffer. FILTER-FN filters indexed nodes."
        "*org-slipbox forward-links*"
        (format "Forward links for %s" (plist-get node :title))
        forward-links
-       :destination_node
+       :destination_note
        "No forward links found."))))
 
 (defun org-slipbox-node--display-link-occurrences

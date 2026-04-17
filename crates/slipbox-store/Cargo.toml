@@ -16,3 +16,4 @@ anyhow.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
 slipbox-core = { path = "../slipbox-core" }
+urlencoding.workspace = true

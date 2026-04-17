@@ -36,7 +36,7 @@
 (defvar org-slipbox-directory)
 
 (defun org-slipbox-node-at-point (&optional assert)
-  "Return the indexed node at point.
+  "Return the canonical node at point.
 If ASSERT is non-nil, signal a user error when no node is available."
   (let ((node (and (org-slipbox--queryable-node-buffer-p)
                    (progn
@@ -46,6 +46,18 @@ If ASSERT is non-nil, signal a user error when no node is available."
                       (line-number-at-pos))))))
     (or node
         (and assert (user-error "No node at point")))))
+
+(defun org-slipbox-anchor-at-point (&optional assert)
+  "Return the indexed anchor at point.
+If ASSERT is non-nil, signal a user error when no anchor is available."
+  (let ((anchor (and (org-slipbox--queryable-node-buffer-p)
+                     (progn
+                       (org-slipbox--sync-node-buffer-if-needed)
+                       (org-slipbox-rpc-anchor-at-point
+                        (org-slipbox--current-node-buffer-file)
+                        (line-number-at-pos))))))
+    (or anchor
+        (and assert (user-error "No anchor at point")))))
 
 (defun org-slipbox--save-and-sync-current-buffer ()
   "Save and sync the current buffer into the index."

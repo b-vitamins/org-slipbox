@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use regex::{Regex, RegexBuilder};
 
-use slipbox_core::OccurrenceRecord;
+use slipbox_core::{AnchorRecord, OccurrenceRecord};
 use slipbox_store::Database;
 
 use crate::text_query::column_number;
@@ -37,16 +37,16 @@ pub(crate) fn query_occurrences(
             break;
         }
         offset += candidate_count;
-        let owning_nodes_by_file = database.nodes_in_files(&candidate_file_paths)?;
+        let owning_anchors_by_file = database.anchors_in_files(&candidate_file_paths)?;
 
         for file_path in candidate_file_paths {
             let Some(candidate) = database.occurrence_document(&file_path)? else {
                 continue;
             };
-            let Some(owning_nodes) = owning_nodes_by_file.get(&candidate.file_path) else {
+            let Some(owning_anchors) = owning_anchors_by_file.get(&candidate.file_path) else {
                 continue;
             };
-            let mut owning_node_index = 0_usize;
+            let mut owning_anchor_index = 0_usize;
             let lines = candidate.search_text.lines().collect::<Vec<_>>();
             let line_starts = line_start_offsets(&lines);
             let mut line_index = 0_usize;
@@ -58,15 +58,15 @@ pub(crate) fn query_occurrences(
                 }
                 let line = lines[line_index];
                 let row = candidate.line_rows[line_index];
-                let owning_node =
-                    resolve_owning_node(owning_nodes, row, &mut owning_node_index).clone();
+                let owning_anchor =
+                    resolve_owning_anchor(owning_anchors, row, &mut owning_anchor_index).clone();
                 results.push(OccurrenceRecord {
                     file_path: candidate.file_path.clone(),
                     row,
                     col: column_number(line, matched.start() - line_starts[line_index]),
                     preview: line.trim_end().to_owned(),
                     matched_text: matched.as_str().to_owned(),
-                    owning_node: Some(owning_node),
+                    owning_anchor: Some(owning_anchor),
                 });
                 if results.len() >= limit {
                     return Ok(results);
@@ -92,15 +92,15 @@ fn line_start_offsets(lines: &[&str]) -> Vec<usize> {
     starts
 }
 
-fn resolve_owning_node<'a>(
-    nodes: &'a [slipbox_core::NodeRecord],
+fn resolve_owning_anchor<'a>(
+    anchors: &'a [AnchorRecord],
     row: u32,
     index: &mut usize,
-) -> &'a slipbox_core::NodeRecord {
-    while *index + 1 < nodes.len() && nodes[*index + 1].line <= row {
+) -> &'a AnchorRecord {
+    while *index + 1 < anchors.len() && anchors[*index + 1].line <= row {
         *index += 1;
     }
-    &nodes[*index]
+    &anchors[*index]
 }
 
 fn build_occurrence_matcher(query: &str) -> Result<Option<Regex>> {

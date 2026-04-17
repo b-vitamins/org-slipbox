@@ -3,7 +3,7 @@ mod outline;
 mod properties;
 
 use anyhow::{Context, Result, bail};
-use slipbox_core::{NodeKind, NodeRecord};
+use slipbox_core::{AnchorRecord, NodeKind};
 use uuid::Uuid;
 
 use crate::path::default_capture_file_title;
@@ -103,7 +103,7 @@ impl OrgDocument {
         Ok(())
     }
 
-    pub(crate) fn subtree_lines(&self, node: &NodeRecord) -> Result<(Vec<String>, String)> {
+    pub(crate) fn subtree_lines(&self, node: &AnchorRecord) -> Result<(Vec<String>, String)> {
         match node.kind {
             NodeKind::Heading => {
                 let (start, end) = self.subtree_range(node.line as usize)?;
