@@ -13,7 +13,7 @@ use std::{thread, time::Duration};
 use anyhow::Result;
 use occurrences_query::query_occurrences;
 use reflinks_query::query_reflinks;
-use slipbox_core::SearchNodesSort;
+use slipbox_core::{SearchNodesScope, SearchNodesSort};
 use slipbox_index::{
     DiscoveryPolicy, scan_path, scan_path_with_policy, scan_root, scan_root_with_policy,
 };
@@ -194,6 +194,44 @@ fn search_nodes_support_named_sorts() -> Result<()> {
             .map(|node| node.title.as_str())
             .collect::<Vec<_>>(),
         vec!["Common Zulu", "Common Beta", "Common Alpha"]
+    );
+
+    Ok(())
+}
+
+#[test]
+fn search_nodes_default_to_selectable_scope() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    fs::write(
+        root.join("alpha.org"),
+        "#+title: Alpha Target\n\n* Anonymous Target\n* Identified Target\n:PROPERTIES:\n:ID: identified-target\n:END:\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let selectable = database.search_nodes("target", 10, None)?;
+    assert_eq!(
+        selectable
+            .iter()
+            .map(|node| node.title.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Alpha Target", "Identified Target"]
+    );
+
+    let indexed =
+        database.search_nodes_with_scope("target", 10, None, SearchNodesScope::Indexed)?;
+    assert_eq!(
+        indexed
+            .iter()
+            .map(|node| node.title.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Alpha Target", "Anonymous Target", "Identified Target"]
     );
 
     Ok(())

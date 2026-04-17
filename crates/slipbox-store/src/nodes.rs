@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use rusqlite::{OptionalExtension, params, params_from_iter};
 use serde_json::Value;
 
-use slipbox_core::{NodeKind, NodeRecord, SearchNodesSort};
+use slipbox_core::{NodeKind, NodeRecord, SearchNodesScope, SearchNodesSort};
 
 use crate::Database;
 
@@ -17,16 +17,38 @@ impl Database {
         limit: usize,
         sort: Option<SearchNodesSort>,
     ) -> Result<Vec<NodeRecord>> {
+        self.search_nodes_with_scope(query, limit, sort, SearchNodesScope::Selectable)
+    }
+
+    pub fn search_indexed_nodes(
+        &self,
+        query: &str,
+        limit: usize,
+        sort: Option<SearchNodesSort>,
+    ) -> Result<Vec<NodeRecord>> {
+        self.search_nodes_with_scope(query, limit, sort, SearchNodesScope::Indexed)
+    }
+
+    pub fn search_nodes_with_scope(
+        &self,
+        query: &str,
+        limit: usize,
+        sort: Option<SearchNodesSort>,
+        scope: SearchNodesScope,
+    ) -> Result<Vec<NodeRecord>> {
         let limit = limit.clamp(1, 200) as i64;
+        let scope_where = search_nodes_scope_where(scope);
         if let Some(fts_query) = build_fts_query(query) {
             let sql = format!(
                 "SELECT {}
                    FROM node_fts
                    JOIN nodes AS n ON n.id = node_fts.rowid
                   WHERE node_fts MATCH ?1
+                    AND {}
                   ORDER BY {}
                   LIMIT ?2",
                 node_select_columns("n"),
+                scope_where,
                 search_nodes_order_by(sort.as_ref(), true)
             );
             let mut statement = self.connection.prepare(&sql)?;
@@ -37,9 +59,11 @@ impl Database {
             let sql = format!(
                 "SELECT {}
                    FROM nodes AS n
+                  WHERE {}
                   ORDER BY {}
                   LIMIT ?1",
                 node_select_columns("n"),
+                scope_where,
                 search_nodes_order_by(sort.as_ref(), false)
             );
             let mut statement = self.connection.prepare(&sql)?;
@@ -279,6 +303,13 @@ fn search_nodes_order_by(sort: Option<&SearchNodesSort>, using_fts: bool) -> &'s
         Some(SearchNodesSort::FileMtime) => "file_mtime_ns DESC, n.file_path, n.line",
         Some(SearchNodesSort::BacklinkCount) => "backlink_count DESC, n.file_path, n.line",
         Some(SearchNodesSort::ForwardLinkCount) => "forward_link_count DESC, n.file_path, n.line",
+    }
+}
+
+fn search_nodes_scope_where(scope: SearchNodesScope) -> &'static str {
+    match scope {
+        SearchNodesScope::Selectable => "(n.kind = 'file' OR n.explicit_id IS NOT NULL)",
+        SearchNodesScope::Indexed => "1 = 1",
     }
 }
 

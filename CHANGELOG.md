@@ -6,6 +6,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+### Changed
+- Narrowed the default node chooser surface to canonical selectable nodes,
+  so `org-slipbox-node-find`, `org-slipbox-node-insert`, and other default
+  chooser consumers no longer surface anonymous heading nodes while those
+  headings remain indexed for structural and discovery queries.
+
 ## [0.2.0] - 2026-03-14
 
 ### Added

@@ -286,6 +286,14 @@ pub enum SearchNodesSort {
     ForwardLinkCount,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SearchNodesScope {
+    #[default]
+    Selectable,
+    Indexed,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchNodesParams {
     pub query: String,
@@ -293,6 +301,8 @@ pub struct SearchNodesParams {
     pub limit: usize,
     #[serde(default)]
     pub sort: Option<SearchNodesSort>,
+    #[serde(default)]
+    pub scope: SearchNodesScope,
 }
 
 impl SearchNodesParams {
@@ -985,8 +995,8 @@ fn normalize_string_values(values: &[String], nocase: bool) -> Vec<String> {
 mod tests {
     use super::{
         CaptureNodeParams, CaptureTemplatePreviewResult, NodeKind, NodeRecord, PreviewNodeRecord,
-        SearchNodesParams, SearchNodesSort, UnlinkedReferencesParams, UpdateNodeMetadataParams,
-        normalize_reference,
+        SearchNodesParams, SearchNodesScope, SearchNodesSort, UnlinkedReferencesParams,
+        UpdateNodeMetadataParams, normalize_reference,
     };
     use serde_json::json;
 
@@ -1196,22 +1206,34 @@ mod tests {
         let params: SearchNodesParams = serde_json::from_value(json!({
             "query": "alpha",
             "limit": 10,
-            "sort": "forward-link-count"
+            "sort": "forward-link-count",
+            "scope": "indexed"
         }))
         .expect("search node params should deserialize");
 
         assert_eq!(params.query, "alpha");
         assert_eq!(params.limit, 10);
         assert_eq!(params.sort, Some(SearchNodesSort::ForwardLinkCount));
+        assert_eq!(params.scope, SearchNodesScope::Indexed);
 
         assert_eq!(
             serde_json::to_value(&params).expect("search node params should serialize"),
             json!({
                 "query": "alpha",
                 "limit": 10,
-                "sort": "forward-link-count"
+                "sort": "forward-link-count",
+                "scope": "indexed"
             })
         );
+    }
+
+    #[test]
+    fn search_nodes_params_default_to_selectable_scope() {
+        let params: SearchNodesParams =
+            serde_json::from_value(json!({ "query": "alpha", "limit": 10 }))
+                .expect("search node params should deserialize");
+
+        assert_eq!(params.scope, SearchNodesScope::Selectable);
     }
 
     #[test]

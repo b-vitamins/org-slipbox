@@ -598,7 +598,8 @@
          (lambda (node)
            (format "Choice: %s" (plist-get node :title)))))
     (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
-               (lambda (_query _limit &optional _sort)
+               (lambda (_query _limit &optional _sort scope)
+                 (should (eq scope 'selectable))
                  '(:nodes [(:title "One" :file_path "one.org" :line 1)]))))
       (let ((choices (org-slipbox--search-node-choices "o")))
         (should (equal (mapcar #'substring-no-properties (mapcar #'car choices))
@@ -621,8 +622,9 @@
          (lambda (node)
            (format " [%s]" (plist-get node :file_path)))))
     (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
-               (lambda (_query _limit &optional sort)
+               (lambda (_query _limit &optional sort scope)
                  (should (eq sort 'title))
+                 (should (eq scope 'selectable))
                  '(:nodes [(:title "Alpha" :file_path "alpha.org" :line 3)]))))
       (let* ((candidates (org-slipbox-node-completion-candidates "Alpha" nil 'title))
              (candidate (caar candidates)))
@@ -644,8 +646,9 @@
         metadata
         candidates)
     (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
-               (lambda (_query _limit &optional sort)
+               (lambda (_query _limit &optional sort scope)
                  (setq rpc-sort sort)
+                 (should (eq scope 'selectable))
                  (if (eq sort 'title)
                      '(:nodes [(:title "Alpha" :file_path "a.org" :line 1
                                 :backlink_count 7 :forward_link_count 3
@@ -679,8 +682,9 @@
         rpc-sort
         candidates)
     (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
-               (lambda (_query _limit &optional sort)
+               (lambda (_query _limit &optional sort scope)
                  (setq rpc-sort sort)
+                 (should (eq scope 'selectable))
                  '(:nodes [(:title "Newest" :file_path "new.org" :line 1)
                            (:title "Older" :file_path "old.org" :line 1)])))
               ((symbol-function 'file-attributes)
@@ -707,8 +711,9 @@
          rpc-sort
          candidates)
     (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
-               (lambda (_query _limit &optional sort)
+               (lambda (_query _limit &optional sort scope)
                  (setq rpc-sort sort)
+                 (should (eq scope 'selectable))
                  `(:nodes [(:title "Newest"
                             :file_path "new.org"
                             :line 1
@@ -738,8 +743,9 @@
   (let (rpc-sort
         candidates)
     (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
-               (lambda (_query _limit &optional sort)
+               (lambda (_query _limit &optional sort scope)
                  (setq rpc-sort sort)
+                 (should (eq scope 'selectable))
                  '(:nodes [(:title "Zulu" :file_path "z.org" :line 2)
                            (:title "Alpha" :file_path "a.org" :line 1)])))
               ((symbol-function 'completing-read)
@@ -755,8 +761,9 @@
   (let (rpc-sort
         candidates)
     (cl-letf (((symbol-function 'org-slipbox-rpc-search-nodes)
-               (lambda (_query _limit &optional sort)
+               (lambda (_query _limit &optional sort scope)
                  (setq rpc-sort sort)
+                 (should (eq scope 'selectable))
                  '(:nodes [(:title "Older"
                             :file_path "old.org"
                             :line 2
@@ -2919,7 +2926,7 @@
       (should (equal (org-slipbox--title-completion-candidates "He")
                      '("Heading" "Head"))))
     (should (equal method "slipbox/searchNodes"))
-    (should (equal params '(:query "He" :limit 50)))))
+    (should (equal params '(:query "He" :limit 50 :scope "selectable")))))
 
 (ert-deftest org-slipbox-test-rpc-search-nodes-encodes-sort-param ()
   "Node search RPC should encode named sort modes explicitly."
@@ -2933,7 +2940,20 @@
     (should (equal method "slipbox/searchNodes"))
     (should (equal params '(:query "Heading"
                             :limit 10
-                            :sort "forward-link-count")))))
+                            :sort "forward-link-count"
+                            :scope "selectable")))))
+
+(ert-deftest org-slipbox-test-rpc-search-nodes-encodes-indexed-scope ()
+  "Node search RPC should encode explicit indexed scope."
+  (let (params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (_request-method request-params)
+                 (setq params request-params)
+                 '(:nodes []))))
+      (org-slipbox-rpc-search-nodes "Heading" 10 nil 'indexed))
+    (should (equal params '(:query "Heading"
+                            :limit 10
+                            :scope "indexed")))))
 
 (ert-deftest org-slipbox-test-rpc-search-nodes-rejects-unsupported-string-sort ()
   "Node search RPC should reject unsupported string sort names."

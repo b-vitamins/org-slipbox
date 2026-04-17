@@ -306,11 +306,25 @@ resolves it through `exec-path'."
    (t
     (user-error "Unsupported searchNodes sort %s" sort))))
 
-(defun org-slipbox-rpc-search-nodes (query limit &optional sort)
-  "Search nodes matching QUERY with LIMIT and optional SORT."
+(defun org-slipbox-rpc--search-node-scope-name (scope)
+  "Return SCOPE encoded for the `searchNodes' RPC surface."
+  (cond
+   ((null scope) "selectable")
+   ((member scope '("selectable" "indexed"))
+    scope)
+   ((eq scope 'selectable) "selectable")
+   ((eq scope 'indexed) "indexed")
+   (t
+    (user-error "Unsupported searchNodes scope %s" scope))))
+
+(defun org-slipbox-rpc-search-nodes (query limit &optional sort scope)
+  "Search nodes matching QUERY with LIMIT, optional SORT, and optional SCOPE.
+SCOPE defaults to `selectable', which excludes anonymous heading nodes."
   (let ((params `(:query ,query :limit ,limit)))
     (when-let ((sort-name (org-slipbox-rpc--search-node-sort-name sort)))
       (setq params (append params `(:sort ,sort-name))))
+    (setq params
+          (append params `(:scope ,(org-slipbox-rpc--search-node-scope-name scope))))
     (org-slipbox-rpc-request
      org-slipbox-rpc-method-search-nodes
      params)))

@@ -53,7 +53,7 @@ fn ensure_node_id_updates_heading_in_place() -> Result<()> {
     database.sync_index(&files)?;
 
     let node = database
-        .search_nodes("unidentified", 10, None)?
+        .search_indexed_nodes("unidentified", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Unidentified heading")
         .expect("heading node should exist");
@@ -333,7 +333,7 @@ fn capture_template_item_appends_inside_existing_list_body() -> Result<()> {
     database.sync_index(&files)?;
 
     let parent = database
-        .search_nodes("parent", 10, None)?
+        .search_indexed_nodes("parent", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Parent")
         .expect("parent node should exist");
@@ -384,7 +384,7 @@ fn capture_template_table_line_uses_existing_table_block() -> Result<()> {
     database.sync_index(&files)?;
 
     let parent = database
-        .search_nodes("parent", 10, None)?
+        .search_indexed_nodes("parent", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Parent")
         .expect("parent node should exist");
@@ -435,7 +435,7 @@ fn capture_template_table_line_honors_explicit_table_line_position() -> Result<(
     database.sync_index(&files)?;
 
     let parent = database
-        .search_nodes("parent", 10, None)?
+        .search_indexed_nodes("parent", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Parent")
         .expect("parent node should exist");
@@ -589,7 +589,7 @@ fn capture_template_item_prepend_renumbers_existing_ordered_lists() -> Result<()
     let mut database = Database::open(&database_path)?;
     database.sync_index(&files)?;
     let parent = database
-        .search_nodes("parent", 10, None)?
+        .search_indexed_nodes("parent", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Parent")
         .expect("parent node should exist");
@@ -634,7 +634,7 @@ fn capture_template_table_line_creates_table_when_missing() -> Result<()> {
     let mut database = Database::open(&database_path)?;
     database.sync_index(&files)?;
     let parent = database
-        .search_nodes("parent", 10, None)?
+        .search_indexed_nodes("parent", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Parent")
         .expect("parent node should exist");
@@ -799,7 +799,7 @@ fn append_heading_to_existing_node_inserts_child_before_next_sibling() -> Result
     let mut database = Database::open(&database_path)?;
     database.sync_index(&files)?;
     let parent = database
-        .search_nodes("parent", 10, None)?
+        .search_indexed_nodes("parent", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Parent")
         .expect("parent node should exist");
@@ -875,7 +875,7 @@ fn update_node_metadata_rewrites_heading_aliases_and_tags() -> Result<()> {
     database.sync_index(&files)?;
 
     let node = database
-        .search_nodes("heading", 10, None)?
+        .search_indexed_nodes("heading", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Heading")
         .expect("heading node should exist");
@@ -985,12 +985,12 @@ fn refile_subtree_moves_heading_between_files_and_preserves_source_file_note() -
     database.sync_index(&files)?;
 
     let source = database
-        .search_nodes("move me", 10, None)?
+        .search_indexed_nodes("move me", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Move Me")
         .expect("source heading should exist");
     let target = database
-        .search_nodes("parent", 10, None)?
+        .search_indexed_nodes("parent", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Parent")
         .expect("target heading should exist");
@@ -1029,7 +1029,7 @@ fn refile_region_moves_selected_text_under_target_heading() -> Result<()> {
     database.sync_index(&files)?;
 
     let target = database
-        .search_nodes("parent", 10, None)?
+        .search_indexed_nodes("parent", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Parent")
         .expect("target heading should exist");
@@ -1069,7 +1069,7 @@ fn refile_region_same_file_adjusts_insertion_and_heading_levels() -> Result<()> 
     database.sync_index(&files)?;
 
     let keep = database
-        .search_nodes("keep", 10, None)?
+        .search_indexed_nodes("keep", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Keep")
         .expect("target heading should exist");
@@ -1090,7 +1090,7 @@ fn refile_region_same_file_adjusts_insertion_and_heading_levels() -> Result<()> 
     );
 
     let moved = database
-        .search_nodes("move", 10, None)?
+        .search_indexed_nodes("move", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Move")
         .expect("moved heading should still be indexed");
@@ -1117,7 +1117,7 @@ fn refile_region_removes_source_file_when_selection_empties_it() -> Result<()> {
     database.sync_index(&files)?;
 
     let target = database
-        .search_nodes("parent", 10, None)?
+        .search_indexed_nodes("parent", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Parent")
         .expect("target heading should exist");
@@ -1149,7 +1149,7 @@ fn extract_subtree_promotes_heading_into_a_file_node() -> Result<()> {
     database.sync_index(&files)?;
 
     let source = database
-        .search_nodes("move me", 10, None)?
+        .search_indexed_nodes("move me", 10, None)?
         .into_iter()
         .find(|candidate| candidate.title == "Move Me")
         .expect("source heading should exist");
