@@ -4,7 +4,7 @@
 
 ;; Author: Ayan Das <bvits@riseup.net>
 ;; Maintainer: Ayan Das <bvits@riseup.net>
-;; Version: 0.2.0
+;; Version: 0.3.0
 ;; Package-Requires: ((emacs "29.1") (jsonrpc "1.0.27"))
 ;; Keywords: outlines, files, convenience
 
@@ -83,7 +83,8 @@
 
 (defun org-slipbox--capture-start
     (title &optional template refs time variables session)
-  "Start a capture draft for TITLE using TEMPLATE, REFS, TIME, VARIABLES, and SESSION."
+  "Start a capture draft for TITLE.
+Use TEMPLATE, REFS, TIME, VARIABLES, and SESSION for initialization."
   (let* ((template (or template (org-slipbox--default-capture-template)))
          (template-options (org-slipbox--capture-template-options template))
          (session (copy-sequence session))

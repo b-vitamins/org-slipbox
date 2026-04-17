@@ -4,7 +4,7 @@
 
 ;; Author: Ayan Das <bvits@riseup.net>
 ;; Maintainer: Ayan Das <bvits@riseup.net>
-;; Version: 0.2.0
+;; Version: 0.3.0
 ;; Package-Requires: ((emacs "29.1") (jsonrpc "1.0.27"))
 ;; Keywords: outlines, files, convenience
 
@@ -103,7 +103,8 @@
 
 (defun org-slipbox--capture-node-at-time
     (title &optional template refs time variables session)
-  "Start a capture draft for TITLE using TEMPLATE, REFS, TIME, VARIABLES, and SESSION."
+  "Start a capture draft for TITLE at TIME.
+Use TEMPLATE, REFS, VARIABLES, and SESSION for initialization."
   (org-slipbox--capture-start title template refs time variables session))
 
 (provide 'org-slipbox-capture)

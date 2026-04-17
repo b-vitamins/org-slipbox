@@ -4,7 +4,7 @@
 
 ;; Author: Ayan Das <bvits@riseup.net>
 ;; Maintainer: Ayan Das <bvits@riseup.net>
-;; Version: 0.2.0
+;; Version: 0.3.0
 ;; Package-Requires: ((emacs "29.1") (org "9.6"))
 ;; Keywords: outlines, files, convenience
 
@@ -62,6 +62,7 @@ This keeps Org ID-based targets aligned with the `id:' link export path."
 (define-minor-mode org-slipbox-export-mode
   "Toggle HTML export support for Org ID-backed links."
   :global t
+  :group 'org-slipbox
   (if org-slipbox-export-mode
       (advice-add 'org-html--reference
                   :override

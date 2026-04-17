@@ -6,14 +6,21 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-17
+
 ### Changed
-- Narrowed the default node chooser surface to canonical selectable nodes,
-  so `org-slipbox-node-find`, `org-slipbox-node-insert`, and other default
-  chooser consumers no longer surface anonymous heading nodes while those
-  headings remain indexed for structural and discovery queries.
-- Aligned exact title-or-alias lookup and random-node selection with the same
-  canonical selectable-node default, so anonymous headings no longer leak back
-  into user-facing lookup and navigation flows through non-chooser paths.
+- Narrowed the public note model to canonical notes only, so
+  `org-slipbox-node-find`, `org-slipbox-node-insert`, exact title-or-alias
+  lookup, random-node selection, backlinks, forward links, graph export, and
+  other user-facing note surfaces no longer expose anonymous heading anchors.
+- Split canonical note records from structural anchor records across the Rust
+  store, RPC layer, and Emacs client so anonymous headings remain available for
+  agenda, occurrence ownership, subtree rewrite, and other anchor-oriented
+  operations without leaking into public note semantics.
+
+### Fixed
+- Required the standard `crm` library in metadata commands so tag completion
+  byte-compiles cleanly under lexical binding during release verification.
 
 ## [0.2.0] - 2026-03-14
 

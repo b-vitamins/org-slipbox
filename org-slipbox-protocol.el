@@ -4,7 +4,7 @@
 
 ;; Author: Ayan Das <bvits@riseup.net>
 ;; Maintainer: Ayan Das <bvits@riseup.net>
-;; Version: 0.2.0
+;; Version: 0.3.0
 ;; Package-Requires: ((emacs "29.1") (jsonrpc "1.0.27"))
 ;; Keywords: outlines, files, convenience
 
@@ -30,6 +30,7 @@
 ;;; Code:
 
 (require 'ol)
+(require 'org-protocol)
 (require 'subr-x)
 (require 'org-slipbox-capture)
 (require 'org-slipbox-node)
