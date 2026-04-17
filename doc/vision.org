@@ -54,6 +54,25 @@ The dedicated buffer should become the richer workbench. It should support:
 - clear explanations for why a node or section is being shown
 - controlled discovery of non-obvious but relevant material
 
+* One Exploratory Model, Two Surfaces
+
+`org-slipbox` should not grow one model for the Emacs cockpit and another for
+headless or programmable use.
+
+The dedicated buffer is the interactive realization of the exploratory model.
+The native programmable workbench is the task-shaped, non-UI realization of
+that same model.
+
+This implies:
+
+- lenses mean the same thing in the cockpit and in headless workflows
+- explanations come from the engine rather than ad hoc frontend reconstruction
+- trails, comparisons, and later saved views are durable domain concepts, not
+  buffer accidents
+- programmable surfaces expose meaningful operations rather than transport guts
+- the workbench should be extracted from a proven exploratory model, not
+  invented in parallel and allowed to drift
+
 * Architectural Commitments
 
 - Parsing, indexing, ranking, query execution, and file mutation stay in Rust.
@@ -61,6 +80,8 @@ The dedicated buffer should become the richer workbench. It should support:
 - Modes own hooks. Loading the package must not mutate user state.
 - File-level updates stay incremental and explicit.
 - Expensive discovery stays off persistent redisplay paths.
+- The persistent buffer stays cheap by design; richer discovery belongs in the
+  dedicated buffer and later headless workbench surfaces.
 - Growth must happen by adding focused modules behind stable seams, not by
   swelling central files.
 

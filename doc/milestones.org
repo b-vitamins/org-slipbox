@@ -31,6 +31,7 @@ than a status panel.
 Outcomes:
 
 - richer indexed section families
+- explicit dedicated-buffer navigation and session state
 - explicit pivot controls between relatedness lenses
 - stable explanation of why sections and nodes are shown
 - cheap persistent buffer, deeper dedicated buffer
@@ -53,12 +54,15 @@ Outcomes:
 - dormant or weakly connected material surfacing around the current context
 - explicit comparison and trail management
 - better support for ambiguity, tension, and unresolved work
+- the exploratory model becomes durable enough to extract beyond the cockpit
 
 Exit criteria:
 
 - the system can show more than backlinks and nearest neighbors
 - exploratory results remain explainable and index-backed
 - users can save, revisit, and branch lines of inquiry
+- cockpit behavior rests on explicit shared semantics rather than buffer-local
+  improvisation
 
 * Milestone 4: Programmable Research Workbench
 
@@ -70,12 +74,14 @@ Outcomes:
 - stronger CLI and headless workflows
 - stable hooks and extension points around exploration
 - richer task, ref, and citation-driven navigation
+- task-shaped public operations instead of transport mirroring
 
 Exit criteria:
 
 - users can script and automate meaningful exploratory workflows
 - buffer and query surfaces compose without reaching into unstable internals
 - extensions add capability without bending core architecture
+- headless surfaces reuse the exploratory model already proven in the cockpit
 
 * Milestone 5: Dependable Platform
 

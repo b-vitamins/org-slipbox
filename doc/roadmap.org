@@ -31,11 +31,14 @@ Focus:
 - explicit pivots, comparisons, and trails
 - surfacing bridges, dormant threads, and unresolved material
 - richer index-backed reasoning over tasks, refs, and time
+- only the minimum shared exploratory semantics needed to make the cockpit
+  real, not the broader programmable workbench surface
 
 Watchpoints:
 
 - keep every surprising result explainable
 - do not replace structural discovery with vague ranking theatrics
+- do not let transport, CLI, or extension concerns freeze the model too early
 
 * 0.8.x
 
@@ -47,11 +50,15 @@ Focus:
 - stronger CLI and headless workflows
 - extension points for advanced users
 - larger benchmark corpora and stricter scale guarantees
+- extract the already-proven exploratory model into task-shaped public
+  surfaces
 
 Watchpoints:
 
 - avoid turning extension support into architecture leakage
 - keep the store, write engine, and protocol growth modular
+- do not mirror raw RPCs when the real unit of value is a higher-level
+  exploratory operation
 
 * 1.0.x
 
