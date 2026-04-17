@@ -29,6 +29,7 @@
 
 ;;; Code:
 
+(require 'crm)
 (require 'org)
 (require 'seq)
 (require 'subr-x)
