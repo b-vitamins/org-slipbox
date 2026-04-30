@@ -529,6 +529,20 @@ pub struct BridgeEvidenceRecord {
     pub title: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanningField {
+    Scheduled,
+    Deadline,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanningRelationRecord {
+    pub source_field: PlanningField,
+    pub candidate_field: PlanningField,
+    pub date: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum ExplorationExplanation {
@@ -540,14 +554,14 @@ pub enum ExplorationExplanation {
     UnlinkedReference {
         matched_text: String,
     },
-    SharedScheduledDate {
-        date: String,
+    TimeNeighbor {
+        relations: Vec<PlanningRelationRecord>,
     },
-    SharedDeadlineDate {
-        date: String,
-    },
-    SharedTodoKeyword {
-        todo_keyword: String,
+    TaskNeighbor {
+        #[serde(default)]
+        shared_todo_keyword: Option<String>,
+        #[serde(default)]
+        planning_relations: Vec<PlanningRelationRecord>,
     },
     BridgeCandidate {
         references: Vec<String>,
@@ -1317,8 +1331,9 @@ mod tests {
         ExplorationEntry, ExplorationExplanation, ExplorationLens, ExplorationSection,
         ExplorationSectionKind, ExploreParams, ExploreResult, NodeFromTitleOrAliasParams, NodeKind,
         NodeRecord, NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonResult,
-        NoteComparisonSection, NoteComparisonSectionKind, PreviewNodeRecord, SearchNodesParams,
-        SearchNodesSort, UnlinkedReferencesParams, UpdateNodeMetadataParams, normalize_reference,
+        NoteComparisonSection, NoteComparisonSectionKind, PlanningField, PlanningRelationRecord,
+        PreviewNodeRecord, SearchNodesParams, SearchNodesSort, UnlinkedReferencesParams,
+        UpdateNodeMetadataParams, normalize_reference,
     };
     use serde_json::json;
 
@@ -1554,13 +1569,58 @@ mod tests {
         );
 
         assert_eq!(
-            serde_json::to_value(ExplorationExplanation::SharedTodoKeyword {
-                todo_keyword: "TODO".to_owned(),
+            serde_json::to_value(ExplorationExplanation::TimeNeighbor {
+                relations: vec![
+                    PlanningRelationRecord {
+                        source_field: PlanningField::Scheduled,
+                        candidate_field: PlanningField::Scheduled,
+                        date: "2026-05-01".to_owned(),
+                    },
+                    PlanningRelationRecord {
+                        source_field: PlanningField::Deadline,
+                        candidate_field: PlanningField::Scheduled,
+                        date: "2026-05-03".to_owned(),
+                    },
+                ],
             })
-            .expect("shared todo explanation should serialize"),
+            .expect("time-neighbor explanation should serialize"),
             json!({
-                "kind": "shared-todo-keyword",
-                "todo_keyword": "TODO"
+                "kind": "time-neighbor",
+                "relations": [
+                    {
+                        "source_field": "scheduled",
+                        "candidate_field": "scheduled",
+                        "date": "2026-05-01"
+                    },
+                    {
+                        "source_field": "deadline",
+                        "candidate_field": "scheduled",
+                        "date": "2026-05-03"
+                    }
+                ]
+            })
+        );
+
+        assert_eq!(
+            serde_json::to_value(ExplorationExplanation::TaskNeighbor {
+                shared_todo_keyword: Some("TODO".to_owned()),
+                planning_relations: vec![PlanningRelationRecord {
+                    source_field: PlanningField::Scheduled,
+                    candidate_field: PlanningField::Deadline,
+                    date: "2026-05-01".to_owned(),
+                }],
+            })
+            .expect("task-neighbor explanation should serialize"),
+            json!({
+                "kind": "task-neighbor",
+                "shared_todo_keyword": "TODO",
+                "planning_relations": [
+                    {
+                        "source_field": "scheduled",
+                        "candidate_field": "deadline",
+                        "date": "2026-05-01"
+                    }
+                ]
             })
         );
 

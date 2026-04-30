@@ -890,14 +890,28 @@ Points to [[id:target-id]].
 :ROAM_REFS: cite:smith2024
 :END:
 SCHEDULED: <2026-05-01 Thu>
+DEADLINE: <2026-05-03 Sat>
 Target body.
 
 * Reflink Source
 This mentions cite:smith2024 near Target.
 
-* TODO Peer Task
+* TODO Dual Match Peer
 SCHEDULED: <2026-05-01 Thu>
-Peer task body.
+DEADLINE: <2026-05-03 Sat>
+Shares both planning dates and task state.
+
+* NEXT Cross Match Peer
+SCHEDULED: <2026-05-03 Sat>
+DEADLINE: <2026-05-01 Thu>
+Shares both planning dates through opposite fields.
+
+* TODO Keyword Only Peer
+Shares only the same task state.
+
+* WAIT Deadline Peer
+DEADLINE: <2026-05-03 Sat>
+Shares only the target deadline.
 "#,
         )
         .expect("fixture should be written");

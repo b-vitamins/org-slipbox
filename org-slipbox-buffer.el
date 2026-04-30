@@ -1085,6 +1085,28 @@ node. LIMIT bounds the number of rows requested."
             label
             (org-slipbox-buffer--format-explanation-list references))))
 
+(defun org-slipbox-buffer--planning-field-label (field)
+  "Return a short display label for planning FIELD."
+  (pcase field
+    ("scheduled" "scheduled")
+    ("deadline" "deadline")
+    (_ "unknown")))
+
+(defun org-slipbox-buffer--planning-relation-summary (relation)
+  "Return a concise display string for planning RELATION."
+  (format "%s->%s %s"
+          (org-slipbox-buffer--planning-field-label
+           (plist-get relation :source_field))
+          (org-slipbox-buffer--planning-field-label
+           (plist-get relation :candidate_field))
+          (plist-get relation :date)))
+
+(defun org-slipbox-buffer--planning-relations-summary (relations)
+  "Return a display string for planning RELATIONS."
+  (org-slipbox-buffer--format-explanation-list
+   (mapcar #'org-slipbox-buffer--planning-relation-summary
+           (append relations nil))))
+
 (defun org-slipbox-buffer--bridge-via-note-summary (explanation)
   "Return a title summary for bridge-note evidence in EXPLANATION."
   (let ((counts (make-hash-table :test #'equal))
@@ -1137,13 +1159,25 @@ node. LIMIT bounds the number of rows requested."
       ("unlinked-reference"
        (format "unlinked mention: %s"
                (plist-get explanation :matched_text)))
-      ("shared-scheduled-date"
-       (format "shared scheduled date: %s" (plist-get explanation :date)))
-      ("shared-deadline-date"
-       (format "shared deadline date: %s" (plist-get explanation :date)))
-      ("shared-todo-keyword"
-       (format "shared task state: %s"
-               (plist-get explanation :todo_keyword))))))
+      ("time-neighbor"
+       (format "time match: %s"
+               (org-slipbox-buffer--planning-relations-summary
+                (plist-get explanation :relations))))
+      ("task-neighbor"
+       (let ((todo-keyword (plist-get explanation :shared_todo_keyword))
+             (planning-relations (append (plist-get explanation :planning_relations) nil)))
+         (cond
+          ((and todo-keyword planning-relations)
+           (format "task match: %s; %s"
+                   todo-keyword
+                   (org-slipbox-buffer--planning-relations-summary
+                    planning-relations)))
+          (todo-keyword
+           (format "task match: %s" todo-keyword))
+          (planning-relations
+           (format "task match: %s"
+                   (org-slipbox-buffer--planning-relations-summary
+                    planning-relations)))))))))
 
 (defun org-slipbox-buffer--insert-explanation (entry)
   "Insert ENTRY's explanation payload when it is present."

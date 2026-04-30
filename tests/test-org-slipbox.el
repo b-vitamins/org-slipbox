@@ -3013,6 +3013,62 @@ ROOT-NODE defaults to NODE."
             (should (string-match-p "structural links: 1" (buffer-string))))
         (kill-buffer (current-buffer))))))
 
+(ert-deftest org-slipbox-test-buffer-time-and-task-lenses-render-explicit-relations ()
+  "Time and task lenses should render explicit planning relations."
+  (let ((node '(:node_key "file:focus.org"
+                :title "Focus"
+                :file_path "focus.org"
+                :line 1)))
+    (with-current-buffer (get-buffer-create "*org-slipbox time task lens test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session 'dedicated node))
+            (cl-letf (((symbol-function 'org-slipbox-rpc-explore)
+                       (lambda (_node-key lens &optional _limit _unique)
+                         (pcase lens
+                           ('time
+                            '(:lens "time"
+                              :sections
+                              [(:kind "time-neighbors"
+                                :entries
+                                [(:kind "anchor"
+                                  :anchor (:node_key "file:calendar.org"
+                                           :title "Calendar"
+                                           :file_path "calendar.org"
+                                           :line 9)
+                                  :explanation (:kind "time-neighbor"
+                                                :relations [(:source_field "scheduled"
+                                                             :candidate_field "deadline"
+                                                             :date "2026-05-01")
+                                                            (:source_field "deadline"
+                                                             :candidate_field "scheduled"
+                                                             :date "2026-05-03")]))])]))
+                           ('tasks
+                            '(:lens "tasks"
+                              :sections
+                              [(:kind "task-neighbors"
+                                :entries
+                                [(:kind "anchor"
+                                  :anchor (:node_key "file:tasks.org"
+                                           :title "Task"
+                                           :file_path "tasks.org"
+                                           :line 5)
+                                  :explanation (:kind "task-neighbor"
+                                                :shared_todo_keyword "TODO"
+                                                :planning_relations [(:source_field "scheduled"
+                                                                      :candidate_field "scheduled"
+                                                                      :date "2026-05-01")]))])]))
+                           (_
+                            '(:lens "structure" :sections []))))))
+              (org-slipbox-buffer-switch-lens 'time)
+              (should (string-match-p "time match: scheduled->deadline 2026-05-01, deadline->scheduled 2026-05-03"
+                                      (buffer-string)))
+              (org-slipbox-buffer-switch-lens 'tasks))
+            (should (string-match-p "task match: TODO; scheduled->scheduled 2026-05-01"
+                                    (buffer-string))))
+        (kill-buffer (current-buffer))))))
+
 (ert-deftest org-slipbox-test-buffer-trail-renders-replays-and-branches ()
   "Dedicated trails should be explicit, replayable, and branchable."
   (let ((node-a '(:node_key "file:a.org" :title "A" :file_path "a.org" :line 1))

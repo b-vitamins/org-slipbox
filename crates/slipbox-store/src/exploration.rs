@@ -2,10 +2,11 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result};
-use rusqlite::{params, params_from_iter};
+use rusqlite::params_from_iter;
 
 use slipbox_core::{
-    AnchorExplorationRecord, AnchorRecord, BridgeEvidenceRecord, ExplorationExplanation, NodeRecord,
+    AnchorExplorationRecord, AnchorRecord, BridgeEvidenceRecord, ExplorationExplanation,
+    NodeRecord, PlanningField, PlanningRelationRecord,
 };
 
 use crate::Database;
@@ -45,42 +46,22 @@ impl Database {
         anchor: &AnchorRecord,
         limit: usize,
     ) -> Result<Vec<AnchorExplorationRecord>> {
-        let scheduled_for = anchor.scheduled_for.as_deref();
-        let deadline_for = anchor.deadline_for.as_deref();
-        if scheduled_for.is_none() && deadline_for.is_none() {
+        if distinct_planning_dates(anchor).is_empty() {
             return Ok(Vec::new());
         }
 
-        let sql = format!(
-            "SELECT {},
-                    CASE
-                        WHEN ?2 IS NOT NULL AND n.scheduled_for = ?2 THEN 'scheduled'
-                        WHEN ?3 IS NOT NULL AND n.deadline_for = ?3 THEN 'deadline'
-                    END AS match_kind,
-                    CASE
-                        WHEN ?2 IS NOT NULL AND n.scheduled_for = ?2 THEN n.scheduled_for
-                        WHEN ?3 IS NOT NULL AND n.deadline_for = ?3 THEN n.deadline_for
-                    END AS match_date
-               FROM nodes AS n
-              WHERE n.node_key <> ?1
-                AND ((?2 IS NOT NULL AND n.scheduled_for = ?2)
-                  OR (?3 IS NOT NULL AND n.deadline_for = ?3))
-              ORDER BY COALESCE(n.scheduled_for, n.deadline_for), n.file_path, n.line
-              LIMIT ?4",
-            anchor_select_columns("n")
-        );
-        let mut statement = self.connection.prepare(&sql)?;
-        let rows = statement.query_map(
-            params![
-                anchor.node_key,
-                scheduled_for,
-                deadline_for,
-                limit.clamp(1, 1_000) as i64
-            ],
-            row_to_time_neighbor,
-        )?;
-        rows.collect::<rusqlite::Result<Vec<_>>>()
-            .context("failed to read time neighbors")
+        Ok(self
+            .ranked_time_neighbor_candidates(anchor.node_key.as_str(), anchor, limit)?
+            .into_iter()
+            .map(|candidate| {
+                let relations = planning_relations(anchor, &candidate);
+                debug_assert!(!relations.is_empty());
+                AnchorExplorationRecord {
+                    anchor: candidate,
+                    explanation: ExplorationExplanation::TimeNeighbor { relations },
+                }
+            })
+            .collect())
     }
 
     pub fn task_neighbors(
@@ -88,33 +69,30 @@ impl Database {
         anchor: &AnchorRecord,
         limit: usize,
     ) -> Result<Vec<AnchorExplorationRecord>> {
-        let Some(todo_keyword) = anchor.todo_keyword.as_deref() else {
+        let shared_todo_keyword = anchor.todo_keyword.clone();
+        if shared_todo_keyword.is_none() && distinct_planning_dates(anchor).is_empty() {
             return Ok(Vec::new());
-        };
+        }
 
-        let sql = format!(
-            "SELECT {}
-               FROM nodes AS n
-              WHERE n.todo_keyword = ?1
-                AND n.node_key <> ?2
-              ORDER BY n.file_path, n.line
-              LIMIT ?3",
-            anchor_select_columns("n")
-        );
-        let mut statement = self.connection.prepare(&sql)?;
-        let rows = statement.query_map(
-            params![todo_keyword, anchor.node_key, limit.clamp(1, 1_000) as i64],
-            |row| {
-                Ok(AnchorExplorationRecord {
-                    anchor: row_to_anchor(row)?,
-                    explanation: ExplorationExplanation::SharedTodoKeyword {
-                        todo_keyword: todo_keyword.to_owned(),
+        Ok(self
+            .ranked_task_neighbor_candidates(anchor.node_key.as_str(), anchor, limit)?
+            .into_iter()
+            .map(|candidate| {
+                let planning_relations = planning_relations(anchor, &candidate);
+                let shared_todo_keyword = shared_todo_keyword
+                    .as_deref()
+                    .filter(|todo_keyword| candidate.todo_keyword.as_deref() == Some(*todo_keyword))
+                    .map(ToOwned::to_owned);
+                debug_assert!(shared_todo_keyword.is_some() || !planning_relations.is_empty());
+                AnchorExplorationRecord {
+                    anchor: candidate,
+                    explanation: ExplorationExplanation::TaskNeighbor {
+                        shared_todo_keyword,
+                        planning_relations,
                     },
-                })
-            },
-        )?;
-        rows.collect::<rusqlite::Result<Vec<_>>>()
-            .context("failed to read task neighbors")
+                }
+            })
+            .collect())
     }
 
     pub fn bridge_candidates(
@@ -304,6 +282,111 @@ impl Database {
             );
         }
         Ok(neighbors)
+    }
+
+    fn ranked_time_neighbor_candidates(
+        &self,
+        anchor_node_key: &str,
+        anchor: &AnchorRecord,
+        limit: usize,
+    ) -> Result<Vec<AnchorRecord>> {
+        let planning_dates = distinct_planning_dates(anchor);
+        let mut values = vec![anchor_node_key.to_owned()];
+        let (match_predicate_sql, next_parameter_index) =
+            planning_date_match_predicate_sql("n", &planning_dates, 2, &mut values);
+        let (relation_count_sql, limit_placeholder) =
+            planning_relation_count_sql(anchor, "n", next_parameter_index, &mut values);
+        let sql = format!(
+            "WITH ranked AS (
+                 SELECT {0},
+                        {1} AS relation_count
+                   FROM nodes AS n
+                  WHERE n.node_key <> ?1
+                    AND {2}
+             )
+             SELECT {3}
+               FROM ranked AS r
+              ORDER BY r.relation_count DESC, r.file_path, r.line, r.node_key
+              LIMIT ?{4}",
+            anchor_select_columns("n"),
+            relation_count_sql,
+            match_predicate_sql,
+            anchor_select_columns("r"),
+            limit_placeholder,
+        );
+        values.push(limit.clamp(1, 1_000).to_string());
+        let mut statement = self.connection.prepare(&sql)?;
+        let rows = statement.query_map(params_from_iter(values.iter()), row_to_anchor)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("failed to read ranked time-neighbor candidates")
+    }
+
+    fn ranked_task_neighbor_candidates(
+        &self,
+        anchor_node_key: &str,
+        anchor: &AnchorRecord,
+        limit: usize,
+    ) -> Result<Vec<AnchorRecord>> {
+        let planning_dates = distinct_planning_dates(anchor);
+        let mut values = vec![anchor_node_key.to_owned()];
+        let mut predicate_parts = Vec::new();
+        let mut next_parameter_index = 2;
+        let shared_todo_match_sql = if let Some(todo_keyword) = anchor.todo_keyword.as_deref() {
+            let placeholder = next_parameter_index;
+            values.push(todo_keyword.to_owned());
+            next_parameter_index += 1;
+            predicate_parts.push(format!("n.todo_keyword = ?{placeholder}"));
+            format!("CASE WHEN n.todo_keyword = ?{placeholder} THEN 1 ELSE 0 END")
+        } else {
+            "0".to_owned()
+        };
+        if !planning_dates.is_empty() {
+            let (planning_predicate_sql, parameter_index) = planning_date_match_predicate_sql(
+                "n",
+                &planning_dates,
+                next_parameter_index,
+                &mut values,
+            );
+            predicate_parts.push(planning_predicate_sql);
+            next_parameter_index = parameter_index;
+        }
+        let (planning_relation_count_sql, limit_placeholder) =
+            planning_relation_count_sql(anchor, "n", next_parameter_index, &mut values);
+        let evidence_count_sql =
+            format!("({shared_todo_match_sql} + {planning_relation_count_sql})");
+        let sql = format!(
+            "WITH ranked AS (
+                 SELECT {0},
+                        {1} AS shared_todo_match,
+                        {2} AS planning_relation_count,
+                        {3} AS evidence_count
+                   FROM nodes AS n
+                  WHERE n.node_key <> ?1
+                    AND n.todo_keyword IS NOT NULL
+                    AND ({4})
+             )
+             SELECT {5}
+               FROM ranked AS r
+              ORDER BY r.evidence_count DESC,
+                       r.shared_todo_match DESC,
+                       r.planning_relation_count DESC,
+                       r.file_path,
+                       r.line,
+                       r.node_key
+              LIMIT ?{6}",
+            anchor_select_columns("n"),
+            shared_todo_match_sql,
+            planning_relation_count_sql,
+            evidence_count_sql,
+            predicate_parts.join(" OR "),
+            anchor_select_columns("r"),
+            limit_placeholder,
+        );
+        values.push(limit.clamp(1, 1_000).to_string());
+        let mut statement = self.connection.prepare(&sql)?;
+        let rows = statement.query_map(params_from_iter(values.iter()), row_to_anchor)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("failed to read ranked task-neighbor candidates")
     }
 
     fn shared_ref_candidates(
@@ -496,26 +579,95 @@ impl Database {
     }
 }
 
-fn row_to_time_neighbor(row: &rusqlite::Row<'_>) -> rusqlite::Result<AnchorExplorationRecord> {
-    let match_kind: String = row.get(ANCHOR_SELECT_COLUMN_COUNT)?;
-    let match_date: String = row.get(ANCHOR_SELECT_COLUMN_COUNT + 1)?;
-    let explanation = match match_kind.as_str() {
-        "scheduled" => ExplorationExplanation::SharedScheduledDate { date: match_date },
-        "deadline" => ExplorationExplanation::SharedDeadlineDate { date: match_date },
-        other => {
-            return Err(rusqlite::Error::FromSqlConversionFailure(
-                ANCHOR_SELECT_COLUMN_COUNT,
-                rusqlite::types::Type::Text,
-                Box::new(std::io::Error::other(format!(
-                    "unexpected time-neighbor match kind {other}"
-                ))),
-            ));
+fn distinct_planning_dates(anchor: &AnchorRecord) -> Vec<String> {
+    let mut dates = BTreeSet::new();
+    if let Some(scheduled_for) = anchor.scheduled_for.as_ref() {
+        dates.insert(scheduled_for.clone());
+    }
+    if let Some(deadline_for) = anchor.deadline_for.as_ref() {
+        dates.insert(deadline_for.clone());
+    }
+    dates.into_iter().collect()
+}
+
+fn planning_field_value(anchor: &AnchorRecord, field: PlanningField) -> Option<&str> {
+    match field {
+        PlanningField::Scheduled => anchor.scheduled_for.as_deref(),
+        PlanningField::Deadline => anchor.deadline_for.as_deref(),
+    }
+}
+
+fn planning_relations(
+    source: &AnchorRecord,
+    candidate: &AnchorRecord,
+) -> Vec<PlanningRelationRecord> {
+    let mut relations = Vec::new();
+    for source_field in [PlanningField::Scheduled, PlanningField::Deadline] {
+        let Some(source_date) = planning_field_value(source, source_field) else {
+            continue;
+        };
+        for candidate_field in [PlanningField::Scheduled, PlanningField::Deadline] {
+            if planning_field_value(candidate, candidate_field) == Some(source_date) {
+                relations.push(PlanningRelationRecord {
+                    source_field,
+                    candidate_field,
+                    date: source_date.to_owned(),
+                });
+            }
         }
-    };
-    Ok(AnchorExplorationRecord {
-        anchor: row_to_anchor(row)?,
-        explanation,
-    })
+    }
+    relations
+}
+
+fn planning_field_column(field: PlanningField) -> &'static str {
+    match field {
+        PlanningField::Scheduled => "scheduled_for",
+        PlanningField::Deadline => "deadline_for",
+    }
+}
+
+fn planning_date_match_predicate_sql(
+    node_alias: &str,
+    planning_dates: &[String],
+    next_parameter_index: usize,
+    values: &mut Vec<String>,
+) -> (String, usize) {
+    let placeholders = numbered_placeholders(next_parameter_index, planning_dates.len());
+    values.extend(planning_dates.iter().cloned());
+    (
+        format!(
+            "({node_alias}.scheduled_for IN ({placeholders}) OR {node_alias}.deadline_for IN ({placeholders}))"
+        ),
+        next_parameter_index + planning_dates.len(),
+    )
+}
+
+fn planning_relation_count_sql(
+    anchor: &AnchorRecord,
+    node_alias: &str,
+    next_parameter_index: usize,
+    values: &mut Vec<String>,
+) -> (String, usize) {
+    let mut parts = Vec::new();
+    let mut parameter_index = next_parameter_index;
+    for source_field in [PlanningField::Scheduled, PlanningField::Deadline] {
+        let Some(source_date) = planning_field_value(anchor, source_field) else {
+            continue;
+        };
+        for candidate_field in [PlanningField::Scheduled, PlanningField::Deadline] {
+            let column = planning_field_column(candidate_field);
+            parts.push(format!(
+                "CASE WHEN {node_alias}.{column} = ?{parameter_index} THEN 1 ELSE 0 END"
+            ));
+            values.push(source_date.to_owned());
+            parameter_index += 1;
+        }
+    }
+    if parts.is_empty() {
+        ("0".to_owned(), parameter_index)
+    } else {
+        (format!("({})", parts.join(" + ")), parameter_index)
+    }
 }
 
 fn excluded_keys(note: &NodeRecord, direct_neighbor_keys: &BTreeSet<String>) -> BTreeSet<String> {
@@ -617,7 +769,9 @@ mod tests {
     use std::time::Duration;
 
     use anyhow::{Context, Result};
-    use slipbox_core::ExplorationExplanation;
+    use slipbox_core::{
+        AnchorRecord, ExplorationExplanation, PlanningField, PlanningRelationRecord,
+    };
     use slipbox_index::{DiscoveryPolicy, scan_root_with_policy};
 
     use crate::Database;
@@ -883,6 +1037,252 @@ Weakly integrated body.
             .map(|record| record.anchor.title.as_str())
             .collect::<Vec<_>>();
         assert_eq!(&weak_titles[..2], &["Rich Weak", "Sparse Weak"]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn time_and_task_neighbors_use_explicit_planning_relations() -> Result<()> {
+        let workspace = tempfile::tempdir().context("workspace should be created")?;
+        let root = workspace.path().join("notes");
+        fs::create_dir_all(&root).context("notes root should be created")?;
+        fs::write(
+            root.join("planning.org"),
+            r#"#+title: Planning
+
+* TODO Focus
+:PROPERTIES:
+:ID: focus-id
+:END:
+SCHEDULED: <2026-05-01 Thu>
+DEADLINE: <2026-05-03 Sat>
+Focus body.
+
+* TODO Dual Match Peer
+SCHEDULED: <2026-05-01 Thu>
+DEADLINE: <2026-05-03 Sat>
+Matches both planning fields directly.
+
+* NEXT Cross Match Peer
+SCHEDULED: <2026-05-03 Sat>
+DEADLINE: <2026-05-01 Thu>
+Matches both planning dates through opposite fields.
+
+* TODO Keyword Only Peer
+Shares only the same task state.
+
+* WAIT Deadline Peer
+DEADLINE: <2026-05-03 Sat>
+Shares only the focus deadline.
+"#,
+        )
+        .context("planning fixture should be written")?;
+
+        let mut database = Database::open(&workspace.path().join("index.sqlite3"))?;
+        let files =
+            scan_root_with_policy(&root, &DiscoveryPolicy::default()).context("fixture scan")?;
+        database.sync_index(&files).context("fixture index sync")?;
+        let focus = database
+            .node_from_id("focus-id")?
+            .context("focus note should exist")?;
+        let focus_anchor: AnchorRecord = focus.clone().into();
+
+        let time_neighbors = database.time_neighbors(&focus_anchor, 20)?;
+        assert_eq!(
+            time_neighbors
+                .iter()
+                .map(|record| record.anchor.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Dual Match Peer", "Cross Match Peer", "WAIT Deadline Peer",]
+        );
+        assert_eq!(
+            time_neighbors[1].explanation,
+            ExplorationExplanation::TimeNeighbor {
+                relations: vec![
+                    PlanningRelationRecord {
+                        source_field: PlanningField::Scheduled,
+                        candidate_field: PlanningField::Deadline,
+                        date: "2026-05-01T00:00:00".to_owned(),
+                    },
+                    PlanningRelationRecord {
+                        source_field: PlanningField::Deadline,
+                        candidate_field: PlanningField::Scheduled,
+                        date: "2026-05-03T00:00:00".to_owned(),
+                    },
+                ],
+            }
+        );
+
+        let task_neighbors = database.task_neighbors(&focus_anchor, 20)?;
+        assert_eq!(
+            task_neighbors
+                .iter()
+                .map(|record| record.anchor.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Dual Match Peer", "Cross Match Peer", "Keyword Only Peer",]
+        );
+        assert_eq!(
+            task_neighbors[0].explanation,
+            ExplorationExplanation::TaskNeighbor {
+                shared_todo_keyword: Some("TODO".to_owned()),
+                planning_relations: vec![
+                    PlanningRelationRecord {
+                        source_field: PlanningField::Scheduled,
+                        candidate_field: PlanningField::Scheduled,
+                        date: "2026-05-01T00:00:00".to_owned(),
+                    },
+                    PlanningRelationRecord {
+                        source_field: PlanningField::Deadline,
+                        candidate_field: PlanningField::Deadline,
+                        date: "2026-05-03T00:00:00".to_owned(),
+                    },
+                ],
+            }
+        );
+        assert_eq!(
+            task_neighbors[1].explanation,
+            ExplorationExplanation::TaskNeighbor {
+                shared_todo_keyword: None,
+                planning_relations: vec![
+                    PlanningRelationRecord {
+                        source_field: PlanningField::Scheduled,
+                        candidate_field: PlanningField::Deadline,
+                        date: "2026-05-01T00:00:00".to_owned(),
+                    },
+                    PlanningRelationRecord {
+                        source_field: PlanningField::Deadline,
+                        candidate_field: PlanningField::Scheduled,
+                        date: "2026-05-03T00:00:00".to_owned(),
+                    },
+                ],
+            }
+        );
+        assert_eq!(
+            task_neighbors[2].explanation,
+            ExplorationExplanation::TaskNeighbor {
+                shared_todo_keyword: Some("TODO".to_owned()),
+                planning_relations: Vec::new(),
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn time_and_task_neighbors_rank_full_candidate_sets_by_evidence() -> Result<()> {
+        let workspace = tempfile::tempdir().context("workspace should be created")?;
+        let root = workspace.path().join("notes");
+        fs::create_dir_all(&root).context("notes root should be created")?;
+        fs::write(
+            root.join("focus.org"),
+            r#"* TODO Focus
+:PROPERTIES:
+:ID: focus-id
+:END:
+SCHEDULED: <2026-05-01 Thu>
+DEADLINE: <2026-05-03 Sat>
+Focus body.
+"#,
+        )
+        .context("focus fixture should be written")?;
+        for (path, contents) in [
+            (
+                "a-time-1.org",
+                "* Time Weak 1\nSCHEDULED: <2026-05-01 Thu>\nWeak time evidence.\n",
+            ),
+            (
+                "a-time-2.org",
+                "* Time Weak 2\nDEADLINE: <2026-05-01 Thu>\nWeak time evidence.\n",
+            ),
+            (
+                "a-time-3.org",
+                "* Time Weak 3\nSCHEDULED: <2026-05-03 Sat>\nWeak time evidence.\n",
+            ),
+            (
+                "a-time-4.org",
+                "* Time Weak 4\nDEADLINE: <2026-05-03 Sat>\nWeak time evidence.\n",
+            ),
+            (
+                "a-time-5.org",
+                "* Time Weak 5\nSCHEDULED: <2026-05-01 Thu>\nWeak time evidence.\n",
+            ),
+            (
+                "b-task-1.org",
+                "* TODO Task Weak 1\nWeak task state only.\n",
+            ),
+            (
+                "b-task-2.org",
+                "* TODO Task Weak 2\nWeak task state only.\n",
+            ),
+            (
+                "b-task-3.org",
+                "* TODO Task Weak 3\nWeak task state only.\n",
+            ),
+            (
+                "b-task-4.org",
+                "* TODO Task Weak 4\nWeak task state only.\n",
+            ),
+            (
+                "b-task-5.org",
+                "* TODO Task Weak 5\nWeak task state only.\n",
+            ),
+            (
+                "z-task-strong.org",
+                "* TODO Task Strong\nSCHEDULED: <2026-05-01 Thu>\nStronger task evidence.\n",
+            ),
+            (
+                "z-time-strong.org",
+                "* Time Strong\nSCHEDULED: <2026-05-01 Thu>\nDEADLINE: <2026-05-03 Sat>\nStronger time evidence.\n",
+            ),
+        ] {
+            fs::write(root.join(path), contents)
+                .with_context(|| format!("fixture {path} should be written"))?;
+        }
+
+        let mut database = Database::open(&workspace.path().join("index.sqlite3"))?;
+        let files =
+            scan_root_with_policy(&root, &DiscoveryPolicy::default()).context("fixture scan")?;
+        database.sync_index(&files).context("fixture index sync")?;
+        let focus = database
+            .node_from_id("focus-id")?
+            .context("focus note should exist")?;
+        let focus_anchor: AnchorRecord = focus.into();
+
+        let time_neighbors = database.time_neighbors(&focus_anchor, 1)?;
+        assert_eq!(time_neighbors.len(), 1);
+        assert_eq!(time_neighbors[0].anchor.title, "Time Strong");
+        assert_eq!(
+            time_neighbors[0].explanation,
+            ExplorationExplanation::TimeNeighbor {
+                relations: vec![
+                    PlanningRelationRecord {
+                        source_field: PlanningField::Scheduled,
+                        candidate_field: PlanningField::Scheduled,
+                        date: "2026-05-01T00:00:00".to_owned(),
+                    },
+                    PlanningRelationRecord {
+                        source_field: PlanningField::Deadline,
+                        candidate_field: PlanningField::Deadline,
+                        date: "2026-05-03T00:00:00".to_owned(),
+                    },
+                ],
+            }
+        );
+
+        let task_neighbors = database.task_neighbors(&focus_anchor, 1)?;
+        assert_eq!(task_neighbors.len(), 1);
+        assert_eq!(task_neighbors[0].anchor.title, "Task Strong");
+        assert_eq!(
+            task_neighbors[0].explanation,
+            ExplorationExplanation::TaskNeighbor {
+                shared_todo_keyword: Some("TODO".to_owned()),
+                planning_relations: vec![PlanningRelationRecord {
+                    source_field: PlanningField::Scheduled,
+                    candidate_field: PlanningField::Scheduled,
+                    date: "2026-05-01T00:00:00".to_owned(),
+                }],
+            }
+        );
 
         Ok(())
     }
