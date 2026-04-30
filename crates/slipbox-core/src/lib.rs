@@ -528,6 +528,9 @@ pub enum ExplorationExplanation {
     ForwardLink,
     SharedReference { reference: String },
     UnlinkedReference { matched_text: String },
+    SharedScheduledDate { date: String },
+    SharedDeadlineDate { date: String },
+    SharedTodoKeyword { todo_keyword: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -627,6 +630,95 @@ pub struct UnlinkedReferenceRecord {
     pub preview: String,
     pub matched_text: String,
     pub explanation: ExplorationExplanation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ExplorationLens {
+    Structure,
+    Refs,
+    Time,
+    Tasks,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ExplorationSectionKind {
+    Backlinks,
+    ForwardLinks,
+    Reflinks,
+    UnlinkedReferences,
+    TimeNeighbors,
+    TaskNeighbors,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExploreParams {
+    pub node_key: String,
+    pub lens: ExplorationLens,
+    #[serde(default = "default_backlink_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub unique: bool,
+}
+
+impl ExploreParams {
+    #[must_use]
+    pub fn normalized_limit(&self) -> usize {
+        self.limit.clamp(1, 1_000)
+    }
+
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        if self.unique && self.lens != ExplorationLens::Structure {
+            Some("explore unique is only supported for the structure lens".to_owned())
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExploreResult {
+    pub lens: ExplorationLens,
+    pub sections: Vec<ExplorationSection>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExplorationSection {
+    pub kind: ExplorationSectionKind,
+    pub entries: Vec<ExplorationEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnchorExplorationRecord {
+    pub anchor: AnchorRecord,
+    pub explanation: ExplorationExplanation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum ExplorationEntry {
+    Backlink {
+        #[serde(flatten)]
+        record: Box<BacklinkRecord>,
+    },
+    ForwardLink {
+        #[serde(flatten)]
+        record: Box<ForwardLinkRecord>,
+    },
+    Reflink {
+        #[serde(flatten)]
+        record: Box<ReflinkRecord>,
+    },
+    UnlinkedReference {
+        #[serde(flatten)]
+        record: Box<UnlinkedReferenceRecord>,
+    },
+    Anchor {
+        #[serde(flatten)]
+        record: Box<AnchorExplorationRecord>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1094,10 +1186,11 @@ fn normalize_string_values(values: &[String], nocase: bool) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        CaptureNodeParams, CaptureTemplatePreviewResult, ExplorationExplanation,
-        NodeFromTitleOrAliasParams, NodeKind, NodeRecord, PreviewNodeRecord,
-        SearchNodesParams, SearchNodesSort, UnlinkedReferencesParams, UpdateNodeMetadataParams,
-        normalize_reference,
+        BacklinkRecord, CaptureNodeParams, CaptureTemplatePreviewResult, ExplorationEntry,
+        ExplorationExplanation, ExplorationLens, ExplorationSection, ExplorationSectionKind,
+        ExploreParams, ExploreResult, NodeFromTitleOrAliasParams, NodeKind, NodeRecord,
+        PreviewNodeRecord, SearchNodesParams, SearchNodesSort, UnlinkedReferencesParams,
+        UpdateNodeMetadataParams, normalize_reference,
     };
     use serde_json::json;
 
@@ -1329,6 +1422,135 @@ mod tests {
             json!({
                 "kind": "unlinked-reference",
                 "matched_text": "Project Atlas"
+            })
+        );
+
+        assert_eq!(
+            serde_json::to_value(ExplorationExplanation::SharedTodoKeyword {
+                todo_keyword: "TODO".to_owned(),
+            })
+            .expect("shared todo explanation should serialize"),
+            json!({
+                "kind": "shared-todo-keyword",
+                "todo_keyword": "TODO"
+            })
+        );
+    }
+
+    #[test]
+    fn explore_params_round_trip_and_validate() {
+        let params: ExploreParams = serde_json::from_value(json!({
+            "node_key": "heading:alpha.org:3",
+            "lens": "structure",
+            "limit": 0,
+            "unique": true
+        }))
+        .expect("explore params should deserialize");
+
+        assert_eq!(params.node_key, "heading:alpha.org:3");
+        assert_eq!(params.lens, ExplorationLens::Structure);
+        assert_eq!(params.normalized_limit(), 1);
+        assert_eq!(params.validation_error(), None);
+
+        assert_eq!(
+            serde_json::to_value(&params).expect("explore params should serialize"),
+            json!({
+                "node_key": "heading:alpha.org:3",
+                "lens": "structure",
+                "limit": 0,
+                "unique": true
+            })
+        );
+    }
+
+    #[test]
+    fn explore_params_reject_unique_outside_structure() {
+        let params = ExploreParams {
+            node_key: "heading:alpha.org:3".to_owned(),
+            lens: ExplorationLens::Refs,
+            limit: 25,
+            unique: true,
+        };
+
+        assert_eq!(
+            params.validation_error().as_deref(),
+            Some("explore unique is only supported for the structure lens")
+        );
+    }
+
+    #[test]
+    fn explore_result_serializes_declared_sections() {
+        let result = ExploreResult {
+            lens: ExplorationLens::Structure,
+            sections: vec![ExplorationSection {
+                kind: ExplorationSectionKind::Backlinks,
+                entries: vec![ExplorationEntry::Backlink {
+                    record: Box::new(BacklinkRecord {
+                        source_note: NodeRecord {
+                            node_key: "heading:source.org:5".to_owned(),
+                            explicit_id: Some("source-id".to_owned()),
+                            file_path: "source.org".to_owned(),
+                            title: "Source".to_owned(),
+                            outline_path: "Source".to_owned(),
+                            aliases: Vec::new(),
+                            tags: Vec::new(),
+                            refs: Vec::new(),
+                            todo_keyword: None,
+                            scheduled_for: None,
+                            deadline_for: None,
+                            closed_at: None,
+                            level: 1,
+                            line: 5,
+                            kind: NodeKind::Heading,
+                            file_mtime_ns: 0,
+                            backlink_count: 0,
+                            forward_link_count: 0,
+                        },
+                        source_anchor: None,
+                        row: 5,
+                        col: 2,
+                        preview: "[[id:target]]".to_owned(),
+                        explanation: ExplorationExplanation::Backlink,
+                    }),
+                }],
+            }],
+        };
+
+        assert_eq!(
+            serde_json::to_value(result).expect("explore result should serialize"),
+            json!({
+                "lens": "structure",
+                "sections": [{
+                    "kind": "backlinks",
+                    "entries": [{
+                        "kind": "backlink",
+                        "source_note": {
+                            "node_key": "heading:source.org:5",
+                            "explicit_id": "source-id",
+                            "file_path": "source.org",
+                            "title": "Source",
+                            "outline_path": "Source",
+                            "aliases": [],
+                            "tags": [],
+                            "refs": [],
+                            "todo_keyword": null,
+                            "scheduled_for": null,
+                            "deadline_for": null,
+                            "closed_at": null,
+                            "level": 1,
+                            "line": 5,
+                            "kind": "heading",
+                            "file_mtime_ns": 0,
+                            "backlink_count": 0,
+                            "forward_link_count": 0
+                        },
+                        "source_anchor": null,
+                        "row": 5,
+                        "col": 2,
+                        "preview": "[[id:target]]",
+                        "explanation": { "kind": "backlink" }
+                    }]
+                }]
             })
         );
     }

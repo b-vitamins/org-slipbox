@@ -77,6 +77,7 @@ resolves it through `exec-path'."
 (defconst org-slipbox-rpc-method-forward-links "slipbox/forwardLinks")
 (defconst org-slipbox-rpc-method-reflinks "slipbox/reflinks")
 (defconst org-slipbox-rpc-method-unlinked-references "slipbox/unlinkedReferences")
+(defconst org-slipbox-rpc-method-explore "slipbox/explore")
 (defconst org-slipbox-rpc-method-agenda "slipbox/agenda")
 (defconst org-slipbox-rpc-method-search-refs "slipbox/searchRefs")
 (defconst org-slipbox-rpc-method-capture-node "slipbox/captureNode")
@@ -307,6 +308,18 @@ resolves it through `exec-path'."
    (t
     (user-error "Unsupported searchNodes sort %s" sort))))
 
+(defun org-slipbox-rpc--exploration-lens-name (lens)
+  "Return LENS encoded for the `explore' RPC surface."
+  (cond
+   ((member lens '("structure" "refs" "time" "tasks"))
+    lens)
+   ((eq lens 'structure) "structure")
+   ((eq lens 'refs) "refs")
+   ((eq lens 'time) "time")
+   ((eq lens 'tasks) "tasks")
+   (t
+    (user-error "Unsupported explore lens %s" lens))))
+
 (defun org-slipbox-rpc-search-nodes (query limit &optional sort)
   "Search canonical nodes matching QUERY with LIMIT and optional SORT."
   (let ((params `(:query ,query :limit ,limit)))
@@ -373,6 +386,17 @@ per destination node."
   (org-slipbox-rpc-request
    org-slipbox-rpc-method-forward-links
    `(:node_key ,node-key :limit ,(or limit 200)
+               :unique ,(org-slipbox-rpc--bool unique))))
+
+(defun org-slipbox-rpc-explore (node-key lens &optional limit unique)
+  "Explore NODE-KEY through declared LENS semantics.
+LIMIT bounds the number of rows requested per section. When UNIQUE is
+non-nil, structure-lens occurrences collapse to one row per related note."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-explore
+   `(:node_key ,node-key
+               :lens ,(org-slipbox-rpc--exploration-lens-name lens)
+               :limit ,(or limit 200)
                :unique ,(org-slipbox-rpc--bool unique))))
 
 (defun org-slipbox-rpc-reflinks (node-key &optional limit)

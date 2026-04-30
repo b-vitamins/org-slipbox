@@ -1,11 +1,13 @@
 use slipbox_core::{
-    AgendaParams, AgendaResult, BacklinksParams, BacklinksResult, ForwardLinksParams,
-    ForwardLinksResult, GraphParams, GraphResult, IndexFileParams, IndexedFilesResult,
-    NodeAtPointParams, NodeFromIdParams, NodeFromRefParams, NodeFromTitleOrAliasParams, PingInfo,
-    RandomNodeResult, ReflinksParams, ReflinksResult, SearchFilesParams, SearchFilesResult,
-    SearchNodesParams, SearchNodesResult, SearchOccurrencesParams, SearchOccurrencesResult,
-    SearchRefsParams, SearchRefsResult, SearchTagsParams, SearchTagsResult, StatusInfo,
-    UnlinkedReferencesParams, UnlinkedReferencesResult,
+    AgendaParams, AgendaResult, BacklinksParams, BacklinksResult, ExplorationEntry,
+    ExplorationLens, ExplorationSection, ExplorationSectionKind, ExploreParams, ExploreResult,
+    ForwardLinksParams, ForwardLinksResult, GraphParams, GraphResult, IndexFileParams,
+    IndexedFilesResult, NodeAtPointParams, NodeFromIdParams, NodeFromRefParams,
+    NodeFromTitleOrAliasParams, PingInfo, RandomNodeResult, ReflinksParams, ReflinksResult,
+    SearchFilesParams, SearchFilesResult, SearchNodesParams, SearchNodesResult,
+    SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams, SearchRefsResult,
+    SearchTagsParams, SearchTagsResult, StatusInfo, UnlinkedReferencesParams,
+    UnlinkedReferencesResult,
 };
 use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
 
@@ -261,6 +263,136 @@ pub(crate) fn unlinked_references(
     })
 }
 
+pub(crate) fn explore(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: ExploreParams = parse_params(params)?;
+    if let Some(message) = params.validation_error() {
+        return Err(JsonRpcError::new(JsonRpcErrorObject::invalid_request(
+            message,
+        )));
+    }
+
+    let sections = match params.lens {
+        ExplorationLens::Structure => {
+            let node = state.known_note(&params.node_key, "explore query note")?;
+            let backlinks = state
+                .database
+                .backlinks(
+                    node.node_key.as_str(),
+                    params.normalized_limit(),
+                    params.unique,
+                )
+                .map_err(|error| internal_error(error.context("failed to query backlinks")))?;
+            let forward_links = state
+                .database
+                .forward_links(
+                    node.node_key.as_str(),
+                    params.normalized_limit(),
+                    params.unique,
+                )
+                .map_err(|error| internal_error(error.context("failed to query forward links")))?;
+            vec![
+                ExplorationSection {
+                    kind: ExplorationSectionKind::Backlinks,
+                    entries: backlinks
+                        .into_iter()
+                        .map(|record| ExplorationEntry::Backlink {
+                            record: Box::new(record),
+                        })
+                        .collect(),
+                },
+                ExplorationSection {
+                    kind: ExplorationSectionKind::ForwardLinks,
+                    entries: forward_links
+                        .into_iter()
+                        .map(|record| ExplorationEntry::ForwardLink {
+                            record: Box::new(record),
+                        })
+                        .collect(),
+                },
+            ]
+        }
+        ExplorationLens::Refs => {
+            let anchor = state.known_anchor(&params.node_key, "explore query anchor")?;
+            let reflinks = query_reflinks(
+                &state.database,
+                &state.root,
+                &anchor,
+                params.normalized_limit(),
+            )
+            .map_err(|error| internal_error(error.context("failed to query reflinks")))?;
+            let unlinked_references = query_unlinked_references(
+                &state.database,
+                &state.root,
+                &anchor,
+                params.normalized_limit(),
+            )
+            .map_err(|error| {
+                internal_error(error.context("failed to query unlinked references"))
+            })?;
+            vec![
+                ExplorationSection {
+                    kind: ExplorationSectionKind::Reflinks,
+                    entries: reflinks
+                        .into_iter()
+                        .map(|record| ExplorationEntry::Reflink {
+                            record: Box::new(record),
+                        })
+                        .collect(),
+                },
+                ExplorationSection {
+                    kind: ExplorationSectionKind::UnlinkedReferences,
+                    entries: unlinked_references
+                        .into_iter()
+                        .map(|record| ExplorationEntry::UnlinkedReference {
+                            record: Box::new(record),
+                        })
+                        .collect(),
+                },
+            ]
+        }
+        ExplorationLens::Time => {
+            let anchor = state.known_anchor(&params.node_key, "explore query anchor")?;
+            let time_neighbors = state
+                .database
+                .time_neighbors(&anchor, params.normalized_limit())
+                .map_err(|error| internal_error(error.context("failed to query time neighbors")))?;
+            vec![ExplorationSection {
+                kind: ExplorationSectionKind::TimeNeighbors,
+                entries: time_neighbors
+                    .into_iter()
+                    .map(|record| ExplorationEntry::Anchor {
+                        record: Box::new(record),
+                    })
+                    .collect(),
+            }]
+        }
+        ExplorationLens::Tasks => {
+            let anchor = state.known_anchor(&params.node_key, "explore query anchor")?;
+            let task_neighbors = state
+                .database
+                .task_neighbors(&anchor, params.normalized_limit())
+                .map_err(|error| internal_error(error.context("failed to query task neighbors")))?;
+            vec![ExplorationSection {
+                kind: ExplorationSectionKind::TaskNeighbors,
+                entries: task_neighbors
+                    .into_iter()
+                    .map(|record| ExplorationEntry::Anchor {
+                        record: Box::new(record),
+                    })
+                    .collect(),
+            }]
+        }
+    };
+
+    to_value(ExploreResult {
+        lens: params.lens,
+        sections,
+    })
+}
+
 pub(crate) fn search_refs(
     state: &mut ServerState,
     params: serde_json::Value,
@@ -316,4 +448,200 @@ pub(crate) fn index_file(
             })?;
     }
     to_value(serde_json::json!({ "file_path": relative_path }))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use serde_json::json;
+    use slipbox_core::{ExplorationEntry, ExplorationSectionKind, ExploreResult};
+    use slipbox_index::{DiscoveryPolicy, scan_root_with_policy};
+    use tempfile::TempDir;
+
+    use super::explore;
+    use crate::server::state::ServerState;
+
+    #[test]
+    fn explore_dispatches_declared_lenses() {
+        let (_workspace, mut state, target_key) = indexed_state();
+
+        let structure: ExploreResult = serde_json::from_value(
+            explore(
+                &mut state,
+                json!({
+                    "node_key": target_key.as_str(),
+                    "lens": "structure",
+                    "limit": 20
+                }),
+            )
+            .expect("structure lens should succeed"),
+        )
+        .expect("structure result should deserialize");
+        assert_eq!(
+            structure
+                .sections
+                .iter()
+                .map(|section| section.kind)
+                .collect::<Vec<_>>(),
+            vec![
+                ExplorationSectionKind::Backlinks,
+                ExplorationSectionKind::ForwardLinks
+            ]
+        );
+        assert!(!structure.sections[0].entries.is_empty());
+
+        let refs: ExploreResult = serde_json::from_value(
+            explore(
+                &mut state,
+                json!({
+                    "node_key": target_key.as_str(),
+                    "lens": "refs",
+                    "limit": 20
+                }),
+            )
+            .expect("refs lens should succeed"),
+        )
+        .expect("refs result should deserialize");
+        assert_eq!(
+            refs.sections
+                .iter()
+                .map(|section| section.kind)
+                .collect::<Vec<_>>(),
+            vec![
+                ExplorationSectionKind::Reflinks,
+                ExplorationSectionKind::UnlinkedReferences
+            ]
+        );
+        assert!(
+            refs.sections[0]
+                .entries
+                .iter()
+                .any(|entry| matches!(entry, ExplorationEntry::Reflink { .. }))
+        );
+        assert!(
+            refs.sections[1]
+                .entries
+                .iter()
+                .any(|entry| matches!(entry, ExplorationEntry::UnlinkedReference { .. }))
+        );
+
+        let time: ExploreResult = serde_json::from_value(
+            explore(
+                &mut state,
+                json!({
+                    "node_key": target_key.as_str(),
+                    "lens": "time",
+                    "limit": 20
+                }),
+            )
+            .expect("time lens should succeed"),
+        )
+        .expect("time result should deserialize");
+        assert_eq!(time.sections.len(), 1);
+        assert_eq!(time.sections[0].kind, ExplorationSectionKind::TimeNeighbors);
+        assert!(
+            time.sections[0]
+                .entries
+                .iter()
+                .any(|entry| matches!(entry, ExplorationEntry::Anchor { .. }))
+        );
+
+        let tasks: ExploreResult = serde_json::from_value(
+            explore(
+                &mut state,
+                json!({
+                    "node_key": target_key.as_str(),
+                    "lens": "tasks",
+                    "limit": 20
+                }),
+            )
+            .expect("tasks lens should succeed"),
+        )
+        .expect("tasks result should deserialize");
+        assert_eq!(tasks.sections.len(), 1);
+        assert_eq!(
+            tasks.sections[0].kind,
+            ExplorationSectionKind::TaskNeighbors
+        );
+        assert!(
+            tasks.sections[0]
+                .entries
+                .iter()
+                .any(|entry| matches!(entry, ExplorationEntry::Anchor { .. }))
+        );
+    }
+
+    #[test]
+    fn explore_rejects_unique_outside_structure() {
+        let (_workspace, mut state, target_key) = indexed_state();
+
+        let error = explore(
+            &mut state,
+            json!({
+                "node_key": target_key.as_str(),
+                "lens": "refs",
+                "limit": 20,
+                "unique": true
+            }),
+        )
+        .expect_err("refs lens should reject unique");
+
+        assert_eq!(
+            error.into_inner().message,
+            "explore unique is only supported for the structure lens"
+        );
+    }
+
+    fn indexed_state() -> (TempDir, ServerState, String) {
+        let workspace = tempfile::tempdir().expect("workspace should be created");
+        let root = workspace.path().join("notes");
+        fs::create_dir_all(&root).expect("notes root should be created");
+        fs::write(
+            root.join("alpha.org"),
+            r#"#+title: Alpha
+
+* Source
+:PROPERTIES:
+:ID: source-id
+:END:
+Points to [[id:target-id]].
+
+* TODO Target
+:PROPERTIES:
+:ID: target-id
+:ROAM_REFS: cite:smith2024
+:END:
+SCHEDULED: <2026-05-01 Thu>
+Target body.
+
+* Reflink Source
+This mentions cite:smith2024 near Target.
+
+* TODO Peer Task
+SCHEDULED: <2026-05-01 Thu>
+Peer task body.
+"#,
+        )
+        .expect("fixture should be written");
+
+        let db_path = workspace.path().join("index.sqlite3");
+        let discovery = DiscoveryPolicy::default();
+        let mut state =
+            ServerState::new(root.clone(), db_path, discovery).expect("state should be created");
+        let files =
+            scan_root_with_policy(&root, &state.discovery).expect("fixture should be indexed");
+        state
+            .database
+            .sync_index(&files)
+            .expect("fixture index should sync");
+        let target_key = state
+            .database
+            .node_from_id("target-id")
+            .expect("target note lookup should succeed")
+            .expect("target note should exist")
+            .node_key;
+
+        (workspace, state, target_key)
+    }
 }

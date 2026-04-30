@@ -91,7 +91,8 @@ Return non-nil to render the section, or nil to skip it."
   current-node
   root-node
   active-lens
-  history)
+  history
+  lens-cache)
 
 (defvar-local org-slipbox-buffer-session nil
   "Explicit session state for the current org-slipbox context buffer.")
@@ -117,6 +118,7 @@ Return non-nil to render the section, or nil to skip it."
     (user-error "Not in an org-slipbox buffer"))
   (unless (org-slipbox-buffer--session-node)
     (user-error "No org-slipbox node to refresh"))
+  (org-slipbox-buffer--clear-lens-cache)
   (org-slipbox-buffer-render-contents))
 
 ;;;###autoload
@@ -150,7 +152,8 @@ Return non-nil to render the section, or nil to skip it."
                          (org-slipbox-buffer--make-persistent-session))))
         (unless (equal node (org-slipbox-buffer-session-current-node session))
           (setf (org-slipbox-buffer-session-current-node session) node
-                (org-slipbox-buffer-session-root-node session) node)
+                (org-slipbox-buffer-session-root-node session) node
+                (org-slipbox-buffer-session-lens-cache session) nil)
           (setq-local org-slipbox-buffer-session session)
           (org-slipbox-buffer-render-contents)
           (add-hook 'kill-buffer-hook #'org-slipbox-buffer--persistent-cleanup-h nil t))))))
@@ -222,6 +225,11 @@ Return non-nil to render the section, or nil to skip it."
   "Return the current node for SESSION or the current buffer."
   (when-let ((session (or session org-slipbox-buffer-session)))
     (org-slipbox-buffer-session-current-node session)))
+
+(defun org-slipbox-buffer--clear-lens-cache (&optional session)
+  "Clear cached exploration results for SESSION or the current buffer."
+  (when-let ((session (or session org-slipbox-buffer-session)))
+    (setf (org-slipbox-buffer-session-lens-cache session) nil)))
 
 (defun org-slipbox-buffer--dedicated-name (node)
   "Return a dedicated context buffer name for NODE."
@@ -355,27 +363,12 @@ query."
      "No unlinked references found."
      #'org-slipbox-buffer--insert-unlinked-reference-entry)))
 
-(defun org-slipbox-buffer--backlinks (node &optional unique limit)
-  "Return backlinks for NODE.
-When UNIQUE is non-nil, only return the first occurrence per source
-node. LIMIT bounds the number of rows requested."
-  (let* ((response (org-slipbox-rpc-backlinks
-                    (plist-get node :node_key)
-                    (or limit 200)
-                    unique))
-         (backlinks (plist-get response :backlinks)))
-    (org-slipbox--plist-sequence backlinks)))
-
 (defun org-slipbox-buffer--forward-links (node &optional unique limit)
   "Return forward links for NODE.
 When UNIQUE is non-nil, only return the first occurrence per destination
 node. LIMIT bounds the number of rows requested."
-  (let* ((response (org-slipbox-rpc-forward-links
-                    (plist-get node :node_key)
-                    (or limit 200)
-                    unique))
-         (forward-links (plist-get response :forward_links)))
-    (org-slipbox--plist-sequence forward-links)))
+  (org-slipbox-buffer--exploration-section-entries
+   node 'structure 'forward-links unique limit))
 
 (defun org-slipbox-buffer--insert-heading (text)
   "Insert section heading TEXT."
@@ -425,7 +418,14 @@ node. LIMIT bounds the number of rows requested."
        (format "shared ref: %s" (plist-get explanation :reference)))
       ("unlinked-reference"
        (format "unlinked mention: %s"
-               (plist-get explanation :matched_text))))))
+               (plist-get explanation :matched_text)))
+      ("shared-scheduled-date"
+       (format "shared scheduled date: %s" (plist-get explanation :date)))
+      ("shared-deadline-date"
+       (format "shared deadline date: %s" (plist-get explanation :date)))
+      ("shared-todo-keyword"
+       (format "shared task state: %s"
+               (plist-get explanation :todo_keyword))))))
 
 (defun org-slipbox-buffer--insert-explanation (entry)
   "Insert ENTRY's explanation payload when it is present."
@@ -529,16 +529,65 @@ node. LIMIT bounds the number of rows requested."
 
 (defun org-slipbox-buffer--reflinks (node)
   "Return daemon-backed reflink matches for NODE."
-  (when-let ((node-key (plist-get node :node_key)))
-    (org-slipbox--plist-sequence
-     (plist-get (org-slipbox-rpc-reflinks node-key 200) :reflinks))))
+  (org-slipbox-buffer--exploration-section-entries
+   node 'refs 'reflinks nil 200))
 
 (defun org-slipbox-buffer--unlinked-references (node)
   "Return daemon-backed unlinked references for NODE."
-  (when-let ((node-key (plist-get node :node_key)))
-    (org-slipbox--plist-sequence
-     (plist-get (org-slipbox-rpc-unlinked-references node-key 200)
-                :unlinked_references))))
+  (org-slipbox-buffer--exploration-section-entries
+   node 'refs 'unlinked-references nil 200))
+
+(defun org-slipbox-buffer--backlinks (node &optional unique limit)
+  "Return backlinks for NODE.
+When UNIQUE is non-nil, only return the first occurrence per source
+node. LIMIT bounds the number of rows requested."
+  (org-slipbox-buffer--exploration-section-entries
+   node 'structure 'backlinks unique limit))
+
+(defun org-slipbox-buffer--exploration-section-kind-name (section-kind)
+  "Return SECTION-KIND encoded for exploration results."
+  (pcase section-kind
+    ('backlinks "backlinks")
+    ('forward-links "forward-links")
+    ('reflinks "reflinks")
+    ('unlinked-references "unlinked-references")
+    ('time-neighbors "time-neighbors")
+    ('task-neighbors "task-neighbors")
+    (_
+     (user-error "Unsupported exploration section kind %S" section-kind))))
+
+(defun org-slipbox-buffer--exploration-cache-key (lens unique limit)
+  "Return the cache key for exploration LENS, UNIQUE, and LIMIT."
+  (list lens (or limit 200) (and unique t)))
+
+(defun org-slipbox-buffer--exploration-result (node lens &optional unique limit)
+  "Return cached exploration results for NODE under LENS."
+  (let ((limit (or limit 200)))
+    (when-let ((node-key (plist-get node :node_key)))
+    (if-let* ((session org-slipbox-buffer-session)
+              (cache-key (org-slipbox-buffer--exploration-cache-key lens unique limit))
+              (cached (assoc cache-key
+                             (org-slipbox-buffer-session-lens-cache session))))
+        (cdr cached)
+      (let ((result (org-slipbox-rpc-explore node-key lens limit unique)))
+        (when-let ((session org-slipbox-buffer-session))
+          (let ((cache-key (org-slipbox-buffer--exploration-cache-key lens unique limit))
+                (existing (org-slipbox-buffer-session-lens-cache session)))
+            (setf (org-slipbox-buffer-session-lens-cache session)
+                  (cons (cons cache-key result)
+                        (cl-remove cache-key existing :key #'car :test #'equal)))))
+        result)))))
+
+(defun org-slipbox-buffer--exploration-section-entries
+    (node lens section-kind &optional unique limit)
+  "Return SECTION-KIND entries for NODE under exploration LENS."
+  (when-let* ((result (org-slipbox-buffer--exploration-result node lens unique limit))
+              (sections (org-slipbox--plist-sequence (plist-get result :sections)))
+              (section-name (org-slipbox-buffer--exploration-section-kind-name section-kind))
+              (section (seq-find (lambda (candidate)
+                                   (equal (plist-get candidate :kind) section-name))
+                                 sections)))
+    (org-slipbox--plist-sequence (plist-get section :entries))))
 
 (provide 'org-slipbox-buffer)
 

@@ -2311,16 +2311,22 @@ ROOT-NODE defaults to NODE."
                          :file_path "note.org"
                          :line 3
                          :refs ["@smith2024"])))
-          (cl-letf (((symbol-function 'org-slipbox-rpc-request)
-                     (lambda (_method _params)
-                       '(:backlinks
-                         [(:source_note (:title "Backlink"
-                                         :file_path "other.org"
-                                         :line 10)
-                           :row 12
-                           :col 4
-                           :preview "See [[id:heading]]."
-                           :explanation (:kind "backlink"))]))))
+          (cl-letf (((symbol-function 'org-slipbox-rpc-explore)
+                     (lambda (_node-key _lens &optional _limit _unique)
+                       '(:lens "structure"
+                         :sections
+                         [(:kind "backlinks"
+                           :entries
+                           [(:kind "backlink"
+                             :source_note (:title "Backlink"
+                                           :file_path "other.org"
+                                           :line 10)
+                             :row 12
+                             :col 4
+                             :preview "See [[id:heading]]."
+                             :explanation (:kind "backlink"))])
+                          (:kind "forward-links"
+                           :entries [])]))))
             (org-slipbox-buffer-render-contents))
           (should (derived-mode-p 'org-slipbox-buffer-mode))
           (should (string-match-p "Refs" (buffer-string)))
@@ -2382,22 +2388,28 @@ ROOT-NODE defaults to NODE."
                            :file_path "note.org"
                            :line 3
                            :refs ["@smith2024"])))
-            (cl-letf (((symbol-function 'org-slipbox-rpc-backlinks)
-                       (lambda (node-key &optional limit unique)
-                         (setq rpc-args (list node-key limit unique))
-                         '(:backlinks
-                           [(:source_note (:title "Backlink"
-                                           :file_path "other.org"
-                                           :line 10)
-                             :row 12
-                             :col 4
-                             :preview "See [[id:heading]]."
-                             :explanation (:kind "backlink"))]))))
+            (cl-letf (((symbol-function 'org-slipbox-rpc-explore)
+                       (lambda (node-key lens &optional limit unique)
+                         (setq rpc-args (list node-key lens limit unique))
+                         '(:lens "structure"
+                           :sections
+                           [(:kind "backlinks"
+                             :entries
+                             [(:kind "backlink"
+                               :source_note (:title "Backlink"
+                                             :file_path "other.org"
+                                             :line 10)
+                               :row 12
+                               :col 4
+                               :preview "See [[id:heading]]."
+                               :explanation (:kind "backlink"))])
+                            (:kind "forward-links"
+                             :entries [])]))))
               (org-slipbox-buffer-render-contents))
             (let ((contents (buffer-string)))
               (should (< (string-match-p "Unique Backlinks" contents)
                          (string-match-p "Refs" contents)))
-              (should (equal rpc-args '("heading:note.org:3" 200 t)))
+              (should (equal rpc-args '("heading:note.org:3" structure 200 t)))
               (should (string-match-p "Postrender marker" contents))))
         (kill-buffer (current-buffer))))))
 
@@ -2421,9 +2433,12 @@ ROOT-NODE defaults to NODE."
                            :file_path "note.org"
                            :line 3
                            :refs ["@smith2024"])))
-            (cl-letf (((symbol-function 'org-slipbox-rpc-backlinks)
+            (cl-letf (((symbol-function 'org-slipbox-rpc-explore)
                        (lambda (&rest _args)
-                         '(:backlinks []))))
+                         '(:lens "structure"
+                           :sections
+                           [(:kind "backlinks" :entries [])
+                            (:kind "forward-links" :entries [])]))))
               (org-slipbox-buffer-render-contents))
             (should-not (string-match-p "\nRefs\n----\n" (buffer-string)))
             (should (string-match-p "\nBacklinks\n---------\n" (buffer-string))))
@@ -2645,19 +2660,25 @@ ROOT-NODE defaults to NODE."
 (ert-deftest org-slipbox-test-buffer-reflinks-use-daemon-query ()
   "Reflink discovery should use the dedicated daemon query."
   (let (rpc-args)
-    (cl-letf (((symbol-function 'org-slipbox-rpc-reflinks)
-               (lambda (node-key &optional limit)
-                 (setq rpc-args (list node-key limit))
-                 '(:reflinks
-                   [(:source_anchor (:title "Sibling"
-                                     :file_path "note.org"
-                                     :line 9)
-                     :row 10
-                     :col 3
-                     :preview "cite:smith2024"
-                     :matched_reference "cite:smith2024"
-                     :explanation (:kind "shared-reference"
-                                   :reference "cite:smith2024"))])))
+    (cl-letf (((symbol-function 'org-slipbox-rpc-explore)
+               (lambda (node-key lens &optional limit unique)
+                 (setq rpc-args (list node-key lens limit unique))
+                 '(:lens "refs"
+                   :sections
+                   [(:kind "reflinks"
+                     :entries
+                     [(:kind "reflink"
+                       :source_anchor (:title "Sibling"
+                                       :file_path "note.org"
+                                       :line 9)
+                       :row 10
+                       :col 3
+                       :preview "cite:smith2024"
+                       :matched_reference "cite:smith2024"
+                       :explanation (:kind "shared-reference"
+                                     :reference "cite:smith2024"))])
+                    (:kind "unlinked-references"
+                     :entries [])])))
               ((symbol-function 'executable-find)
                (lambda (&rest _args)
                  (ert-fail "reflinks should not depend on rg")))
@@ -2668,7 +2689,8 @@ ROOT-NODE defaults to NODE."
        (equal
         (org-slipbox-buffer--reflinks
          '(:node_key "heading:note.org:3" :refs ["@smith2024"]))
-        '((:source_anchor (:title "Sibling"
+        '((:kind "reflink"
+           :source_anchor (:title "Sibling"
                            :file_path "note.org"
                            :line 9)
            :row 10
@@ -2677,53 +2699,64 @@ ROOT-NODE defaults to NODE."
            :matched_reference "cite:smith2024"
            :explanation (:kind "shared-reference"
                          :reference "cite:smith2024")))))
-      (should (equal rpc-args '("heading:note.org:3" 200))))))
+      (should (equal rpc-args '("heading:note.org:3" refs 200 nil))))))
 
 (ert-deftest org-slipbox-test-buffer-forward-links-use-daemon-query ()
   "Forward-link discovery should use the dedicated daemon query."
   (let (rpc-args)
-    (cl-letf (((symbol-function 'org-slipbox-rpc-forward-links)
-               (lambda (node-key &optional limit unique)
-                 (setq rpc-args (list node-key limit unique))
-                 '(:forward_links
-                   [(:destination_note (:title "Target heading"
-                                        :file_path "target.org"
-                                        :line 12)
-                     :row 8
-                     :col 5
-                     :preview "[[id:target][Target heading]]"
-                     :explanation (:kind "forward-link"))]))))
+    (cl-letf (((symbol-function 'org-slipbox-rpc-explore)
+               (lambda (node-key lens &optional limit unique)
+                 (setq rpc-args (list node-key lens limit unique))
+                 '(:lens "structure"
+                   :sections
+                   [(:kind "backlinks" :entries [])
+                    (:kind "forward-links"
+                     :entries
+                     [(:kind "forward-link"
+                       :destination_note (:title "Target heading"
+                                          :file_path "target.org"
+                                          :line 12)
+                       :row 8
+                       :col 5
+                       :preview "[[id:target][Target heading]]"
+                       :explanation (:kind "forward-link"))])]))))
       (let ((expected
-             '((:destination_note (:title "Target heading"
-                                  :file_path "target.org"
-                                  :line 12)
+             '((:kind "forward-link"
+                :destination_note (:title "Target heading"
+                                   :file_path "target.org"
+                                   :line 12)
                 :row 8
                 :col 5
                 :preview "[[id:target][Target heading]]"
                 :explanation (:kind "forward-link")))))
         (should
          (equal
-          (org-slipbox-buffer--forward-links
+         (org-slipbox-buffer--forward-links
            '(:node_key "heading:note.org:3"))
           expected)))
-      (should (equal rpc-args '("heading:note.org:3" 200 nil))))))
+      (should (equal rpc-args '("heading:note.org:3" structure 200 nil))))))
 
 (ert-deftest org-slipbox-test-buffer-unlinked-references-use-daemon-query ()
   "Unlinked discovery should use the dedicated daemon query."
   (let (rpc-args)
-    (cl-letf (((symbol-function 'org-slipbox-rpc-unlinked-references)
-               (lambda (node-key &optional limit)
-                 (setq rpc-args (list node-key limit))
-                 '(:unlinked_references
-                   [(:source_anchor (:title "Sibling"
-                                     :file_path "note.org"
-                                     :line 9)
-                     :row 10
-                     :col 3
-                     :preview "Project Atlas should surface."
-                     :matched_text "Project Atlas"
-                     :explanation (:kind "unlinked-reference"
-                                   :matched_text "Project Atlas"))])))
+    (cl-letf (((symbol-function 'org-slipbox-rpc-explore)
+               (lambda (node-key lens &optional limit unique)
+                 (setq rpc-args (list node-key lens limit unique))
+                 '(:lens "refs"
+                   :sections
+                   [(:kind "reflinks" :entries [])
+                    (:kind "unlinked-references"
+                     :entries
+                     [(:kind "unlinked-reference"
+                       :source_anchor (:title "Sibling"
+                                       :file_path "note.org"
+                                       :line 9)
+                       :row 10
+                       :col 3
+                       :preview "Project Atlas should surface."
+                       :matched_text "Project Atlas"
+                       :explanation (:kind "unlinked-reference"
+                                     :matched_text "Project Atlas"))])])))
               ((symbol-function 'executable-find)
                (lambda (&rest _args)
                  (ert-fail "unlinked references should not depend on rg")))
@@ -2731,9 +2764,10 @@ ROOT-NODE defaults to NODE."
                (lambda (&rest _args)
                  (ert-fail "unlinked references should not shell out"))))
       (let ((expected
-             '((:source_anchor (:title "Sibling"
-                               :file_path "note.org"
-                               :line 9)
+             '((:kind "unlinked-reference"
+                :source_anchor (:title "Sibling"
+                                :file_path "note.org"
+                                :line 9)
                 :row 10
                 :col 3
                 :preview "Project Atlas should surface."
@@ -2747,7 +2781,58 @@ ROOT-NODE defaults to NODE."
              :title "Project Atlas"
              :aliases ["Atlas Plan"]))
           expected)))
-      (should (equal rpc-args '("heading:note.org:3" 200))))))
+      (should (equal rpc-args '("heading:note.org:3" refs 200 nil))))))
+
+(ert-deftest org-slipbox-test-buffer-structure-sections-share-cached-lens-query ()
+  "Structure sections should share one declared lens query per session."
+  (let ((calls 0)
+        backlinks
+        forward-links)
+    (with-current-buffer (get-buffer-create "*org-slipbox lens cache test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session
+                         'dedicated
+                         '(:node_key "heading:note.org:3"
+                           :title "Heading"
+                           :file_path "note.org"
+                           :line 3)))
+            (cl-letf (((symbol-function 'org-slipbox-rpc-explore)
+                       (lambda (_node-key _lens &optional _limit _unique)
+                         (setq calls (1+ calls))
+                         '(:lens "structure"
+                           :sections
+                           [(:kind "backlinks"
+                             :entries
+                             [(:kind "backlink"
+                               :source_note (:title "Source"
+                                             :file_path "source.org"
+                                             :line 5)
+                               :row 5
+                               :col 1
+                               :preview "[[id:note]]"
+                               :explanation (:kind "backlink"))])
+                            (:kind "forward-links"
+                             :entries
+                             [(:kind "forward-link"
+                               :destination_note (:title "Target"
+                                                  :file_path "target.org"
+                                                  :line 8)
+                               :row 4
+                               :col 2
+                               :preview "[[id:target]]"
+                               :explanation (:kind "forward-link"))])]))))
+              (setq backlinks
+                    (org-slipbox-buffer--backlinks
+                     '(:node_key "heading:note.org:3")))
+              (setq forward-links
+                    (org-slipbox-buffer--forward-links
+                     '(:node_key "heading:note.org:3"))))
+            (should (= calls 1))
+            (should (equal (plist-get (car backlinks) :kind) "backlink"))
+            (should (equal (plist-get (car forward-links) :kind) "forward-link")))
+        (kill-buffer (current-buffer))))))
 
 (ert-deftest org-slipbox-test-buffer-dedicated-render-includes-discovery-sections ()
   "Dedicated buffers should render expensive discovery sections by default."
@@ -3076,6 +3161,21 @@ ROOT-NODE defaults to NODE."
       (org-slipbox-rpc-forward-links "heading:alpha.org:3" 25 t))
     (should (equal method "slipbox/forwardLinks"))
     (should (equal params '(:node_key "heading:alpha.org:3"
+                            :limit 25
+                            :unique t)))))
+
+(ert-deftest org-slipbox-test-rpc-explore-encodes-params ()
+  "Explore RPC should encode declared lens parameters explicitly."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:sections []))))
+      (org-slipbox-rpc-explore "heading:alpha.org:3" 'structure 25 t))
+    (should (equal method "slipbox/explore"))
+    (should (equal params '(:node_key "heading:alpha.org:3"
+                            :lens "structure"
                             :limit 25
                             :unique t)))))
 

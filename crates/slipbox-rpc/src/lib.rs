@@ -23,6 +23,7 @@ pub const METHOD_BACKLINKS: &str = "slipbox/backlinks";
 pub const METHOD_FORWARD_LINKS: &str = "slipbox/forwardLinks";
 pub const METHOD_REFLINKS: &str = "slipbox/reflinks";
 pub const METHOD_UNLINKED_REFERENCES: &str = "slipbox/unlinkedReferences";
+pub const METHOD_EXPLORE: &str = "slipbox/explore";
 pub const METHOD_AGENDA: &str = "slipbox/agenda";
 pub const METHOD_SEARCH_REFS: &str = "slipbox/searchRefs";
 pub const METHOD_NODE_FROM_REF: &str = "slipbox/nodeFromRef";
