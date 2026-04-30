@@ -63,3 +63,61 @@ fn indexes_aliases_and_tags_and_searches_by_them() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn node_at_point_resolves_anonymous_headings_to_their_owning_note() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    fs::write(
+        root.join("wayne.org"),
+        ":PROPERTIES:\n:ID: file-node-id\n:END:\n#+title: Bruce Wayne\n\n* Patrol Log\n:PROPERTIES:\n:ID: patrol-log-id\n:END:\n** Anonymous Child\nBody\n* Anonymous Sibling\nBody\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let child_owner = database
+        .node_at_point("wayne.org", 10)?
+        .expect("anonymous child should resolve to owning explicit note");
+    assert_eq!(child_owner.title, "Patrol Log");
+
+    let sibling_owner = database
+        .node_at_point("wayne.org", 12)?
+        .expect("anonymous sibling should resolve to file note");
+    assert_eq!(sibling_owner.title, "Bruce Wayne");
+
+    Ok(())
+}
+
+#[test]
+fn node_at_point_matches_anchor_owner_resolution_semantics() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    fs::write(
+        root.join("wayne.org"),
+        ":PROPERTIES:\n:ID: file-node-id\n:END:\n#+title: Bruce Wayne\n\n* Patrol Log\n:PROPERTIES:\n:ID: patrol-log-id\n:END:\nBody\n** Anonymous Child\nBody\n*** Explicit Grandchild\n:PROPERTIES:\n:ID: explicit-grandchild-id\n:END:\nBody\n* Anonymous Sibling\nBody\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    for line in 1..=16 {
+        let expected = database
+            .anchor_at_point("wayne.org", line)?
+            .map(|anchor| database.note_for_anchor(&anchor))
+            .transpose()?
+            .flatten();
+        let actual = database.node_at_point("wayne.org", line)?;
+        assert_eq!(actual, expected, "node_at_point mismatch at line {line}");
+    }
+
+    Ok(())
+}

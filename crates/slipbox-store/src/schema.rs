@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::Database;
 
-const SCHEMA_VERSION: i32 = 12;
+const SCHEMA_VERSION: i32 = 13;
 
 impl Database {
     pub(crate) fn migrate(&self) -> Result<()> {
@@ -114,6 +114,9 @@ impl Database {
              CREATE INDEX IF NOT EXISTS idx_nodes_file_path
                ON nodes (file_path);
 
+             CREATE INDEX IF NOT EXISTS idx_nodes_file_path_line_level
+               ON nodes (file_path, line, level);
+
              CREATE INDEX IF NOT EXISTS idx_nodes_title
                ON nodes (title);
 
@@ -153,7 +156,7 @@ impl Database {
                ON nodes (deadline_for)
                WHERE deadline_for IS NOT NULL;
 
-             PRAGMA user_version = 12;",
+             PRAGMA user_version = 13;",
         )?;
         Ok(())
     }

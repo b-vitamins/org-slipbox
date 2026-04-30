@@ -208,10 +208,38 @@ impl Database {
     }
 
     pub fn node_at_point(&self, file_path: &str, line: u32) -> Result<Option<NodeRecord>> {
-        let Some(anchor) = self.anchor_at_point(file_path, line)? else {
+        let mut statement = self.connection.prepare(
+            "SELECT n.node_key,
+                    n.explicit_id,
+                    n.kind,
+                    n.level
+               FROM nodes AS n
+              WHERE n.file_path = ?1
+                AND n.line <= ?2
+              ORDER BY n.line DESC, n.level DESC",
+        )?;
+        let mut rows = statement.query(params![file_path, line])?;
+        let Some(row) = rows.next()? else {
             return Ok(None);
         };
-        self.note_for_anchor(&anchor)
+        let anchor = row_to_point_lookup_anchor(row)?;
+        if anchor.is_note() {
+            return self.note_by_key(&anchor.node_key);
+        }
+
+        let mut ancestor_level = anchor.level;
+        while let Some(row) = rows.next()? {
+            let candidate = row_to_point_lookup_anchor(row)?;
+            if candidate.level >= ancestor_level {
+                continue;
+            }
+            if candidate.is_note() {
+                return self.note_by_key(&candidate.node_key);
+            }
+            ancestor_level = candidate.level;
+        }
+
+        Ok(None)
     }
 
     pub fn anchor_at_point(&self, file_path: &str, line: u32) -> Result<Option<AnchorRecord>> {
@@ -356,6 +384,21 @@ pub(crate) fn note_where(alias: &str) -> String {
     format!("({alias}.kind = 'file' OR {alias}.explicit_id IS NOT NULL)")
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PointLookupAnchor {
+    node_key: String,
+    explicit_id: Option<String>,
+    kind: NodeKind,
+    level: u32,
+}
+
+impl PointLookupAnchor {
+    #[must_use]
+    fn is_note(&self) -> bool {
+        matches!(self.kind, NodeKind::File) || self.explicit_id.is_some()
+    }
+}
+
 fn search_nodes_order_by(sort: Option<&SearchNodesSort>, using_fts: bool) -> &'static str {
     match sort {
         None | Some(SearchNodesSort::Relevance) if using_fts => {
@@ -391,6 +434,16 @@ pub(crate) fn row_to_anchor(row: &rusqlite::Row<'_>) -> rusqlite::Result<AnchorR
         file_mtime_ns: row.get(15)?,
         backlink_count: row.get(16)?,
         forward_link_count: row.get(17)?,
+    })
+}
+
+fn row_to_point_lookup_anchor(row: &rusqlite::Row<'_>) -> rusqlite::Result<PointLookupAnchor> {
+    let kind_text: String = row.get(2)?;
+    Ok(PointLookupAnchor {
+        node_key: row.get(0)?,
+        explicit_id: row.get(1)?,
+        kind: kind_text.parse().unwrap_or(NodeKind::Heading),
+        level: row.get(3)?,
     })
 }
 
