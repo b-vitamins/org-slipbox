@@ -6,6 +6,38 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-30
+
+### Added
+- Added a dedicated-buffer exploratory cockpit with declared lenses,
+  structured explanation payloads, pivotable navigation, note comparison, and
+  explicit trails built on shared Rust query semantics rather than ad hoc
+  buffer-only state.
+- Added non-obvious exploration surfaces for bridge candidates,
+  dormant-but-relevant notes, unresolved task-linked material, and weakly
+  integrated notes, all with explicit reasons for why a result surfaced.
+- Added a push-triggered GitHub Actions verification workflow covering
+  formatting, Rust tests, clippy, Emacs batch tests, and the benchmark
+  regression gate.
+
+### Changed
+- Reworked the dedicated buffer into a stateful exploration surface with
+  explicit session, history, frozen context, comparison, and trail state while
+  preserving the persistent buffer as the cheap point-tracking path.
+- Clarified the durable product docs around the cockpit-versus-workbench split
+  so `0.4.x` remains focused on exploratory cockpit maturity rather than
+  prematurely freezing a broader headless platform surface.
+- Expanded benchmark and regression coverage for the cockpit model, including
+  dedicated verification for persistent and dedicated buffer rendering paths.
+
+### Fixed
+- Streamlined backlink lookup so the common path honors limits earlier and
+  caches per-file owner resolution instead of recomputing note ownership for
+  every backlink row.
+- Optimized `node_at_point` with lean ownership resolution and a supporting
+  composite node index, preserving current semantics while restoring the query
+  to comfortably sub-threshold benchmark performance.
+
 ## [0.3.0] - 2026-04-17
 
 ### Changed
