@@ -17,6 +17,14 @@
   (let (file-name-handler-alist)
     (write-region (or content "") nil file nil 'silent)))
 
+(defun org-slipbox-test--buffer-session (kind node &optional root-node)
+  "Return a context-buffer session with KIND and NODE.
+ROOT-NODE defaults to NODE."
+  (make-org-slipbox-buffer-session
+   :kind kind
+   :current-node node
+   :root-node (or root-node node)))
+
 (ert-deftest org-slipbox-test-feature-provided ()
   "The package entry feature should load cleanly."
   (should (featurep 'org-slipbox)))
@@ -2294,12 +2302,14 @@
   (with-current-buffer (get-buffer-create "*org-slipbox test*")
     (unwind-protect
         (progn
-          (setq-local org-slipbox-buffer-current-node
-                      '(:node_key "heading:note.org:3"
-                        :title "Heading"
-                        :file_path "note.org"
-                        :line 3
-                        :refs ["@smith2024"]))
+          (setq-local org-slipbox-buffer-session
+                      (org-slipbox-test--buffer-session
+                       'persistent
+                       '(:node_key "heading:note.org:3"
+                         :title "Heading"
+                         :file_path "note.org"
+                         :line 3
+                         :refs ["@smith2024"])))
           (cl-letf (((symbol-function 'org-slipbox-rpc-request)
                      (lambda (_method _params)
                        '(:backlinks
@@ -2330,14 +2340,16 @@
     (with-current-buffer (get-buffer-create "*org-slipbox metadata test*")
       (unwind-protect
           (progn
-            (setq-local org-slipbox-buffer-current-node
-                        `(:node_key "heading:note.org:3"
-                          :title "Heading"
-                          :file_path "note.org"
-                          :line 3
-                          :file_mtime_ns ,mtime-ns
-                          :backlink_count 4
-                          :forward_link_count 2))
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session
+                         'persistent
+                         `(:node_key "heading:note.org:3"
+                           :title "Heading"
+                           :file_path "note.org"
+                           :line 3
+                           :file_mtime_ns ,mtime-ns
+                           :backlink_count 4
+                           :forward_link_count 2)))
             (org-slipbox-buffer-render-contents)
             (let ((contents (buffer-string)))
               (should (string-match-p (regexp-quote expected-mtime) contents))
@@ -2359,12 +2371,14 @@
     (with-current-buffer (get-buffer-create "*org-slipbox section test*")
       (unwind-protect
           (progn
-            (setq-local org-slipbox-buffer-current-node
-                        '(:node_key "heading:note.org:3"
-                          :title "Heading"
-                          :file_path "note.org"
-                          :line 3
-                          :refs ["@smith2024"]))
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session
+                         'persistent
+                         '(:node_key "heading:note.org:3"
+                           :title "Heading"
+                           :file_path "note.org"
+                           :line 3
+                           :refs ["@smith2024"])))
             (cl-letf (((symbol-function 'org-slipbox-rpc-backlinks)
                        (lambda (node-key &optional limit unique)
                          (setq rpc-args (list node-key limit unique))
@@ -2395,12 +2409,14 @@
     (with-current-buffer (get-buffer-create "*org-slipbox filter test*")
       (unwind-protect
           (progn
-            (setq-local org-slipbox-buffer-current-node
-                        '(:node_key "heading:note.org:3"
-                          :title "Heading"
-                          :file_path "note.org"
-                          :line 3
-                          :refs ["@smith2024"]))
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session
+                         'persistent
+                         '(:node_key "heading:note.org:3"
+                           :title "Heading"
+                           :file_path "note.org"
+                           :line 3
+                           :refs ["@smith2024"])))
             (cl-letf (((symbol-function 'org-slipbox-rpc-backlinks)
                        (lambda (&rest _args)
                          '(:backlinks []))))
@@ -2435,11 +2451,15 @@
                    :line 1)))
               ((symbol-function 'org-slipbox-buffer-render-contents)
                (lambda ()
-                 (setq rendered org-slipbox-buffer-current-node))))
+                 (setq rendered
+                       (org-slipbox-buffer-session-current-node
+                        org-slipbox-buffer-session)))))
       (with-current-buffer (get-buffer-create org-slipbox-buffer)
         (unwind-protect
             (progn
               (org-slipbox-buffer-persistent-redisplay)
+              (should (eq (org-slipbox-buffer-session-kind org-slipbox-buffer-session)
+                          'persistent))
               (should
                (equal rendered
                       '(:node_key "file:note.org"
@@ -2461,6 +2481,50 @@
           (should-not (memq #'org-slipbox-buffer--redisplay-h post-command-hook)))
       (when org-slipbox-buffer-persistent-mode
         (org-slipbox-buffer-persistent-mode -1)))))
+
+(ert-deftest org-slipbox-test-buffer-render-preserves-explicit-session-state ()
+  "Context-buffer rendering should preserve explicit session state."
+  (let ((node '(:node_key "file:note.org"
+                :title "Note"
+                :file_path "note.org"
+                :line 1))
+        (org-slipbox-buffer-sections '(org-slipbox-buffer-node-section)))
+    (with-current-buffer (get-buffer-create "*org-slipbox session test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session 'dedicated node))
+            (org-slipbox-buffer-render-contents)
+            (should (org-slipbox-buffer-session-p org-slipbox-buffer-session))
+            (should (eq (org-slipbox-buffer-session-kind org-slipbox-buffer-session)
+                        'dedicated))
+            (should (equal (org-slipbox-buffer-session-current-node
+                            org-slipbox-buffer-session)
+                           node)))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-display-dedicated-initializes-session ()
+  "Dedicated display should initialize an explicit dedicated session."
+  (let* ((node '(:node_key "file:note.org"
+                 :title "Note"
+                 :file_path "note.org"
+                 :line 1))
+         session
+         displayed)
+    (cl-letf (((symbol-function 'display-buffer)
+               (lambda (buffer &rest _args)
+                 (setq displayed buffer)
+                 buffer))
+              ((symbol-function 'org-slipbox-buffer-render-contents)
+               (lambda ()
+                 (setq session org-slipbox-buffer-session))))
+      (org-slipbox-buffer-display-dedicated node)
+      (should (buffer-live-p displayed))
+      (should (org-slipbox-buffer-session-p session))
+      (should (eq (org-slipbox-buffer-session-kind session) 'dedicated))
+      (should (equal (org-slipbox-buffer-session-root-node session) node))
+      (should (equal (org-slipbox-buffer-session-current-node session) node))
+      (kill-buffer displayed))))
 
 (ert-deftest org-slipbox-test-graph-write-dot-uses-rpc-and-writes-file ()
   "Graph DOT export should request DOT from the daemon and write it to disk."
@@ -2680,18 +2744,20 @@
            (seconds-to-time (/ (float mtime-ns) 1000000000.0))))
          (org-slipbox-directory "/tmp")
          (org-slipbox-buffer-expensive-sections 'dedicated))
-    (with-current-buffer (get-buffer-create "*org-slipbox: Note<note.org>*")
+    (with-current-buffer (get-buffer-create "*org-slipbox discovery test*")
       (unwind-protect
           (progn
-            (setq-local org-slipbox-buffer-current-node
-                        `(:node_key "file:note.org"
-                          :title "Note"
-                          :file_path "note.org"
-                          :line 1
-                          :kind "file"
-                          :file_mtime_ns ,mtime-ns
-                          :backlink_count 3
-                          :forward_link_count 2))
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session
+                         'dedicated
+                         `(:node_key "file:note.org"
+                           :title "Note"
+                           :file_path "note.org"
+                           :line 1
+                           :kind "file"
+                           :file_mtime_ns ,mtime-ns
+                           :backlink_count 3
+                           :forward_link_count 2)))
 	            (cl-letf (((symbol-function 'org-slipbox-buffer--backlinks)
 	                       (lambda (&rest _args) nil))
 	                      ((symbol-function 'org-slipbox-buffer--forward-links)
@@ -2743,12 +2809,14 @@
     (with-current-buffer (get-buffer-create org-slipbox-buffer)
       (unwind-protect
           (progn
-            (setq-local org-slipbox-buffer-current-node
-                        '(:node_key "file:note.org"
-                          :title "Note"
-                          :file_path "note.org"
-                          :line 1
-                          :kind "file"))
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session
+                         'persistent
+                         '(:node_key "file:note.org"
+                           :title "Note"
+                           :file_path "note.org"
+                           :line 1
+                           :kind "file")))
             (cl-letf (((symbol-function 'org-slipbox-buffer--backlinks)
                        (lambda (&rest _args) nil))
                       ((symbol-function 'org-slipbox-buffer--forward-links)

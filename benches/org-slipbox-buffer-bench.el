@@ -45,11 +45,11 @@ ITERATIONS is the number of redisplay runs per sample."
                    (lambda (_node &optional _unique _limit) forward-links)))
           (dotimes (_ samples)
             (with-current-buffer (get-buffer-create buffer-name)
-              (setq-local org-slipbox-buffer-current-node nil)
+              (setq-local org-slipbox-buffer-session nil)
               (push
                (* 1000.0
                   (/ (car (benchmark-run-compiled iterations
-                            (setq-local org-slipbox-buffer-current-node nil)
+                            (setq-local org-slipbox-buffer-session nil)
                             (org-slipbox-buffer-persistent-redisplay)))
                      iterations))
                samples-ms))))

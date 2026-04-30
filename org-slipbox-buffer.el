@@ -85,8 +85,18 @@ Return non-nil to render the section, or nil to skip it."
   :type '(choice (const :tag "None" nil) function)
   :group 'org-slipbox)
 
-(defvar-local org-slipbox-buffer-current-node nil
-  "Node currently rendered in the org-slipbox context buffer.")
+(cl-defstruct org-slipbox-buffer-session
+  "Explicit session state for an org-slipbox context buffer."
+  kind
+  current-node
+  root-node
+  active-lens
+  history)
+
+(defvar-local org-slipbox-buffer-session nil
+  "Explicit session state for the current org-slipbox context buffer.")
+
+(put 'org-slipbox-buffer-session 'permanent-local t)
 
 (define-derived-mode org-slipbox-buffer-mode special-mode "org-slipbox"
   "Major mode for org-slipbox context buffers.")
@@ -105,7 +115,7 @@ Return non-nil to render the section, or nil to skip it."
   (interactive)
   (unless (derived-mode-p 'org-slipbox-buffer-mode)
     (user-error "Not in an org-slipbox buffer"))
-  (unless org-slipbox-buffer-current-node
+  (unless (org-slipbox-buffer--session-node)
     (user-error "No org-slipbox node to refresh"))
   (org-slipbox-buffer-render-contents))
 
@@ -115,7 +125,8 @@ Return non-nil to render the section, or nil to skip it."
   (interactive (list (org-slipbox-buffer--read-node-for-display)))
   (let ((buffer (get-buffer-create (org-slipbox-buffer--dedicated-name node))))
     (with-current-buffer buffer
-      (setq-local org-slipbox-buffer-current-node node)
+      (setq-local org-slipbox-buffer-session
+                  (org-slipbox-buffer--make-dedicated-session node))
       (org-slipbox-buffer-render-contents))
     (display-buffer buffer)))
 
@@ -135,14 +146,18 @@ Return non-nil to render the section, or nil to skip it."
   "Refresh the persistent org-slipbox context buffer from point."
   (when-let ((node (org-slipbox-node-at-point)))
     (with-current-buffer (get-buffer-create org-slipbox-buffer)
-      (unless (equal node org-slipbox-buffer-current-node)
-        (setq-local org-slipbox-buffer-current-node node)
-        (org-slipbox-buffer-render-contents)
-        (add-hook 'kill-buffer-hook #'org-slipbox-buffer--persistent-cleanup-h nil t)))))
+      (let ((session (or org-slipbox-buffer-session
+                         (org-slipbox-buffer--make-persistent-session))))
+        (unless (equal node (org-slipbox-buffer-session-current-node session))
+          (setf (org-slipbox-buffer-session-current-node session) node
+                (org-slipbox-buffer-session-root-node session) node)
+          (setq-local org-slipbox-buffer-session session)
+          (org-slipbox-buffer-render-contents)
+          (add-hook 'kill-buffer-hook #'org-slipbox-buffer--persistent-cleanup-h nil t))))))
 
 (defun org-slipbox-buffer-render-contents ()
   "Render the current org-slipbox context buffer."
-  (let* ((node org-slipbox-buffer-current-node)
+  (let* ((node (org-slipbox-buffer--session-node))
          (inhibit-read-only t))
     (erase-buffer)
     (org-slipbox-buffer-mode)
@@ -189,6 +204,25 @@ Return non-nil to render the section, or nil to skip it."
   (when (string= (buffer-name) org-slipbox-buffer)
     (org-slipbox-buffer-persistent-mode -1)))
 
+(defun org-slipbox-buffer--make-persistent-session (&optional node)
+  "Return a persistent context-buffer session for NODE."
+  (make-org-slipbox-buffer-session
+   :kind 'persistent
+   :current-node node
+   :root-node node))
+
+(defun org-slipbox-buffer--make-dedicated-session (node)
+  "Return a dedicated context-buffer session rooted at NODE."
+  (make-org-slipbox-buffer-session
+   :kind 'dedicated
+   :current-node node
+   :root-node node))
+
+(defun org-slipbox-buffer--session-node (&optional session)
+  "Return the current node for SESSION or the current buffer."
+  (when-let ((session (or session org-slipbox-buffer-session)))
+    (org-slipbox-buffer-session-current-node session)))
+
 (defun org-slipbox-buffer--dedicated-name (node)
   "Return a dedicated context buffer name for NODE."
   (format "*org-slipbox: %s<%s>*"
@@ -197,8 +231,10 @@ Return non-nil to render the section, or nil to skip it."
 
 (defun org-slipbox-buffer--dedicated-p (&optional buffer)
   "Return non-nil when BUFFER is a dedicated org-slipbox buffer."
-  (string-prefix-p "*org-slipbox: "
-                   (buffer-name (or buffer (current-buffer)))))
+  (with-current-buffer (or buffer (current-buffer))
+    (and (org-slipbox-buffer-session-p org-slipbox-buffer-session)
+         (eq (org-slipbox-buffer-session-kind org-slipbox-buffer-session)
+             'dedicated))))
 
 (defun org-slipbox-buffer--render-expensive-sections-p ()
   "Return non-nil when expensive discovery sections should be rendered."
