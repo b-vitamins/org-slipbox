@@ -184,13 +184,13 @@ Return non-nil to render the section, or nil to skip it."
   "Refresh the persistent org-slipbox context buffer from point."
   (when-let ((node (org-slipbox-node-at-point)))
     (with-current-buffer (get-buffer-create org-slipbox-buffer)
-      (let ((session (or org-slipbox-buffer-session
-                         (org-slipbox-buffer--make-persistent-session))))
-        (unless (equal node (org-slipbox-buffer-session-current-node session))
-          (setf (org-slipbox-buffer-session-current-node session) node
-                (org-slipbox-buffer-session-root-node session) node
-                (org-slipbox-buffer-session-lens-cache session) nil
-                (org-slipbox-buffer-session-comparison-cache session) nil)
+      (let* ((session (or org-slipbox-buffer-session
+                          (org-slipbox-buffer--make-persistent-session)))
+             (node-changed
+              (not (equal node (org-slipbox-buffer-session-current-node session)))))
+        (org-slipbox-buffer--normalize-persistent-session session node)
+        (when node-changed
+          (setf (org-slipbox-buffer-session-lens-cache session) nil)
           (setq-local org-slipbox-buffer-session session)
           (org-slipbox-buffer-render-contents)
           (add-hook 'kill-buffer-hook #'org-slipbox-buffer--persistent-cleanup-h nil t))))))
@@ -464,6 +464,23 @@ Return non-nil to render the section, or nil to skip it."
    :kind 'persistent
    :current-node node
    :root-node node))
+
+(defun org-slipbox-buffer--normalize-persistent-session (session node)
+  "Normalize persistent SESSION around NODE.
+Dedicated-only state must not survive on the persistent tracking path."
+  (setf (org-slipbox-buffer-session-kind session) 'persistent
+        (org-slipbox-buffer-session-current-node session) node
+        (org-slipbox-buffer-session-root-node session) node
+        (org-slipbox-buffer-session-active-lens session) nil
+        (org-slipbox-buffer-session-compare-target session) nil
+        (org-slipbox-buffer-session-comparison-group session) nil
+        (org-slipbox-buffer-session-trail session) nil
+        (org-slipbox-buffer-session-trail-index session) nil
+        (org-slipbox-buffer-session-history session) nil
+        (org-slipbox-buffer-session-future session) nil
+        (org-slipbox-buffer-session-frozen-context session) nil
+        (org-slipbox-buffer-session-comparison-cache session) nil)
+  session)
 
 (defun org-slipbox-buffer--make-dedicated-session (node)
   "Return a dedicated context-buffer session rooted at NODE."

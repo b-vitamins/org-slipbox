@@ -542,6 +542,8 @@ dependencies = [
  "rusqlite",
  "serde_json",
  "slipbox-core",
+ "slipbox-index",
+ "tempfile",
  "urlencoding",
 ]
 

@@ -38,3 +38,31 @@ impl Database {
         Ok(database)
     }
 }
+
+#[cfg(test)]
+mod test_support {
+    use std::fs;
+    use std::path::PathBuf;
+
+    use anyhow::{Context, Result};
+    use slipbox_index::{DiscoveryPolicy, scan_root_with_policy};
+    use tempfile::TempDir;
+
+    use super::Database;
+
+    pub(crate) fn indexed_database(files: &[(&str, &str)]) -> Result<(TempDir, Database, PathBuf)> {
+        let workspace = tempfile::tempdir().context("workspace should be created")?;
+        let root = workspace.path().join("notes");
+        fs::create_dir_all(&root).context("notes root should be created")?;
+        for (name, contents) in files {
+            fs::write(root.join(name), contents)
+                .with_context(|| format!("fixture {} should be written", name))?;
+        }
+
+        let mut database = Database::open(&workspace.path().join("index.sqlite3"))?;
+        let files =
+            scan_root_with_policy(&root, &DiscoveryPolicy::default()).context("fixture scan")?;
+        database.sync_index(&files).context("fixture index sync")?;
+        Ok((workspace, database, root))
+    }
+}

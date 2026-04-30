@@ -493,3 +493,137 @@ fn compare_weakly_integrated_candidates(
         .cmp(&structural_link_count(&right.anchor))
         .then_with(|| compare_anchor_records(&left.anchor, &right.anchor))
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::thread::sleep;
+    use std::time::Duration;
+
+    use anyhow::{Context, Result};
+    use slipbox_core::ExplorationExplanation;
+    use slipbox_index::{DiscoveryPolicy, scan_root_with_policy};
+
+    use crate::Database;
+
+    #[test]
+    fn non_obvious_queries_stay_explainable_and_note_scoped() -> Result<()> {
+        let workspace = tempfile::tempdir().context("workspace should be created")?;
+        let root = workspace.path().join("notes");
+        fs::create_dir_all(&root).context("notes root should be created")?;
+        fs::write(
+            root.join("older.org"),
+            r#"#+title: Older
+
+* Dormant Bridge
+:PROPERTIES:
+:ID: dormant-bridge-id
+:ROAM_REFS: cite:shared2024
+:END:
+Links to [[id:neighbor-id]] and [[id:support-id]].
+
+* Support
+:PROPERTIES:
+:ID: support-id
+:END:
+Support body.
+"#,
+        )
+        .context("older fixture should be written")?;
+        sleep(Duration::from_millis(10));
+        fs::write(
+            root.join("focus.org"),
+            r#"#+title: Focus
+
+* Focus
+:PROPERTIES:
+:ID: focus-id
+:ROAM_REFS: cite:shared2024 cite:focus2024
+:END:
+Links to [[id:neighbor-id]].
+
+* Neighbor
+:PROPERTIES:
+:ID: neighbor-id
+:END:
+Neighbor body.
+"#,
+        )
+        .context("focus fixture should be written")?;
+        sleep(Duration::from_millis(10));
+        fs::write(
+            root.join("related.org"),
+            r#"#+title: Related
+
+* TODO Unresolved Thread
+:PROPERTIES:
+:ID: unresolved-id
+:ROAM_REFS: cite:shared2024
+:END:
+Unresolved body.
+
+* Weak Thread
+:PROPERTIES:
+:ID: weak-id
+:ROAM_REFS: cite:shared2024
+:END:
+Weakly integrated body.
+"#,
+        )
+        .context("related fixture should be written")?;
+
+        let mut database = Database::open(&workspace.path().join("index.sqlite3"))?;
+        let files =
+            scan_root_with_policy(&root, &DiscoveryPolicy::default()).context("fixture scan")?;
+        database.sync_index(&files).context("fixture index sync")?;
+        let focus = database
+            .node_from_id("focus-id")?
+            .context("focus note should exist")?;
+
+        let bridges = database.bridge_candidates(&focus, 20)?;
+        assert_eq!(bridges.len(), 1);
+        assert_eq!(bridges[0].anchor.title, "Dormant Bridge");
+        assert_eq!(
+            bridges[0].explanation,
+            ExplorationExplanation::BridgeCandidate {
+                reference: "@shared2024".to_owned(),
+                via_title: "Neighbor".to_owned(),
+            }
+        );
+
+        let dormant = database.dormant_related(&focus, 20)?;
+        assert_eq!(dormant.len(), 1);
+        assert_eq!(dormant[0].anchor.title, "Dormant Bridge");
+        assert!(matches!(
+            dormant[0].explanation,
+            ExplorationExplanation::DormantSharedReference {
+                ref reference,
+                modified_at_ns,
+            } if reference == "@shared2024" && modified_at_ns < focus.file_mtime_ns
+        ));
+
+        let unresolved = database.unresolved_tasks(&focus, 20)?;
+        assert_eq!(unresolved.len(), 1);
+        assert_eq!(unresolved[0].anchor.title, "Unresolved Thread");
+        assert_eq!(
+            unresolved[0].explanation,
+            ExplorationExplanation::UnresolvedSharedReference {
+                reference: "@shared2024".to_owned(),
+                todo_keyword: "TODO".to_owned(),
+            }
+        );
+
+        let weakly_integrated = database.weakly_integrated_notes(&focus, 20)?;
+        assert_eq!(weakly_integrated.len(), 1);
+        assert_eq!(weakly_integrated[0].anchor.title, "Weak Thread");
+        assert_eq!(
+            weakly_integrated[0].explanation,
+            ExplorationExplanation::WeaklyIntegratedSharedReference {
+                reference: "@shared2024".to_owned(),
+                structural_link_count: 0,
+            }
+        );
+
+        Ok(())
+    }
+}

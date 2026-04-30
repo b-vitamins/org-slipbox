@@ -234,3 +234,133 @@ fn compare_node_records(left: &NodeRecord, right: &NodeRecord) -> Ordering {
         .then_with(|| left.line.cmp(&right.line))
         .then_with(|| left.node_key.cmp(&right.node_key))
 }
+
+#[cfg(test)]
+mod tests {
+    use anyhow::Result;
+    use slipbox_core::{
+        CompareNotesParams, ComparisonConnectorDirection, NoteComparisonEntry,
+        NoteComparisonExplanation, NoteComparisonSectionKind,
+    };
+
+    use crate::test_support::indexed_database;
+
+    #[test]
+    fn compare_notes_preserves_engine_semantics_and_limits() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[(
+            "comparison.org",
+            r#"#+title: Comparison
+
+* Left
+:PROPERTIES:
+:ID: left-id
+:ROAM_REFS: cite:shared2024 cite:left2024
+:END:
+Links to [[id:shared-forward-id]] and [[id:left-right-bridge-id]].
+
+* Right
+:PROPERTIES:
+:ID: right-id
+:ROAM_REFS: cite:shared2024 cite:right2024
+:END:
+Links to [[id:shared-forward-id]] and [[id:right-left-bridge-id]].
+
+* Shared Forward
+:PROPERTIES:
+:ID: shared-forward-id
+:END:
+Forward target body.
+
+* Left To Right Bridge
+:PROPERTIES:
+:ID: left-right-bridge-id
+:END:
+Connects to [[id:right-id]].
+
+* Right To Left Bridge
+:PROPERTIES:
+:ID: right-left-bridge-id
+:END:
+Connects to [[id:left-id]].
+
+* Shared Backlink
+:PROPERTIES:
+:ID: shared-backlink-id
+:END:
+Links to [[id:left-id]] and [[id:right-id]].
+"#,
+        )])?;
+        let left = database
+            .node_from_id("left-id")?
+            .expect("left note should exist");
+        let right = database
+            .node_from_id("right-id")?
+            .expect("right note should exist");
+
+        let comparison = database.compare_notes(
+            &left,
+            &right,
+            &CompareNotesParams {
+                left_node_key: left.node_key.clone(),
+                right_node_key: right.node_key.clone(),
+                limit: 20,
+            },
+        )?;
+
+        assert_eq!(
+            comparison
+                .sections
+                .iter()
+                .map(|section| section.kind)
+                .collect::<Vec<_>>(),
+            vec![
+                NoteComparisonSectionKind::SharedRefs,
+                NoteComparisonSectionKind::LeftOnlyRefs,
+                NoteComparisonSectionKind::RightOnlyRefs,
+                NoteComparisonSectionKind::SharedBacklinks,
+                NoteComparisonSectionKind::SharedForwardLinks,
+                NoteComparisonSectionKind::IndirectConnectors,
+            ]
+        );
+        assert!(comparison.sections[0].entries.iter().any(|entry| matches!(
+            entry,
+            NoteComparisonEntry::Reference { record }
+            if record.reference == "@shared2024"
+                && record.explanation == NoteComparisonExplanation::SharedReference
+        )));
+        assert!(comparison.sections[5].entries.iter().any(|entry| matches!(
+            entry,
+            NoteComparisonEntry::Node { record }
+            if record.node.title == "Left To Right Bridge"
+                && record.explanation == NoteComparisonExplanation::IndirectConnector {
+                    direction: ComparisonConnectorDirection::LeftToRight,
+                }
+        )));
+        assert!(comparison.sections[5].entries.iter().any(|entry| matches!(
+            entry,
+            NoteComparisonEntry::Node { record }
+            if record.node.title == "Right To Left Bridge"
+                && record.explanation == NoteComparisonExplanation::IndirectConnector {
+                    direction: ComparisonConnectorDirection::RightToLeft,
+                }
+        )));
+
+        let limited = database.compare_notes(
+            &left,
+            &right,
+            &CompareNotesParams {
+                left_node_key: left.node_key.clone(),
+                right_node_key: right.node_key.clone(),
+                limit: 1,
+            },
+        )?;
+        assert!(
+            limited
+                .sections
+                .iter()
+                .all(|section| section.entries.len() <= 1)
+        );
+
+        Ok(())
+    }
+}

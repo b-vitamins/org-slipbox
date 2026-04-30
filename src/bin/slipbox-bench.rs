@@ -18,7 +18,10 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use serde::{Deserialize, Serialize};
-use slipbox_core::{BacklinkRecord, ForwardLinkRecord, NodeRecord, SearchNodesSort};
+use slipbox_core::{
+    BacklinkRecord, CompareNotesParams, ForwardLinkRecord, NodeRecord, NoteComparisonResult,
+    SearchNodesSort,
+};
 use slipbox_index::{DiscoveryPolicy, scan_path_with_policy, scan_root_with_policy};
 use slipbox_store::Database;
 use tempfile::TempDir;
@@ -30,6 +33,7 @@ use unlinked_references_query::query_unlinked_references;
 const HOT_NODE_ID: &str = "node-000000";
 const AGENDA_START: &str = "2026-03-01";
 const AGENDA_END: &str = "2026-03-31";
+const DEDICATED_COMPARE_CANDIDATE_LIMIT: usize = 12;
 
 #[derive(Parser)]
 #[command(name = "slipbox-bench")]
@@ -100,6 +104,8 @@ struct IterationConfig {
     agenda: usize,
     persistent_buffer_samples: usize,
     persistent_buffer_iterations: usize,
+    dedicated_buffer_samples: usize,
+    dedicated_buffer_iterations: usize,
     search_limit: usize,
     backlinks_limit: usize,
     reflinks_limit: usize,
@@ -122,6 +128,7 @@ struct ThresholdConfig {
     node_at_point_p95_ms: f64,
     agenda_p95_ms: f64,
     persistent_buffer_p95_ms: Option<f64>,
+    dedicated_buffer_p95_ms: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -141,6 +148,7 @@ struct BenchmarkReport {
     node_at_point: TimingReport,
     agenda: TimingReport,
     persistent_buffer: Option<TimingReport>,
+    dedicated_buffer: Option<TimingReport>,
 }
 
 #[derive(Debug, Serialize)]
@@ -190,6 +198,13 @@ struct BufferFixture<'a> {
     node: &'a NodeRecord,
     backlinks: &'a [BacklinkRecord],
     forward_links: &'a [ForwardLinkRecord],
+}
+
+#[derive(Debug, Serialize)]
+struct DedicatedBufferFixture<'a> {
+    node: &'a NodeRecord,
+    compare_target: &'a NodeRecord,
+    comparison_result: &'a NoteComparisonResult,
 }
 
 #[derive(Debug, Deserialize)]
@@ -328,8 +343,8 @@ fn run_profile(
         benchmark_unlinked_references(&mut database, profile, &fixture.root, &hot_node)?;
     let node_at_point = benchmark_node_at_point(&mut database, profile, fixture)?;
     let agenda = benchmark_agenda(&mut database, profile)?;
-    let persistent_buffer = if skip_elisp {
-        None
+    let (persistent_buffer, dedicated_buffer) = if skip_elisp {
+        (None, None)
     } else {
         let buffer_backlinks = database.backlinks(
             &hot_node.node_key,
@@ -341,13 +356,28 @@ fn run_profile(
             profile.iterations.backlinks_limit,
             false,
         )?;
-        Some(benchmark_persistent_buffer(
+        let persistent_buffer = benchmark_persistent_buffer(
             repo_root,
             profile,
             &hot_node,
             &buffer_backlinks,
             &buffer_forward_links,
-        )?)
+        )?;
+        let (compare_target, comparison_result) = select_dedicated_compare_fixture(
+            &database,
+            &hot_node,
+            &buffer_backlinks,
+            &buffer_forward_links,
+            profile.iterations.backlinks_limit,
+        )?;
+        let dedicated_buffer = benchmark_dedicated_buffer(
+            repo_root,
+            profile,
+            &hot_node,
+            &compare_target,
+            &comparison_result,
+        )?;
+        (Some(persistent_buffer), Some(dedicated_buffer))
     };
     let index_file = benchmark_index_file(&mut database, profile, fixture, &policy)?;
 
@@ -375,6 +405,7 @@ fn run_profile(
         node_at_point,
         agenda,
         persistent_buffer,
+        dedicated_buffer,
     })
 }
 
@@ -795,6 +826,120 @@ fn benchmark_persistent_buffer(
     Ok(TimingReport::from_samples(report.samples_ms))
 }
 
+fn select_dedicated_compare_fixture(
+    database: &Database,
+    node: &NodeRecord,
+    backlinks: &[BacklinkRecord],
+    forward_links: &[ForwardLinkRecord],
+    limit: usize,
+) -> Result<(NodeRecord, NoteComparisonResult)> {
+    let params = |left: &NodeRecord, right: &NodeRecord| CompareNotesParams {
+        left_node_key: left.node_key.clone(),
+        right_node_key: right.node_key.clone(),
+        limit,
+    };
+
+    let mut seen = BTreeSet::new();
+    let candidates = forward_links
+        .iter()
+        .map(|record| record.destination_note.clone())
+        .chain(backlinks.iter().map(|record| record.source_note.clone()))
+        .filter(|candidate| {
+            candidate.node_key != node.node_key && seen.insert(candidate.node_key.clone())
+        })
+        .take(DEDICATED_COMPARE_CANDIDATE_LIMIT)
+        .collect::<Vec<_>>();
+
+    let mut best = None;
+    for candidate in candidates {
+        let comparison = database.compare_notes(node, &candidate, &params(node, &candidate))?;
+        let score = comparison
+            .sections
+            .iter()
+            .map(|section| section.entries.len())
+            .sum::<usize>();
+        if best
+            .as_ref()
+            .is_none_or(|(_, _, best_score)| score > *best_score)
+        {
+            best = Some((candidate, comparison, score));
+        }
+    }
+
+    if let Some((candidate, comparison, _score)) = best {
+        Ok((candidate, comparison))
+    } else {
+        let comparison = database.compare_notes(node, node, &params(node, node))?;
+        Ok((node.clone(), comparison))
+    }
+}
+
+fn benchmark_dedicated_buffer(
+    repo_root: &Path,
+    profile: &BenchmarkProfile,
+    node: &NodeRecord,
+    compare_target: &NodeRecord,
+    comparison_result: &NoteComparisonResult,
+) -> Result<TimingReport> {
+    let fixture = DedicatedBufferFixture {
+        node,
+        compare_target,
+        comparison_result,
+    };
+    let fixture_file = repo_root
+        .join("target")
+        .join("bench")
+        .join("dedicated-buffer-fixture.json");
+    if let Some(parent) = fixture_file.parent() {
+        fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "failed to create dedicated buffer fixture directory {}",
+                parent.display()
+            )
+        })?;
+    }
+    write_json(&fixture_file, &fixture)?;
+
+    let emacs = std::env::var("EMACS").unwrap_or_else(|_| "emacs".to_owned());
+    let eval = format!(
+        "(princ (org-slipbox-buffer-bench-run-dedicated-file {:?} {} {}))",
+        fixture_file.to_string_lossy(),
+        profile.iterations.dedicated_buffer_samples,
+        profile.iterations.dedicated_buffer_iterations
+    );
+    let output = Command::new(&emacs)
+        .current_dir(repo_root)
+        .arg("-Q")
+        .arg("--batch")
+        .arg("-L")
+        .arg(".")
+        .arg("-l")
+        .arg("org-slipbox.el")
+        .arg("-l")
+        .arg("benches/org-slipbox-buffer-bench.el")
+        .arg("--eval")
+        .arg(eval)
+        .output()
+        .with_context(|| format!("failed to execute {emacs} for dedicated buffer benchmark"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        let message = if stderr.is_empty() {
+            format!("{emacs} exited with {}", output.status)
+        } else {
+            stderr
+        };
+        bail!("dedicated buffer benchmark failed: {message}");
+    }
+
+    let report: ElispTimingReport = serde_json::from_slice(&output.stdout)
+        .context("failed to parse dedicated buffer report")?;
+    if report.samples_ms.is_empty() {
+        bail!("dedicated buffer benchmark produced no samples");
+    }
+    Ok(TimingReport::from_samples(report.samples_ms))
+}
+
 fn measure_iterations(
     iterations: usize,
     mut f: impl FnMut(usize) -> Result<()>,
@@ -1031,6 +1176,11 @@ fn enforce_thresholds(report: &BenchmarkReport, thresholds: &ThresholdConfig) ->
     ) {
         check_threshold("persistent_buffer", observed.p95_ms, limit)?;
     }
+    if let (Some(observed), Some(limit)) =
+        (&report.dedicated_buffer, thresholds.dedicated_buffer_p95_ms)
+    {
+        check_threshold("dedicated_buffer", observed.p95_ms, limit)?;
+    }
     Ok(())
 }
 
@@ -1068,6 +1218,9 @@ fn print_summary(report: &BenchmarkReport, check: bool, output_path: &Path) {
     print_metric("agenda", &report.agenda);
     if let Some(persistent_buffer) = &report.persistent_buffer {
         print_metric("persistentBuffer", persistent_buffer);
+    }
+    if let Some(dedicated_buffer) = &report.dedicated_buffer {
+        print_metric("dedicatedBuffer", dedicated_buffer);
     }
 }
 
@@ -1206,6 +1359,14 @@ impl BenchmarkProfile {
             (
                 "persistent_buffer_iterations",
                 self.iterations.persistent_buffer_iterations,
+            ),
+            (
+                "dedicated_buffer_samples",
+                self.iterations.dedicated_buffer_samples,
+            ),
+            (
+                "dedicated_buffer_iterations",
+                self.iterations.dedicated_buffer_iterations,
             ),
             ("search_limit", self.iterations.search_limit),
             ("backlinks_limit", self.iterations.backlinks_limit),

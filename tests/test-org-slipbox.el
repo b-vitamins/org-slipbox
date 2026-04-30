@@ -2539,6 +2539,88 @@ ROOT-NODE defaults to NODE."
                         :line 1))))
           (kill-buffer (current-buffer)))))))
 
+(ert-deftest org-slipbox-test-buffer-persistent-redisplay-clears-dedicated-state ()
+  "Persistent redisplay should normalize away dedicated-only session state."
+  (let ((node '(:node_key "file:note.org"
+                :title "Note"
+                :file_path "note.org"
+                :line 1))
+        (stale-node '(:node_key "file:stale.org"
+                      :title "Stale"
+                      :file_path "stale.org"
+                      :line 3))
+        (compare-called nil)
+        lenses)
+    (cl-letf (((symbol-function 'org-slipbox-node-at-point)
+               (lambda (&optional _assert) node))
+              ((symbol-function 'org-slipbox-rpc-explore)
+               (lambda (_node-key lens &optional _limit _unique)
+                 (push lens lenses)
+                 (pcase lens
+                   ('structure
+                    '(:lens "structure"
+                      :sections
+                      [(:kind "backlinks" :entries [])
+                       (:kind "forward-links" :entries [])]))
+                   (_ (ert-fail (format "persistent redisplay queried unexpected lens %S"
+                                        lens))))))
+              ((symbol-function 'org-slipbox-rpc-compare-notes)
+               (lambda (&rest _args)
+                 (setq compare-called t)
+                 (ert-fail "persistent redisplay must not enter comparison mode"))))
+      (with-current-buffer (get-buffer-create org-slipbox-buffer)
+        (unwind-protect
+            (progn
+              (setq-local org-slipbox-buffer-session
+                          (org-slipbox-test--buffer-session
+                           'dedicated
+                           stale-node
+                           stale-node
+                           :active-lens 'bridges
+                           :compare-target stale-node
+                           :comparison-group 'tension
+                           :trail (list (list :current-node stale-node
+                                              :active-lens 'bridges))
+                           :trail-index 0
+                           :history (list (list :current-node stale-node))
+                           :future (list (list :current-node node))
+                           :frozen-context t
+                           :comparison-cache '(((stale . stale) . :cached)))))
+              (org-slipbox-buffer-persistent-redisplay)
+              (should (equal lenses '(structure)))
+              (should-not compare-called)
+              (should (eq (org-slipbox-buffer-session-kind org-slipbox-buffer-session)
+                          'persistent))
+              (should (equal (org-slipbox-buffer-session-current-node
+                              org-slipbox-buffer-session)
+                             node))
+              (should (equal (org-slipbox-buffer-session-root-node
+                              org-slipbox-buffer-session)
+                             node))
+              (should-not (org-slipbox-buffer-session-active-lens
+                           org-slipbox-buffer-session))
+              (should-not (org-slipbox-buffer-session-compare-target
+                           org-slipbox-buffer-session))
+              (should-not (org-slipbox-buffer-session-comparison-group
+                           org-slipbox-buffer-session))
+              (should-not (org-slipbox-buffer-session-trail
+                           org-slipbox-buffer-session))
+              (should-not (org-slipbox-buffer-session-trail-index
+                           org-slipbox-buffer-session))
+              (should-not (org-slipbox-buffer-session-history
+                           org-slipbox-buffer-session))
+              (should-not (org-slipbox-buffer-session-future
+                           org-slipbox-buffer-session))
+              (should-not (org-slipbox-buffer-session-frozen-context
+                           org-slipbox-buffer-session))
+              (should-not (org-slipbox-buffer-session-comparison-cache
+                           org-slipbox-buffer-session))
+              (should-not (string-match-p "compare:" header-line-format))
+              (should-not (string-match-p "trail:" header-line-format))
+              (should-not (string-match-p "lens:" header-line-format))
+              (should-not (string-match-p "^Trail$" (buffer-string))))
+          (kill-buffer (current-buffer))))))
+
 (ert-deftest org-slipbox-test-buffer-persistent-mode-owns-hook-lifecycle ()
   "Persistent buffer redisplay should be owned by its explicit mode."
   (let ((org-slipbox-buffer-persistent-mode nil))

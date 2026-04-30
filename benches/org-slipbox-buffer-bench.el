@@ -1,4 +1,4 @@
-;;; org-slipbox-buffer-bench.el --- Batch benchmark for persistent buffer -*- lexical-binding: t; -*-
+;;; org-slipbox-buffer-bench.el --- Batch benchmarks for org-slipbox buffers -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 org-slipbox contributors
 
@@ -12,7 +12,7 @@
 
 ;;; Commentary:
 
-;; Batch benchmark helpers for the persistent org-slipbox context buffer path.
+;; Batch benchmark helpers for org-slipbox buffer rendering paths.
 
 ;;; Code:
 
@@ -20,13 +20,46 @@
 (require 'json)
 (require 'org-slipbox-buffer)
 
+(defvar org-slipbox-buffer-bench--dedicated-fixture nil
+  "Private fixture used by compiled dedicated-buffer benchmarks.")
+
+(defun org-slipbox-buffer-bench--read-fixture (fixture-file)
+  "Decode benchmark FIXTURE-FILE into a plist."
+  (with-temp-buffer
+    (insert-file-contents fixture-file)
+    (json-parse-buffer :object-type 'plist :array-type 'list)))
+
+(defun org-slipbox-buffer-bench--render-dedicated-comparison ()
+  "Render one dedicated comparison state from the private bench fixture."
+  (let* ((fixture org-slipbox-buffer-bench--dedicated-fixture)
+         (node (plist-get fixture :node))
+         (compare-target (plist-get fixture :compare_target))
+         (comparison-result (plist-get fixture :comparison_result)))
+    (cl-letf (((symbol-function 'org-slipbox-rpc-compare-notes)
+               (lambda (_left-node-key _right-node-key &optional _limit)
+                 comparison-result)))
+      (setq-local
+       org-slipbox-buffer-session
+       (make-org-slipbox-buffer-session
+        :kind 'dedicated
+        :current-node node
+        :root-node node
+        :compare-target compare-target
+        :comparison-group 'all
+        :trail (list (list :current-node node
+                           :active-lens 'structure)
+                     (list :current-node node
+                           :compare-target compare-target
+                           :comparison-group 'all))
+        :trail-index 1
+        :frozen-context t))
+      (org-slipbox-buffer-render-contents))))
+
 (defun org-slipbox-buffer-bench-run-file (fixture-file samples iterations)
-  "Return JSON benchmark data for FIXTURE-FILE.
+  "Return persistent-buffer JSON benchmark data for FIXTURE-FILE.
 SAMPLES is the number of independent timing samples to collect and
 ITERATIONS is the number of redisplay runs per sample."
-  (let* ((fixture (with-temp-buffer
-                    (insert-file-contents fixture-file)
-                    (json-parse-buffer :object-type 'plist :array-type 'list)))
+  (let* ((fixture (org-slipbox-buffer-bench--read-fixture fixture-file))
          (node (plist-get fixture :node))
          (backlinks (plist-get fixture :backlinks))
          (forward-links (plist-get fixture :forward_links))
@@ -53,6 +86,30 @@ ITERATIONS is the number of redisplay runs per sample."
                             (org-slipbox-buffer-persistent-redisplay)))
                      iterations))
                samples-ms))))
+      (when (get-buffer buffer-name)
+        (kill-buffer buffer-name)))
+    (json-encode `((samples_ms . ,(nreverse samples-ms))))))
+
+(defun org-slipbox-buffer-bench-run-dedicated-file (fixture-file samples iterations)
+  "Return dedicated-buffer JSON benchmark data for FIXTURE-FILE.
+SAMPLES is the number of independent timing samples to collect and
+ITERATIONS is the number of dedicated renders per sample."
+  (let* ((fixture (org-slipbox-buffer-bench--read-fixture fixture-file))
+         (buffer-name "*org-slipbox-dedicated-bench*")
+         (org-slipbox-buffer-postrender-functions nil)
+         (org-slipbox-buffer-section-filter-function nil)
+         samples-ms)
+    (unwind-protect
+        (dotimes (_ samples)
+          (with-current-buffer (get-buffer-create buffer-name)
+            (setq org-slipbox-buffer-bench--dedicated-fixture fixture)
+            (push
+             (* 1000.0
+                (/ (car (benchmark-run-compiled iterations
+                          (org-slipbox-buffer-bench--render-dedicated-comparison)))
+                   iterations))
+             samples-ms)))
+      (setq org-slipbox-buffer-bench--dedicated-fixture nil)
       (when (get-buffer buffer-name)
         (kill-buffer buffer-name)))
     (json-encode `((samples_ms . ,(nreverse samples-ms))))))
