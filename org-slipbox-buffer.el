@@ -1073,6 +1073,35 @@ node. LIMIT bounds the number of rows requested."
     (setq snapshot (plist-put snapshot :root-node root-node))
     (org-slipbox-buffer--transition-dedicated snapshot)))
 
+(defun org-slipbox-buffer--format-explanation-list (values)
+  "Format VALUES as a comma-separated explanation list."
+  (mapconcat #'identity values ", "))
+
+(defun org-slipbox-buffer--shared-reference-summary (explanation)
+  "Return a shared-reference summary string for EXPLANATION."
+  (let* ((references (plist-get explanation :references))
+         (label (if (= (length references) 1) "shared ref" "shared refs")))
+    (format "%s: %s"
+            label
+            (org-slipbox-buffer--format-explanation-list references))))
+
+(defun org-slipbox-buffer--bridge-via-note-summary (explanation)
+  "Return a title summary for bridge-note evidence in EXPLANATION."
+  (let ((counts (make-hash-table :test #'equal))
+        ordered-titles)
+    (dolist (note (append (plist-get explanation :via_notes) nil))
+      (let ((title (plist-get note :title)))
+        (unless (gethash title counts)
+          (setq ordered-titles (append ordered-titles (list title))))
+        (puthash title (1+ (gethash title counts 0)) counts)))
+    (org-slipbox-buffer--format-explanation-list
+     (mapcar (lambda (title)
+               (let ((count (gethash title counts)))
+                 (if (> count 1)
+                     (format "%s (%s)" title count)
+                   title)))
+             ordered-titles))))
+
 (defun org-slipbox-buffer--explanation-string (entry)
   "Return a display string for ENTRY's explanation payload."
   (when-let ((explanation (plist-get entry :explanation)))
@@ -1091,19 +1120,19 @@ node. LIMIT bounds the number of rows requested."
          ("right-to-left" "compare target -> current note")
          ("bidirectional" "bidirectional connector")))
       ("bridge-candidate"
-       (format "shared ref: %s via %s"
-               (plist-get explanation :reference)
-               (plist-get explanation :via_title)))
+       (format "%s via %s"
+               (org-slipbox-buffer--shared-reference-summary explanation)
+               (org-slipbox-buffer--bridge-via-note-summary explanation)))
       ("dormant-shared-reference"
-       (format "shared ref: %s, older untouched material"
-               (plist-get explanation :reference)))
+       (format "%s, older untouched material"
+               (org-slipbox-buffer--shared-reference-summary explanation)))
       ("unresolved-shared-reference"
-       (format "shared ref: %s, task state: %s"
-               (plist-get explanation :reference)
+       (format "%s, task state: %s"
+               (org-slipbox-buffer--shared-reference-summary explanation)
                (plist-get explanation :todo_keyword)))
       ("weakly-integrated-shared-reference"
-       (format "shared ref: %s, structural links: %s"
-               (plist-get explanation :reference)
+       (format "%s, structural links: %s"
+               (org-slipbox-buffer--shared-reference-summary explanation)
                (plist-get explanation :structural_link_count)))
       ("unlinked-reference"
        (format "unlinked mention: %s"

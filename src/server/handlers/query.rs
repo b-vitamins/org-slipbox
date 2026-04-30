@@ -788,10 +788,14 @@ mod tests {
             entry,
             ExplorationEntry::Anchor { record }
             if record.anchor.title == "Dormant Bridge"
-                && record.explanation == ExplorationExplanation::BridgeCandidate {
-                    reference: "@shared2024".to_owned(),
-                    via_title: "Neighbor".to_owned(),
-                }
+                && matches!(
+                    record.explanation,
+                    ExplorationExplanation::BridgeCandidate { ref references, ref via_notes }
+                    if references == &vec!["@shared2024".to_owned()]
+                        && via_notes.len() == 1
+                        && via_notes[0].title == "Neighbor"
+                        && via_notes[0].explicit_id.as_deref() == Some("neighbor-id")
+                )
         )));
 
         let dormant: ExploreResult = serde_json::from_value(
@@ -817,8 +821,8 @@ mod tests {
             if record.anchor.title == "Dormant Bridge"
                 && matches!(
                     record.explanation,
-                    ExplorationExplanation::DormantSharedReference { ref reference, .. }
-                    if reference == "@shared2024"
+                    ExplorationExplanation::DormantSharedReference { ref references, .. }
+                    if references == &vec!["@shared2024".to_owned()]
                 )
         )));
 
@@ -850,7 +854,7 @@ mod tests {
             ExplorationEntry::Anchor { record }
             if record.anchor.title == "Unresolved Thread"
                 && record.explanation == ExplorationExplanation::UnresolvedSharedReference {
-                    reference: "@shared2024".to_owned(),
+                    references: vec!["@shared2024".to_owned()],
                     todo_keyword: "TODO".to_owned(),
                 }
         )));
@@ -860,7 +864,7 @@ mod tests {
             if record.anchor.title == "Weak Thread"
                 && record.explanation
                     == ExplorationExplanation::WeaklyIntegratedSharedReference {
-                        reference: "@shared2024".to_owned(),
+                        references: vec!["@shared2024".to_owned()],
                         structural_link_count: 0,
                     }
         )));

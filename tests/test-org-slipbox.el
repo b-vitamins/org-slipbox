@@ -2963,20 +2963,25 @@ ROOT-NODE defaults to NODE."
                                            :file_path "bridge.org"
                                            :line 7)
                                   :explanation (:kind "bridge-candidate"
-                                                :reference "@shared2024"
-                                                :via_title "Neighbor"))])]))
+                                                :references ["@focus2024" "@shared2024"]
+                                                :via_notes [(:node_key "heading:focus.org:7"
+                                                             :explicit_id "neighbor-id"
+                                                             :title "Neighbor")
+                                                            (:node_key "heading:older.org:11"
+                                                             :explicit_id "support-id"
+                                                             :title "Support")]))])]))
                            ('unresolved
                             '(:lens "unresolved"
                               :sections
                               [(:kind "unresolved-tasks"
                                 :entries
                                 [(:kind "anchor"
-                                  :anchor (:node_key "file:unresolved.org"
+                                 :anchor (:node_key "file:unresolved.org"
                                            :title "Unresolved"
                                            :file_path "unresolved.org"
                                            :line 5)
                                   :explanation (:kind "unresolved-shared-reference"
-                                                :reference "@shared2024"
+                                                :references ["@focus2024" "@shared2024"]
                                                 :todo_keyword "TODO"))])
                                (:kind "weakly-integrated-notes"
                                 :entries
@@ -2986,14 +2991,15 @@ ROOT-NODE defaults to NODE."
                                            :file_path "weak.org"
                                            :line 9)
                                   :explanation (:kind "weakly-integrated-shared-reference"
-                                                :reference "@shared2024"
+                                                :references ["@focus2024" "@shared2024"]
                                                 :structural_link_count 1))])]))
                            (_
                             '(:lens "dormant" :sections []))))))
               (org-slipbox-buffer-switch-lens 'bridges)
               (should (string-match-p "lens: bridges" header-line-format))
               (should (string-match-p "Bridge Candidates" (buffer-string)))
-              (should (string-match-p "shared ref: @shared2024 via Neighbor"
+              (should (string-match-p
+                       "shared refs: @focus2024, @shared2024 via Neighbor, Support"
                                       (buffer-string)))
               (org-slipbox-buffer-switch-lens 'unresolved))
             (should (eq (org-slipbox-buffer-session-active-lens
@@ -3001,6 +3007,8 @@ ROOT-NODE defaults to NODE."
                         'unresolved))
             (should (string-match-p "Unresolved Tasks" (buffer-string)))
             (should (string-match-p "Weakly Integrated Notes" (buffer-string)))
+            (should (string-match-p "shared refs: @focus2024, @shared2024"
+                                    (buffer-string)))
             (should (string-match-p "task state: TODO" (buffer-string)))
             (should (string-match-p "structural links: 1" (buffer-string))))
         (kill-buffer (current-buffer))))))

@@ -522,6 +522,14 @@ pub struct BacklinksResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BridgeEvidenceRecord {
+    pub node_key: String,
+    #[serde(default)]
+    pub explicit_id: Option<String>,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum ExplorationExplanation {
     Backlink,
@@ -542,19 +550,19 @@ pub enum ExplorationExplanation {
         todo_keyword: String,
     },
     BridgeCandidate {
-        reference: String,
-        via_title: String,
+        references: Vec<String>,
+        via_notes: Vec<BridgeEvidenceRecord>,
     },
     DormantSharedReference {
-        reference: String,
+        references: Vec<String>,
         modified_at_ns: i64,
     },
     UnresolvedSharedReference {
-        reference: String,
+        references: Vec<String>,
         todo_keyword: String,
     },
     WeaklyIntegratedSharedReference {
-        reference: String,
+        references: Vec<String>,
         structural_link_count: u64,
     },
 }
@@ -1304,11 +1312,11 @@ fn normalize_string_values(values: &[String], nocase: bool) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        BacklinkRecord, CaptureNodeParams, CaptureTemplatePreviewResult, CompareNotesParams,
-        ComparisonConnectorDirection, ComparisonReferenceRecord, ExplorationEntry,
-        ExplorationExplanation, ExplorationLens, ExplorationSection, ExplorationSectionKind,
-        ExploreParams, ExploreResult, NodeFromTitleOrAliasParams, NodeKind, NodeRecord,
-        NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonResult,
+        BacklinkRecord, BridgeEvidenceRecord, CaptureNodeParams, CaptureTemplatePreviewResult,
+        CompareNotesParams, ComparisonConnectorDirection, ComparisonReferenceRecord,
+        ExplorationEntry, ExplorationExplanation, ExplorationLens, ExplorationSection,
+        ExplorationSectionKind, ExploreParams, ExploreResult, NodeFromTitleOrAliasParams, NodeKind,
+        NodeRecord, NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonResult,
         NoteComparisonSection, NoteComparisonSectionKind, PreviewNodeRecord, SearchNodesParams,
         SearchNodesSort, UnlinkedReferencesParams, UpdateNodeMetadataParams, normalize_reference,
     };
@@ -1558,52 +1566,74 @@ mod tests {
 
         assert_eq!(
             serde_json::to_value(ExplorationExplanation::BridgeCandidate {
-                reference: "@shared2024".to_owned(),
-                via_title: "Neighbor".to_owned(),
+                references: vec!["@shared2024".to_owned(), "@shared2025".to_owned()],
+                via_notes: vec![
+                    BridgeEvidenceRecord {
+                        node_key: "heading:neighbor.org:3".to_owned(),
+                        explicit_id: Some("neighbor-id".to_owned()),
+                        title: "Neighbor".to_owned(),
+                    },
+                    BridgeEvidenceRecord {
+                        node_key: "heading:support.org:7".to_owned(),
+                        explicit_id: Some("support-id".to_owned()),
+                        title: "Support".to_owned(),
+                    },
+                ],
             })
             .expect("bridge explanation should serialize"),
             json!({
                 "kind": "bridge-candidate",
-                "reference": "@shared2024",
-                "via_title": "Neighbor"
+                "references": ["@shared2024", "@shared2025"],
+                "via_notes": [
+                    {
+                        "node_key": "heading:neighbor.org:3",
+                        "explicit_id": "neighbor-id",
+                        "title": "Neighbor"
+                    },
+                    {
+                        "node_key": "heading:support.org:7",
+                        "explicit_id": "support-id",
+                        "title": "Support"
+                    }
+                ]
             })
         );
 
         assert_eq!(
             serde_json::to_value(ExplorationExplanation::DormantSharedReference {
-                reference: "@shared2024".to_owned(),
+                references: vec!["@shared2024".to_owned(), "@shared2025".to_owned()],
                 modified_at_ns: 42,
             })
             .expect("dormant explanation should serialize"),
             json!({
                 "kind": "dormant-shared-reference",
-                "reference": "@shared2024",
+                "references": ["@shared2024", "@shared2025"],
                 "modified_at_ns": 42
             })
         );
 
         assert_eq!(
             serde_json::to_value(ExplorationExplanation::UnresolvedSharedReference {
-                reference: "@shared2024".to_owned(),
+                references: vec!["@shared2024".to_owned(), "@shared2025".to_owned()],
                 todo_keyword: "TODO".to_owned(),
             })
             .expect("unresolved explanation should serialize"),
             json!({
                 "kind": "unresolved-shared-reference",
-                "reference": "@shared2024",
+                "references": ["@shared2024", "@shared2025"],
                 "todo_keyword": "TODO"
             })
         );
 
         assert_eq!(
             serde_json::to_value(ExplorationExplanation::WeaklyIntegratedSharedReference {
-                reference: "@shared2024".to_owned(),
+                references: vec!["@shared2024".to_owned(), "@shared2025".to_owned()],
                 structural_link_count: 1,
             })
             .expect("weak integration explanation should serialize"),
             json!({
                 "kind": "weakly-integrated-shared-reference",
-                "reference": "@shared2024",
+                "references": ["@shared2024", "@shared2025"],
                 "structural_link_count": 1
             })
         );
