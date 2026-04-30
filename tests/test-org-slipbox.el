@@ -21,7 +21,7 @@
   "Return a context-buffer session with KIND and NODE.
 ROOT-NODE defaults to NODE."
   (let ((defaults (if (eq kind 'dedicated)
-                      '(:active-lens structure :frozen-context t)
+                      '(:active-lens structure :comparison-group all :frozen-context t)
                     nil)))
     (apply
      #'make-org-slipbox-buffer-session
@@ -29,6 +29,53 @@ ROOT-NODE defaults to NODE."
      :current-node node
      :root-node (or root-node node)
      (append defaults properties))))
+
+(defun org-slipbox-test--comparison-result (left right)
+  "Return a structured comparison result for LEFT and RIGHT."
+  `(:left_note ,left
+    :right_note ,right
+    :sections
+    [(:kind "shared-refs"
+      :entries
+      [(:kind "reference"
+        :reference "@shared2024"
+        :explanation (:kind "shared-reference"
+                      :reference "@shared2024"))])
+     (:kind "left-only-refs"
+      :entries
+      [(:kind "reference"
+        :reference "@left2024"
+        :explanation (:kind "left-only-reference"))])
+     (:kind "right-only-refs"
+      :entries
+      [(:kind "reference"
+        :reference "@right2024"
+        :explanation (:kind "right-only-reference"))])
+     (:kind "shared-backlinks"
+      :entries
+      [(:kind "node"
+        :node (:node_key "file:shared-backlink.org"
+               :title "Shared Backlink"
+               :file_path "shared-backlink.org"
+               :line 4)
+        :explanation (:kind "shared-backlink"))])
+     (:kind "shared-forward-links"
+      :entries
+      [(:kind "node"
+        :node (:node_key "file:shared-forward.org"
+               :title "Shared Forward"
+               :file_path "shared-forward.org"
+               :line 5)
+        :explanation (:kind "shared-forward-link"))])
+     (:kind "indirect-connectors"
+      :entries
+      [(:kind "node"
+        :node (:node_key "file:bridge.org"
+               :title "Bridge"
+               :file_path "bridge.org"
+               :line 7)
+        :explanation (:kind "indirect-connector"
+                      :direction "left-to-right"))])]))
 
 (ert-deftest org-slipbox-test-feature-provided ()
   "The package entry feature should load cleanly."
@@ -2657,6 +2704,154 @@ ROOT-NODE defaults to NODE."
               (should (equal (org-slipbox-buffer-session-current-node
                               org-slipbox-buffer-session)
                              node-b))))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-set-compare-target-renders-native-comparison ()
+  "Dedicated buffers should enter comparison mode with native rendering."
+  (let* ((left '(:node_key "file:left.org"
+                 :title "Left"
+                 :file_path "left.org"
+                 :line 1))
+         (right '(:node_key "file:right.org"
+                  :title "Right"
+                  :file_path "right.org"
+                  :line 1))
+         (calls 0))
+    (with-current-buffer (get-buffer-create "*org-slipbox compare render test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session 'dedicated left))
+            (cl-letf (((symbol-function 'org-slipbox-rpc-compare-notes)
+                       (lambda (_left-key _right-key &optional _limit)
+                         (setq calls (1+ calls))
+                         (org-slipbox-test--comparison-result left right))))
+              (org-slipbox-buffer-set-compare-target right))
+            (should (= calls 1))
+            (should (equal (org-slipbox-buffer--compare-target) right))
+            (should (eq (org-slipbox-buffer--current-comparison-group) 'all))
+            (should (string-match-p "compare: Right" header-line-format))
+            (should (string-match-p "group: all" header-line-format))
+            (should (string-match-p "Current Note" (buffer-string)))
+            (should (string-match-p "Compare Target" (buffer-string)))
+            (should (string-match-p "Shared Refs" (buffer-string)))
+            (should (string-match-p "@shared2024" (buffer-string)))
+            (should (string-match-p "Indirect Connectors" (buffer-string)))
+            (should (string-match-p "current note -> compare target" (buffer-string))))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-comparison-group-switch-filters-sections ()
+  "Dedicated comparison groups should filter rendered result families."
+  (let* ((left '(:node_key "file:left.org"
+                 :title "Left"
+                 :file_path "left.org"
+                 :line 1))
+         (right '(:node_key "file:right.org"
+                  :title "Right"
+                  :file_path "right.org"
+                  :line 1)))
+    (with-current-buffer (get-buffer-create "*org-slipbox compare group test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session
+                         'dedicated
+                         left
+                         nil
+                         :compare-target right))
+            (cl-letf (((symbol-function 'org-slipbox-rpc-compare-notes)
+                       (lambda (_left-key _right-key &optional _limit)
+                         (org-slipbox-test--comparison-result left right))))
+              (org-slipbox-buffer-render-contents)
+              (org-slipbox-buffer-switch-comparison-group 'divergence))
+            (should (eq (org-slipbox-buffer--current-comparison-group) 'divergence))
+            (should (eq (org-slipbox-buffer-session-active-lens
+                         org-slipbox-buffer-session)
+                        'structure))
+            (should (string-match-p "group: divergence" header-line-format))
+            (should (string-match-p "Refs only in Left" (buffer-string)))
+            (should (string-match-p "Refs only in Right" (buffer-string)))
+            (should-not (string-match-p "Shared Refs" (buffer-string)))
+            (should-not (string-match-p "Indirect Connectors" (buffer-string))))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-comparison-transitions-are-explicit-and-reversible ()
+  "Comparison mode should enter, exit, and recover through history explicitly."
+  (let ((left '(:node_key "file:left.org" :title "Left" :file_path "left.org" :line 1))
+        (right '(:node_key "file:right.org" :title "Right" :file_path "right.org" :line 1)))
+    (with-current-buffer (get-buffer-create "*org-slipbox compare history test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session 'dedicated left))
+            (cl-letf (((symbol-function 'org-slipbox-buffer-render-contents)
+                       #'ignore))
+              (org-slipbox-buffer-set-compare-target right)
+              (org-slipbox-buffer-switch-comparison-group 'tension)
+              (org-slipbox-buffer-clear-compare-target)
+              (should-not (org-slipbox-buffer--comparison-active-p))
+              (org-slipbox-buffer-history-back)
+              (should (equal (org-slipbox-buffer--compare-target) right))
+              (should (eq (org-slipbox-buffer--current-comparison-group) 'tension))
+              (org-slipbox-buffer-history-back)
+              (should (equal (org-slipbox-buffer--compare-target) right))
+              (should (eq (org-slipbox-buffer--current-comparison-group) 'all))
+              (org-slipbox-buffer-history-back)
+              (should-not (org-slipbox-buffer--comparison-active-p))
+              (org-slipbox-buffer-history-forward)
+              (should (equal (org-slipbox-buffer--compare-target) right))
+              (should (eq (org-slipbox-buffer--current-comparison-group) 'all))))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-comparison-pivot-keeps-compare-target ()
+  "Pivoting within comparison mode should keep the pinned compare target."
+  (let* ((left '(:node_key "file:left.org" :title "Left" :file_path "left.org" :line 1))
+         (right '(:node_key "file:right.org" :title "Right" :file_path "right.org" :line 1))
+         (bridge '(:node_key "file:bridge.org" :title "Bridge" :file_path "bridge.org" :line 7))
+         pivoted-node
+         pinned-target)
+    (with-current-buffer (get-buffer-create "*org-slipbox compare pivot test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session
+                         'dedicated
+                         left
+                         nil
+                         :compare-target right))
+            (cl-letf (((symbol-function 'org-slipbox-buffer-render-contents)
+                       (lambda ()
+                         (setq pivoted-node
+                               (org-slipbox-buffer-session-current-node
+                                org-slipbox-buffer-session)
+                               pinned-target
+                               (org-slipbox-buffer--compare-target)))))
+              (org-slipbox-buffer--insert-comparison-entry
+               `(:kind "node"
+                 :node ,bridge
+                 :explanation (:kind "indirect-connector"
+                               :direction "left-to-right")))
+              (button-activate (button-at (point-min))))
+            (should (equal pivoted-node bridge))
+            (should (equal pinned-target right))
+            (should (equal (org-slipbox-buffer--compare-target) right)))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-switch-lens-rejects-comparison-mode ()
+  "Lens switching should reject active comparison mode."
+  (let ((left '(:node_key "file:left.org" :title "Left" :file_path "left.org" :line 1))
+        (right '(:node_key "file:right.org" :title "Right" :file_path "right.org" :line 1)))
+    (with-current-buffer (get-buffer-create "*org-slipbox compare lens test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session
+                         'dedicated
+                         left
+                         nil
+                         :compare-target right))
+            (should-error (org-slipbox-buffer-switch-lens 'time)
+                          :type 'user-error))
         (kill-buffer (current-buffer))))))
 
 (ert-deftest org-slipbox-test-graph-write-dot-uses-rpc-and-writes-file ()

@@ -90,16 +90,22 @@ Return non-nil to render the section, or nil to skip it."
 (defconst org-slipbox-buffer-lenses '(structure refs time tasks)
   "Declared exploration lenses supported by the dedicated buffer.")
 
+(defconst org-slipbox-buffer-comparison-groups '(all overlap divergence tension)
+  "Declared comparison groups supported by the dedicated buffer.")
+
 (cl-defstruct org-slipbox-buffer-session
   "Explicit session state for an org-slipbox context buffer."
   kind
   current-node
   root-node
   active-lens
+  compare-target
+  comparison-group
   history
   future
   frozen-context
-  lens-cache)
+  lens-cache
+  comparison-cache)
 
 (defvar-local org-slipbox-buffer-session nil
   "Explicit session state for the current org-slipbox context buffer.")
@@ -109,6 +115,9 @@ Return non-nil to render the section, or nil to skip it."
 (defvar org-slipbox-buffer-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "l") #'org-slipbox-buffer-switch-lens)
+    (define-key map (kbd "c") #'org-slipbox-buffer-set-compare-target)
+    (define-key map (kbd "C") #'org-slipbox-buffer-clear-compare-target)
+    (define-key map (kbd "g") #'org-slipbox-buffer-switch-comparison-group)
     (define-key map (kbd "[") #'org-slipbox-buffer-history-back)
     (define-key map (kbd "]") #'org-slipbox-buffer-history-forward)
     (define-key map (kbd "f") #'org-slipbox-buffer-toggle-frozen-context)
@@ -134,7 +143,7 @@ Return non-nil to render the section, or nil to skip it."
     (user-error "Not in an org-slipbox buffer"))
   (unless (org-slipbox-buffer--session-node)
     (user-error "No org-slipbox node to refresh"))
-  (org-slipbox-buffer--clear-lens-cache)
+  (org-slipbox-buffer--clear-session-caches)
   (org-slipbox-buffer-render-contents))
 
 ;;;###autoload
@@ -169,7 +178,8 @@ Return non-nil to render the section, or nil to skip it."
         (unless (equal node (org-slipbox-buffer-session-current-node session))
           (setf (org-slipbox-buffer-session-current-node session) node
                 (org-slipbox-buffer-session-root-node session) node
-                (org-slipbox-buffer-session-lens-cache session) nil)
+                (org-slipbox-buffer-session-lens-cache session) nil
+                (org-slipbox-buffer-session-comparison-cache session) nil)
           (setq-local org-slipbox-buffer-session session)
           (org-slipbox-buffer-render-contents)
           (add-hook 'kill-buffer-hook #'org-slipbox-buffer--persistent-cleanup-h nil t))))))
@@ -188,11 +198,61 @@ Return non-nil to render the section, or nil to skip it."
       nil
       (and (org-slipbox-buffer--current-lens)
            (symbol-name (org-slipbox-buffer--current-lens)))))))
+  (when (org-slipbox-buffer--comparison-active-p)
+    (user-error "Exit comparison mode before switching lenses"))
   (unless (memq lens org-slipbox-buffer-lenses)
     (user-error "Unsupported org-slipbox lens %S" lens))
   (let* ((session (org-slipbox-buffer--require-dedicated-session))
          (snapshot (org-slipbox-buffer--history-snapshot session)))
     (setq snapshot (plist-put snapshot :active-lens lens))
+    (org-slipbox-buffer--transition-dedicated snapshot)))
+
+(defun org-slipbox-buffer-set-compare-target (node)
+  "Pin NODE as the dedicated buffer's comparison target."
+  (interactive (list (org-slipbox-buffer--read-node-for-display)))
+  (let* ((session (org-slipbox-buffer--require-dedicated-session))
+         (current-node (org-slipbox-buffer-session-current-node session)))
+    (unless node
+      (user-error "No comparison target selected"))
+    (when (equal (plist-get node :node_key)
+                 (plist-get current-node :node_key))
+      (user-error "Choose a different note to compare"))
+    (let ((snapshot (org-slipbox-buffer--history-snapshot session)))
+      (setq snapshot (plist-put snapshot :compare-target node))
+      (setq snapshot (plist-put snapshot :comparison-group 'all))
+      (org-slipbox-buffer--transition-dedicated snapshot))))
+
+(defun org-slipbox-buffer-clear-compare-target ()
+  "Leave dedicated-buffer comparison mode."
+  (interactive)
+  (let* ((session (org-slipbox-buffer--require-dedicated-session))
+         (snapshot (org-slipbox-buffer--history-snapshot session)))
+    (unless (org-slipbox-buffer--comparison-active-p session)
+      (user-error "No comparison target is pinned"))
+    (setq snapshot (plist-put snapshot :compare-target nil))
+    (setq snapshot (plist-put snapshot :comparison-group 'all))
+    (org-slipbox-buffer--transition-dedicated snapshot)))
+
+(defun org-slipbox-buffer-switch-comparison-group (group)
+  "Switch the active comparison GROUP in a dedicated buffer."
+  (interactive
+   (list
+    (intern
+     (completing-read
+      "Comparison group: "
+      (mapcar #'symbol-name org-slipbox-buffer-comparison-groups)
+      nil
+      t
+      nil
+      nil
+      (symbol-name (org-slipbox-buffer--current-comparison-group))))))
+  (let* ((session (org-slipbox-buffer--require-dedicated-session))
+         (snapshot (org-slipbox-buffer--history-snapshot session)))
+    (unless (org-slipbox-buffer--comparison-active-p session)
+      (user-error "No comparison target is pinned"))
+    (unless (memq group org-slipbox-buffer-comparison-groups)
+      (user-error "Unsupported comparison group %S" group))
+    (setq snapshot (plist-put snapshot :comparison-group group))
     (org-slipbox-buffer--transition-dedicated snapshot)))
 
 (defun org-slipbox-buffer-history-back ()
@@ -246,7 +306,9 @@ Return non-nil to render the section, or nil to skip it."
     (org-slipbox-buffer-mode)
     (setq-local header-line-format (org-slipbox-buffer--header-line node))
     (when node
-      (org-slipbox-buffer--render-sections node))
+      (if (org-slipbox-buffer--comparison-active-p)
+          (org-slipbox-buffer--render-comparison node)
+        (org-slipbox-buffer--render-sections node)))
     (run-hooks 'org-slipbox-buffer-postrender-functions)
     (goto-char (point-min))))
 
@@ -290,10 +352,19 @@ Return non-nil to render the section, or nil to skip it."
   (when node
     (let ((parts (list (plist-get node :title))))
       (when (org-slipbox-buffer--dedicated-p)
-        (when-let ((lens (org-slipbox-buffer--current-lens)))
-          (setq parts
-                (append parts
-                        (list (format "lens: %s" (symbol-name lens))))))
+        (if-let ((compare-target (org-slipbox-buffer--compare-target)))
+            (setq parts
+                  (append
+                   parts
+                   (list
+                    (format "compare: %s" (plist-get compare-target :title))
+                    (format "group: %s"
+                            (symbol-name
+                             (org-slipbox-buffer--current-comparison-group))))))
+          (when-let ((lens (org-slipbox-buffer--current-lens)))
+            (setq parts
+                  (append parts
+                          (list (format "lens: %s" (symbol-name lens)))))))
         (when-let ((session org-slipbox-buffer-session))
           (when (and (org-slipbox-buffer-session-frozen-context session)
                      (not (equal node (org-slipbox-buffer-session-root-node session))))
@@ -332,6 +403,7 @@ Return non-nil to render the section, or nil to skip it."
    :current-node node
    :root-node node
    :active-lens 'structure
+   :comparison-group 'all
    :frozen-context t))
 
 (defun org-slipbox-buffer--session-node (&optional session)
@@ -343,6 +415,16 @@ Return non-nil to render the section, or nil to skip it."
   "Clear cached exploration results for SESSION or the current buffer."
   (when-let ((session (or session org-slipbox-buffer-session)))
     (setf (org-slipbox-buffer-session-lens-cache session) nil)))
+
+(defun org-slipbox-buffer--clear-comparison-cache (&optional session)
+  "Clear cached comparison results for SESSION or the current buffer."
+  (when-let ((session (or session org-slipbox-buffer-session)))
+    (setf (org-slipbox-buffer-session-comparison-cache session) nil)))
+
+(defun org-slipbox-buffer--clear-session-caches (&optional session)
+  "Clear transient query caches for SESSION or the current buffer."
+  (org-slipbox-buffer--clear-lens-cache session)
+  (org-slipbox-buffer--clear-comparison-cache session))
 
 (defun org-slipbox-buffer--section-function (section)
   "Return the function designator for SECTION."
@@ -369,12 +451,29 @@ Return non-nil to render the section, or nil to skip it."
   (when-let ((session (or session org-slipbox-buffer-session)))
     (org-slipbox-buffer-session-active-lens session)))
 
+(defun org-slipbox-buffer--compare-target (&optional session)
+  "Return the comparison target for SESSION or the current buffer."
+  (when-let ((session (or session org-slipbox-buffer-session)))
+    (org-slipbox-buffer-session-compare-target session)))
+
+(defun org-slipbox-buffer--current-comparison-group (&optional session)
+  "Return the active comparison group for SESSION or the current buffer."
+  (or (when-let ((session (or session org-slipbox-buffer-session)))
+        (org-slipbox-buffer-session-comparison-group session))
+      'all))
+
+(defun org-slipbox-buffer--comparison-active-p (&optional session)
+  "Return non-nil when SESSION or the current buffer is in comparison mode."
+  (not (null (org-slipbox-buffer--compare-target session))))
+
 (defun org-slipbox-buffer--history-snapshot (&optional session)
   "Return a navigation snapshot for SESSION or the current buffer."
   (let ((session (or session org-slipbox-buffer-session)))
     (list :current-node (org-slipbox-buffer-session-current-node session)
           :root-node (org-slipbox-buffer-session-root-node session)
           :active-lens (org-slipbox-buffer-session-active-lens session)
+          :compare-target (org-slipbox-buffer-session-compare-target session)
+          :comparison-group (org-slipbox-buffer--current-comparison-group session)
           :frozen-context (org-slipbox-buffer-session-frozen-context session))))
 
 (defun org-slipbox-buffer--apply-history-snapshot (session snapshot)
@@ -385,9 +484,14 @@ Return non-nil to render the section, or nil to skip it."
         (plist-get snapshot :root-node)
         (org-slipbox-buffer-session-active-lens session)
         (plist-get snapshot :active-lens)
+        (org-slipbox-buffer-session-compare-target session)
+        (plist-get snapshot :compare-target)
+        (org-slipbox-buffer-session-comparison-group session)
+        (plist-get snapshot :comparison-group)
         (org-slipbox-buffer-session-frozen-context session)
         (plist-get snapshot :frozen-context)
-        (org-slipbox-buffer-session-lens-cache session) nil))
+        (org-slipbox-buffer-session-lens-cache session) nil
+        (org-slipbox-buffer-session-comparison-cache session) nil))
 
 (defun org-slipbox-buffer--transition-dedicated (snapshot)
   "Apply dedicated-buffer SNAPSHOT as a navigable transition."
@@ -437,10 +541,96 @@ Return non-nil to render the section, or nil to skip it."
                    (nodes (org-slipbox--plist-sequence (plist-get response :nodes)))
                    (choices (mapcar (lambda (candidate)
                                       (cons (org-slipbox--node-display candidate) candidate))
-                                    nodes))
+                                   nodes))
                    (selection (and choices
                                    (completing-read "Node: " choices nil t))))
               (and selection (cdr (assoc selection choices))))))))
+
+(defun org-slipbox-buffer--render-comparison (node)
+  "Render dedicated comparison mode for NODE."
+  (let* ((compare-target (org-slipbox-buffer--compare-target))
+         (comparison (and compare-target
+                          (org-slipbox-buffer--comparison-result node compare-target))))
+    (org-slipbox-buffer-node-section
+     (or (plist-get comparison :left_note) node)
+     :heading "Current Note")
+    (when compare-target
+      (org-slipbox-buffer-node-section
+       (or (plist-get comparison :right_note) compare-target)
+       :heading "Compare Target"))
+    (when comparison
+      (org-slipbox-buffer--render-comparison-sections comparison))))
+
+(defun org-slipbox-buffer--render-comparison-sections (comparison)
+  "Render COMPARISON sections for the active comparison group."
+  (let* ((left-note (plist-get comparison :left_note))
+         (right-note (plist-get comparison :right_note))
+         (group (org-slipbox-buffer--current-comparison-group))
+         (sections (org-slipbox--plist-sequence (plist-get comparison :sections))))
+    (dolist (section sections)
+      (when (org-slipbox-buffer--comparison-section-visible-p
+             group
+             (plist-get section :kind))
+        (org-slipbox-buffer--insert-occurrence-section
+         (org-slipbox-buffer--comparison-section-heading section left-note right-note)
+         (org-slipbox--plist-sequence (plist-get section :entries))
+         (org-slipbox-buffer--comparison-empty-message section)
+         #'org-slipbox-buffer--insert-comparison-entry)))))
+
+(defun org-slipbox-buffer--comparison-section-visible-p (group kind)
+  "Return non-nil when comparison section KIND belongs in GROUP."
+  (or (eq group 'all)
+      (eq group (org-slipbox-buffer--comparison-section-group kind))))
+
+(defun org-slipbox-buffer--comparison-section-group (kind)
+  "Return the comparison group for section KIND."
+  (pcase kind
+    ((or "shared-refs" "shared-backlinks" "shared-forward-links") 'overlap)
+    ((or "left-only-refs" "right-only-refs") 'divergence)
+    ("indirect-connectors" 'tension)
+    (_ nil)))
+
+(defun org-slipbox-buffer--comparison-section-heading (section left-note right-note)
+  "Return the rendered heading for SECTION between LEFT-NOTE and RIGHT-NOTE."
+  (pcase (plist-get section :kind)
+    ("shared-refs" "Shared Refs")
+    ("left-only-refs"
+     (format "Refs only in %s" (plist-get left-note :title)))
+    ("right-only-refs"
+     (format "Refs only in %s" (plist-get right-note :title)))
+    ("shared-backlinks" "Shared Backlinks")
+    ("shared-forward-links" "Shared Forward Links")
+    ("indirect-connectors" "Indirect Connectors")
+    (_
+     (user-error "Unsupported comparison section kind %S"
+                 (plist-get section :kind)))))
+
+(defun org-slipbox-buffer--comparison-empty-message (section)
+  "Return the empty-message string for comparison SECTION."
+  (pcase (plist-get section :kind)
+    ("shared-refs" "No shared refs found.")
+    ("left-only-refs" "No left-only refs found.")
+    ("right-only-refs" "No right-only refs found.")
+    ("shared-backlinks" "No shared backlinks found.")
+    ("shared-forward-links" "No shared forward links found.")
+    ("indirect-connectors" "No indirect connectors found.")
+    (_
+     (user-error "Unsupported comparison section kind %S"
+                 (plist-get section :kind)))))
+
+(defun org-slipbox-buffer--insert-comparison-entry (entry)
+  "Insert a comparison ENTRY."
+  (pcase (plist-get entry :kind)
+    ("reference"
+     (insert (plist-get entry :reference))
+     (org-slipbox-buffer--insert-explanation entry))
+    ("node"
+     (org-slipbox-buffer--insert-node-button
+      (plist-get entry :node)
+      "Pivot within comparison")
+     (org-slipbox-buffer--insert-explanation entry))
+    (_
+     (user-error "Unsupported comparison entry kind %S" (plist-get entry :kind)))))
 
 (cl-defun org-slipbox-buffer-node-section (node &key heading)
   "Insert the current NODE summary section.
@@ -669,6 +859,15 @@ node. LIMIT bounds the number of rows requested."
       ("forward-link" "direct forward link")
       ("shared-reference"
        (format "shared ref: %s" (plist-get explanation :reference)))
+      ("left-only-reference" "only in current note")
+      ("right-only-reference" "only in compare target")
+      ("shared-backlink" "shared backlink")
+      ("shared-forward-link" "shared forward link")
+      ("indirect-connector"
+       (pcase (plist-get explanation :direction)
+         ("left-to-right" "current note -> compare target")
+         ("right-to-left" "compare target -> current note")
+         ("bidirectional" "bidirectional connector")))
       ("unlinked-reference"
        (format "unlinked mention: %s"
                (plist-get explanation :matched_text)))
@@ -849,6 +1048,33 @@ node. LIMIT bounds the number of rows requested."
                                    (equal (plist-get candidate :kind) section-name))
                                  sections)))
     (org-slipbox--plist-sequence (plist-get section :entries))))
+
+(defun org-slipbox-buffer--comparison-cache-key (left-node right-node limit)
+  "Return the cache key for LEFT-NODE, RIGHT-NODE, and LIMIT."
+  (list (plist-get left-node :node_key)
+        (plist-get right-node :node_key)
+        (or limit 200)))
+
+(defun org-slipbox-buffer--comparison-result (left-node right-node &optional limit)
+  "Return cached comparison results for LEFT-NODE and RIGHT-NODE."
+  (let ((limit (or limit 200)))
+    (when-let ((left-key (plist-get left-node :node_key))
+               (right-key (plist-get right-node :node_key)))
+      (if-let* ((session org-slipbox-buffer-session)
+                (cache-key (org-slipbox-buffer--comparison-cache-key
+                            left-node right-node limit))
+                (cached (assoc cache-key
+                               (org-slipbox-buffer-session-comparison-cache session))))
+          (cdr cached)
+        (let ((result (org-slipbox-rpc-compare-notes left-key right-key limit)))
+          (when-let ((session org-slipbox-buffer-session))
+            (let ((cache-key (org-slipbox-buffer--comparison-cache-key
+                              left-node right-node limit))
+                  (existing (org-slipbox-buffer-session-comparison-cache session)))
+              (setf (org-slipbox-buffer-session-comparison-cache session)
+                    (cons (cons cache-key result)
+                          (cl-remove cache-key existing :key #'car :test #'equal)))))
+          result)))))
 
 (provide 'org-slipbox-buffer)
 
