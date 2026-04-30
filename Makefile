@@ -36,7 +36,7 @@ lint-rust:
 
 .PHONY: test-elisp
 test-elisp:
-	$(EMACS) -Q --batch -L . -l org-slipbox.el -l tests/test-org-slipbox.el -f ert-run-tests-batch-and-exit
+	$(EMACS) -Q --batch --eval '(setq load-prefer-newer t)' -L . -l org-slipbox.el -l tests/test-org-slipbox.el -f ert-run-tests-batch-and-exit
 
 .PHONY: test
 test: test-rust test-elisp
