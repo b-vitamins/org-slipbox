@@ -33,6 +33,8 @@ Focus:
 - richer index-backed reasoning over tasks, refs, and time
 - only the minimum shared exploratory semantics needed to make the cockpit
   real, not the broader programmable workbench surface
+- keep saved views, broader CLI/headless flows, and extension/platform work
+  deferred until the cockpit model has genuinely settled
 
 Watchpoints:
 

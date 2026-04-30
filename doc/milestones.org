@@ -60,7 +60,8 @@ Exit criteria:
 
 - the system can show more than backlinks and nearest neighbors
 - exploratory results remain explainable and index-backed
-- users can save, revisit, and branch lines of inquiry
+- users can revisit and branch explicit lines of inquiry in the cockpit,
+  while durable saved views remain later workbench work
 - cockpit behavior rests on explicit shared semantics rather than buffer-local
   improvisation
 

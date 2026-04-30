@@ -237,8 +237,16 @@ only in dedicated buffers, where their daemon-backed query cost is explicit.
 
 For migration purposes, the practical rule is simple: use
 `org-slipbox-buffer-toggle` for a cheap tracking buffer that follows point, and
-use `org-slipbox-buffer-display-dedicated` when you want the fuller current-node
-inspection surface without point-driven replacement.
+use `org-slipbox-buffer-display-dedicated` when you want the fuller
+exploratory cockpit without point-driven replacement.
+
+The dedicated buffer currently supports:
+
+- declared lenses for `structure`, `refs`, `time`, `tasks`, `bridges`, `dormant`, and `unresolved`
+- explicit pivot history with `[` and `]`, plus frozen-root toggling with `f`
+- note comparison with `c` to set a compare target, `C` to clear it, and `g` to switch comparison groups
+- explicit trails with `a`, `{`, `}`, and `T`
+- inline explanation payloads for non-obvious results such as shared refs, bridge candidates, dormant notes, task-state matches, and weak integration
 
 When the current node record includes indexed metadata, the node summary also
 renders file modification time plus backlink and forward-link counts without
@@ -567,7 +575,7 @@ These stay opt-in and isolated from startup:
 - Start note capture in a transient draft buffer, or commit prepared drafts directly with `:immediate-finish`, while only writing through Rust RPC.
 - Support org-roam-style typed capture templates with `entry`, `plain`, `item`, `checkitem`, and `table-line` content.
 - Honor capture lifecycle actions such as `:finalize`, `:jump-to-captured`, `:immediate-finish`, `:no-save`, and template finalize handlers.
-- Display a persistent or dedicated context buffer with configurable ordered sections, postrender hooks, unique-backlink variants, and dedicated-buffer reference discovery sections.
+- Display a persistent or dedicated context buffer with declared lenses, inline result explanations, pivot history, comparison groups, explicit trails, configurable ordered sections, postrender hooks, unique-backlink variants, and dedicated-buffer discovery sections.
 - Complete and follow title-based org-slipbox links, with optional rewrite to stable `id:` links.
 - Refile either the active region or the current subtree between indexed notes, and extract subtrees into new promoted file notes.
 - Query indexed agenda entries from scheduled and deadline planning lines.
@@ -583,7 +591,7 @@ These stay opt-in and isolated from startup:
 `org-slipbox` ships with an explicit corpus benchmark harness instead of
 relying on anecdotal scale claims.
 
-- `cargo run --bin slipbox-bench -- check --profile ci` generates a deterministic corpus, measures full indexing, single-file incremental indexing, indexed search, backlinks, node-at-point lookup, agenda queries, and a batch Emacs benchmark of the persistent context-buffer redisplay path.
+- `cargo run --bin slipbox-bench -- check --profile ci` generates a deterministic corpus, measures full indexing, single-file incremental indexing, indexed search, backlinks, node-at-point lookup, agenda queries, and batch Emacs benchmarks for both the persistent tracking buffer and a dedicated comparison render path.
 - `cargo run --bin slipbox-bench -- run --profile release --keep-corpus` runs the larger local profile and keeps the generated corpus under `target/bench/` for inspection.
 - Benchmark profiles live in [`benches/profiles/ci.json`](/home/b/projects/org-slipbox/benches/profiles/ci.json) and [`benches/profiles/release.json`](/home/b/projects/org-slipbox/benches/profiles/release.json). Reports are written to `target/bench/`.
 

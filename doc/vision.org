@@ -45,12 +45,14 @@ system.
 The persistent buffer should remain cheap and minimal. It exists to keep
 context close at hand without making ordinary editing expensive.
 
-The dedicated buffer should become the richer workbench. It should support:
+The dedicated buffer is already the richer cockpit, and it should continue
+maturing into the main exploratory workbench. It should support:
 
 - indexed neighborhoods beyond direct backlinks
 - explicit pivots between lenses such as refs, tags, time, tasks, and
   structural proximity
-- saved trails and comparisons
+- explicit trails and comparisons now, with saved views and later durable
+  workbench artifacts added only once the model proves out
 - clear explanations for why a node or section is being shown
 - controlled discovery of non-obvious but relevant material
 
