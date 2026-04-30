@@ -1,8 +1,8 @@
 use slipbox_core::{
-    AgendaParams, AgendaResult, BacklinksParams, BacklinksResult, ExplorationEntry,
-    ExplorationLens, ExplorationSection, ExplorationSectionKind, ExploreParams, ExploreResult,
-    ForwardLinksParams, ForwardLinksResult, GraphParams, GraphResult, IndexFileParams,
-    IndexedFilesResult, NodeAtPointParams, NodeFromIdParams, NodeFromRefParams,
+    AgendaParams, AgendaResult, BacklinksParams, BacklinksResult, CompareNotesParams,
+    ExplorationEntry, ExplorationLens, ExplorationSection, ExplorationSectionKind, ExploreParams,
+    ExploreResult, ForwardLinksParams, ForwardLinksResult, GraphParams, GraphResult,
+    IndexFileParams, IndexedFilesResult, NodeAtPointParams, NodeFromIdParams, NodeFromRefParams,
     NodeFromTitleOrAliasParams, PingInfo, RandomNodeResult, ReflinksParams, ReflinksResult,
     SearchFilesParams, SearchFilesResult, SearchNodesParams, SearchNodesResult,
     SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams, SearchRefsResult,
@@ -429,6 +429,20 @@ pub(crate) fn agenda(
     to_value(AgendaResult { nodes })
 }
 
+pub(crate) fn compare_notes(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: CompareNotesParams = parse_params(params)?;
+    let left = state.known_note(&params.left_node_key, "left comparison note")?;
+    let right = state.known_note(&params.right_node_key, "right comparison note")?;
+    let comparison = state
+        .database
+        .compare_notes(&left, &right, &params)
+        .map_err(|error| internal_error(error.context("failed to compare notes")))?;
+    to_value(comparison)
+}
+
 pub(crate) fn index_file(
     state: &mut ServerState,
     params: serde_json::Value,
@@ -455,11 +469,15 @@ mod tests {
     use std::fs;
 
     use serde_json::json;
-    use slipbox_core::{ExplorationEntry, ExplorationSectionKind, ExploreResult};
+    use slipbox_core::{
+        ComparisonConnectorDirection, ExplorationEntry, ExplorationSectionKind, ExploreResult,
+        NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonResult,
+        NoteComparisonSectionKind,
+    };
     use slipbox_index::{DiscoveryPolicy, scan_root_with_policy};
     use tempfile::TempDir;
 
-    use super::explore;
+    use super::{compare_notes, explore};
     use crate::server::state::ServerState;
 
     #[test]
@@ -593,6 +611,87 @@ mod tests {
         );
     }
 
+    #[test]
+    fn compare_notes_dispatches_structured_sections() {
+        let (_workspace, mut state, left_key, right_key) = comparison_state();
+
+        let comparison: NoteComparisonResult = serde_json::from_value(
+            compare_notes(
+                &mut state,
+                json!({
+                    "left_node_key": left_key.as_str(),
+                    "right_node_key": right_key.as_str(),
+                    "limit": 20
+                }),
+            )
+            .expect("comparison should succeed"),
+        )
+        .expect("comparison result should deserialize");
+
+        assert_eq!(
+            comparison
+                .sections
+                .iter()
+                .map(|section| section.kind)
+                .collect::<Vec<_>>(),
+            vec![
+                NoteComparisonSectionKind::SharedRefs,
+                NoteComparisonSectionKind::LeftOnlyRefs,
+                NoteComparisonSectionKind::RightOnlyRefs,
+                NoteComparisonSectionKind::SharedBacklinks,
+                NoteComparisonSectionKind::SharedForwardLinks,
+                NoteComparisonSectionKind::IndirectConnectors,
+            ]
+        );
+
+        assert!(comparison.sections[0].entries.iter().any(|entry| matches!(
+            entry,
+            NoteComparisonEntry::Reference { record }
+            if record.reference == "@shared2024"
+                && record.explanation == NoteComparisonExplanation::SharedReference
+        )));
+        assert!(comparison.sections[1].entries.iter().any(|entry| matches!(
+            entry,
+            NoteComparisonEntry::Reference { record }
+            if record.reference == "@left2024"
+                && record.explanation == NoteComparisonExplanation::LeftOnlyReference
+        )));
+        assert!(comparison.sections[2].entries.iter().any(|entry| matches!(
+            entry,
+            NoteComparisonEntry::Reference { record }
+            if record.reference == "@right2024"
+                && record.explanation == NoteComparisonExplanation::RightOnlyReference
+        )));
+        assert!(comparison.sections[3].entries.iter().any(|entry| matches!(
+            entry,
+            NoteComparisonEntry::Node { record }
+            if record.node.title == "Shared Backlink"
+                && record.explanation == NoteComparisonExplanation::SharedBacklink
+        )));
+        assert!(comparison.sections[4].entries.iter().any(|entry| matches!(
+            entry,
+            NoteComparisonEntry::Node { record }
+            if record.node.title == "Shared Forward"
+                && record.explanation == NoteComparisonExplanation::SharedForwardLink
+        )));
+        assert!(comparison.sections[5].entries.iter().any(|entry| matches!(
+            entry,
+            NoteComparisonEntry::Node { record }
+            if record.node.title == "Left To Right Bridge"
+                && record.explanation == NoteComparisonExplanation::IndirectConnector {
+                    direction: ComparisonConnectorDirection::LeftToRight,
+                }
+        )));
+        assert!(comparison.sections[5].entries.iter().any(|entry| matches!(
+            entry,
+            NoteComparisonEntry::Node { record }
+            if record.node.title == "Right To Left Bridge"
+                && record.explanation == NoteComparisonExplanation::IndirectConnector {
+                    direction: ComparisonConnectorDirection::RightToLeft,
+                }
+        )));
+    }
+
     fn indexed_state() -> (TempDir, ServerState, String) {
         let workspace = tempfile::tempdir().expect("workspace should be created");
         let root = workspace.path().join("notes");
@@ -643,5 +742,80 @@ Peer task body.
             .node_key;
 
         (workspace, state, target_key)
+    }
+
+    fn comparison_state() -> (TempDir, ServerState, String, String) {
+        let workspace = tempfile::tempdir().expect("workspace should be created");
+        let root = workspace.path().join("notes");
+        fs::create_dir_all(&root).expect("notes root should be created");
+        fs::write(
+            root.join("comparison.org"),
+            r#"#+title: Comparison
+
+* Left
+:PROPERTIES:
+:ID: left-id
+:ROAM_REFS: cite:shared2024 cite:left2024
+:END:
+Links to [[id:shared-forward-id]] and [[id:left-right-bridge-id]].
+
+* Right
+:PROPERTIES:
+:ID: right-id
+:ROAM_REFS: cite:shared2024 cite:right2024
+:END:
+Links to [[id:shared-forward-id]] and [[id:right-left-bridge-id]].
+
+* Shared Forward
+:PROPERTIES:
+:ID: shared-forward-id
+:END:
+Forward target body.
+
+* Left To Right Bridge
+:PROPERTIES:
+:ID: left-right-bridge-id
+:END:
+Connects to [[id:right-id]].
+
+* Right To Left Bridge
+:PROPERTIES:
+:ID: right-left-bridge-id
+:END:
+Connects to [[id:left-id]].
+
+* Shared Backlink
+:PROPERTIES:
+:ID: shared-backlink-id
+:END:
+Links to [[id:left-id]] and [[id:right-id]].
+"#,
+        )
+        .expect("fixture should be written");
+
+        let db_path = workspace.path().join("index.sqlite3");
+        let discovery = DiscoveryPolicy::default();
+        let mut state =
+            ServerState::new(root.clone(), db_path, discovery).expect("state should be created");
+        let files =
+            scan_root_with_policy(&root, &state.discovery).expect("fixture should be indexed");
+        state
+            .database
+            .sync_index(&files)
+            .expect("fixture index should sync");
+        let left_key = state
+            .database
+            .node_from_id("left-id")
+            .expect("left note lookup should succeed")
+            .expect("left note should exist")
+            .node_key;
+        let right_key = state
+            .database
+            .node_from_id("right-id")
+            .expect("right note lookup should succeed")
+            .expect("right note should exist")
+            .node_key;
+
+        (workspace, state, left_key, right_key)
     }
 }

@@ -3307,6 +3307,23 @@ ROOT-NODE defaults to NODE."
                             :limit 25
                             :unique t)))))
 
+(ert-deftest org-slipbox-test-rpc-compare-notes-encodes-params ()
+  "Compare-notes RPC should encode both note keys explicitly."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:sections []))))
+      (org-slipbox-rpc-compare-notes
+       "heading:left.org:3"
+       "heading:right.org:7"
+       25))
+    (should (equal method "slipbox/compareNotes"))
+    (should (equal params '(:left_node_key "heading:left.org:3"
+                            :right_node_key "heading:right.org:7"
+                            :limit 25)))))
+
 (ert-deftest org-slipbox-test-rpc-reflinks-encodes-params ()
   "Reflink RPC should encode node key and limit explicitly."
   (let (method params)

@@ -1,6 +1,7 @@
 mod admin;
 mod agenda;
 mod backlinks;
+mod comparison;
 mod exploration;
 mod files;
 mod forward_links;

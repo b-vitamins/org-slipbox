@@ -78,6 +78,7 @@ resolves it through `exec-path'."
 (defconst org-slipbox-rpc-method-reflinks "slipbox/reflinks")
 (defconst org-slipbox-rpc-method-unlinked-references "slipbox/unlinkedReferences")
 (defconst org-slipbox-rpc-method-explore "slipbox/explore")
+(defconst org-slipbox-rpc-method-compare-notes "slipbox/compareNotes")
 (defconst org-slipbox-rpc-method-agenda "slipbox/agenda")
 (defconst org-slipbox-rpc-method-search-refs "slipbox/searchRefs")
 (defconst org-slipbox-rpc-method-capture-node "slipbox/captureNode")
@@ -398,6 +399,14 @@ non-nil, structure-lens occurrences collapse to one row per related note."
                :lens ,(org-slipbox-rpc--exploration-lens-name lens)
                :limit ,(or limit 200)
                :unique ,(org-slipbox-rpc--bool unique))))
+
+(defun org-slipbox-rpc-compare-notes (left-node-key right-node-key &optional limit)
+  "Compare LEFT-NODE-KEY with RIGHT-NODE-KEY through the daemon."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-compare-notes
+   `(:left_node_key ,left-node-key
+                    :right_node_key ,right-node-key
+                    :limit ,(or limit 200))))
 
 (defun org-slipbox-rpc-reflinks (node-key &optional limit)
   "Return reflinks for NODE-KEY, optionally capped by LIMIT."

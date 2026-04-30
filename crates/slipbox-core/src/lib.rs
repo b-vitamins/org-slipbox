@@ -722,6 +722,91 @@ pub enum ExplorationEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompareNotesParams {
+    pub left_node_key: String,
+    pub right_node_key: String,
+    #[serde(default = "default_backlink_limit")]
+    pub limit: usize,
+}
+
+impl CompareNotesParams {
+    #[must_use]
+    pub fn normalized_limit(&self) -> usize {
+        self.limit.clamp(1, 1_000)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NoteComparisonSectionKind {
+    SharedRefs,
+    LeftOnlyRefs,
+    RightOnlyRefs,
+    SharedBacklinks,
+    SharedForwardLinks,
+    IndirectConnectors,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ComparisonConnectorDirection {
+    LeftToRight,
+    RightToLeft,
+    Bidirectional,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum NoteComparisonExplanation {
+    SharedReference,
+    LeftOnlyReference,
+    RightOnlyReference,
+    SharedBacklink,
+    SharedForwardLink,
+    IndirectConnector {
+        direction: ComparisonConnectorDirection,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ComparisonReferenceRecord {
+    pub reference: String,
+    pub explanation: NoteComparisonExplanation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ComparisonNodeRecord {
+    pub node: NodeRecord,
+    pub explanation: NoteComparisonExplanation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum NoteComparisonEntry {
+    Reference {
+        #[serde(flatten)]
+        record: Box<ComparisonReferenceRecord>,
+    },
+    Node {
+        #[serde(flatten)]
+        record: Box<ComparisonNodeRecord>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NoteComparisonSection {
+    pub kind: NoteComparisonSectionKind,
+    pub entries: Vec<NoteComparisonEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NoteComparisonResult {
+    pub left_note: NodeRecord,
+    pub right_note: NodeRecord,
+    pub sections: Vec<NoteComparisonSection>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgendaParams {
     pub start: String,
     pub end: String,
@@ -1186,11 +1271,13 @@ fn normalize_string_values(values: &[String], nocase: bool) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        BacklinkRecord, CaptureNodeParams, CaptureTemplatePreviewResult, ExplorationEntry,
+        BacklinkRecord, CaptureNodeParams, CaptureTemplatePreviewResult, CompareNotesParams,
+        ComparisonConnectorDirection, ComparisonReferenceRecord, ExplorationEntry,
         ExplorationExplanation, ExplorationLens, ExplorationSection, ExplorationSectionKind,
         ExploreParams, ExploreResult, NodeFromTitleOrAliasParams, NodeKind, NodeRecord,
-        PreviewNodeRecord, SearchNodesParams, SearchNodesSort, UnlinkedReferencesParams,
-        UpdateNodeMetadataParams, normalize_reference,
+        NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonResult,
+        NoteComparisonSection, NoteComparisonSectionKind, PreviewNodeRecord, SearchNodesParams,
+        SearchNodesSort, UnlinkedReferencesParams, UpdateNodeMetadataParams, normalize_reference,
     };
     use serde_json::json;
 
@@ -1549,6 +1636,152 @@ mod tests {
                         "col": 2,
                         "preview": "[[id:target]]",
                         "explanation": { "kind": "backlink" }
+                    }]
+                }]
+            })
+        );
+    }
+
+    #[test]
+    fn compare_notes_params_round_trip() {
+        let params: CompareNotesParams = serde_json::from_value(json!({
+            "left_node_key": "heading:left.org:3",
+            "right_node_key": "heading:right.org:7",
+            "limit": 0
+        }))
+        .expect("compare-notes params should deserialize");
+
+        assert_eq!(params.left_node_key, "heading:left.org:3");
+        assert_eq!(params.right_node_key, "heading:right.org:7");
+        assert_eq!(params.normalized_limit(), 1);
+
+        assert_eq!(
+            serde_json::to_value(&params).expect("compare-notes params should serialize"),
+            json!({
+                "left_node_key": "heading:left.org:3",
+                "right_node_key": "heading:right.org:7",
+                "limit": 0
+            })
+        );
+    }
+
+    #[test]
+    fn note_comparison_explanation_serializes_connectors() {
+        assert_eq!(
+            serde_json::to_value(NoteComparisonExplanation::IndirectConnector {
+                direction: ComparisonConnectorDirection::Bidirectional,
+            })
+            .expect("connector explanation should serialize"),
+            json!({
+                "kind": "indirect-connector",
+                "direction": "bidirectional"
+            })
+        );
+    }
+
+    #[test]
+    fn note_comparison_result_serializes_declared_sections() {
+        let result = NoteComparisonResult {
+            left_note: NodeRecord {
+                node_key: "heading:left.org:3".to_owned(),
+                explicit_id: Some("left-id".to_owned()),
+                file_path: "left.org".to_owned(),
+                title: "Left".to_owned(),
+                outline_path: "Left".to_owned(),
+                aliases: Vec::new(),
+                tags: Vec::new(),
+                refs: vec!["@shared2024".to_owned()],
+                todo_keyword: None,
+                scheduled_for: None,
+                deadline_for: None,
+                closed_at: None,
+                level: 1,
+                line: 3,
+                kind: NodeKind::Heading,
+                file_mtime_ns: 0,
+                backlink_count: 0,
+                forward_link_count: 0,
+            },
+            right_note: NodeRecord {
+                node_key: "heading:right.org:7".to_owned(),
+                explicit_id: Some("right-id".to_owned()),
+                file_path: "right.org".to_owned(),
+                title: "Right".to_owned(),
+                outline_path: "Right".to_owned(),
+                aliases: Vec::new(),
+                tags: Vec::new(),
+                refs: vec!["@shared2024".to_owned()],
+                todo_keyword: None,
+                scheduled_for: None,
+                deadline_for: None,
+                closed_at: None,
+                level: 1,
+                line: 7,
+                kind: NodeKind::Heading,
+                file_mtime_ns: 0,
+                backlink_count: 0,
+                forward_link_count: 0,
+            },
+            sections: vec![NoteComparisonSection {
+                kind: NoteComparisonSectionKind::SharedRefs,
+                entries: vec![NoteComparisonEntry::Reference {
+                    record: Box::new(ComparisonReferenceRecord {
+                        reference: "@shared2024".to_owned(),
+                        explanation: NoteComparisonExplanation::SharedReference,
+                    }),
+                }],
+            }],
+        };
+
+        assert_eq!(
+            serde_json::to_value(result).expect("comparison result should serialize"),
+            json!({
+                "left_note": {
+                    "node_key": "heading:left.org:3",
+                    "explicit_id": "left-id",
+                    "file_path": "left.org",
+                    "title": "Left",
+                    "outline_path": "Left",
+                    "aliases": [],
+                    "tags": [],
+                    "refs": ["@shared2024"],
+                    "todo_keyword": null,
+                    "scheduled_for": null,
+                    "deadline_for": null,
+                    "closed_at": null,
+                    "level": 1,
+                    "line": 3,
+                    "kind": "heading",
+                    "file_mtime_ns": 0,
+                    "backlink_count": 0,
+                    "forward_link_count": 0
+                },
+                "right_note": {
+                    "node_key": "heading:right.org:7",
+                    "explicit_id": "right-id",
+                    "file_path": "right.org",
+                    "title": "Right",
+                    "outline_path": "Right",
+                    "aliases": [],
+                    "tags": [],
+                    "refs": ["@shared2024"],
+                    "todo_keyword": null,
+                    "scheduled_for": null,
+                    "deadline_for": null,
+                    "closed_at": null,
+                    "level": 1,
+                    "line": 7,
+                    "kind": "heading",
+                    "file_mtime_ns": 0,
+                    "backlink_count": 0,
+                    "forward_link_count": 0
+                },
+                "sections": [{
+                    "kind": "shared-refs",
+                    "entries": [{
+                        "kind": "reference",
+                        "reference": "@shared2024",
+                        "explanation": { "kind": "shared-reference" }
                     }]
                 }]
             })
