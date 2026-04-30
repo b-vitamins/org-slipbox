@@ -2854,6 +2854,117 @@ ROOT-NODE defaults to NODE."
                           :type 'user-error))
         (kill-buffer (current-buffer))))))
 
+(ert-deftest org-slipbox-test-buffer-non-obvious-lenses-render-anchored-results ()
+  "Dedicated buffers should render non-obvious exploration lenses coherently."
+  (let ((node '(:node_key "file:focus.org"
+                :title "Focus"
+                :file_path "focus.org"
+                :line 1)))
+    (with-current-buffer (get-buffer-create "*org-slipbox non-obvious lens test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session 'dedicated node))
+            (cl-letf (((symbol-function 'org-slipbox-rpc-explore)
+                       (lambda (_node-key lens &optional _limit _unique)
+                         (pcase lens
+                           ('structure
+                            '(:lens "structure" :sections []))
+                           ('bridges
+                            '(:lens "bridges"
+                              :sections
+                              [(:kind "bridge-candidates"
+                                :entries
+                                [(:kind "anchor"
+                                  :anchor (:node_key "file:bridge.org"
+                                           :title "Bridge"
+                                           :file_path "bridge.org"
+                                           :line 7)
+                                  :explanation (:kind "bridge-candidate"
+                                                :reference "@shared2024"
+                                                :via_title "Neighbor"))])]))
+                           ('unresolved
+                            '(:lens "unresolved"
+                              :sections
+                              [(:kind "unresolved-tasks"
+                                :entries
+                                [(:kind "anchor"
+                                  :anchor (:node_key "file:unresolved.org"
+                                           :title "Unresolved"
+                                           :file_path "unresolved.org"
+                                           :line 5)
+                                  :explanation (:kind "unresolved-shared-reference"
+                                                :reference "@shared2024"
+                                                :todo_keyword "TODO"))])
+                               (:kind "weakly-integrated-notes"
+                                :entries
+                                [(:kind "anchor"
+                                  :anchor (:node_key "file:weak.org"
+                                           :title "Weak"
+                                           :file_path "weak.org"
+                                           :line 9)
+                                  :explanation (:kind "weakly-integrated-shared-reference"
+                                                :reference "@shared2024"
+                                                :structural_link_count 1))])]))
+                           (_
+                            '(:lens "dormant" :sections []))))))
+              (org-slipbox-buffer-switch-lens 'bridges)
+              (should (string-match-p "lens: bridges" header-line-format))
+              (should (string-match-p "Bridge Candidates" (buffer-string)))
+              (should (string-match-p "shared ref: @shared2024 via Neighbor"
+                                      (buffer-string)))
+              (org-slipbox-buffer-switch-lens 'unresolved))
+            (should (eq (org-slipbox-buffer-session-active-lens
+                         org-slipbox-buffer-session)
+                        'unresolved))
+            (should (string-match-p "Unresolved Tasks" (buffer-string)))
+            (should (string-match-p "Weakly Integrated Notes" (buffer-string)))
+            (should (string-match-p "task state: TODO" (buffer-string)))
+            (should (string-match-p "structural links: 1" (buffer-string))))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-trail-renders-replays-and-branches ()
+  "Dedicated trails should be explicit, replayable, and branchable."
+  (let ((node-a '(:node_key "file:a.org" :title "A" :file_path "a.org" :line 1))
+        (node-b '(:node_key "file:b.org" :title "B" :file_path "b.org" :line 1))
+        (node-c '(:node_key "file:c.org" :title "C" :file_path "c.org" :line 1)))
+    (with-current-buffer (get-buffer-create "*org-slipbox trail test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session 'dedicated node-a))
+            (cl-letf (((symbol-function 'org-slipbox-rpc-explore)
+                       (lambda (_node-key lens &optional _limit _unique)
+                         `(:lens ,(symbol-name lens) :sections []))))
+              (org-slipbox-buffer-trail-add)
+              (org-slipbox-buffer--pivot-to-node node-b)
+              (org-slipbox-buffer-trail-add)
+              (should (string-match-p "Trail" (buffer-string)))
+              (should (string-match-p "trail: 2/2" header-line-format))
+              (should (= (length (org-slipbox-buffer--trail)) 2))
+              (org-slipbox-buffer-trail-back)
+              (should (equal (org-slipbox-buffer-session-current-node
+                              org-slipbox-buffer-session)
+                             node-a))
+              (org-slipbox-buffer--pivot-to-node node-c)
+              (should (string-match-p "trail: 1/2\\*" header-line-format))
+              (org-slipbox-buffer-trail-add)
+              (should (= (length (org-slipbox-buffer--trail)) 2))
+              (should (equal (plist-get (cadr (org-slipbox-buffer--trail)) :current-node)
+                             node-c))
+              (org-slipbox-buffer-trail-back)
+              (should (equal (org-slipbox-buffer-session-current-node
+                              org-slipbox-buffer-session)
+                             node-a))
+              (org-slipbox-buffer-trail-forward)
+              (should (equal (org-slipbox-buffer-session-current-node
+                              org-slipbox-buffer-session)
+                             node-c))
+              (org-slipbox-buffer-trail-clear)
+              (should-not (org-slipbox-buffer--trail-active-p))
+              (should-not (string-match-p "trail:" header-line-format))))
+        (kill-buffer (current-buffer))))))
+
 (ert-deftest org-slipbox-test-graph-write-dot-uses-rpc-and-writes-file ()
   "Graph DOT export should request DOT from the daemon and write it to disk."
   (require 'org-slipbox-graph)

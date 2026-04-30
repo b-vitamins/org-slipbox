@@ -59,7 +59,11 @@
         #'org-slipbox-buffer-reflinks-section
         #'org-slipbox-buffer-unlinked-references-section
         #'org-slipbox-buffer-time-neighbors-section
-        #'org-slipbox-buffer-task-neighbors-section)
+        #'org-slipbox-buffer-task-neighbors-section
+        #'org-slipbox-buffer-bridge-candidates-section
+        #'org-slipbox-buffer-dormant-notes-section
+        #'org-slipbox-buffer-unresolved-tasks-section
+        #'org-slipbox-buffer-weakly-integrated-notes-section)
   "Section specifications rendered by `org-slipbox-buffer-render-contents'.
 
 Each item is either a function called with the current node, or a
@@ -87,7 +91,8 @@ Return non-nil to render the section, or nil to skip it."
   :type '(choice (const :tag "None" nil) function)
   :group 'org-slipbox)
 
-(defconst org-slipbox-buffer-lenses '(structure refs time tasks)
+(defconst org-slipbox-buffer-lenses
+  '(structure refs time tasks bridges dormant unresolved)
   "Declared exploration lenses supported by the dedicated buffer.")
 
 (defconst org-slipbox-buffer-comparison-groups '(all overlap divergence tension)
@@ -101,6 +106,8 @@ Return non-nil to render the section, or nil to skip it."
   active-lens
   compare-target
   comparison-group
+  trail
+  trail-index
   history
   future
   frozen-context
@@ -118,6 +125,10 @@ Return non-nil to render the section, or nil to skip it."
     (define-key map (kbd "c") #'org-slipbox-buffer-set-compare-target)
     (define-key map (kbd "C") #'org-slipbox-buffer-clear-compare-target)
     (define-key map (kbd "g") #'org-slipbox-buffer-switch-comparison-group)
+    (define-key map (kbd "a") #'org-slipbox-buffer-trail-add)
+    (define-key map (kbd "{") #'org-slipbox-buffer-trail-back)
+    (define-key map (kbd "}") #'org-slipbox-buffer-trail-forward)
+    (define-key map (kbd "T") #'org-slipbox-buffer-trail-clear)
     (define-key map (kbd "[") #'org-slipbox-buffer-history-back)
     (define-key map (kbd "]") #'org-slipbox-buffer-history-forward)
     (define-key map (kbd "f") #'org-slipbox-buffer-toggle-frozen-context)
@@ -255,6 +266,53 @@ Return non-nil to render the section, or nil to skip it."
     (setq snapshot (plist-put snapshot :comparison-group group))
     (org-slipbox-buffer--transition-dedicated snapshot)))
 
+(defun org-slipbox-buffer-trail-add ()
+  "Add the current dedicated cockpit state to the explicit trail."
+  (interactive)
+  (let* ((session (org-slipbox-buffer--require-dedicated-session))
+         (snapshot (org-slipbox-buffer--history-snapshot session))
+         (trail (copy-tree (org-slipbox-buffer-session-trail session)))
+         (trail-index (org-slipbox-buffer-session-trail-index session))
+         (active-trail (if (and trail trail-index)
+                           (cl-subseq trail 0 (1+ trail-index))
+                         trail))
+         (last-step (car (last active-trail))))
+    (unless (equal last-step snapshot)
+      (setq active-trail (append active-trail (list snapshot))))
+    (setf (org-slipbox-buffer-session-trail session) active-trail
+          (org-slipbox-buffer-session-trail-index session)
+          (and active-trail (1- (length active-trail))))
+    (org-slipbox-buffer-render-contents)))
+
+(defun org-slipbox-buffer-trail-back ()
+  "Replay the previous explicit trail step."
+  (interactive)
+  (let* ((session (org-slipbox-buffer--require-dedicated-session))
+         (trail-index (org-slipbox-buffer-session-trail-index session)))
+    (unless (and trail-index (> trail-index 0))
+      (user-error "No earlier trail step"))
+    (org-slipbox-buffer--replay-trail-at (1- trail-index))))
+
+(defun org-slipbox-buffer-trail-forward ()
+  "Replay the next explicit trail step."
+  (interactive)
+  (let* ((session (org-slipbox-buffer--require-dedicated-session))
+         (trail (org-slipbox-buffer-session-trail session))
+         (trail-index (org-slipbox-buffer-session-trail-index session)))
+    (unless (and trail-index (< trail-index (1- (length trail))))
+      (user-error "No later trail step"))
+    (org-slipbox-buffer--replay-trail-at (1+ trail-index))))
+
+(defun org-slipbox-buffer-trail-clear ()
+  "Clear the explicit trail for the current dedicated buffer."
+  (interactive)
+  (let ((session (org-slipbox-buffer--require-dedicated-session)))
+    (unless (org-slipbox-buffer-session-trail session)
+      (user-error "No active trail"))
+    (setf (org-slipbox-buffer-session-trail session) nil
+          (org-slipbox-buffer-session-trail-index session) nil)
+    (org-slipbox-buffer-render-contents)))
+
 (defun org-slipbox-buffer-history-back ()
   "Move backward through dedicated-buffer navigation history."
   (interactive)
@@ -305,6 +363,8 @@ Return non-nil to render the section, or nil to skip it."
     (erase-buffer)
     (org-slipbox-buffer-mode)
     (setq-local header-line-format (org-slipbox-buffer--header-line node))
+    (when (org-slipbox-buffer--trail-active-p)
+      (org-slipbox-buffer--render-trail-section))
     (when node
       (if (org-slipbox-buffer--comparison-active-p)
           (org-slipbox-buffer--render-comparison node)
@@ -375,7 +435,16 @@ Return non-nil to render the section, or nil to skip it."
                     (format "root: %s"
                             (plist-get
                              (org-slipbox-buffer-session-root-node session)
-                             :title))))))))
+                             :title)))))))
+        (when-let ((position (org-slipbox-buffer--trail-position)))
+          (setq parts
+                (append
+                 parts
+                 (list
+                  (format "trail: %s/%s%s"
+                          (1+ position)
+                          (length (org-slipbox-buffer--trail))
+                          (if (org-slipbox-buffer--trail-attached-p) "" "*")))))))
       (concat (propertize " " 'display '(space :align-to 0))
               (string-join parts "  |  ")))))
 
@@ -444,6 +513,10 @@ Return non-nil to render the section, or nil to skip it."
     ('org-slipbox-buffer-unlinked-references-section 'refs)
     ('org-slipbox-buffer-time-neighbors-section 'time)
     ('org-slipbox-buffer-task-neighbors-section 'tasks)
+    ('org-slipbox-buffer-bridge-candidates-section 'bridges)
+    ('org-slipbox-buffer-dormant-notes-section 'dormant)
+    ('org-slipbox-buffer-unresolved-tasks-section 'unresolved)
+    ('org-slipbox-buffer-weakly-integrated-notes-section 'unresolved)
     (_ nil)))
 
 (defun org-slipbox-buffer--current-lens (&optional session)
@@ -465,6 +538,30 @@ Return non-nil to render the section, or nil to skip it."
 (defun org-slipbox-buffer--comparison-active-p (&optional session)
   "Return non-nil when SESSION or the current buffer is in comparison mode."
   (not (null (org-slipbox-buffer--compare-target session))))
+
+(defun org-slipbox-buffer--trail (&optional session)
+  "Return the explicit trail for SESSION or the current buffer."
+  (when-let ((session (or session org-slipbox-buffer-session)))
+    (org-slipbox-buffer-session-trail session)))
+
+(defun org-slipbox-buffer--trail-position (&optional session)
+  "Return the active trail position for SESSION or the current buffer."
+  (when-let ((session (or session org-slipbox-buffer-session)))
+    (org-slipbox-buffer-session-trail-index session)))
+
+(defun org-slipbox-buffer--trail-active-p (&optional session)
+  "Return non-nil when SESSION or the current buffer has an explicit trail."
+  (not (null (org-slipbox-buffer--trail session))))
+
+(defun org-slipbox-buffer--trail-attached-p (&optional session)
+  "Return non-nil when SESSION or the current buffer is on its trail cursor."
+  (let* ((session (or session org-slipbox-buffer-session))
+         (trail (and session (org-slipbox-buffer-session-trail session)))
+         (trail-index (and session (org-slipbox-buffer-session-trail-index session))))
+    (and trail
+         trail-index
+         (equal (nth trail-index trail)
+                (org-slipbox-buffer--history-snapshot session)))))
 
 (defun org-slipbox-buffer--history-snapshot (&optional session)
   "Return a navigation snapshot for SESSION or the current buffer."
@@ -503,6 +600,18 @@ Return non-nil to render the section, or nil to skip it."
             (org-slipbox-buffer-session-future session) nil)
       (org-slipbox-buffer--apply-history-snapshot session snapshot)
       (org-slipbox-buffer-render-contents))))
+
+(defun org-slipbox-buffer--replay-trail-at (index)
+  "Replay the explicit trail step at INDEX."
+  (let* ((session (org-slipbox-buffer--require-dedicated-session))
+         (trail (org-slipbox-buffer-session-trail session))
+         (snapshot (nth index trail)))
+    (unless snapshot
+      (user-error "No trail step at index %s" index))
+    (setf (org-slipbox-buffer-session-trail-index session) index)
+    (if (equal snapshot (org-slipbox-buffer--history-snapshot session))
+        (org-slipbox-buffer-render-contents)
+      (org-slipbox-buffer--transition-dedicated snapshot))))
 
 (defun org-slipbox-buffer--require-dedicated-session ()
   "Return the active dedicated buffer session, or signal a user error."
@@ -560,6 +669,66 @@ Return non-nil to render the section, or nil to skip it."
        :heading "Compare Target"))
     (when comparison
       (org-slipbox-buffer--render-comparison-sections comparison))))
+
+(defun org-slipbox-buffer--render-trail-section ()
+  "Render the explicit exploratory trail for the current dedicated buffer."
+  (org-slipbox-buffer--insert-heading "Trail")
+  (dolist (entry (org-slipbox-buffer--trail-entries))
+    (org-slipbox-buffer--insert-trail-entry entry)
+    (insert "\n"))
+  (insert "\n"))
+
+(defun org-slipbox-buffer--trail-entries ()
+  "Return decorated entries for the explicit trail."
+  (let ((trail (org-slipbox-buffer--trail))
+        (trail-index (org-slipbox-buffer--trail-position))
+        (trail-attached (org-slipbox-buffer--trail-attached-p))
+        (index 0)
+        entries)
+    (dolist (snapshot trail (nreverse entries))
+      (push (list :index index
+                  :snapshot snapshot
+                  :current (eq index trail-index)
+                  :attached trail-attached)
+            entries)
+      (setq index (1+ index)))))
+
+(defun org-slipbox-buffer--insert-trail-entry (entry)
+  "Insert one explicit trail ENTRY."
+  (let* ((index (plist-get entry :index))
+         (snapshot (plist-get entry :snapshot))
+         (label (org-slipbox-buffer--trail-label snapshot))
+         (prefix (cond
+                  ((plist-get entry :current)
+                   (if (plist-get entry :attached) "=> " "~> "))
+                  (t "   "))))
+    (insert prefix)
+    (insert-text-button
+     (format "%s. %s" (1+ index) label)
+     'follow-link t
+     'help-echo "Replay this trail step"
+     'action (lambda (_button)
+               (org-slipbox-buffer--replay-trail-at index)))))
+
+(defun org-slipbox-buffer--trail-label (snapshot)
+  "Return a short label for trail SNAPSHOT."
+  (let* ((node (plist-get snapshot :current-node))
+         (compare-target (plist-get snapshot :compare-target))
+         (lens (plist-get snapshot :active-lens))
+         (group (plist-get snapshot :comparison-group))
+         (parts (list (plist-get node :title))))
+    (if compare-target
+        (setq parts
+              (append
+               parts
+               (list
+                (format "compare: %s" (plist-get compare-target :title))
+                (format "group: %s" (symbol-name group)))))
+      (when lens
+        (setq parts
+              (append parts
+                      (list (format "lens: %s" (symbol-name lens)))))))
+    (string-join parts "  |  ")))
 
 (defun org-slipbox-buffer--render-comparison-sections (comparison)
   "Render COMPARISON sections for the active comparison group."
@@ -746,6 +915,42 @@ query."
    "No task neighbors found."
    #'org-slipbox-buffer--insert-anchor-entry))
 
+(cl-defun org-slipbox-buffer-bridge-candidates-section
+    (node &key (section-heading "Bridge Candidates"))
+  "Insert a bridge-candidate section for NODE using SECTION-HEADING."
+  (org-slipbox-buffer--insert-occurrence-section
+   section-heading
+   (org-slipbox-buffer--bridge-candidates node)
+   "No bridge candidates found."
+   #'org-slipbox-buffer--insert-anchor-entry))
+
+(cl-defun org-slipbox-buffer-dormant-notes-section
+    (node &key (section-heading "Dormant Notes"))
+  "Insert a dormant-note section for NODE using SECTION-HEADING."
+  (org-slipbox-buffer--insert-occurrence-section
+   section-heading
+   (org-slipbox-buffer--dormant-notes node)
+   "No dormant notes found."
+   #'org-slipbox-buffer--insert-anchor-entry))
+
+(cl-defun org-slipbox-buffer-unresolved-tasks-section
+    (node &key (section-heading "Unresolved Tasks"))
+  "Insert an unresolved-task section for NODE using SECTION-HEADING."
+  (org-slipbox-buffer--insert-occurrence-section
+   section-heading
+   (org-slipbox-buffer--unresolved-tasks node)
+   "No unresolved tasks found."
+   #'org-slipbox-buffer--insert-anchor-entry))
+
+(cl-defun org-slipbox-buffer-weakly-integrated-notes-section
+    (node &key (section-heading "Weakly Integrated Notes"))
+  "Insert a weakly integrated note section for NODE using SECTION-HEADING."
+  (org-slipbox-buffer--insert-occurrence-section
+   section-heading
+   (org-slipbox-buffer--weakly-integrated-notes node)
+   "No weakly integrated notes found."
+   #'org-slipbox-buffer--insert-anchor-entry))
+
 (defun org-slipbox-buffer--forward-links (node &optional unique limit)
   "Return forward links for NODE.
 When UNIQUE is non-nil, only return the first occurrence per destination
@@ -868,6 +1073,21 @@ node. LIMIT bounds the number of rows requested."
          ("left-to-right" "current note -> compare target")
          ("right-to-left" "compare target -> current note")
          ("bidirectional" "bidirectional connector")))
+      ("bridge-candidate"
+       (format "shared ref: %s via %s"
+               (plist-get explanation :reference)
+               (plist-get explanation :via_title)))
+      ("dormant-shared-reference"
+       (format "shared ref: %s, older untouched material"
+               (plist-get explanation :reference)))
+      ("unresolved-shared-reference"
+       (format "shared ref: %s, task state: %s"
+               (plist-get explanation :reference)
+               (plist-get explanation :todo_keyword)))
+      ("weakly-integrated-shared-reference"
+       (format "shared ref: %s, structural links: %s"
+               (plist-get explanation :reference)
+               (plist-get explanation :structural_link_count)))
       ("unlinked-reference"
        (format "unlinked mention: %s"
                (plist-get explanation :matched_text)))
@@ -997,6 +1217,26 @@ node. LIMIT bounds the number of rows requested."
   (org-slipbox-buffer--exploration-section-entries
    node 'tasks 'task-neighbors nil 200))
 
+(defun org-slipbox-buffer--bridge-candidates (node)
+  "Return daemon-backed bridge candidates for NODE."
+  (org-slipbox-buffer--exploration-section-entries
+   node 'bridges 'bridge-candidates nil 200))
+
+(defun org-slipbox-buffer--dormant-notes (node)
+  "Return daemon-backed dormant notes for NODE."
+  (org-slipbox-buffer--exploration-section-entries
+   node 'dormant 'dormant-notes nil 200))
+
+(defun org-slipbox-buffer--unresolved-tasks (node)
+  "Return daemon-backed unresolved tasks for NODE."
+  (org-slipbox-buffer--exploration-section-entries
+   node 'unresolved 'unresolved-tasks nil 200))
+
+(defun org-slipbox-buffer--weakly-integrated-notes (node)
+  "Return daemon-backed weakly integrated notes for NODE."
+  (org-slipbox-buffer--exploration-section-entries
+   node 'unresolved 'weakly-integrated-notes nil 200))
+
 (defun org-slipbox-buffer--backlinks (node &optional unique limit)
   "Return backlinks for NODE.
 When UNIQUE is non-nil, only return the first occurrence per source
@@ -1013,6 +1253,10 @@ node. LIMIT bounds the number of rows requested."
     ('unlinked-references "unlinked-references")
     ('time-neighbors "time-neighbors")
     ('task-neighbors "task-neighbors")
+    ('bridge-candidates "bridge-candidates")
+    ('dormant-notes "dormant-notes")
+    ('unresolved-tasks "unresolved-tasks")
+    ('weakly-integrated-notes "weakly-integrated-notes")
     (_
      (user-error "Unsupported exploration section kind %S" section-kind))))
 
