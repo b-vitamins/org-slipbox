@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use rusqlite::params_from_iter;
 
-use slipbox_core::ForwardLinkRecord;
+use slipbox_core::{ExplorationExplanation, ForwardLinkRecord};
 
 use crate::Database;
 use crate::nodes::{
@@ -99,5 +99,6 @@ fn row_to_forward_link(row: &rusqlite::Row<'_>) -> rusqlite::Result<ForwardLinkR
         row: row.get(ANCHOR_SELECT_COLUMN_COUNT)?,
         col: row.get(ANCHOR_SELECT_COLUMN_COUNT + 1)?,
         preview: row.get(ANCHOR_SELECT_COLUMN_COUNT + 2)?,
+        explanation: ExplorationExplanation::ForwardLink,
     })
 }

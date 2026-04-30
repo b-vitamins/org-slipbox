@@ -2239,7 +2239,8 @@ ROOT-NODE defaults to NODE."
                              :line 7)
                        :row 9
                        :col 5
-                       :preview "See [[id:beta-target][Beta]]."))))
+                       :preview "See [[id:beta-target][Beta]]."
+                       :explanation '(:kind "forward-link")))))
          rpc-args
          rendered)
     (cl-letf (((symbol-function 'org-slipbox-node-read)
@@ -2318,7 +2319,8 @@ ROOT-NODE defaults to NODE."
                                          :line 10)
                            :row 12
                            :col 4
-                           :preview "See [[id:heading]].")]))))
+                           :preview "See [[id:heading]]."
+                           :explanation (:kind "backlink"))]))))
             (org-slipbox-buffer-render-contents))
           (should (derived-mode-p 'org-slipbox-buffer-mode))
           (should (string-match-p "Refs" (buffer-string)))
@@ -2326,6 +2328,7 @@ ROOT-NODE defaults to NODE."
           (should (string-match-p "Backlinks" (buffer-string)))
           (should (string-match-p "Backlink" (buffer-string)))
           (should (string-match-p "other.org:12:4" (buffer-string)))
+          (should (string-match-p "direct backlink" (buffer-string)))
           (should (string-match-p "See \\[\\[id:heading\\]\\]" (buffer-string))))
       (kill-buffer (current-buffer)))))
 
@@ -2388,7 +2391,8 @@ ROOT-NODE defaults to NODE."
                                            :line 10)
                              :row 12
                              :col 4
-                             :preview "See [[id:heading]].")]))))
+                             :preview "See [[id:heading]]."
+                             :explanation (:kind "backlink"))]))))
               (org-slipbox-buffer-render-contents))
             (let ((contents (buffer-string)))
               (should (< (string-match-p "Unique Backlinks" contents)
@@ -2651,7 +2655,9 @@ ROOT-NODE defaults to NODE."
                      :row 10
                      :col 3
                      :preview "cite:smith2024"
-                     :matched_reference "cite:smith2024")])))
+                     :matched_reference "cite:smith2024"
+                     :explanation (:kind "shared-reference"
+                                   :reference "cite:smith2024"))])))
               ((symbol-function 'executable-find)
                (lambda (&rest _args)
                  (ert-fail "reflinks should not depend on rg")))
@@ -2668,7 +2674,9 @@ ROOT-NODE defaults to NODE."
            :row 10
            :col 3
            :preview "cite:smith2024"
-           :matched_reference "cite:smith2024"))))
+           :matched_reference "cite:smith2024"
+           :explanation (:kind "shared-reference"
+                         :reference "cite:smith2024")))))
       (should (equal rpc-args '("heading:note.org:3" 200))))))
 
 (ert-deftest org-slipbox-test-buffer-forward-links-use-daemon-query ()
@@ -2683,14 +2691,16 @@ ROOT-NODE defaults to NODE."
                                         :line 12)
                      :row 8
                      :col 5
-                     :preview "[[id:target][Target heading]]")]))))
+                     :preview "[[id:target][Target heading]]"
+                     :explanation (:kind "forward-link"))]))))
       (let ((expected
              '((:destination_note (:title "Target heading"
                                   :file_path "target.org"
                                   :line 12)
                 :row 8
                 :col 5
-                :preview "[[id:target][Target heading]]"))))
+                :preview "[[id:target][Target heading]]"
+                :explanation (:kind "forward-link")))))
         (should
          (equal
           (org-slipbox-buffer--forward-links
@@ -2711,7 +2721,9 @@ ROOT-NODE defaults to NODE."
                      :row 10
                      :col 3
                      :preview "Project Atlas should surface."
-                     :matched_text "Project Atlas")])))
+                     :matched_text "Project Atlas"
+                     :explanation (:kind "unlinked-reference"
+                                   :matched_text "Project Atlas"))])))
               ((symbol-function 'executable-find)
                (lambda (&rest _args)
                  (ert-fail "unlinked references should not depend on rg")))
@@ -2725,7 +2737,9 @@ ROOT-NODE defaults to NODE."
                 :row 10
                 :col 3
                 :preview "Project Atlas should surface."
-                :matched_text "Project Atlas"))))
+                :matched_text "Project Atlas"
+                :explanation (:kind "unlinked-reference"
+                              :matched_text "Project Atlas")))))
         (should
          (equal
           (org-slipbox-buffer--unlinked-references
@@ -2758,34 +2772,39 @@ ROOT-NODE defaults to NODE."
                            :file_mtime_ns ,mtime-ns
                            :backlink_count 3
                            :forward_link_count 2)))
-	            (cl-letf (((symbol-function 'org-slipbox-buffer--backlinks)
-	                       (lambda (&rest _args) nil))
-	                      ((symbol-function 'org-slipbox-buffer--forward-links)
-	                       (lambda (&rest _args)
-	                         '((:destination_note (:title "Target"
-	                                         :file_path "target.org"
-	                                         :line 11)
-	                            :row 4
+            (cl-letf (((symbol-function 'org-slipbox-buffer--backlinks)
+                       (lambda (&rest _args) nil))
+                      ((symbol-function 'org-slipbox-buffer--forward-links)
+                       (lambda (&rest _args)
+                         '((:destination_note (:title "Target"
+                                              :file_path "target.org"
+                                              :line 11)
+                            :row 4
                             :col 5
-                            :preview "[[id:target][Target]]"))))
-	                      ((symbol-function 'org-slipbox-buffer--reflinks)
-	                       (lambda (_node)
-	                         '((:source_anchor (:title "Sibling"
-	                                      :file_path "refs.org"
-	                                      :line 2)
-	                            :row 3
+                            :preview "[[id:target][Target]]"
+                            :explanation (:kind "forward-link")))))
+                      ((symbol-function 'org-slipbox-buffer--reflinks)
+                       (lambda (_node)
+                         '((:source_anchor (:title "Sibling"
+                                            :file_path "refs.org"
+                                            :line 2)
+                            :row 3
                             :col 7
                             :preview "cite:smith2024"
-                            :matched_reference "cite:smith2024"))))
-	                      ((symbol-function 'org-slipbox-buffer--unlinked-references)
-	                       (lambda (_node)
-	                         '((:source_anchor (:title "Atlas"
-	                                      :file_path "unlinked.org"
-	                                      :line 8)
-	                            :row 9
+                            :matched_reference "cite:smith2024"
+                            :explanation (:kind "shared-reference"
+                                          :reference "cite:smith2024")))))
+                      ((symbol-function 'org-slipbox-buffer--unlinked-references)
+                       (lambda (_node)
+                         '((:source_anchor (:title "Atlas"
+                                            :file_path "unlinked.org"
+                                            :line 8)
+                            :row 9
                             :col 2
                             :preview "Note mention"
-                            :matched_text "Note")))))
+                            :matched_text "Note"
+                            :explanation (:kind "unlinked-reference"
+                                          :matched_text "Note"))))))
               (org-slipbox-buffer-render-contents))
             (should (string-match-p (regexp-quote expected-mtime) (buffer-string)))
             (should (string-match-p "Backlinks:[[:space:]]+3" (buffer-string)))
@@ -2796,7 +2815,9 @@ ROOT-NODE defaults to NODE."
             (should (string-match-p "Target" (buffer-string)))
             (should (string-match-p "Sibling" (buffer-string)))
             (should (string-match-p "Atlas" (buffer-string)))
-            (should (string-match-p "cite:smith2024" (buffer-string)))
+            (should (string-match-p "direct forward link" (buffer-string)))
+            (should (string-match-p "shared ref: cite:smith2024" (buffer-string)))
+            (should (string-match-p "unlinked mention: Note" (buffer-string)))
             (should (string-match-p "Note mention" (buffer-string))))
         (kill-buffer (current-buffer))))))
 

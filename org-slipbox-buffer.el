@@ -415,6 +415,24 @@ node. LIMIT bounds the number of rows requested."
    'action (lambda (_button)
              (org-slipbox--visit-node node))))
 
+(defun org-slipbox-buffer--explanation-string (entry)
+  "Return a display string for ENTRY's explanation payload."
+  (when-let ((explanation (plist-get entry :explanation)))
+    (pcase (plist-get explanation :kind)
+      ("backlink" "direct backlink")
+      ("forward-link" "direct forward link")
+      ("shared-reference"
+       (format "shared ref: %s" (plist-get explanation :reference)))
+      ("unlinked-reference"
+       (format "unlinked mention: %s"
+               (plist-get explanation :matched_text))))))
+
+(defun org-slipbox-buffer--insert-explanation (entry)
+  "Insert ENTRY's explanation payload when it is present."
+  (when-let ((reason (org-slipbox-buffer--explanation-string entry)))
+    (insert " "
+            (propertize reason 'face 'italic))))
+
 (defun org-slipbox-buffer--insert-backlink-entry (entry)
   "Insert a preview-rich backlink ENTRY."
   (let* ((source-node (plist-get entry :source_note))
@@ -429,7 +447,9 @@ node. LIMIT bounds the number of rows requested."
      'action (lambda (_button)
                (org-slipbox-buffer--visit-location file row col)))
     (insert " "
-            (propertize (format "%s:%s:%s" file row col) 'face 'shadow)
+            (propertize (format "%s:%s:%s" file row col) 'face 'shadow))
+    (org-slipbox-buffer--insert-explanation entry)
+    (insert
             "\n  "
             preview)))
 
@@ -447,7 +467,9 @@ node. LIMIT bounds the number of rows requested."
      'action (lambda (_button)
                (org-slipbox--visit-node destination-node)))
     (insert " "
-            (propertize (format "%s:%s:%s" file row col) 'face 'shadow)
+            (propertize (format "%s:%s:%s" file row col) 'face 'shadow))
+    (org-slipbox-buffer--insert-explanation entry)
+    (insert
             "\n  "
             preview)))
 
@@ -467,9 +489,9 @@ node. LIMIT bounds the number of rows requested."
                (org-slipbox-buffer--visit-location file row col)))
     (insert " "
             (propertize (format "%s:%s:%s" file row col) 'face 'shadow))
-    (when matched-reference
-      (insert " "
-              (propertize matched-reference 'face 'italic)))
+    (org-slipbox-buffer--insert-explanation entry)
+    (when (and (null (plist-get entry :explanation)) matched-reference)
+      (insert " " (propertize matched-reference 'face 'italic)))
     (insert "\n  " preview)))
 
 (defun org-slipbox-buffer--insert-unlinked-reference-entry (entry)
@@ -488,9 +510,9 @@ node. LIMIT bounds the number of rows requested."
                (org-slipbox-buffer--visit-location file row col)))
     (insert " "
             (propertize (format "%s:%s:%s" file row col) 'face 'shadow))
-    (when matched-text
-      (insert " "
-              (propertize matched-text 'face 'italic)))
+    (org-slipbox-buffer--insert-explanation entry)
+    (when (and (null (plist-get entry :explanation)) matched-text)
+      (insert " " (propertize matched-text 'face 'italic)))
     (insert "\n  " preview)))
 
 (defun org-slipbox-buffer--visit-location (file row col)

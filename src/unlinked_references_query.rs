@@ -4,7 +4,7 @@ use std::path::Path;
 use anyhow::{Context, Result, anyhow};
 use regex::{Regex, RegexBuilder};
 
-use slipbox_core::{AnchorRecord, IndexedLink, UnlinkedReferenceRecord};
+use slipbox_core::{AnchorRecord, ExplorationExplanation, IndexedLink, UnlinkedReferenceRecord};
 use slipbox_store::Database;
 
 use crate::text_query::{
@@ -127,6 +127,9 @@ pub(crate) fn query_unlinked_references(
                     col: column_number(line, start),
                     preview: line.trim_end().to_owned(),
                     matched_text: matched.as_str().to_owned(),
+                    explanation: ExplorationExplanation::UnlinkedReference {
+                        matched_text: matched.as_str().to_owned(),
+                    },
                 };
                 let key = (
                     result.source_anchor.node_key.clone(),

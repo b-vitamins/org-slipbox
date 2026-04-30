@@ -522,6 +522,15 @@ pub struct BacklinksResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum ExplorationExplanation {
+    Backlink,
+    ForwardLink,
+    SharedReference { reference: String },
+    UnlinkedReference { matched_text: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BacklinkRecord {
     pub source_note: NodeRecord,
     #[serde(default)]
@@ -529,6 +538,7 @@ pub struct BacklinkRecord {
     pub row: u32,
     pub col: u32,
     pub preview: String,
+    pub explanation: ExplorationExplanation,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -558,6 +568,7 @@ pub struct ForwardLinkRecord {
     pub row: u32,
     pub col: u32,
     pub preview: String,
+    pub explanation: ExplorationExplanation,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -586,6 +597,7 @@ pub struct ReflinkRecord {
     pub col: u32,
     pub preview: String,
     pub matched_reference: String,
+    pub explanation: ExplorationExplanation,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -614,6 +626,7 @@ pub struct UnlinkedReferenceRecord {
     pub col: u32,
     pub preview: String,
     pub matched_text: String,
+    pub explanation: ExplorationExplanation,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1081,9 +1094,10 @@ fn normalize_string_values(values: &[String], nocase: bool) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        CaptureNodeParams, CaptureTemplatePreviewResult, NodeFromTitleOrAliasParams, NodeKind,
-        NodeRecord, PreviewNodeRecord, SearchNodesParams, SearchNodesSort,
-        UnlinkedReferencesParams, UpdateNodeMetadataParams, normalize_reference,
+        CaptureNodeParams, CaptureTemplatePreviewResult, ExplorationExplanation,
+        NodeFromTitleOrAliasParams, NodeKind, NodeRecord, PreviewNodeRecord,
+        SearchNodesParams, SearchNodesSort, UnlinkedReferencesParams, UpdateNodeMetadataParams,
+        normalize_reference,
     };
     use serde_json::json;
 
@@ -1284,6 +1298,37 @@ mod tests {
                     "line": 1,
                     "kind": "heading"
                 }
+            })
+        );
+    }
+
+    #[test]
+    fn exploration_explanation_serializes_with_tagged_kinds() {
+        assert_eq!(
+            serde_json::to_value(ExplorationExplanation::Backlink)
+                .expect("backlink explanation should serialize"),
+            json!({ "kind": "backlink" })
+        );
+
+        assert_eq!(
+            serde_json::to_value(ExplorationExplanation::SharedReference {
+                reference: "cite:smith2024".to_owned(),
+            })
+            .expect("shared reference explanation should serialize"),
+            json!({
+                "kind": "shared-reference",
+                "reference": "cite:smith2024"
+            })
+        );
+
+        assert_eq!(
+            serde_json::to_value(ExplorationExplanation::UnlinkedReference {
+                matched_text: "Project Atlas".to_owned(),
+            })
+            .expect("unlinked reference explanation should serialize"),
+            json!({
+                "kind": "unlinked-reference",
+                "matched_text": "Project Atlas"
             })
         );
     }

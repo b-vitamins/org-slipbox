@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use anyhow::{Context, Result};
 use rusqlite::{OptionalExtension, params};
 
-use slipbox_core::{AnchorRecord, BacklinkRecord};
+use slipbox_core::{AnchorRecord, BacklinkRecord, ExplorationExplanation};
 
 use crate::Database;
 use crate::nodes::{ANCHOR_SELECT_COLUMN_COUNT, row_to_anchor_with_offset};
@@ -68,6 +68,7 @@ impl Database {
                 row: source.row,
                 col: source.col,
                 preview: source.preview,
+                explanation: ExplorationExplanation::Backlink,
             });
             if results.len() >= limit {
                 break;

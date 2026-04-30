@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::{Context, Result, anyhow};
 use regex::{Regex, RegexBuilder};
 
-use slipbox_core::{AnchorRecord, ReflinkRecord};
+use slipbox_core::{AnchorRecord, ExplorationExplanation, ReflinkRecord};
 use slipbox_store::Database;
 
 use crate::text_query::{
@@ -113,6 +113,9 @@ pub(crate) fn query_reflinks(
                     col: column_number(line, matched.start()),
                     preview: line.trim_end().to_owned(),
                     matched_reference: matched.as_str().to_owned(),
+                    explanation: ExplorationExplanation::SharedReference {
+                        reference: matched.as_str().to_owned(),
+                    },
                 };
                 let key = (
                     result.source_anchor.node_key.clone(),
