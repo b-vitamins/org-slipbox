@@ -57,7 +57,9 @@
         #'org-slipbox-buffer-backlinks-section
         #'org-slipbox-buffer-forward-links-section
         #'org-slipbox-buffer-reflinks-section
-        #'org-slipbox-buffer-unlinked-references-section)
+        #'org-slipbox-buffer-unlinked-references-section
+        #'org-slipbox-buffer-time-neighbors-section
+        #'org-slipbox-buffer-task-neighbors-section)
   "Section specifications rendered by `org-slipbox-buffer-render-contents'.
 
 Each item is either a function called with the current node, or a
@@ -85,6 +87,9 @@ Return non-nil to render the section, or nil to skip it."
   :type '(choice (const :tag "None" nil) function)
   :group 'org-slipbox)
 
+(defconst org-slipbox-buffer-lenses '(structure refs time tasks)
+  "Declared exploration lenses supported by the dedicated buffer.")
+
 (cl-defstruct org-slipbox-buffer-session
   "Explicit session state for an org-slipbox context buffer."
   kind
@@ -92,12 +97,23 @@ Return non-nil to render the section, or nil to skip it."
   root-node
   active-lens
   history
+  future
+  frozen-context
   lens-cache)
 
 (defvar-local org-slipbox-buffer-session nil
   "Explicit session state for the current org-slipbox context buffer.")
 
 (put 'org-slipbox-buffer-session 'permanent-local t)
+
+(defvar org-slipbox-buffer-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "l") #'org-slipbox-buffer-switch-lens)
+    (define-key map (kbd "[") #'org-slipbox-buffer-history-back)
+    (define-key map (kbd "]") #'org-slipbox-buffer-history-forward)
+    (define-key map (kbd "f") #'org-slipbox-buffer-toggle-frozen-context)
+    map)
+  "Keymap for `org-slipbox-buffer-mode'.")
 
 (define-derived-mode org-slipbox-buffer-mode special-mode "org-slipbox"
   "Major mode for org-slipbox context buffers.")
@@ -158,16 +174,77 @@ Return non-nil to render the section, or nil to skip it."
           (org-slipbox-buffer-render-contents)
           (add-hook 'kill-buffer-hook #'org-slipbox-buffer--persistent-cleanup-h nil t))))))
 
+(defun org-slipbox-buffer-switch-lens (lens)
+  "Switch the dedicated buffer to exploration LENS."
+  (interactive
+   (list
+    (intern
+     (completing-read
+      "Lens: "
+      (mapcar #'symbol-name org-slipbox-buffer-lenses)
+      nil
+      t
+      nil
+      nil
+      (and (org-slipbox-buffer--current-lens)
+           (symbol-name (org-slipbox-buffer--current-lens)))))))
+  (unless (memq lens org-slipbox-buffer-lenses)
+    (user-error "Unsupported org-slipbox lens %S" lens))
+  (let* ((session (org-slipbox-buffer--require-dedicated-session))
+         (snapshot (org-slipbox-buffer--history-snapshot session)))
+    (setq snapshot (plist-put snapshot :active-lens lens))
+    (org-slipbox-buffer--transition-dedicated snapshot)))
+
+(defun org-slipbox-buffer-history-back ()
+  "Move backward through dedicated-buffer navigation history."
+  (interactive)
+  (let* ((session (org-slipbox-buffer--require-dedicated-session))
+         (history (org-slipbox-buffer-session-history session)))
+    (unless history
+      (user-error "No earlier cockpit state"))
+    (setf (org-slipbox-buffer-session-history session) (cdr history)
+          (org-slipbox-buffer-session-future session)
+          (cons (org-slipbox-buffer--history-snapshot session)
+                (org-slipbox-buffer-session-future session)))
+    (org-slipbox-buffer--apply-history-snapshot session (car history))
+    (org-slipbox-buffer-render-contents)))
+
+(defun org-slipbox-buffer-history-forward ()
+  "Move forward through dedicated-buffer navigation history."
+  (interactive)
+  (let* ((session (org-slipbox-buffer--require-dedicated-session))
+         (future (org-slipbox-buffer-session-future session)))
+    (unless future
+      (user-error "No later cockpit state"))
+    (setf (org-slipbox-buffer-session-future session) (cdr future)
+          (org-slipbox-buffer-session-history session)
+          (cons (org-slipbox-buffer--history-snapshot session)
+                (org-slipbox-buffer-session-history session)))
+    (org-slipbox-buffer--apply-history-snapshot session (car future))
+    (org-slipbox-buffer-render-contents)))
+
+(defun org-slipbox-buffer-toggle-frozen-context ()
+  "Toggle whether dedicated exploration keeps its original root context."
+  (interactive)
+  (let* ((session (org-slipbox-buffer--require-dedicated-session))
+         (snapshot (org-slipbox-buffer--history-snapshot session))
+         (frozen (not (org-slipbox-buffer-session-frozen-context session))))
+    (setq snapshot (plist-put snapshot :frozen-context frozen))
+    (unless frozen
+      (setq snapshot (plist-put snapshot :root-node
+                                (org-slipbox-buffer-session-current-node session))))
+    (when (and frozen (null (plist-get snapshot :root-node)))
+      (setq snapshot (plist-put snapshot :root-node
+                                (org-slipbox-buffer-session-current-node session))))
+    (org-slipbox-buffer--transition-dedicated snapshot)))
+
 (defun org-slipbox-buffer-render-contents ()
   "Render the current org-slipbox context buffer."
   (let* ((node (org-slipbox-buffer--session-node))
          (inhibit-read-only t))
     (erase-buffer)
     (org-slipbox-buffer-mode)
-    (setq-local header-line-format
-                (when node
-                  (concat (propertize " " 'display '(space :align-to 0))
-                          (plist-get node :title))))
+    (setq-local header-line-format (org-slipbox-buffer--header-line node))
     (when node
       (org-slipbox-buffer--render-sections node))
     (run-hooks 'org-slipbox-buffer-postrender-functions)
@@ -181,8 +258,9 @@ Return non-nil to render the section, or nil to skip it."
 
 (defun org-slipbox-buffer--section-allowed-p (section node)
   "Return non-nil when SECTION should render for NODE."
-  (or (null org-slipbox-buffer-section-filter-function)
-      (funcall org-slipbox-buffer-section-filter-function section node)))
+  (and (org-slipbox-buffer--section-visible-p section)
+       (or (null org-slipbox-buffer-section-filter-function)
+           (funcall org-slipbox-buffer-section-filter-function section node))))
 
 (defun org-slipbox-buffer--render-section (section node)
   "Render SECTION for NODE."
@@ -207,6 +285,39 @@ Return non-nil to render the section, or nil to skip it."
   (when (string= (buffer-name) org-slipbox-buffer)
     (org-slipbox-buffer-persistent-mode -1)))
 
+(defun org-slipbox-buffer--header-line (node)
+  "Return the header-line display for NODE."
+  (when node
+    (let ((parts (list (plist-get node :title))))
+      (when (org-slipbox-buffer--dedicated-p)
+        (when-let ((lens (org-slipbox-buffer--current-lens)))
+          (setq parts
+                (append parts
+                        (list (format "lens: %s" (symbol-name lens))))))
+        (when-let ((session org-slipbox-buffer-session))
+          (when (and (org-slipbox-buffer-session-frozen-context session)
+                     (not (equal node (org-slipbox-buffer-session-root-node session))))
+            (setq parts
+                  (append
+                   parts
+                   (list
+                    (format "root: %s"
+                            (plist-get
+                             (org-slipbox-buffer-session-root-node session)
+                             :title))))))))
+      (concat (propertize " " 'display '(space :align-to 0))
+              (string-join parts "  |  ")))))
+
+(defun org-slipbox-buffer--section-visible-p (section)
+  "Return non-nil when SECTION belongs in the current buffer mode."
+  (let ((lens (org-slipbox-buffer--section-lens section)))
+    (cond
+     ((null lens) t)
+     ((org-slipbox-buffer--dedicated-p)
+      (eq lens (org-slipbox-buffer--current-lens)))
+     (t
+      (memq lens '(structure refs))))))
+
 (defun org-slipbox-buffer--make-persistent-session (&optional node)
   "Return a persistent context-buffer session for NODE."
   (make-org-slipbox-buffer-session
@@ -219,7 +330,9 @@ Return non-nil to render the section, or nil to skip it."
   (make-org-slipbox-buffer-session
    :kind 'dedicated
    :current-node node
-   :root-node node))
+   :root-node node
+   :active-lens 'structure
+   :frozen-context t))
 
 (defun org-slipbox-buffer--session-node (&optional session)
   "Return the current node for SESSION or the current buffer."
@@ -230,6 +343,68 @@ Return non-nil to render the section, or nil to skip it."
   "Clear cached exploration results for SESSION or the current buffer."
   (when-let ((session (or session org-slipbox-buffer-session)))
     (setf (org-slipbox-buffer-session-lens-cache session) nil)))
+
+(defun org-slipbox-buffer--section-function (section)
+  "Return the function designator for SECTION."
+  (pcase section
+    ((pred functionp) section)
+    (`(,fn . ,_) fn)
+    (_ nil)))
+
+(defun org-slipbox-buffer--section-lens (section)
+  "Return the declared exploration lens for SECTION, or nil."
+  (pcase (org-slipbox-buffer--section-function section)
+    ('org-slipbox-buffer-node-section nil)
+    ('org-slipbox-buffer-refs-section 'refs)
+    ('org-slipbox-buffer-backlinks-section 'structure)
+    ('org-slipbox-buffer-forward-links-section 'structure)
+    ('org-slipbox-buffer-reflinks-section 'refs)
+    ('org-slipbox-buffer-unlinked-references-section 'refs)
+    ('org-slipbox-buffer-time-neighbors-section 'time)
+    ('org-slipbox-buffer-task-neighbors-section 'tasks)
+    (_ nil)))
+
+(defun org-slipbox-buffer--current-lens (&optional session)
+  "Return the active exploration lens for SESSION or the current buffer."
+  (when-let ((session (or session org-slipbox-buffer-session)))
+    (org-slipbox-buffer-session-active-lens session)))
+
+(defun org-slipbox-buffer--history-snapshot (&optional session)
+  "Return a navigation snapshot for SESSION or the current buffer."
+  (let ((session (or session org-slipbox-buffer-session)))
+    (list :current-node (org-slipbox-buffer-session-current-node session)
+          :root-node (org-slipbox-buffer-session-root-node session)
+          :active-lens (org-slipbox-buffer-session-active-lens session)
+          :frozen-context (org-slipbox-buffer-session-frozen-context session))))
+
+(defun org-slipbox-buffer--apply-history-snapshot (session snapshot)
+  "Apply SNAPSHOT to SESSION and clear its transient caches."
+  (setf (org-slipbox-buffer-session-current-node session)
+        (plist-get snapshot :current-node)
+        (org-slipbox-buffer-session-root-node session)
+        (plist-get snapshot :root-node)
+        (org-slipbox-buffer-session-active-lens session)
+        (plist-get snapshot :active-lens)
+        (org-slipbox-buffer-session-frozen-context session)
+        (plist-get snapshot :frozen-context)
+        (org-slipbox-buffer-session-lens-cache session) nil))
+
+(defun org-slipbox-buffer--transition-dedicated (snapshot)
+  "Apply dedicated-buffer SNAPSHOT as a navigable transition."
+  (let* ((session (org-slipbox-buffer--require-dedicated-session))
+         (current (org-slipbox-buffer--history-snapshot session)))
+    (unless (equal current snapshot)
+      (setf (org-slipbox-buffer-session-history session)
+            (cons current (org-slipbox-buffer-session-history session))
+            (org-slipbox-buffer-session-future session) nil)
+      (org-slipbox-buffer--apply-history-snapshot session snapshot)
+      (org-slipbox-buffer-render-contents))))
+
+(defun org-slipbox-buffer--require-dedicated-session ()
+  "Return the active dedicated buffer session, or signal a user error."
+  (unless (org-slipbox-buffer--dedicated-p)
+    (user-error "This command is only available in dedicated org-slipbox buffers"))
+  org-slipbox-buffer-session)
 
 (defun org-slipbox-buffer--dedicated-name (node)
   "Return a dedicated context buffer name for NODE."
@@ -363,6 +538,24 @@ query."
      "No unlinked references found."
      #'org-slipbox-buffer--insert-unlinked-reference-entry)))
 
+(cl-defun org-slipbox-buffer-time-neighbors-section
+    (node &key (section-heading "Time Neighbors"))
+  "Insert a time-neighbor section for NODE using SECTION-HEADING."
+  (org-slipbox-buffer--insert-occurrence-section
+   section-heading
+   (org-slipbox-buffer--time-neighbors node)
+   "No time neighbors found."
+   #'org-slipbox-buffer--insert-anchor-entry))
+
+(cl-defun org-slipbox-buffer-task-neighbors-section
+    (node &key (section-heading "Task Neighbors"))
+  "Insert a task-neighbor section for NODE using SECTION-HEADING."
+  (org-slipbox-buffer--insert-occurrence-section
+   section-heading
+   (org-slipbox-buffer--task-neighbors node)
+   "No task neighbors found."
+   #'org-slipbox-buffer--insert-anchor-entry))
+
 (defun org-slipbox-buffer--forward-links (node &optional unique limit)
   "Return forward links for NODE.
 When UNIQUE is non-nil, only return the first occurrence per destination
@@ -399,14 +592,74 @@ node. LIMIT bounds the number of rows requested."
   (insert "\n")
   t)
 
-(defun org-slipbox-buffer--insert-node-button (node)
-  "Insert a button for NODE."
+(defun org-slipbox-buffer--insert-node-button (node &optional help-echo)
+  "Insert a button for NODE with optional HELP-ECHO."
   (insert-text-button
    (org-slipbox--node-display node)
    'follow-link t
-   'help-echo "Visit node"
+   'help-echo (or help-echo "Pivot or visit node")
    'action (lambda (_button)
-             (org-slipbox--visit-node node))))
+             (org-slipbox-buffer--activate-node node))))
+
+(defun org-slipbox-buffer--insert-anchor-button (anchor &optional help-echo)
+  "Insert a button for ANCHOR with optional HELP-ECHO."
+  (insert-text-button
+   (org-slipbox--node-display anchor)
+   'follow-link t
+   'help-echo (or help-echo "Pivot or visit related anchor")
+   'action (lambda (_button)
+             (org-slipbox-buffer--activate-anchor anchor))))
+
+(defun org-slipbox-buffer--insert-location-button (file row col help-echo)
+  "Insert a location button for FILE at ROW and COL with HELP-ECHO."
+  (insert-text-button
+   (format "%s:%s:%s" file row col)
+   'follow-link t
+   'face 'shadow
+   'help-echo help-echo
+   'action (lambda (_button)
+             (org-slipbox-buffer--visit-location file row col))))
+
+(defun org-slipbox-buffer--note-p (node)
+  "Return non-nil when NODE already denotes a canonical note."
+  (let ((kind (plist-get node :kind)))
+    (or (equal kind "file")
+        (eq kind 'file)
+        (plist-get node :explicit_id))))
+
+(defun org-slipbox-buffer--resolve-anchor-pivot-node (anchor)
+  "Resolve a canonical pivot node for ANCHOR."
+  (if (org-slipbox-buffer--note-p anchor)
+      anchor
+    (org-slipbox-rpc-node-at-point
+     (expand-file-name (plist-get anchor :file_path) org-slipbox-directory)
+     (plist-get anchor :line))))
+
+(defun org-slipbox-buffer--activate-node (node)
+  "Activate NODE from the current org-slipbox buffer."
+  (if (org-slipbox-buffer--dedicated-p)
+      (org-slipbox-buffer--pivot-to-node node)
+    (org-slipbox--visit-node node)))
+
+(defun org-slipbox-buffer--activate-anchor (anchor)
+  "Activate ANCHOR from the current org-slipbox buffer."
+  (if-let ((node (org-slipbox-buffer--resolve-anchor-pivot-node anchor)))
+      (org-slipbox-buffer--activate-node node)
+    (org-slipbox-buffer--visit-location
+     (plist-get anchor :file_path)
+     (plist-get anchor :line)
+     1)))
+
+(defun org-slipbox-buffer--pivot-to-node (node)
+  "Pivot the dedicated buffer to NODE."
+  (let* ((session (org-slipbox-buffer--require-dedicated-session))
+         (snapshot (org-slipbox-buffer--history-snapshot session))
+         (root-node (if (org-slipbox-buffer-session-frozen-context session)
+                        (org-slipbox-buffer-session-root-node session)
+                      node)))
+    (setq snapshot (plist-put snapshot :current-node node))
+    (setq snapshot (plist-put snapshot :root-node root-node))
+    (org-slipbox-buffer--transition-dedicated snapshot)))
 
 (defun org-slipbox-buffer--explanation-string (entry)
   "Return a display string for ENTRY's explanation payload."
@@ -440,14 +693,10 @@ node. LIMIT bounds the number of rows requested."
          (row (plist-get entry :row))
          (col (plist-get entry :col))
          (preview (plist-get entry :preview)))
-    (insert-text-button
-     (org-slipbox--node-display source-node)
-     'follow-link t
-     'help-echo "Visit backlink"
-     'action (lambda (_button)
-               (org-slipbox-buffer--visit-location file row col)))
-    (insert " "
-            (propertize (format "%s:%s:%s" file row col) 'face 'shadow))
+    (org-slipbox-buffer--insert-node-button source-node "Pivot to backlink source note")
+    (insert " ")
+    (org-slipbox-buffer--insert-location-button
+     file row col "Visit backlink occurrence")
     (org-slipbox-buffer--insert-explanation entry)
     (insert
             "\n  "
@@ -460,14 +709,10 @@ node. LIMIT bounds the number of rows requested."
          (row (plist-get entry :row))
          (col (plist-get entry :col))
          (preview (plist-get entry :preview)))
-    (insert-text-button
-     (org-slipbox--node-display destination-node)
-     'follow-link t
-     'help-echo "Visit linked node"
-     'action (lambda (_button)
-               (org-slipbox--visit-node destination-node)))
-    (insert " "
-            (propertize (format "%s:%s:%s" file row col) 'face 'shadow))
+    (org-slipbox-buffer--insert-node-button destination-node "Pivot to linked note")
+    (insert " ")
+    (org-slipbox-buffer--insert-location-button
+     file row col "Visit forward-link occurrence")
     (org-slipbox-buffer--insert-explanation entry)
     (insert
             "\n  "
@@ -481,14 +726,10 @@ node. LIMIT bounds the number of rows requested."
          (col (plist-get entry :col))
          (preview (plist-get entry :preview))
          (matched-reference (plist-get entry :matched_reference)))
-    (insert-text-button
-     (org-slipbox--node-display source-node)
-     'follow-link t
-     'help-echo "Visit reflink source"
-     'action (lambda (_button)
-               (org-slipbox-buffer--visit-location file row col)))
-    (insert " "
-            (propertize (format "%s:%s:%s" file row col) 'face 'shadow))
+    (org-slipbox-buffer--insert-anchor-button source-node "Pivot to reflink source note")
+    (insert " ")
+    (org-slipbox-buffer--insert-location-button
+     file row col "Visit reflink occurrence")
     (org-slipbox-buffer--insert-explanation entry)
     (when (and (null (plist-get entry :explanation)) matched-reference)
       (insert " " (propertize matched-reference 'face 'italic)))
@@ -502,18 +743,28 @@ node. LIMIT bounds the number of rows requested."
          (col (plist-get entry :col))
          (preview (plist-get entry :preview))
          (matched-text (plist-get entry :matched_text)))
-    (insert-text-button
-     (org-slipbox--node-display source-node)
-     'follow-link t
-     'help-echo "Visit unlinked-reference source"
-     'action (lambda (_button)
-               (org-slipbox-buffer--visit-location file row col)))
-    (insert " "
-            (propertize (format "%s:%s:%s" file row col) 'face 'shadow))
+    (org-slipbox-buffer--insert-anchor-button
+     source-node
+     "Pivot to unlinked-reference source note")
+    (insert " ")
+    (org-slipbox-buffer--insert-location-button
+     file row col "Visit unlinked-reference occurrence")
     (org-slipbox-buffer--insert-explanation entry)
     (when (and (null (plist-get entry :explanation)) matched-text)
       (insert " " (propertize matched-text 'face 'italic)))
     (insert "\n  " preview)))
+
+(defun org-slipbox-buffer--insert-anchor-entry (entry)
+  "Insert an anchor-backed exploration ENTRY."
+  (let* ((anchor (plist-get entry :anchor))
+         (file (plist-get anchor :file_path))
+         (row (plist-get anchor :line))
+         (col 1))
+    (org-slipbox-buffer--insert-anchor-button anchor "Pivot to related note")
+    (insert " ")
+    (org-slipbox-buffer--insert-location-button
+     file row col "Visit related anchor")
+    (org-slipbox-buffer--insert-explanation entry)))
 
 (defun org-slipbox-buffer--visit-location (file row col)
   "Visit FILE at ROW and COL."
@@ -536,6 +787,16 @@ node. LIMIT bounds the number of rows requested."
   "Return daemon-backed unlinked references for NODE."
   (org-slipbox-buffer--exploration-section-entries
    node 'refs 'unlinked-references nil 200))
+
+(defun org-slipbox-buffer--time-neighbors (node)
+  "Return daemon-backed time neighbors for NODE."
+  (org-slipbox-buffer--exploration-section-entries
+   node 'time 'time-neighbors nil 200))
+
+(defun org-slipbox-buffer--task-neighbors (node)
+  "Return daemon-backed task neighbors for NODE."
+  (org-slipbox-buffer--exploration-section-entries
+   node 'tasks 'task-neighbors nil 200))
 
 (defun org-slipbox-buffer--backlinks (node &optional unique limit)
   "Return backlinks for NODE.

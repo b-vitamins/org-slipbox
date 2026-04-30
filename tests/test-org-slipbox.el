@@ -17,13 +17,18 @@
   (let (file-name-handler-alist)
     (write-region (or content "") nil file nil 'silent)))
 
-(defun org-slipbox-test--buffer-session (kind node &optional root-node)
+(defun org-slipbox-test--buffer-session (kind node &optional root-node &rest properties)
   "Return a context-buffer session with KIND and NODE.
 ROOT-NODE defaults to NODE."
-  (make-org-slipbox-buffer-session
-   :kind kind
-   :current-node node
-   :root-node (or root-node node)))
+  (let ((defaults (if (eq kind 'dedicated)
+                      '(:active-lens structure :frozen-context t)
+                    nil)))
+    (apply
+     #'make-org-slipbox-buffer-session
+     :kind kind
+     :current-node node
+     :root-node (or root-node node)
+     (append defaults properties))))
 
 (ert-deftest org-slipbox-test-feature-provided ()
   "The package entry feature should load cleanly."
@@ -2543,7 +2548,116 @@ ROOT-NODE defaults to NODE."
       (should (eq (org-slipbox-buffer-session-kind session) 'dedicated))
       (should (equal (org-slipbox-buffer-session-root-node session) node))
       (should (equal (org-slipbox-buffer-session-current-node session) node))
+      (should (eq (org-slipbox-buffer-session-active-lens session) 'structure))
+      (should (org-slipbox-buffer-session-frozen-context session))
       (kill-buffer displayed))))
+
+(ert-deftest org-slipbox-test-buffer-switch-lens-updates-session-and-rendering ()
+  "Lens switching should update dedicated session state and section visibility."
+  (let ((structure-called 0)
+        (time-called 0))
+    (with-current-buffer (get-buffer-create "*org-slipbox lens switch test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session
+                         'dedicated
+                         '(:node_key "file:note.org"
+                           :title "Note"
+                           :file_path "note.org"
+                           :line 1)))
+            (cl-letf (((symbol-function 'org-slipbox-buffer--backlinks)
+                       (lambda (&rest _args)
+                         (setq structure-called (1+ structure-called))
+                         nil))
+                      ((symbol-function 'org-slipbox-buffer--forward-links)
+                       (lambda (&rest _args) nil))
+                      ((symbol-function 'org-slipbox-buffer--time-neighbors)
+                       (lambda (&rest _args)
+                         (setq time-called (1+ time-called))
+                         nil))
+                      ((symbol-function 'org-slipbox-buffer--task-neighbors)
+                       (lambda (&rest _args) nil)))
+              (org-slipbox-buffer-render-contents)
+              (org-slipbox-buffer-switch-lens 'time))
+            (should (= structure-called 1))
+            (should (= time-called 1))
+            (should (eq (org-slipbox-buffer-session-active-lens
+                         org-slipbox-buffer-session)
+                        'time)))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-forward-link-button-pivots-and-records-history ()
+  "Dedicated forward-link activation should pivot in place and record history."
+  (let* ((source '(:node_key "file:source.org"
+                  :title "Source"
+                  :file_path "source.org"
+                  :line 1))
+         (target '(:node_key "file:target.org"
+                  :title "Target"
+                  :file_path "target.org"
+                  :line 1))
+         (entry `(:destination_note ,target
+                  :row 2
+                  :col 1
+                  :preview "[[id:target]]"
+                  :explanation (:kind "forward-link")))
+         rendered-node)
+    (with-current-buffer (get-buffer-create "*org-slipbox pivot test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session 'dedicated source))
+            (cl-letf (((symbol-function 'org-slipbox-buffer-render-contents)
+                       (lambda ()
+                         (setq rendered-node
+                               (org-slipbox-buffer-session-current-node
+                                org-slipbox-buffer-session))))
+                      ((symbol-function 'org-slipbox--visit-node)
+                       (lambda (&rest _args)
+                         (ert-fail "Dedicated pivot should not visit directly"))))
+              (org-slipbox-buffer--insert-forward-link-entry source entry)
+              (button-activate (button-at (point-min))))
+            (should (equal rendered-node target))
+            (should (equal (org-slipbox-buffer-session-current-node
+                            org-slipbox-buffer-session)
+                           target))
+            (should (equal (org-slipbox-buffer-session-root-node
+                            org-slipbox-buffer-session)
+                           source))
+            (should (equal (plist-get (car (org-slipbox-buffer-session-history
+                                           org-slipbox-buffer-session))
+                                      :current-node)
+                           source)))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-history-and-frozen-context-are-explicit ()
+  "Dedicated navigation history and frozen context should behave explicitly."
+  (let ((node-a '(:node_key "file:a.org" :title "A" :file_path "a.org" :line 1))
+        (node-b '(:node_key "file:b.org" :title "B" :file_path "b.org" :line 1)))
+    (with-current-buffer (get-buffer-create "*org-slipbox history test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session 'dedicated node-a))
+            (cl-letf (((symbol-function 'org-slipbox-buffer-render-contents)
+                       #'ignore))
+              (org-slipbox-buffer-toggle-frozen-context)
+              (org-slipbox-buffer--pivot-to-node node-b)
+              (should-not (org-slipbox-buffer-session-frozen-context
+                           org-slipbox-buffer-session))
+              (should (equal (org-slipbox-buffer-session-root-node
+                              org-slipbox-buffer-session)
+                             node-b))
+              (org-slipbox-buffer-history-back)
+              (should (equal (org-slipbox-buffer-session-current-node
+                              org-slipbox-buffer-session)
+                             node-a))
+              (org-slipbox-buffer-history-forward)
+              (should (equal (org-slipbox-buffer-session-current-node
+                              org-slipbox-buffer-session)
+                             node-b))))
+        (kill-buffer (current-buffer))))))
 
 (ert-deftest org-slipbox-test-graph-write-dot-uses-rpc-and-writes-file ()
   "Graph DOT export should request DOT from the daemon and write it to disk."
@@ -2834,15 +2948,17 @@ ROOT-NODE defaults to NODE."
             (should (equal (plist-get (car forward-links) :kind) "forward-link")))
         (kill-buffer (current-buffer))))))
 
-(ert-deftest org-slipbox-test-buffer-dedicated-render-includes-discovery-sections ()
-  "Dedicated buffers should render expensive discovery sections by default."
+(ert-deftest org-slipbox-test-buffer-dedicated-render-follows-active-lens ()
+  "Dedicated buffers should render the active exploration lens coherently."
   (let* ((mtime-ns 1741353600000000000)
          (expected-mtime
           (format-time-string
            "%Y-%m-%d"
            (seconds-to-time (/ (float mtime-ns) 1000000000.0))))
          (org-slipbox-directory "/tmp")
-         (org-slipbox-buffer-expensive-sections 'dedicated))
+         (org-slipbox-buffer-expensive-sections 'dedicated)
+         reflinks-called
+         unlinked-called)
     (with-current-buffer (get-buffer-create "*org-slipbox discovery test*")
       (unwind-protect
           (progn
@@ -2870,6 +2986,7 @@ ROOT-NODE defaults to NODE."
                             :explanation (:kind "forward-link")))))
                       ((symbol-function 'org-slipbox-buffer--reflinks)
                        (lambda (_node)
+                         (setq reflinks-called t)
                          '((:source_anchor (:title "Sibling"
                                             :file_path "refs.org"
                                             :line 2)
@@ -2881,6 +2998,7 @@ ROOT-NODE defaults to NODE."
                                           :reference "cite:smith2024")))))
                       ((symbol-function 'org-slipbox-buffer--unlinked-references)
                        (lambda (_node)
+                         (setq unlinked-called t)
                          '((:source_anchor (:title "Atlas"
                                             :file_path "unlinked.org"
                                             :line 8)
@@ -2894,16 +3012,14 @@ ROOT-NODE defaults to NODE."
             (should (string-match-p (regexp-quote expected-mtime) (buffer-string)))
             (should (string-match-p "Backlinks:[[:space:]]+3" (buffer-string)))
             (should (string-match-p "Forward Links:[[:space:]]+2" (buffer-string)))
+            (should (string-match-p "lens: structure" header-line-format))
             (should (string-match-p "Forward Links" (buffer-string)))
-            (should (string-match-p "Reflinks" (buffer-string)))
-            (should (string-match-p "Unlinked References" (buffer-string)))
             (should (string-match-p "Target" (buffer-string)))
-            (should (string-match-p "Sibling" (buffer-string)))
-            (should (string-match-p "Atlas" (buffer-string)))
             (should (string-match-p "direct forward link" (buffer-string)))
-            (should (string-match-p "shared ref: cite:smith2024" (buffer-string)))
-            (should (string-match-p "unlinked mention: Note" (buffer-string)))
-            (should (string-match-p "Note mention" (buffer-string))))
+            (should-not reflinks-called)
+            (should-not unlinked-called)
+            (should-not (string-match-p "Reflinks" (buffer-string)))
+            (should-not (string-match-p "Unlinked References" (buffer-string))))
         (kill-buffer (current-buffer))))))
 
 (ert-deftest org-slipbox-test-buffer-persistent-render-skips-expensive-sections ()
@@ -2911,6 +3027,8 @@ ROOT-NODE defaults to NODE."
   (let ((org-slipbox-directory "/tmp")
         (org-slipbox-buffer-expensive-sections 'dedicated)
         expensive-called
+        time-called
+        task-called
         forward-called)
     (with-current-buffer (get-buffer-create org-slipbox-buffer)
       (unwind-protect
@@ -2936,10 +3054,20 @@ ROOT-NODE defaults to NODE."
                       ((symbol-function 'org-slipbox-buffer--unlinked-references)
                        (lambda (_node)
                          (setq expensive-called t)
+                         nil))
+                      ((symbol-function 'org-slipbox-buffer--time-neighbors)
+                       (lambda (_node)
+                         (setq time-called t)
+                         nil))
+                      ((symbol-function 'org-slipbox-buffer--task-neighbors)
+                       (lambda (_node)
+                         (setq task-called t)
                          nil)))
               (org-slipbox-buffer-render-contents))
             (should forward-called)
-            (should-not expensive-called))
+            (should-not expensive-called)
+            (should-not time-called)
+            (should-not task-called))
         (kill-buffer (current-buffer))))))
 
 (ert-deftest org-slipbox-test-diagnose-node-renders-status-file-and-node ()
