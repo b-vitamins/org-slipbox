@@ -312,12 +312,15 @@ resolves it through `exec-path'."
 (defun org-slipbox-rpc--exploration-lens-name (lens)
   "Return LENS encoded for the `explore' RPC surface."
   (cond
-   ((member lens '("structure" "refs" "time" "tasks"))
+   ((member lens '("structure" "refs" "time" "tasks" "bridges" "dormant" "unresolved"))
     lens)
    ((eq lens 'structure) "structure")
    ((eq lens 'refs) "refs")
    ((eq lens 'time) "time")
    ((eq lens 'tasks) "tasks")
+   ((eq lens 'bridges) "bridges")
+   ((eq lens 'dormant) "dormant")
+   ((eq lens 'unresolved) "unresolved")
    (t
     (user-error "Unsupported explore lens %s" lens))))
 

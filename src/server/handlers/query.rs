@@ -385,6 +385,75 @@ pub(crate) fn explore(
                     .collect(),
             }]
         }
+        ExplorationLens::Bridges => {
+            let note = state.known_note(&params.node_key, "explore query note")?;
+            let bridge_candidates = state
+                .database
+                .bridge_candidates(&note, params.normalized_limit())
+                .map_err(|error| {
+                    internal_error(error.context("failed to query bridge candidates"))
+                })?;
+            vec![ExplorationSection {
+                kind: ExplorationSectionKind::BridgeCandidates,
+                entries: bridge_candidates
+                    .into_iter()
+                    .map(|record| ExplorationEntry::Anchor {
+                        record: Box::new(record),
+                    })
+                    .collect(),
+            }]
+        }
+        ExplorationLens::Dormant => {
+            let note = state.known_note(&params.node_key, "explore query note")?;
+            let dormant_notes = state
+                .database
+                .dormant_related(&note, params.normalized_limit())
+                .map_err(|error| internal_error(error.context("failed to query dormant notes")))?;
+            vec![ExplorationSection {
+                kind: ExplorationSectionKind::DormantNotes,
+                entries: dormant_notes
+                    .into_iter()
+                    .map(|record| ExplorationEntry::Anchor {
+                        record: Box::new(record),
+                    })
+                    .collect(),
+            }]
+        }
+        ExplorationLens::Unresolved => {
+            let note = state.known_note(&params.node_key, "explore query note")?;
+            let unresolved_tasks = state
+                .database
+                .unresolved_tasks(&note, params.normalized_limit())
+                .map_err(|error| {
+                    internal_error(error.context("failed to query unresolved tasks"))
+                })?;
+            let weakly_integrated = state
+                .database
+                .weakly_integrated_notes(&note, params.normalized_limit())
+                .map_err(|error| {
+                    internal_error(error.context("failed to query weakly integrated notes"))
+                })?;
+            vec![
+                ExplorationSection {
+                    kind: ExplorationSectionKind::UnresolvedTasks,
+                    entries: unresolved_tasks
+                        .into_iter()
+                        .map(|record| ExplorationEntry::Anchor {
+                            record: Box::new(record),
+                        })
+                        .collect(),
+                },
+                ExplorationSection {
+                    kind: ExplorationSectionKind::WeaklyIntegratedNotes,
+                    entries: weakly_integrated
+                        .into_iter()
+                        .map(|record| ExplorationEntry::Anchor {
+                            record: Box::new(record),
+                        })
+                        .collect(),
+                },
+            ]
+        }
     };
 
     to_value(ExploreResult {
@@ -467,12 +536,14 @@ pub(crate) fn index_file(
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::thread::sleep;
+    use std::time::Duration;
 
     use serde_json::json;
     use slipbox_core::{
-        ComparisonConnectorDirection, ExplorationEntry, ExplorationSectionKind, ExploreResult,
-        NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonResult,
-        NoteComparisonSectionKind,
+        ComparisonConnectorDirection, ExplorationEntry, ExplorationExplanation,
+        ExplorationSectionKind, ExploreResult, NoteComparisonEntry, NoteComparisonExplanation,
+        NoteComparisonResult, NoteComparisonSectionKind,
     };
     use slipbox_index::{DiscoveryPolicy, scan_root_with_policy};
     use tempfile::TempDir;
@@ -692,6 +763,109 @@ mod tests {
         )));
     }
 
+    #[test]
+    fn explore_dispatches_non_obvious_lenses() {
+        let (_workspace, mut state, focus_key) = non_obvious_state();
+
+        let bridges: ExploreResult = serde_json::from_value(
+            explore(
+                &mut state,
+                json!({
+                    "node_key": focus_key.as_str(),
+                    "lens": "bridges",
+                    "limit": 20
+                }),
+            )
+            .expect("bridges lens should succeed"),
+        )
+        .expect("bridges result should deserialize");
+        assert_eq!(bridges.sections.len(), 1);
+        assert_eq!(
+            bridges.sections[0].kind,
+            ExplorationSectionKind::BridgeCandidates
+        );
+        assert!(bridges.sections[0].entries.iter().any(|entry| matches!(
+            entry,
+            ExplorationEntry::Anchor { record }
+            if record.anchor.title == "Dormant Bridge"
+                && record.explanation == ExplorationExplanation::BridgeCandidate {
+                    reference: "@shared2024".to_owned(),
+                    via_title: "Neighbor".to_owned(),
+                }
+        )));
+
+        let dormant: ExploreResult = serde_json::from_value(
+            explore(
+                &mut state,
+                json!({
+                    "node_key": focus_key.as_str(),
+                    "lens": "dormant",
+                    "limit": 20
+                }),
+            )
+            .expect("dormant lens should succeed"),
+        )
+        .expect("dormant result should deserialize");
+        assert_eq!(dormant.sections.len(), 1);
+        assert_eq!(
+            dormant.sections[0].kind,
+            ExplorationSectionKind::DormantNotes
+        );
+        assert!(dormant.sections[0].entries.iter().any(|entry| matches!(
+            entry,
+            ExplorationEntry::Anchor { record }
+            if record.anchor.title == "Dormant Bridge"
+                && matches!(
+                    record.explanation,
+                    ExplorationExplanation::DormantSharedReference { ref reference, .. }
+                    if reference == "@shared2024"
+                )
+        )));
+
+        let unresolved: ExploreResult = serde_json::from_value(
+            explore(
+                &mut state,
+                json!({
+                    "node_key": focus_key.as_str(),
+                    "lens": "unresolved",
+                    "limit": 20
+                }),
+            )
+            .expect("unresolved lens should succeed"),
+        )
+        .expect("unresolved result should deserialize");
+        assert_eq!(
+            unresolved
+                .sections
+                .iter()
+                .map(|section| section.kind)
+                .collect::<Vec<_>>(),
+            vec![
+                ExplorationSectionKind::UnresolvedTasks,
+                ExplorationSectionKind::WeaklyIntegratedNotes,
+            ]
+        );
+        assert!(unresolved.sections[0].entries.iter().any(|entry| matches!(
+            entry,
+            ExplorationEntry::Anchor { record }
+            if record.anchor.title == "Unresolved Thread"
+                && record.explanation == ExplorationExplanation::UnresolvedSharedReference {
+                    reference: "@shared2024".to_owned(),
+                    todo_keyword: "TODO".to_owned(),
+                }
+        )));
+        assert!(unresolved.sections[1].entries.iter().any(|entry| matches!(
+            entry,
+            ExplorationEntry::Anchor { record }
+            if record.anchor.title == "Weak Thread"
+                && record.explanation
+                    == ExplorationExplanation::WeaklyIntegratedSharedReference {
+                        reference: "@shared2024".to_owned(),
+                        structural_link_count: 0,
+                    }
+        )));
+    }
+
     fn indexed_state() -> (TempDir, ServerState, String) {
         let workspace = tempfile::tempdir().expect("workspace should be created");
         let root = workspace.path().join("notes");
@@ -817,5 +991,90 @@ Links to [[id:left-id]] and [[id:right-id]].
             .node_key;
 
         (workspace, state, left_key, right_key)
+    }
+
+    fn non_obvious_state() -> (TempDir, ServerState, String) {
+        let workspace = tempfile::tempdir().expect("workspace should be created");
+        let root = workspace.path().join("notes");
+        fs::create_dir_all(&root).expect("notes root should be created");
+        fs::write(
+            root.join("older.org"),
+            r#"#+title: Older
+
+* Dormant Bridge
+:PROPERTIES:
+:ID: dormant-bridge-id
+:ROAM_REFS: cite:shared2024
+:END:
+Links to [[id:neighbor-id]] and [[id:support-id]].
+
+* Support
+:PROPERTIES:
+:ID: support-id
+:END:
+Support body.
+"#,
+        )
+        .expect("older fixture should be written");
+        sleep(Duration::from_millis(10));
+        fs::write(
+            root.join("focus.org"),
+            r#"#+title: Focus
+
+* Focus
+:PROPERTIES:
+:ID: focus-id
+:ROAM_REFS: cite:shared2024 cite:focus2024
+:END:
+Links to [[id:neighbor-id]].
+
+* Neighbor
+:PROPERTIES:
+:ID: neighbor-id
+:END:
+Neighbor body.
+"#,
+        )
+        .expect("focus fixture should be written");
+        sleep(Duration::from_millis(10));
+        fs::write(
+            root.join("related.org"),
+            r#"#+title: Related
+
+* TODO Unresolved Thread
+:PROPERTIES:
+:ID: unresolved-id
+:ROAM_REFS: cite:shared2024
+:END:
+Unresolved body.
+
+* Weak Thread
+:PROPERTIES:
+:ID: weak-id
+:ROAM_REFS: cite:shared2024
+:END:
+Weakly integrated body.
+"#,
+        )
+        .expect("related fixture should be written");
+
+        let db_path = workspace.path().join("index.sqlite3");
+        let discovery = DiscoveryPolicy::default();
+        let mut state =
+            ServerState::new(root.clone(), db_path, discovery).expect("state should be created");
+        let files =
+            scan_root_with_policy(&root, &state.discovery).expect("fixture should be indexed");
+        state
+            .database
+            .sync_index(&files)
+            .expect("fixture index should sync");
+        let focus_key = state
+            .database
+            .node_from_id("focus-id")
+            .expect("focus note lookup should succeed")
+            .expect("focus note should exist")
+            .node_key;
+
+        (workspace, state, focus_key)
     }
 }

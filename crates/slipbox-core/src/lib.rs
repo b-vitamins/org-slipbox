@@ -526,11 +526,37 @@ pub struct BacklinksResult {
 pub enum ExplorationExplanation {
     Backlink,
     ForwardLink,
-    SharedReference { reference: String },
-    UnlinkedReference { matched_text: String },
-    SharedScheduledDate { date: String },
-    SharedDeadlineDate { date: String },
-    SharedTodoKeyword { todo_keyword: String },
+    SharedReference {
+        reference: String,
+    },
+    UnlinkedReference {
+        matched_text: String,
+    },
+    SharedScheduledDate {
+        date: String,
+    },
+    SharedDeadlineDate {
+        date: String,
+    },
+    SharedTodoKeyword {
+        todo_keyword: String,
+    },
+    BridgeCandidate {
+        reference: String,
+        via_title: String,
+    },
+    DormantSharedReference {
+        reference: String,
+        modified_at_ns: i64,
+    },
+    UnresolvedSharedReference {
+        reference: String,
+        todo_keyword: String,
+    },
+    WeaklyIntegratedSharedReference {
+        reference: String,
+        structural_link_count: u64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -639,6 +665,9 @@ pub enum ExplorationLens {
     Refs,
     Time,
     Tasks,
+    Bridges,
+    Dormant,
+    Unresolved,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -650,6 +679,10 @@ pub enum ExplorationSectionKind {
     UnlinkedReferences,
     TimeNeighbors,
     TaskNeighbors,
+    BridgeCandidates,
+    DormantNotes,
+    UnresolvedTasks,
+    WeaklyIntegratedNotes,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1520,6 +1553,58 @@ mod tests {
             json!({
                 "kind": "shared-todo-keyword",
                 "todo_keyword": "TODO"
+            })
+        );
+
+        assert_eq!(
+            serde_json::to_value(ExplorationExplanation::BridgeCandidate {
+                reference: "@shared2024".to_owned(),
+                via_title: "Neighbor".to_owned(),
+            })
+            .expect("bridge explanation should serialize"),
+            json!({
+                "kind": "bridge-candidate",
+                "reference": "@shared2024",
+                "via_title": "Neighbor"
+            })
+        );
+
+        assert_eq!(
+            serde_json::to_value(ExplorationExplanation::DormantSharedReference {
+                reference: "@shared2024".to_owned(),
+                modified_at_ns: 42,
+            })
+            .expect("dormant explanation should serialize"),
+            json!({
+                "kind": "dormant-shared-reference",
+                "reference": "@shared2024",
+                "modified_at_ns": 42
+            })
+        );
+
+        assert_eq!(
+            serde_json::to_value(ExplorationExplanation::UnresolvedSharedReference {
+                reference: "@shared2024".to_owned(),
+                todo_keyword: "TODO".to_owned(),
+            })
+            .expect("unresolved explanation should serialize"),
+            json!({
+                "kind": "unresolved-shared-reference",
+                "reference": "@shared2024",
+                "todo_keyword": "TODO"
+            })
+        );
+
+        assert_eq!(
+            serde_json::to_value(ExplorationExplanation::WeaklyIntegratedSharedReference {
+                reference: "@shared2024".to_owned(),
+                structural_link_count: 1,
+            })
+            .expect("weak integration explanation should serialize"),
+            json!({
+                "kind": "weakly-integrated-shared-reference",
+                "reference": "@shared2024",
+                "structural_link_count": 1
             })
         );
     }
