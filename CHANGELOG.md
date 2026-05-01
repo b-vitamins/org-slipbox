@@ -6,6 +6,36 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-01
+
+### Added
+- Added richer task and time exploration semantics, including explicit
+  planning-date relations in dedicated-buffer lenses and first-class
+  comparison sections for shared planning dates, contrasting task states, and
+  planning tensions.
+- Added dedicated benchmark coverage for a guaranteed non-structure
+  exploration fixture so cockpit performance checks measure the real
+  unresolved-lens path instead of silently falling back to the cheap
+  structure view.
+
+### Changed
+- Strengthened non-obvious exploration ranking and explanation payloads so
+  bridge, dormant, unresolved, and weakly integrated results are ordered by
+  explicit supporting evidence and preserve fuller rationale in the cockpit.
+- Reworked dedicated-buffer rendering around explicit lens-local and
+  comparison-group plans, with clearer explanation blocks, coherent trail
+  labels, and more legible attached-versus-detached trail state.
+- Tightened durable product docs around the settled `0.5.x` cockpit model so
+  the dedicated buffer is documented as the exploratory house while saved
+  views, broader headless workflows, and workbench extraction remain later
+  work.
+
+### Fixed
+- Preferred newer Elisp sources during batch test runs so verification does
+  not accidentally pick stale compiled artifacts over the current source tree.
+- Fixed the dedicated exploration benchmark contract so it now fails loudly if
+  the generated corpus does not provide the intended unresolved-lens fixture.
+
 ## [0.4.0] - 2026-04-30
 
 ### Added
