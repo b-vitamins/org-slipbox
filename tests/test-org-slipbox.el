@@ -36,11 +36,18 @@ ROOT-NODE defaults to NODE."
     :right_note ,right
     :sections
     [(:kind "shared-refs"
-      :entries
+     :entries
       [(:kind "reference"
         :reference "@shared2024"
         :explanation (:kind "shared-reference"
                       :reference "@shared2024"))])
+     (:kind "shared-planning-dates"
+      :entries
+      [(:kind "planning-relation"
+        :date "2026-05-01"
+        :left_field "scheduled"
+        :right_field "scheduled"
+        :explanation (:kind "shared-planning-date"))])
      (:kind "left-only-refs"
       :entries
       [(:kind "reference"
@@ -60,13 +67,26 @@ ROOT-NODE defaults to NODE."
                :line 4)
         :explanation (:kind "shared-backlink"))])
      (:kind "shared-forward-links"
-      :entries
+     :entries
       [(:kind "node"
         :node (:node_key "file:shared-forward.org"
                :title "Shared Forward"
                :file_path "shared-forward.org"
                :line 5)
         :explanation (:kind "shared-forward-link"))])
+     (:kind "contrasting-task-states"
+      :entries
+      [(:kind "task-state"
+        :left_todo_keyword "TODO"
+        :right_todo_keyword "NEXT"
+        :explanation (:kind "contrasting-task-state"))])
+     (:kind "planning-tensions"
+      :entries
+      [(:kind "planning-relation"
+        :date "2026-05-01"
+        :left_field "scheduled"
+        :right_field "deadline"
+        :explanation (:kind "planning-tension"))])
      (:kind "indirect-connectors"
       :entries
       [(:kind "node"
@@ -2818,6 +2838,12 @@ ROOT-NODE defaults to NODE."
             (should (string-match-p "Compare Target" (buffer-string)))
             (should (string-match-p "Shared Refs" (buffer-string)))
             (should (string-match-p "@shared2024" (buffer-string)))
+            (should (string-match-p "Shared Planning Dates" (buffer-string)))
+            (should (string-match-p "2026-05-01 current note scheduled, compare target scheduled"
+                                    (buffer-string)))
+            (should (string-match-p "Contrasting Task States" (buffer-string)))
+            (should (string-match-p "TODO <> NEXT different task states"
+                                    (buffer-string)))
             (should (string-match-p "Indirect Connectors" (buffer-string)))
             (should (string-match-p "current note -> compare target" (buffer-string))))
         (kill-buffer (current-buffer))))))
@@ -2854,6 +2880,8 @@ ROOT-NODE defaults to NODE."
             (should (string-match-p "Refs only in Left" (buffer-string)))
             (should (string-match-p "Refs only in Right" (buffer-string)))
             (should-not (string-match-p "Shared Refs" (buffer-string)))
+            (should-not (string-match-p "Shared Planning Dates" (buffer-string)))
+            (should-not (string-match-p "Contrasting Task States" (buffer-string)))
             (should-not (string-match-p "Indirect Connectors" (buffer-string))))
         (kill-buffer (current-buffer))))))
 

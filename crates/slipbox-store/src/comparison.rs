@@ -5,8 +5,9 @@ use anyhow::Result;
 
 use slipbox_core::{
     CompareNotesParams, ComparisonConnectorDirection, ComparisonNodeRecord,
-    ComparisonReferenceRecord, NodeRecord, NoteComparisonEntry, NoteComparisonExplanation,
-    NoteComparisonResult, NoteComparisonSection, NoteComparisonSectionKind,
+    ComparisonPlanningRecord, ComparisonReferenceRecord, ComparisonTaskStateRecord, NodeRecord,
+    NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonResult, NoteComparisonSection,
+    NoteComparisonSectionKind, PlanningField,
 };
 
 use crate::Database;
@@ -58,6 +59,10 @@ impl Database {
                     entries: shared_references(&left_refs, &right_refs, limit),
                 },
                 NoteComparisonSection {
+                    kind: NoteComparisonSectionKind::SharedPlanningDates,
+                    entries: shared_planning_dates(left, right, limit),
+                },
+                NoteComparisonSection {
                     kind: NoteComparisonSectionKind::LeftOnlyRefs,
                     entries: exclusive_references(
                         &left_refs,
@@ -94,6 +99,14 @@ impl Database {
                     ),
                 },
                 NoteComparisonSection {
+                    kind: NoteComparisonSectionKind::ContrastingTaskStates,
+                    entries: contrasting_task_states(left, right),
+                },
+                NoteComparisonSection {
+                    kind: NoteComparisonSectionKind::PlanningTensions,
+                    entries: planning_tensions(left, right, limit),
+                },
+                NoteComparisonSection {
                     kind: NoteComparisonSectionKind::IndirectConnectors,
                     entries: indirect_connectors(
                         &left_backlink_map,
@@ -106,6 +119,18 @@ impl Database {
             ],
         })
     }
+}
+
+fn shared_planning_dates(
+    left: &NodeRecord,
+    right: &NodeRecord,
+    limit: usize,
+) -> Vec<NoteComparisonEntry> {
+    planning_matches(left, right, false)
+        .into_iter()
+        .take(limit)
+        .map(comparison_planning_entry)
+        .collect()
 }
 
 fn shared_references(
@@ -150,6 +175,33 @@ fn shared_nodes(
         .into_iter()
         .take(limit)
         .map(|node| comparison_node_entry(node, explanation.clone()))
+        .collect()
+}
+
+fn contrasting_task_states(left: &NodeRecord, right: &NodeRecord) -> Vec<NoteComparisonEntry> {
+    match (left.todo_keyword.as_deref(), right.todo_keyword.as_deref()) {
+        (Some(left_todo_keyword), Some(right_todo_keyword))
+            if left_todo_keyword != right_todo_keyword =>
+        {
+            vec![comparison_task_state_entry(
+                left_todo_keyword.to_owned(),
+                right_todo_keyword.to_owned(),
+                NoteComparisonExplanation::ContrastingTaskState,
+            )]
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn planning_tensions(
+    left: &NodeRecord,
+    right: &NodeRecord,
+    limit: usize,
+) -> Vec<NoteComparisonEntry> {
+    planning_matches(left, right, true)
+        .into_iter()
+        .take(limit)
+        .map(comparison_planning_entry)
         .collect()
 }
 
@@ -228,6 +280,72 @@ fn comparison_node_entry(
     }
 }
 
+fn comparison_planning_entry(record: ComparisonPlanningRecord) -> NoteComparisonEntry {
+    NoteComparisonEntry::PlanningRelation {
+        record: Box::new(record),
+    }
+}
+
+fn comparison_task_state_entry(
+    left_todo_keyword: String,
+    right_todo_keyword: String,
+    explanation: NoteComparisonExplanation,
+) -> NoteComparisonEntry {
+    NoteComparisonEntry::TaskState {
+        record: Box::new(ComparisonTaskStateRecord {
+            left_todo_keyword,
+            right_todo_keyword,
+            explanation,
+        }),
+    }
+}
+
+fn planning_matches(
+    left: &NodeRecord,
+    right: &NodeRecord,
+    cross_field_only: bool,
+) -> Vec<ComparisonPlanningRecord> {
+    let mut matches = Vec::new();
+    for left_field in [PlanningField::Scheduled, PlanningField::Deadline] {
+        let Some(left_date) = node_planning_field_value(left, left_field) else {
+            continue;
+        };
+        for right_field in [PlanningField::Scheduled, PlanningField::Deadline] {
+            if cross_field_only == (left_field == right_field) {
+                continue;
+            }
+            if node_planning_field_value(right, right_field) == Some(left_date) {
+                matches.push(ComparisonPlanningRecord {
+                    date: left_date.to_owned(),
+                    left_field,
+                    right_field,
+                    explanation: if cross_field_only {
+                        NoteComparisonExplanation::PlanningTension
+                    } else {
+                        NoteComparisonExplanation::SharedPlanningDate
+                    },
+                });
+            }
+        }
+    }
+    matches.sort_by(compare_planning_records);
+    matches
+}
+
+fn node_planning_field_value(node: &NodeRecord, field: PlanningField) -> Option<&str> {
+    match field {
+        PlanningField::Scheduled => node.scheduled_for.as_deref(),
+        PlanningField::Deadline => node.deadline_for.as_deref(),
+    }
+}
+
+fn planning_field_order(field: PlanningField) -> u8 {
+    match field {
+        PlanningField::Scheduled => 0,
+        PlanningField::Deadline => 1,
+    }
+}
+
 fn compare_node_records(left: &NodeRecord, right: &NodeRecord) -> Ordering {
     left.file_path
         .cmp(&right.file_path)
@@ -235,12 +353,26 @@ fn compare_node_records(left: &NodeRecord, right: &NodeRecord) -> Ordering {
         .then_with(|| left.node_key.cmp(&right.node_key))
 }
 
+fn compare_planning_records(
+    left: &ComparisonPlanningRecord,
+    right: &ComparisonPlanningRecord,
+) -> Ordering {
+    left.date
+        .cmp(&right.date)
+        .then_with(|| {
+            planning_field_order(left.left_field).cmp(&planning_field_order(right.left_field))
+        })
+        .then_with(|| {
+            planning_field_order(left.right_field).cmp(&planning_field_order(right.right_field))
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
     use slipbox_core::{
         CompareNotesParams, ComparisonConnectorDirection, NoteComparisonEntry,
-        NoteComparisonExplanation, NoteComparisonSectionKind,
+        NoteComparisonExplanation, NoteComparisonSectionKind, PlanningField,
     };
 
     use crate::test_support::indexed_database;
@@ -251,18 +383,21 @@ mod tests {
             "comparison.org",
             r#"#+title: Comparison
 
-* Left
+* TODO Left
 :PROPERTIES:
 :ID: left-id
 :ROAM_REFS: cite:shared2024 cite:left2024
 :END:
+SCHEDULED: <2026-05-01 Thu>
 Links to [[id:shared-forward-id]] and [[id:left-right-bridge-id]].
 
-* Right
+* NEXT Right
 :PROPERTIES:
 :ID: right-id
 :ROAM_REFS: cite:shared2024 cite:right2024
 :END:
+SCHEDULED: <2026-05-01 Thu>
+DEADLINE: <2026-05-01 Thu>
 Links to [[id:shared-forward-id]] and [[id:right-left-bridge-id]].
 
 * Shared Forward
@@ -315,10 +450,13 @@ Links to [[id:left-id]] and [[id:right-id]].
                 .collect::<Vec<_>>(),
             vec![
                 NoteComparisonSectionKind::SharedRefs,
+                NoteComparisonSectionKind::SharedPlanningDates,
                 NoteComparisonSectionKind::LeftOnlyRefs,
                 NoteComparisonSectionKind::RightOnlyRefs,
                 NoteComparisonSectionKind::SharedBacklinks,
                 NoteComparisonSectionKind::SharedForwardLinks,
+                NoteComparisonSectionKind::ContrastingTaskStates,
+                NoteComparisonSectionKind::PlanningTensions,
                 NoteComparisonSectionKind::IndirectConnectors,
             ]
         );
@@ -328,7 +466,30 @@ Links to [[id:left-id]] and [[id:right-id]].
             if record.reference == "@shared2024"
                 && record.explanation == NoteComparisonExplanation::SharedReference
         )));
-        assert!(comparison.sections[5].entries.iter().any(|entry| matches!(
+        assert!(comparison.sections[1].entries.iter().any(|entry| matches!(
+            entry,
+            NoteComparisonEntry::PlanningRelation { record }
+            if record.date == "2026-05-01T00:00:00"
+                && record.left_field == PlanningField::Scheduled
+                && record.right_field == PlanningField::Scheduled
+                && record.explanation == NoteComparisonExplanation::SharedPlanningDate
+        )));
+        assert!(comparison.sections[6].entries.iter().any(|entry| matches!(
+            entry,
+            NoteComparisonEntry::TaskState { record }
+            if record.left_todo_keyword == "TODO"
+                && record.right_todo_keyword == "NEXT"
+                && record.explanation == NoteComparisonExplanation::ContrastingTaskState
+        )));
+        assert!(comparison.sections[7].entries.iter().any(|entry| matches!(
+            entry,
+            NoteComparisonEntry::PlanningRelation { record }
+            if record.date == "2026-05-01T00:00:00"
+                && record.left_field == PlanningField::Scheduled
+                && record.right_field == PlanningField::Deadline
+                && record.explanation == NoteComparisonExplanation::PlanningTension
+        )));
+        assert!(comparison.sections[8].entries.iter().any(|entry| matches!(
             entry,
             NoteComparisonEntry::Node { record }
             if record.node.title == "Left To Right Bridge"
@@ -336,7 +497,7 @@ Links to [[id:left-id]] and [[id:right-id]].
                     direction: ComparisonConnectorDirection::LeftToRight,
                 }
         )));
-        assert!(comparison.sections[5].entries.iter().any(|entry| matches!(
+        assert!(comparison.sections[8].entries.iter().any(|entry| matches!(
             entry,
             NoteComparisonEntry::Node { record }
             if record.node.title == "Right To Left Bridge"

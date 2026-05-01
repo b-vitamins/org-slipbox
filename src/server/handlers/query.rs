@@ -707,10 +707,13 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 NoteComparisonSectionKind::SharedRefs,
+                NoteComparisonSectionKind::SharedPlanningDates,
                 NoteComparisonSectionKind::LeftOnlyRefs,
                 NoteComparisonSectionKind::RightOnlyRefs,
                 NoteComparisonSectionKind::SharedBacklinks,
                 NoteComparisonSectionKind::SharedForwardLinks,
+                NoteComparisonSectionKind::ContrastingTaskStates,
+                NoteComparisonSectionKind::PlanningTensions,
                 NoteComparisonSectionKind::IndirectConnectors,
             ]
         );
@@ -723,29 +726,48 @@ mod tests {
         )));
         assert!(comparison.sections[1].entries.iter().any(|entry| matches!(
             entry,
+            NoteComparisonEntry::PlanningRelation { record }
+            if record.date == "2026-05-01T00:00:00"
+                && record.explanation == NoteComparisonExplanation::SharedPlanningDate
+        )));
+        assert!(comparison.sections[2].entries.iter().any(|entry| matches!(
+            entry,
             NoteComparisonEntry::Reference { record }
             if record.reference == "@left2024"
                 && record.explanation == NoteComparisonExplanation::LeftOnlyReference
         )));
-        assert!(comparison.sections[2].entries.iter().any(|entry| matches!(
+        assert!(comparison.sections[3].entries.iter().any(|entry| matches!(
             entry,
             NoteComparisonEntry::Reference { record }
             if record.reference == "@right2024"
                 && record.explanation == NoteComparisonExplanation::RightOnlyReference
         )));
-        assert!(comparison.sections[3].entries.iter().any(|entry| matches!(
+        assert!(comparison.sections[4].entries.iter().any(|entry| matches!(
             entry,
             NoteComparisonEntry::Node { record }
             if record.node.title == "Shared Backlink"
                 && record.explanation == NoteComparisonExplanation::SharedBacklink
         )));
-        assert!(comparison.sections[4].entries.iter().any(|entry| matches!(
+        assert!(comparison.sections[5].entries.iter().any(|entry| matches!(
             entry,
             NoteComparisonEntry::Node { record }
             if record.node.title == "Shared Forward"
                 && record.explanation == NoteComparisonExplanation::SharedForwardLink
         )));
-        assert!(comparison.sections[5].entries.iter().any(|entry| matches!(
+        assert!(comparison.sections[6].entries.iter().any(|entry| matches!(
+            entry,
+            NoteComparisonEntry::TaskState { record }
+            if record.left_todo_keyword == "TODO"
+                && record.right_todo_keyword == "NEXT"
+                && record.explanation == NoteComparisonExplanation::ContrastingTaskState
+        )));
+        assert!(comparison.sections[7].entries.iter().any(|entry| matches!(
+            entry,
+            NoteComparisonEntry::PlanningRelation { record }
+            if record.date == "2026-05-01T00:00:00"
+                && record.explanation == NoteComparisonExplanation::PlanningTension
+        )));
+        assert!(comparison.sections[8].entries.iter().any(|entry| matches!(
             entry,
             NoteComparisonEntry::Node { record }
             if record.node.title == "Left To Right Bridge"
@@ -753,7 +775,7 @@ mod tests {
                     direction: ComparisonConnectorDirection::LeftToRight,
                 }
         )));
-        assert!(comparison.sections[5].entries.iter().any(|entry| matches!(
+        assert!(comparison.sections[8].entries.iter().any(|entry| matches!(
             entry,
             NoteComparisonEntry::Node { record }
             if record.node.title == "Right To Left Bridge"
@@ -944,18 +966,21 @@ Shares only the target deadline.
             root.join("comparison.org"),
             r#"#+title: Comparison
 
-* Left
+* TODO Left
 :PROPERTIES:
 :ID: left-id
 :ROAM_REFS: cite:shared2024 cite:left2024
 :END:
+SCHEDULED: <2026-05-01 Thu>
 Links to [[id:shared-forward-id]] and [[id:left-right-bridge-id]].
 
-* Right
+* NEXT Right
 :PROPERTIES:
 :ID: right-id
 :ROAM_REFS: cite:shared2024 cite:right2024
 :END:
+SCHEDULED: <2026-05-01 Thu>
+DEADLINE: <2026-05-01 Thu>
 Links to [[id:shared-forward-id]] and [[id:right-left-bridge-id]].
 
 * Shared Forward

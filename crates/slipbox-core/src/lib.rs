@@ -795,10 +795,13 @@ impl CompareNotesParams {
 #[serde(rename_all = "kebab-case")]
 pub enum NoteComparisonSectionKind {
     SharedRefs,
+    SharedPlanningDates,
     LeftOnlyRefs,
     RightOnlyRefs,
     SharedBacklinks,
     SharedForwardLinks,
+    ContrastingTaskStates,
+    PlanningTensions,
     IndirectConnectors,
 }
 
@@ -814,10 +817,13 @@ pub enum ComparisonConnectorDirection {
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum NoteComparisonExplanation {
     SharedReference,
+    SharedPlanningDate,
     LeftOnlyReference,
     RightOnlyReference,
     SharedBacklink,
     SharedForwardLink,
+    ContrastingTaskState,
+    PlanningTension,
     IndirectConnector {
         direction: ComparisonConnectorDirection,
     },
@@ -836,6 +842,21 @@ pub struct ComparisonNodeRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ComparisonPlanningRecord {
+    pub date: String,
+    pub left_field: PlanningField,
+    pub right_field: PlanningField,
+    pub explanation: NoteComparisonExplanation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ComparisonTaskStateRecord {
+    pub left_todo_keyword: String,
+    pub right_todo_keyword: String,
+    pub explanation: NoteComparisonExplanation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum NoteComparisonEntry {
     Reference {
@@ -845,6 +866,14 @@ pub enum NoteComparisonEntry {
     Node {
         #[serde(flatten)]
         record: Box<ComparisonNodeRecord>,
+    },
+    PlanningRelation {
+        #[serde(flatten)]
+        record: Box<ComparisonPlanningRecord>,
+    },
+    TaskState {
+        #[serde(flatten)]
+        record: Box<ComparisonTaskStateRecord>,
     },
 }
 
@@ -1327,10 +1356,11 @@ fn normalize_string_values(values: &[String], nocase: bool) -> Vec<String> {
 mod tests {
     use super::{
         BacklinkRecord, BridgeEvidenceRecord, CaptureNodeParams, CaptureTemplatePreviewResult,
-        CompareNotesParams, ComparisonConnectorDirection, ComparisonReferenceRecord,
-        ExplorationEntry, ExplorationExplanation, ExplorationLens, ExplorationSection,
-        ExplorationSectionKind, ExploreParams, ExploreResult, NodeFromTitleOrAliasParams, NodeKind,
-        NodeRecord, NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonResult,
+        CompareNotesParams, ComparisonConnectorDirection, ComparisonPlanningRecord,
+        ComparisonReferenceRecord, ComparisonTaskStateRecord, ExplorationEntry,
+        ExplorationExplanation, ExplorationLens, ExplorationSection, ExplorationSectionKind,
+        ExploreParams, ExploreResult, NodeFromTitleOrAliasParams, NodeKind, NodeRecord,
+        NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonResult,
         NoteComparisonSection, NoteComparisonSectionKind, PlanningField, PlanningRelationRecord,
         PreviewNodeRecord, SearchNodesParams, SearchNodesSort, UnlinkedReferencesParams,
         UpdateNodeMetadataParams, normalize_reference,
@@ -1852,6 +1882,14 @@ mod tests {
                 "direction": "bidirectional"
             })
         );
+
+        assert_eq!(
+            serde_json::to_value(NoteComparisonExplanation::PlanningTension)
+                .expect("planning-tension explanation should serialize"),
+            json!({
+                "kind": "planning-tension"
+            })
+        );
     }
 
     #[test]
@@ -1897,15 +1935,37 @@ mod tests {
                 backlink_count: 0,
                 forward_link_count: 0,
             },
-            sections: vec![NoteComparisonSection {
-                kind: NoteComparisonSectionKind::SharedRefs,
-                entries: vec![NoteComparisonEntry::Reference {
-                    record: Box::new(ComparisonReferenceRecord {
-                        reference: "@shared2024".to_owned(),
-                        explanation: NoteComparisonExplanation::SharedReference,
-                    }),
-                }],
-            }],
+            sections: vec![
+                NoteComparisonSection {
+                    kind: NoteComparisonSectionKind::SharedRefs,
+                    entries: vec![NoteComparisonEntry::Reference {
+                        record: Box::new(ComparisonReferenceRecord {
+                            reference: "@shared2024".to_owned(),
+                            explanation: NoteComparisonExplanation::SharedReference,
+                        }),
+                    }],
+                },
+                NoteComparisonSection {
+                    kind: NoteComparisonSectionKind::PlanningTensions,
+                    entries: vec![
+                        NoteComparisonEntry::PlanningRelation {
+                            record: Box::new(ComparisonPlanningRecord {
+                                date: "2026-05-01".to_owned(),
+                                left_field: PlanningField::Scheduled,
+                                right_field: PlanningField::Deadline,
+                                explanation: NoteComparisonExplanation::PlanningTension,
+                            }),
+                        },
+                        NoteComparisonEntry::TaskState {
+                            record: Box::new(ComparisonTaskStateRecord {
+                                left_todo_keyword: "TODO".to_owned(),
+                                right_todo_keyword: "NEXT".to_owned(),
+                                explanation: NoteComparisonExplanation::ContrastingTaskState,
+                            }),
+                        },
+                    ],
+                },
+            ],
         };
 
         assert_eq!(
@@ -1951,14 +2011,34 @@ mod tests {
                     "backlink_count": 0,
                     "forward_link_count": 0
                 },
-                "sections": [{
-                    "kind": "shared-refs",
-                    "entries": [{
-                        "kind": "reference",
-                        "reference": "@shared2024",
-                        "explanation": { "kind": "shared-reference" }
-                    }]
-                }]
+                "sections": [
+                    {
+                        "kind": "shared-refs",
+                        "entries": [{
+                            "kind": "reference",
+                            "reference": "@shared2024",
+                            "explanation": { "kind": "shared-reference" }
+                        }]
+                    },
+                    {
+                        "kind": "planning-tensions",
+                        "entries": [
+                            {
+                                "kind": "planning-relation",
+                                "date": "2026-05-01",
+                                "left_field": "scheduled",
+                                "right_field": "deadline",
+                                "explanation": { "kind": "planning-tension" }
+                            },
+                            {
+                                "kind": "task-state",
+                                "left_todo_keyword": "TODO",
+                                "right_todo_keyword": "NEXT",
+                                "explanation": { "kind": "contrasting-task-state" }
+                            }
+                        ]
+                    }
+                ]
             })
         );
     }

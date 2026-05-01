@@ -771,21 +771,27 @@ Dedicated-only state must not survive on the persistent tracking path."
 (defun org-slipbox-buffer--comparison-section-group (kind)
   "Return the comparison group for section KIND."
   (pcase kind
-    ((or "shared-refs" "shared-backlinks" "shared-forward-links") 'overlap)
+    ((or "shared-refs" "shared-planning-dates"
+         "shared-backlinks" "shared-forward-links")
+     'overlap)
     ((or "left-only-refs" "right-only-refs") 'divergence)
-    ("indirect-connectors" 'tension)
+    ((or "contrasting-task-states" "planning-tensions" "indirect-connectors")
+     'tension)
     (_ nil)))
 
 (defun org-slipbox-buffer--comparison-section-heading (section left-note right-note)
   "Return the rendered heading for SECTION between LEFT-NOTE and RIGHT-NOTE."
   (pcase (plist-get section :kind)
     ("shared-refs" "Shared Refs")
+    ("shared-planning-dates" "Shared Planning Dates")
     ("left-only-refs"
      (format "Refs only in %s" (plist-get left-note :title)))
     ("right-only-refs"
      (format "Refs only in %s" (plist-get right-note :title)))
     ("shared-backlinks" "Shared Backlinks")
     ("shared-forward-links" "Shared Forward Links")
+    ("contrasting-task-states" "Contrasting Task States")
+    ("planning-tensions" "Planning Tensions")
     ("indirect-connectors" "Indirect Connectors")
     (_
      (user-error "Unsupported comparison section kind %S"
@@ -795,10 +801,13 @@ Dedicated-only state must not survive on the persistent tracking path."
   "Return the empty-message string for comparison SECTION."
   (pcase (plist-get section :kind)
     ("shared-refs" "No shared refs found.")
+    ("shared-planning-dates" "No shared planning dates found.")
     ("left-only-refs" "No left-only refs found.")
     ("right-only-refs" "No right-only refs found.")
     ("shared-backlinks" "No shared backlinks found.")
     ("shared-forward-links" "No shared forward links found.")
+    ("contrasting-task-states" "No contrasting task states found.")
+    ("planning-tensions" "No planning tensions found.")
     ("indirect-connectors" "No indirect connectors found.")
     (_
      (user-error "Unsupported comparison section kind %S"
@@ -814,6 +823,14 @@ Dedicated-only state must not survive on the persistent tracking path."
      (org-slipbox-buffer--insert-node-button
       (plist-get entry :node)
       "Pivot within comparison")
+     (org-slipbox-buffer--insert-explanation entry))
+    ("planning-relation"
+     (insert (plist-get entry :date))
+     (org-slipbox-buffer--insert-explanation entry))
+    ("task-state"
+     (insert (format "%s <> %s"
+                     (plist-get entry :left_todo_keyword)
+                     (plist-get entry :right_todo_keyword)))
      (org-slipbox-buffer--insert-explanation entry))
     (_
      (user-error "Unsupported comparison entry kind %S" (plist-get entry :kind)))))
@@ -1132,10 +1149,23 @@ node. LIMIT bounds the number of rows requested."
       ("forward-link" "direct forward link")
       ("shared-reference"
        (format "shared ref: %s" (plist-get explanation :reference)))
+      ("shared-planning-date"
+       (format "current note %s, compare target %s"
+               (org-slipbox-buffer--planning-field-label
+                (plist-get entry :left_field))
+               (org-slipbox-buffer--planning-field-label
+                (plist-get entry :right_field))))
       ("left-only-reference" "only in current note")
       ("right-only-reference" "only in compare target")
       ("shared-backlink" "shared backlink")
       ("shared-forward-link" "shared forward link")
+      ("contrasting-task-state" "different task states")
+      ("planning-tension"
+       (format "current note %s, compare target %s"
+               (org-slipbox-buffer--planning-field-label
+                (plist-get entry :left_field))
+               (org-slipbox-buffer--planning-field-label
+                (plist-get entry :right_field))))
       ("indirect-connector"
        (pcase (plist-get explanation :direction)
          ("left-to-right" "current note -> compare target")
