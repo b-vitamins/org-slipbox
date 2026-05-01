@@ -1137,6 +1137,70 @@ impl SavedExplorationArtifact {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum TrailReplayStepResult {
+    LensView {
+        artifact: Box<SavedLensViewArtifact>,
+        result: Box<ExploreResult>,
+    },
+    Comparison {
+        artifact: Box<SavedComparisonArtifact>,
+        result: Box<NoteComparisonResult>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrailReplayResult {
+    pub steps: Vec<TrailReplayStepResult>,
+    pub cursor: usize,
+    #[serde(default)]
+    pub detached_step: Option<Box<TrailReplayStepResult>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum ExecutedExplorationArtifactPayload {
+    LensView {
+        artifact: Box<SavedLensViewArtifact>,
+        result: Box<ExploreResult>,
+    },
+    Comparison {
+        artifact: Box<SavedComparisonArtifact>,
+        result: Box<NoteComparisonResult>,
+    },
+    Trail {
+        artifact: Box<SavedTrailArtifact>,
+        replay: Box<TrailReplayResult>,
+    },
+}
+
+impl ExecutedExplorationArtifactPayload {
+    #[must_use]
+    pub fn kind(&self) -> ExplorationArtifactKind {
+        match self {
+            Self::LensView { .. } => ExplorationArtifactKind::LensView,
+            Self::Comparison { .. } => ExplorationArtifactKind::Comparison,
+            Self::Trail { .. } => ExplorationArtifactKind::Trail,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutedExplorationArtifact {
+    #[serde(flatten)]
+    pub metadata: ExplorationArtifactMetadata,
+    #[serde(flatten)]
+    pub payload: ExecutedExplorationArtifactPayload,
+}
+
+impl ExecutedExplorationArtifact {
+    #[must_use]
+    pub fn kind(&self) -> ExplorationArtifactKind {
+        self.payload.kind()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgendaParams {
     pub start: String,
     pub end: String,
@@ -1621,15 +1685,17 @@ mod tests {
     use super::{
         BacklinkRecord, BridgeEvidenceRecord, CaptureNodeParams, CaptureTemplatePreviewResult,
         CompareNotesParams, ComparisonConnectorDirection, ComparisonPlanningRecord,
-        ComparisonReferenceRecord, ComparisonTaskStateRecord, ExplorationArtifactKind,
-        ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationEntry,
-        ExplorationExplanation, ExplorationLens, ExplorationSection, ExplorationSectionKind,
-        ExploreParams, ExploreResult, NodeFromTitleOrAliasParams, NodeKind, NodeRecord,
-        NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
+        ComparisonReferenceRecord, ComparisonTaskStateRecord, ExecutedExplorationArtifact,
+        ExecutedExplorationArtifactPayload, ExplorationArtifactKind, ExplorationArtifactMetadata,
+        ExplorationArtifactPayload, ExplorationEntry, ExplorationExplanation, ExplorationLens,
+        ExplorationSection, ExplorationSectionKind, ExploreParams, ExploreResult,
+        NodeFromTitleOrAliasParams, NodeKind, NodeRecord, NoteComparisonEntry,
+        NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
         NoteComparisonSection, NoteComparisonSectionKind, PlanningField, PlanningRelationRecord,
         PreviewNodeRecord, SavedComparisonArtifact, SavedExplorationArtifact,
         SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, SearchNodesParams,
-        SearchNodesSort, UnlinkedReferencesParams, UpdateNodeMetadataParams, normalize_reference,
+        SearchNodesSort, TrailReplayResult, TrailReplayStepResult, UnlinkedReferencesParams,
+        UpdateNodeMetadataParams, normalize_reference,
     };
     use serde_json::json;
 
@@ -2523,6 +2589,92 @@ mod tests {
         assert_eq!(serialized["steps"][0]["kind"], json!("lens-view"));
         assert_eq!(serialized["steps"][1]["kind"], json!("comparison"));
         assert_eq!(serialized["detached_step"]["kind"], json!("comparison"));
+    }
+
+    #[test]
+    fn executed_exploration_artifacts_round_trip_with_trail_replay() {
+        let executed = ExecutedExplorationArtifact {
+            metadata: ExplorationArtifactMetadata {
+                artifact_id: "executed-trail".to_owned(),
+                title: "Executed trail".to_owned(),
+                summary: Some("Replay result".to_owned()),
+            },
+            payload: ExecutedExplorationArtifactPayload::Trail {
+                artifact: Box::new(SavedTrailArtifact {
+                    steps: vec![SavedTrailStep::LensView {
+                        artifact: Box::new(SavedLensViewArtifact {
+                            root_node_key: "file:focus.org".to_owned(),
+                            current_node_key: "file:focus.org".to_owned(),
+                            lens: ExplorationLens::Structure,
+                            limit: 5,
+                            unique: false,
+                            frozen_context: false,
+                        }),
+                    }],
+                    cursor: 0,
+                    detached_step: None,
+                }),
+                replay: Box::new(TrailReplayResult {
+                    steps: vec![TrailReplayStepResult::LensView {
+                        artifact: Box::new(SavedLensViewArtifact {
+                            root_node_key: "file:focus.org".to_owned(),
+                            current_node_key: "file:focus.org".to_owned(),
+                            lens: ExplorationLens::Structure,
+                            limit: 5,
+                            unique: false,
+                            frozen_context: false,
+                        }),
+                        result: Box::new(ExploreResult {
+                            lens: ExplorationLens::Structure,
+                            sections: vec![ExplorationSection {
+                                kind: ExplorationSectionKind::Backlinks,
+                                entries: vec![ExplorationEntry::Backlink {
+                                    record: Box::new(BacklinkRecord {
+                                        source_note: NodeRecord {
+                                            node_key: "file:focus.org".to_owned(),
+                                            explicit_id: Some("focus-id".to_owned()),
+                                            file_path: "focus.org".to_owned(),
+                                            title: "Focus".to_owned(),
+                                            outline_path: String::new(),
+                                            aliases: Vec::new(),
+                                            tags: Vec::new(),
+                                            refs: Vec::new(),
+                                            todo_keyword: None,
+                                            scheduled_for: None,
+                                            deadline_for: None,
+                                            closed_at: None,
+                                            level: 0,
+                                            line: 1,
+                                            kind: NodeKind::File,
+                                            file_mtime_ns: 123,
+                                            backlink_count: 1,
+                                            forward_link_count: 0,
+                                        },
+                                        source_anchor: None,
+                                        row: 3,
+                                        col: 9,
+                                        preview: "Links to focus".to_owned(),
+                                        explanation: ExplorationExplanation::Backlink,
+                                    }),
+                                }],
+                            }],
+                        }),
+                    }],
+                    cursor: 0,
+                    detached_step: None,
+                }),
+            },
+        };
+
+        assert_eq!(executed.kind(), ExplorationArtifactKind::Trail);
+        let serialized = serde_json::to_value(&executed)
+            .expect("executed exploration artifact should serialize");
+        assert_eq!(serialized["kind"], json!("trail"));
+        assert_eq!(serialized["replay"]["steps"][0]["kind"], json!("lens-view"));
+
+        let round_trip: ExecutedExplorationArtifact = serde_json::from_value(serialized)
+            .expect("executed exploration artifact should deserialize");
+        assert_eq!(round_trip, executed);
     }
 
     #[test]

@@ -1,13 +1,15 @@
 use slipbox_core::{
     AgendaParams, AgendaResult, BacklinksParams, BacklinksResult, CompareNotesParams,
-    ExplorationEntry, ExplorationLens, ExplorationSection, ExplorationSectionKind, ExploreParams,
-    ExploreResult, ForwardLinksParams, ForwardLinksResult, GraphParams, GraphResult,
-    IndexFileParams, IndexedFilesResult, NodeAtPointParams, NodeFromIdParams, NodeFromRefParams,
-    NodeFromTitleOrAliasParams, PingInfo, RandomNodeResult, ReflinksParams, ReflinksResult,
-    SearchFilesParams, SearchFilesResult, SearchNodesParams, SearchNodesResult,
+    ExecutedExplorationArtifact, ExecutedExplorationArtifactPayload, ExplorationEntry,
+    ExplorationLens, ExplorationSection, ExplorationSectionKind, ExploreParams, ExploreResult,
+    ForwardLinksParams, ForwardLinksResult, GraphParams, GraphResult, IndexFileParams,
+    IndexedFilesResult, NodeAtPointParams, NodeFromIdParams, NodeFromRefParams,
+    NodeFromTitleOrAliasParams, NoteComparisonResult, PingInfo, RandomNodeResult, ReflinksParams,
+    ReflinksResult, SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact,
+    SavedTrailStep, SearchFilesParams, SearchFilesResult, SearchNodesParams, SearchNodesResult,
     SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams, SearchRefsResult,
-    SearchTagsParams, SearchTagsResult, StatusInfo, UnlinkedReferencesParams,
-    UnlinkedReferencesResult,
+    SearchTagsParams, SearchTagsResult, StatusInfo, TrailReplayResult, TrailReplayStepResult,
+    UnlinkedReferencesParams, UnlinkedReferencesResult,
 };
 use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
 
@@ -263,11 +265,10 @@ pub(crate) fn unlinked_references(
     })
 }
 
-pub(crate) fn explore(
+fn execute_explore_query(
     state: &mut ServerState,
-    params: serde_json::Value,
-) -> Result<serde_json::Value, JsonRpcError> {
-    let params: ExploreParams = parse_params(params)?;
+    params: &ExploreParams,
+) -> Result<ExploreResult, JsonRpcError> {
     if let Some(message) = params.validation_error() {
         return Err(JsonRpcError::new(JsonRpcErrorObject::invalid_request(
             message,
@@ -456,10 +457,130 @@ pub(crate) fn explore(
         }
     };
 
-    to_value(ExploreResult {
+    Ok(ExploreResult {
         lens: params.lens,
         sections,
     })
+}
+
+#[allow(dead_code)]
+fn execute_saved_lens_view(
+    state: &mut ServerState,
+    artifact: &SavedLensViewArtifact,
+) -> Result<ExploreResult, JsonRpcError> {
+    execute_explore_query(state, &artifact.explore_params())
+}
+
+fn execute_compare_notes_query(
+    state: &mut ServerState,
+    params: &CompareNotesParams,
+) -> Result<NoteComparisonResult, JsonRpcError> {
+    let left = state.known_note(&params.left_node_key, "left comparison note")?;
+    let right = state.known_note(&params.right_node_key, "right comparison note")?;
+    state
+        .database
+        .compare_notes(&left, &right, params)
+        .map_err(|error| internal_error(error.context("failed to compare notes")))
+}
+
+#[allow(dead_code)]
+fn execute_saved_comparison(
+    state: &mut ServerState,
+    artifact: &SavedComparisonArtifact,
+) -> Result<NoteComparisonResult, JsonRpcError> {
+    execute_compare_notes_query(state, &artifact.compare_notes_params())
+}
+
+#[allow(dead_code)]
+fn replay_saved_trail_step(
+    state: &mut ServerState,
+    step: &SavedTrailStep,
+) -> Result<TrailReplayStepResult, JsonRpcError> {
+    match step {
+        SavedTrailStep::LensView { artifact } => Ok(TrailReplayStepResult::LensView {
+            artifact: artifact.clone(),
+            result: Box::new(execute_saved_lens_view(state, artifact)?),
+        }),
+        SavedTrailStep::Comparison { artifact } => Ok(TrailReplayStepResult::Comparison {
+            artifact: artifact.clone(),
+            result: Box::new(execute_saved_comparison(state, artifact)?),
+        }),
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) fn execute_saved_exploration_artifact(
+    state: &mut ServerState,
+    artifact: &SavedExplorationArtifact,
+) -> Result<ExecutedExplorationArtifact, JsonRpcError> {
+    if let Some(message) = artifact.validation_error() {
+        return Err(JsonRpcError::new(JsonRpcErrorObject::invalid_request(
+            message,
+        )));
+    }
+
+    let payload = match &artifact.payload {
+        slipbox_core::ExplorationArtifactPayload::LensView { artifact } => {
+            ExecutedExplorationArtifactPayload::LensView {
+                artifact: artifact.clone(),
+                result: Box::new(execute_saved_lens_view(state, artifact)?),
+            }
+        }
+        slipbox_core::ExplorationArtifactPayload::Comparison { artifact } => {
+            ExecutedExplorationArtifactPayload::Comparison {
+                artifact: artifact.clone(),
+                result: Box::new(execute_saved_comparison(state, artifact)?),
+            }
+        }
+        slipbox_core::ExplorationArtifactPayload::Trail { artifact } => {
+            let steps = artifact
+                .steps
+                .iter()
+                .map(|step| replay_saved_trail_step(state, step))
+                .collect::<Result<Vec<_>, _>>()?;
+            let detached_step = artifact
+                .detached_step
+                .as_deref()
+                .map(|step| replay_saved_trail_step(state, step).map(Box::new))
+                .transpose()?;
+            ExecutedExplorationArtifactPayload::Trail {
+                artifact: artifact.clone(),
+                replay: Box::new(TrailReplayResult {
+                    steps,
+                    cursor: artifact.cursor,
+                    detached_step,
+                }),
+            }
+        }
+    };
+
+    Ok(ExecutedExplorationArtifact {
+        metadata: artifact.metadata.clone(),
+        payload,
+    })
+}
+
+#[allow(dead_code)]
+pub(crate) fn execute_saved_exploration_artifact_by_id(
+    state: &mut ServerState,
+    artifact_id: &str,
+) -> Result<Option<ExecutedExplorationArtifact>, JsonRpcError> {
+    let artifact = state
+        .database
+        .exploration_artifact(artifact_id)
+        .map_err(|error| internal_error(error.context("failed to load exploration artifact")))?;
+    artifact
+        .as_ref()
+        .map(|saved| execute_saved_exploration_artifact(state, saved))
+        .transpose()
+}
+
+pub(crate) fn explore(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: ExploreParams = parse_params(params)?;
+    to_value(execute_explore_query(state, &params)?)
 }
 
 pub(crate) fn search_refs(
@@ -503,13 +624,7 @@ pub(crate) fn compare_notes(
     params: serde_json::Value,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let params: CompareNotesParams = parse_params(params)?;
-    let left = state.known_note(&params.left_node_key, "left comparison note")?;
-    let right = state.known_note(&params.right_node_key, "right comparison note")?;
-    let comparison = state
-        .database
-        .compare_notes(&left, &right, &params)
-        .map_err(|error| internal_error(error.context("failed to compare notes")))?;
-    to_value(comparison)
+    to_value(execute_compare_notes_query(state, &params)?)
 }
 
 pub(crate) fn index_file(
@@ -541,14 +656,20 @@ mod tests {
 
     use serde_json::json;
     use slipbox_core::{
-        ComparisonConnectorDirection, ExplorationEntry, ExplorationExplanation,
-        ExplorationSectionKind, ExploreResult, NoteComparisonEntry, NoteComparisonExplanation,
-        NoteComparisonResult, NoteComparisonSectionKind,
+        CompareNotesParams, ComparisonConnectorDirection, ExecutedExplorationArtifactPayload,
+        ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationEntry,
+        ExplorationExplanation, ExplorationLens, ExplorationSectionKind, ExploreParams,
+        ExploreResult, NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonResult,
+        NoteComparisonSectionKind, SavedComparisonArtifact, SavedExplorationArtifact,
+        SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, TrailReplayStepResult,
     };
     use slipbox_index::{DiscoveryPolicy, scan_root_with_policy};
     use tempfile::TempDir;
 
-    use super::{compare_notes, explore};
+    use super::{
+        compare_notes, execute_compare_notes_query, execute_explore_query,
+        execute_saved_exploration_artifact, execute_saved_exploration_artifact_by_id, explore,
+    };
     use crate::server::state::ServerState;
 
     #[test]
@@ -890,6 +1011,398 @@ mod tests {
                         structural_link_count: 0,
                     }
         )));
+    }
+
+    #[test]
+    fn saved_lens_artifacts_execute_like_live_queries() {
+        let (_workspace, mut state, target_key) = indexed_state();
+
+        let cases = [
+            (
+                "saved-structure",
+                saved_lens_artifact(
+                    "saved-structure",
+                    "Saved Structure",
+                    &target_key,
+                    ExplorationLens::Structure,
+                ),
+                ExploreParams {
+                    node_key: target_key.clone(),
+                    lens: ExplorationLens::Structure,
+                    limit: 20,
+                    unique: false,
+                },
+            ),
+            (
+                "saved-refs",
+                saved_lens_artifact(
+                    "saved-refs",
+                    "Saved Refs",
+                    &target_key,
+                    ExplorationLens::Refs,
+                ),
+                ExploreParams {
+                    node_key: target_key.clone(),
+                    lens: ExplorationLens::Refs,
+                    limit: 20,
+                    unique: false,
+                },
+            ),
+            (
+                "saved-time",
+                saved_lens_artifact(
+                    "saved-time",
+                    "Saved Time",
+                    &target_key,
+                    ExplorationLens::Time,
+                ),
+                ExploreParams {
+                    node_key: target_key.clone(),
+                    lens: ExplorationLens::Time,
+                    limit: 20,
+                    unique: false,
+                },
+            ),
+            (
+                "saved-tasks",
+                saved_lens_artifact(
+                    "saved-tasks",
+                    "Saved Tasks",
+                    &target_key,
+                    ExplorationLens::Tasks,
+                ),
+                ExploreParams {
+                    node_key: target_key.clone(),
+                    lens: ExplorationLens::Tasks,
+                    limit: 20,
+                    unique: false,
+                },
+            ),
+        ];
+
+        for (artifact_id, artifact, params) in cases {
+            state
+                .database
+                .save_exploration_artifact(&artifact)
+                .expect("artifact should save");
+            let live =
+                execute_explore_query(&mut state, &params).expect("live explore should succeed");
+            let executed = execute_saved_exploration_artifact_by_id(&mut state, artifact_id)
+                .expect("saved artifact execution should succeed")
+                .expect("saved artifact should exist");
+
+            assert_eq!(executed.metadata, artifact.metadata);
+            match executed.payload {
+                ExecutedExplorationArtifactPayload::LensView {
+                    artifact: executed_artifact,
+                    result,
+                } => {
+                    match artifact.payload {
+                        ExplorationArtifactPayload::LensView { artifact } => {
+                            assert_eq!(executed_artifact, artifact);
+                        }
+                        _ => panic!("expected saved lens-view artifact"),
+                    }
+                    assert_eq!(*result, live);
+                }
+                payload => panic!("expected lens-view execution, got {:?}", payload.kind()),
+            }
+        }
+    }
+
+    #[test]
+    fn saved_non_obvious_lens_artifacts_execute_like_live_queries() {
+        let (_workspace, mut state, focus_key) = non_obvious_state();
+
+        let cases = [
+            ("saved-bridges", ExplorationLens::Bridges),
+            ("saved-dormant", ExplorationLens::Dormant),
+            ("saved-unresolved", ExplorationLens::Unresolved),
+        ];
+
+        for (artifact_id, lens) in cases {
+            let artifact = saved_lens_artifact(artifact_id, artifact_id, &focus_key, lens);
+            state
+                .database
+                .save_exploration_artifact(&artifact)
+                .expect("artifact should save");
+            let live = execute_explore_query(
+                &mut state,
+                &ExploreParams {
+                    node_key: focus_key.clone(),
+                    lens,
+                    limit: 20,
+                    unique: false,
+                },
+            )
+            .expect("live non-obvious explore should succeed");
+            let executed = execute_saved_exploration_artifact_by_id(&mut state, artifact_id)
+                .expect("saved artifact execution should succeed")
+                .expect("saved artifact should exist");
+
+            match executed.payload {
+                ExecutedExplorationArtifactPayload::LensView { result, .. } => {
+                    assert_eq!(*result, live);
+                }
+                payload => panic!("expected lens-view execution, got {:?}", payload.kind()),
+            }
+        }
+    }
+
+    #[test]
+    fn saved_comparison_artifact_executes_like_live_queries() {
+        let (_workspace, mut state, left_key, right_key) = comparison_state();
+        let artifact = saved_comparison_artifact(
+            "saved-comparison",
+            "Saved Comparison",
+            &left_key,
+            &right_key,
+        );
+        state
+            .database
+            .save_exploration_artifact(&artifact)
+            .expect("artifact should save");
+
+        let live = execute_compare_notes_query(
+            &mut state,
+            &CompareNotesParams {
+                left_node_key: left_key.clone(),
+                right_node_key: right_key.clone(),
+                limit: 20,
+            },
+        )
+        .expect("live comparison should succeed");
+        let executed = execute_saved_exploration_artifact_by_id(&mut state, "saved-comparison")
+            .expect("saved comparison should execute")
+            .expect("saved comparison should exist");
+
+        assert_eq!(executed.metadata, artifact.metadata);
+        match executed.payload {
+            ExecutedExplorationArtifactPayload::Comparison {
+                artifact: executed_artifact,
+                result,
+            } => {
+                match artifact.payload {
+                    ExplorationArtifactPayload::Comparison { artifact } => {
+                        assert_eq!(executed_artifact, artifact);
+                    }
+                    _ => panic!("expected saved comparison artifact"),
+                }
+                assert_eq!(*result, live);
+            }
+            payload => panic!("expected comparison execution, got {:?}", payload.kind()),
+        }
+    }
+
+    #[test]
+    fn saved_trail_artifacts_replay_live_step_results() {
+        let (_workspace, mut state, left_key, right_key) = comparison_state();
+        let lens_step = SavedLensViewArtifact {
+            root_node_key: left_key.clone(),
+            current_node_key: left_key.clone(),
+            lens: ExplorationLens::Structure,
+            limit: 20,
+            unique: false,
+            frozen_context: false,
+        };
+        let comparison_step = SavedComparisonArtifact {
+            root_node_key: left_key.clone(),
+            left_node_key: left_key.clone(),
+            right_node_key: right_key.clone(),
+            comparison_group: Default::default(),
+            limit: 20,
+            frozen_context: false,
+        };
+        let detached_step = SavedLensViewArtifact {
+            root_node_key: right_key.clone(),
+            current_node_key: right_key.clone(),
+            lens: ExplorationLens::Structure,
+            limit: 20,
+            unique: false,
+            frozen_context: false,
+        };
+        let artifact = SavedExplorationArtifact {
+            metadata: ExplorationArtifactMetadata {
+                artifact_id: "saved-trail".to_owned(),
+                title: "Saved Trail".to_owned(),
+                summary: Some("Mixed trail replay".to_owned()),
+            },
+            payload: ExplorationArtifactPayload::Trail {
+                artifact: Box::new(SavedTrailArtifact {
+                    steps: vec![
+                        SavedTrailStep::LensView {
+                            artifact: Box::new(lens_step.clone()),
+                        },
+                        SavedTrailStep::Comparison {
+                            artifact: Box::new(comparison_step.clone()),
+                        },
+                    ],
+                    cursor: 1,
+                    detached_step: Some(Box::new(SavedTrailStep::LensView {
+                        artifact: Box::new(detached_step.clone()),
+                    })),
+                }),
+            },
+        };
+        state
+            .database
+            .save_exploration_artifact(&artifact)
+            .expect("trail artifact should save");
+
+        let expected_lens = execute_explore_query(&mut state, &lens_step.explore_params())
+            .expect("live lens replay should succeed");
+        let expected_comparison =
+            execute_compare_notes_query(&mut state, &comparison_step.compare_notes_params())
+                .expect("live comparison replay should succeed");
+        let expected_detached = execute_explore_query(&mut state, &detached_step.explore_params())
+            .expect("live detached replay should succeed");
+
+        let executed = execute_saved_exploration_artifact_by_id(&mut state, "saved-trail")
+            .expect("saved trail should execute")
+            .expect("saved trail should exist");
+
+        assert_eq!(executed.metadata, artifact.metadata);
+        match executed.payload {
+            ExecutedExplorationArtifactPayload::Trail {
+                artifact: executed_artifact,
+                replay,
+            } => {
+                match artifact.payload {
+                    ExplorationArtifactPayload::Trail { artifact } => {
+                        assert_eq!(executed_artifact, artifact);
+                    }
+                    _ => panic!("expected saved trail artifact"),
+                }
+                assert_eq!(replay.cursor, 1);
+                assert_eq!(replay.steps.len(), 2);
+                match &replay.steps[0] {
+                    TrailReplayStepResult::LensView { artifact, result } => {
+                        assert_eq!(artifact.as_ref(), &lens_step);
+                        assert_eq!(result.as_ref(), &expected_lens);
+                    }
+                    other => panic!(
+                        "expected first replay step to be lens-view, got {:?}",
+                        other
+                    ),
+                }
+                match &replay.steps[1] {
+                    TrailReplayStepResult::Comparison { artifact, result } => {
+                        assert_eq!(artifact.as_ref(), &comparison_step);
+                        assert_eq!(result.as_ref(), &expected_comparison);
+                    }
+                    other => {
+                        panic!(
+                            "expected second replay step to be comparison, got {:?}",
+                            other
+                        )
+                    }
+                }
+                match replay.detached_step.as_deref() {
+                    Some(TrailReplayStepResult::LensView { artifact, result }) => {
+                        assert_eq!(artifact.as_ref(), &detached_step);
+                        assert_eq!(result.as_ref(), &expected_detached);
+                    }
+                    other => panic!("expected detached replay step, got {:?}", other),
+                }
+            }
+            payload => panic!("expected trail execution, got {:?}", payload.kind()),
+        }
+    }
+
+    #[test]
+    fn saved_artifact_execution_returns_none_when_id_is_missing() {
+        let (_workspace, mut state, target_key) = indexed_state();
+        let _ = target_key;
+        assert_eq!(
+            execute_saved_exploration_artifact_by_id(&mut state, "missing-artifact")
+                .expect("lookup should succeed"),
+            None
+        );
+    }
+
+    #[test]
+    fn direct_saved_artifact_execution_rejects_invalid_artifacts() {
+        let (_workspace, mut state, target_key) = indexed_state();
+        let invalid = SavedExplorationArtifact {
+            metadata: ExplorationArtifactMetadata {
+                artifact_id: "invalid-trail".to_owned(),
+                title: "Invalid Trail".to_owned(),
+                summary: None,
+            },
+            payload: ExplorationArtifactPayload::Trail {
+                artifact: Box::new(SavedTrailArtifact {
+                    steps: vec![SavedTrailStep::LensView {
+                        artifact: Box::new(SavedLensViewArtifact {
+                            root_node_key: target_key.clone(),
+                            current_node_key: target_key,
+                            lens: ExplorationLens::Structure,
+                            limit: 20,
+                            unique: false,
+                            frozen_context: false,
+                        }),
+                    }],
+                    cursor: 1,
+                    detached_step: None,
+                }),
+            },
+        };
+
+        let error = execute_saved_exploration_artifact(&mut state, &invalid)
+            .expect_err("direct execution should reject malformed artifacts");
+        assert_eq!(
+            error.into_inner().message,
+            "trail cursor must point to an existing step"
+        );
+    }
+
+    fn saved_lens_artifact(
+        artifact_id: &str,
+        title: &str,
+        node_key: &str,
+        lens: ExplorationLens,
+    ) -> SavedExplorationArtifact {
+        SavedExplorationArtifact {
+            metadata: ExplorationArtifactMetadata {
+                artifact_id: artifact_id.to_owned(),
+                title: title.to_owned(),
+                summary: None,
+            },
+            payload: ExplorationArtifactPayload::LensView {
+                artifact: Box::new(SavedLensViewArtifact {
+                    root_node_key: node_key.to_owned(),
+                    current_node_key: node_key.to_owned(),
+                    lens,
+                    limit: 20,
+                    unique: false,
+                    frozen_context: false,
+                }),
+            },
+        }
+    }
+
+    fn saved_comparison_artifact(
+        artifact_id: &str,
+        title: &str,
+        left_node_key: &str,
+        right_node_key: &str,
+    ) -> SavedExplorationArtifact {
+        SavedExplorationArtifact {
+            metadata: ExplorationArtifactMetadata {
+                artifact_id: artifact_id.to_owned(),
+                title: title.to_owned(),
+                summary: None,
+            },
+            payload: ExplorationArtifactPayload::Comparison {
+                artifact: Box::new(SavedComparisonArtifact {
+                    root_node_key: left_node_key.to_owned(),
+                    left_node_key: left_node_key.to_owned(),
+                    right_node_key: right_node_key.to_owned(),
+                    comparison_group: Default::default(),
+                    limit: 20,
+                    frozen_context: false,
+                }),
+            },
+        }
     }
 
     fn indexed_state() -> (TempDir, ServerState, String) {
