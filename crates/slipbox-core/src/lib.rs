@@ -919,7 +919,7 @@ pub struct ExplorationArtifactMetadata {
 impl ExplorationArtifactMetadata {
     #[must_use]
     pub fn validation_error(&self) -> Option<String> {
-        validate_required_text_field(&self.artifact_id, "artifact_id")
+        validate_artifact_id_field(&self.artifact_id)
             .or_else(|| validate_required_text_field(&self.title, "title"))
             .or_else(|| validate_optional_text_field(self.summary.as_deref(), "summary"))
     }
@@ -1603,6 +1603,13 @@ fn validate_required_text_field(value: &str, field: &str) -> Option<String> {
         .trim()
         .is_empty()
         .then(|| format!("{field} must not be empty"))
+}
+
+fn validate_artifact_id_field(value: &str) -> Option<String> {
+    validate_required_text_field(value, "artifact_id").or_else(|| {
+        (value.trim() != value)
+            .then(|| "artifact_id must not have leading or trailing whitespace".to_owned())
+    })
 }
 
 fn validate_optional_text_field(value: Option<&str>, field: &str) -> Option<String> {
@@ -2541,6 +2548,28 @@ mod tests {
         assert_eq!(
             blank_metadata.validation_error().as_deref(),
             Some("artifact_id must not be empty")
+        );
+
+        let padded_metadata = SavedExplorationArtifact {
+            metadata: ExplorationArtifactMetadata {
+                artifact_id: " focus ".to_owned(),
+                title: "Title".to_owned(),
+                summary: None,
+            },
+            payload: ExplorationArtifactPayload::LensView {
+                artifact: Box::new(SavedLensViewArtifact {
+                    root_node_key: "file:focus.org".to_owned(),
+                    current_node_key: "heading:focus.org:3".to_owned(),
+                    lens: ExplorationLens::Structure,
+                    limit: 10,
+                    unique: false,
+                    frozen_context: false,
+                }),
+            },
+        };
+        assert_eq!(
+            padded_metadata.validation_error().as_deref(),
+            Some("artifact_id must not have leading or trailing whitespace")
         );
 
         let empty_trail = SavedTrailArtifact {

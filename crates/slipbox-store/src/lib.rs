@@ -1,5 +1,6 @@
 mod admin;
 mod agenda;
+mod artifacts;
 mod backlinks;
 mod comparison;
 mod exploration;
@@ -21,6 +22,7 @@ use rusqlite::Connection;
 
 pub struct Database {
     connection: Connection,
+    artifact_store: artifacts::ExplorationArtifactStore,
 }
 
 impl Database {
@@ -33,7 +35,12 @@ impl Database {
 
         let connection = Connection::open(path)
             .with_context(|| format!("failed to open database {}", path.display()))?;
-        let database = Self { connection };
+        let artifact_store = artifacts::ExplorationArtifactStore::for_database_path(path);
+        artifact_store.migrate()?;
+        let database = Self {
+            connection,
+            artifact_store,
+        };
         database.migrate()?;
         Ok(database)
     }
