@@ -396,6 +396,7 @@ Return non-nil to render the section, or nil to skip it."
           (cons (org-slipbox-buffer--history-snapshot session)
                 (org-slipbox-buffer-session-future session)))
     (org-slipbox-buffer--apply-history-snapshot session (car history))
+    (org-slipbox-buffer--reconcile-trail-position session)
     (org-slipbox-buffer-render-contents)))
 
 (defun org-slipbox-buffer-history-forward ()
@@ -410,6 +411,7 @@ Return non-nil to render the section, or nil to skip it."
           (cons (org-slipbox-buffer--history-snapshot session)
                 (org-slipbox-buffer-session-history session)))
     (org-slipbox-buffer--apply-history-snapshot session (car future))
+    (org-slipbox-buffer--reconcile-trail-position session)
     (org-slipbox-buffer-render-contents)))
 
 (defun org-slipbox-buffer-toggle-frozen-context ()
@@ -628,6 +630,13 @@ Dedicated-only state must not survive on the persistent tracking path."
   "Return non-nil when SESSION or the current buffer has an explicit trail."
   (not (null (org-slipbox-buffer--trail session))))
 
+(defun org-slipbox-buffer--trail-detached-p (&optional session)
+  "Return non-nil when SESSION has an active trail but current state is detached."
+  (let ((session (or session org-slipbox-buffer-session)))
+    (and session
+         (org-slipbox-buffer--trail-active-p session)
+         (not (org-slipbox-buffer--trail-attached-p session)))))
+
 (defun org-slipbox-buffer--trail-attached-p (&optional session)
   "Return non-nil when SESSION or the current buffer is on its trail cursor."
   (let* ((session (or session org-slipbox-buffer-session))
@@ -637,6 +646,12 @@ Dedicated-only state must not survive on the persistent tracking path."
          trail-index
          (equal (nth trail-index trail)
                 (org-slipbox-buffer--history-snapshot session)))))
+
+(defun org-slipbox-buffer--trail-snapshot-index (snapshot &optional session)
+  "Return the trail index of SNAPSHOT for SESSION, or nil when absent."
+  (cl-position snapshot
+               (org-slipbox-buffer--trail session)
+               :test #'equal))
 
 (defun org-slipbox-buffer--history-snapshot (&optional session)
   "Return a navigation snapshot for SESSION or the current buffer."
@@ -665,6 +680,13 @@ Dedicated-only state must not survive on the persistent tracking path."
         (org-slipbox-buffer-session-lens-cache session) nil
         (org-slipbox-buffer-session-comparison-cache session) nil))
 
+(defun org-slipbox-buffer--reconcile-trail-position (session)
+  "Align SESSION's trail cursor when its current state already exists on the trail."
+  (when-let ((index (org-slipbox-buffer--trail-snapshot-index
+                     (org-slipbox-buffer--history-snapshot session)
+                     session)))
+    (setf (org-slipbox-buffer-session-trail-index session) index)))
+
 (defun org-slipbox-buffer--transition-dedicated (snapshot)
   "Apply dedicated-buffer SNAPSHOT as a navigable transition."
   (let* ((session (org-slipbox-buffer--require-dedicated-session))
@@ -674,6 +696,7 @@ Dedicated-only state must not survive on the persistent tracking path."
             (cons current (org-slipbox-buffer-session-history session))
             (org-slipbox-buffer-session-future session) nil)
       (org-slipbox-buffer--apply-history-snapshot session snapshot)
+      (org-slipbox-buffer--reconcile-trail-position session)
       (org-slipbox-buffer-render-contents))))
 
 (defun org-slipbox-buffer--replay-trail-at (index)
@@ -748,10 +771,32 @@ Dedicated-only state must not survive on the persistent tracking path."
 (defun org-slipbox-buffer--render-trail-section ()
   "Render the explicit exploratory trail for the current dedicated buffer."
   (org-slipbox-buffer--insert-heading "Trail")
+  (dolist (line (org-slipbox-buffer--trail-status-lines))
+    (insert (propertize line 'face 'italic) "\n"))
+  (insert "\n")
   (dolist (entry (org-slipbox-buffer--trail-entries))
     (org-slipbox-buffer--insert-trail-entry entry)
     (insert "\n"))
   (insert "\n"))
+
+(defun org-slipbox-buffer--trail-status-lines (&optional session)
+  "Return user-facing trail status lines for SESSION or the current buffer."
+  (let* ((session (or session org-slipbox-buffer-session))
+         (trail (org-slipbox-buffer--trail session))
+         (count (length trail))
+         (position (org-slipbox-buffer--trail-position session)))
+    (cond
+     ((org-slipbox-buffer--trail-attached-p session)
+      (list (format "status: attached at step %s of %s"
+                    (1+ position)
+                    count)))
+     ((org-slipbox-buffer--trail-detached-p session)
+      (list (format "status: detached from step %s of %s"
+                    (1+ position)
+                    count)
+            "branch: current cockpit state is not yet recorded"))
+     (t
+      (list "status: no active trail")))))
 
 (defun org-slipbox-buffer--trail-entries ()
   "Return decorated entries for the explicit trail."
@@ -760,37 +805,60 @@ Dedicated-only state must not survive on the persistent tracking path."
         (trail-attached (org-slipbox-buffer--trail-attached-p))
         (index 0)
         entries)
-    (dolist (snapshot trail (nreverse entries))
+    (dolist (snapshot trail)
       (push (list :index index
                   :snapshot snapshot
-                  :current (eq index trail-index)
-                  :attached trail-attached)
+                  :current (and trail-attached (eq index trail-index))
+                  :branch-base (and (not trail-attached)
+                                    (eq index trail-index)))
             entries)
-      (setq index (1+ index)))))
+      (setq index (1+ index)))
+    (when (and trail
+               (not trail-attached))
+      (push (list :candidate t
+                  :from-index trail-index
+                  :snapshot (org-slipbox-buffer--history-snapshot))
+            entries))
+    (nreverse entries)))
 
 (defun org-slipbox-buffer--insert-trail-entry (entry)
   "Insert one explicit trail ENTRY."
-  (let* ((index (plist-get entry :index))
-         (snapshot (plist-get entry :snapshot))
-         (label (org-slipbox-buffer--trail-label snapshot))
-         (prefix (cond
-                  ((plist-get entry :current)
-                   (if (plist-get entry :attached) "=> " "~> "))
-                  (t "   "))))
-    (insert prefix)
-    (insert-text-button
-     (format "%s. %s" (1+ index) label)
-     'follow-link t
-     'help-echo "Replay this trail step"
-     'action (lambda (_button)
-               (org-slipbox-buffer--replay-trail-at index)))))
+  (if (plist-get entry :candidate)
+      (let* ((snapshot (plist-get entry :snapshot))
+             (label (org-slipbox-buffer--trail-label snapshot))
+             (from-index (plist-get entry :from-index)))
+        (insert "~> ")
+        (insert (format "current. %s" label))
+        (when from-index
+          (insert " "
+                  (propertize
+                   (format "[branch from step %s]" (1+ from-index))
+                   'face 'shadow))))
+    (let* ((index (plist-get entry :index))
+           (snapshot (plist-get entry :snapshot))
+           (label (org-slipbox-buffer--trail-label snapshot))
+           (prefix (cond
+                    ((plist-get entry :current) "=> ")
+                    ((plist-get entry :branch-base) "|> ")
+                    (t "   "))))
+      (insert prefix)
+      (insert-text-button
+       (format "%s. %s" (1+ index) label)
+       'follow-link t
+       'help-echo "Replay this trail step"
+       'action (lambda (_button)
+                 (org-slipbox-buffer--replay-trail-at index)))
+      (when (plist-get entry :branch-base)
+        (insert " " (propertize "[branch base]" 'face 'shadow))))))
 
 (defun org-slipbox-buffer--trail-label (snapshot)
   "Return a short label for trail SNAPSHOT."
   (let* ((node (plist-get snapshot :current-node))
+         (root-node (plist-get snapshot :root-node))
          (compare-target (plist-get snapshot :compare-target))
          (lens (plist-get snapshot :active-lens))
          (group (plist-get snapshot :comparison-group))
+         (frozen (plist-get snapshot :frozen-context))
          (parts (list (plist-get node :title))))
     (if compare-target
         (setq parts
@@ -803,6 +871,14 @@ Dedicated-only state must not survive on the persistent tracking path."
         (setq parts
               (append parts
                       (list (format "lens: %s" (symbol-name lens)))))))
+    (when (and frozen
+               root-node
+               (not (equal (plist-get root-node :node_key)
+                           (plist-get node :node_key))))
+      (setq parts
+            (append parts
+                    (list (format "root: %s"
+                                  (plist-get root-node :title))))))
     (string-join parts "  |  ")))
 
 (defun org-slipbox-buffer--render-comparison-sections (comparison)

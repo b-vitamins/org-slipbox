@@ -3188,6 +3188,8 @@ ROOT-NODE defaults to NODE."
               (org-slipbox-buffer--pivot-to-node node-b)
               (org-slipbox-buffer-trail-add)
               (should (string-match-p "Trail" (buffer-string)))
+              (should (string-match-p "status: attached at step 2 of 2"
+                                      (buffer-string)))
               (should (string-match-p "trail: 2/2" header-line-format))
               (should (= (length (org-slipbox-buffer--trail)) 2))
               (org-slipbox-buffer-trail-back)
@@ -3195,6 +3197,13 @@ ROOT-NODE defaults to NODE."
                               org-slipbox-buffer-session)
                              node-a))
               (org-slipbox-buffer--pivot-to-node node-c)
+              (should (string-match-p "status: detached from step 1 of 2"
+                                      (buffer-string)))
+              (should (string-match-p "branch: current cockpit state is not yet recorded"
+                                      (buffer-string)))
+              (should (string-match-p "\\[branch base\\]" (buffer-string)))
+              (should (string-match-p "~> current\\. C  |  lens: structure  |  root: A"
+                                      (buffer-string)))
               (should (string-match-p "trail: 1/2\\*" header-line-format))
               (org-slipbox-buffer-trail-add)
               (should (= (length (org-slipbox-buffer--trail)) 2))
@@ -3211,6 +3220,65 @@ ROOT-NODE defaults to NODE."
               (org-slipbox-buffer-trail-clear)
               (should-not (org-slipbox-buffer--trail-active-p))
               (should-not (string-match-p "trail:" header-line-format))))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-history-reconciles-trail-position ()
+  "Dedicated history movement should reattach to matching trail steps."
+  (let ((node-a '(:node_key "file:a.org" :title "A" :file_path "a.org" :line 1))
+        (node-b '(:node_key "file:b.org" :title "B" :file_path "b.org" :line 1)))
+    (with-current-buffer (get-buffer-create "*org-slipbox trail history test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session 'dedicated node-a))
+            (cl-letf (((symbol-function 'org-slipbox-rpc-explore)
+                       (lambda (_node-key lens &optional _limit _unique)
+                         `(:lens ,(symbol-name lens) :sections []))))
+              (org-slipbox-buffer-trail-add)
+              (org-slipbox-buffer--pivot-to-node node-b)
+              (org-slipbox-buffer-trail-add)
+              (org-slipbox-buffer-history-back))
+            (should (equal (org-slipbox-buffer-session-current-node
+                            org-slipbox-buffer-session)
+                           node-a))
+            (should (= (org-slipbox-buffer--trail-position) 0))
+            (should (org-slipbox-buffer--trail-attached-p))
+            (should-not (string-match-p "\\*" header-line-format))
+            (should (string-match-p "status: attached at step 1 of 2"
+                                    (buffer-string))))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-trail-labels-preserve-compare-and-frozen-context ()
+  "Trail labels should keep comparison and frozen-root context legible."
+  (let ((node-a '(:node_key "file:a.org" :title "A" :file_path "a.org" :line 1))
+        (node-b '(:node_key "file:b.org" :title "B" :file_path "b.org" :line 1))
+        (node-c '(:node_key "file:c.org" :title "C" :file_path "c.org" :line 1)))
+    (with-current-buffer (get-buffer-create "*org-slipbox trail label test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session 'dedicated node-a))
+            (cl-letf (((symbol-function 'org-slipbox-rpc-compare-notes)
+                       (lambda (_left-key _right-key &optional _limit)
+                         (org-slipbox-test--comparison-result node-a node-b)))
+                      ((symbol-function 'org-slipbox-rpc-explore)
+                       (lambda (_node-key lens &optional _limit _unique)
+                         `(:lens ,(symbol-name lens) :sections []))))
+              (org-slipbox-buffer-set-compare-target node-b)
+              (org-slipbox-buffer-switch-comparison-group 'tension)
+              (org-slipbox-buffer-trail-add)
+              (org-slipbox-buffer-clear-compare-target)
+              (org-slipbox-buffer--pivot-to-node node-c)
+              (org-slipbox-buffer-trail-add)
+              (org-slipbox-buffer-trail-back))
+            (should (equal (org-slipbox-buffer--compare-target) node-b))
+            (should (eq (org-slipbox-buffer--current-comparison-group) 'tension))
+            (should (string-match-p "compare: B" header-line-format))
+            (should (string-match-p "group: tension" header-line-format))
+            (should (string-match-p "A  |  compare: B  |  group: tension"
+                                    (buffer-string)))
+            (should (string-match-p "C  |  lens: structure  |  root: A"
+                                    (buffer-string))))
         (kill-buffer (current-buffer))))))
 
 (ert-deftest org-slipbox-test-graph-write-dot-uses-rpc-and-writes-file ()
