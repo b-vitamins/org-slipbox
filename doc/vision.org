@@ -45,16 +45,19 @@ system.
 The persistent buffer should remain cheap and minimal. It exists to keep
 context close at hand without making ordinary editing expensive.
 
-The dedicated buffer is already the richer cockpit, and it should continue
-maturing into the main exploratory workbench. It should support:
+The dedicated buffer is already the richer cockpit, and `0.5.x` should treat
+its basic exploration model as settled: declared lenses, engine-backed
+explanations, factual comparison, and explicit trails. It should support:
 
 - indexed neighborhoods beyond direct backlinks
-- explicit pivots between lenses such as refs, tags, time, tasks, and
-  structural proximity
-- explicit trails and comparisons now, with saved views and later durable
-  workbench artifacts added only once the model proves out
+- explicit pivots between lenses such as refs, time, tasks, bridges, dormant
+  material, unresolved material, and structural proximity
+- explicit trails, comparisons, backtracking, and detached branching now, with
+  saved views and later durable workbench artifacts added only once the model
+  proves out
 - clear explanations for why a node or section is being shown
-- controlled discovery of non-obvious but relevant material
+- controlled discovery of non-obvious but relevant material through indexed
+  evidence over refs, tasks, time, and local graph structure
 
 * One Exploratory Model, Two Surfaces
 
@@ -64,6 +67,9 @@ headless or programmable use.
 The dedicated buffer is the interactive realization of the exploratory model.
 The native programmable workbench is the task-shaped, non-UI realization of
 that same model.
+
+The cockpit should feel settled before saved views or broader headless
+workbench extraction harden any later public surface.
 
 This implies:
 

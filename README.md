@@ -244,9 +244,13 @@ The dedicated buffer currently supports:
 
 - declared lenses for `structure`, `refs`, `time`, `tasks`, `bridges`, `dormant`, and `unresolved`
 - explicit pivot history with `[` and `]`, plus frozen-root toggling with `f`
-- note comparison with `c` to set a compare target, `C` to clear it, and `g` to switch comparison groups
-- explicit trails with `a`, `{`, `}`, and `T`
-- inline explanation payloads for non-obvious results such as shared refs, bridge candidates, dormant notes, task-state matches, and weak integration
+- note comparison with `c` to set a compare target, `C` to clear it, and `g` to switch comparison groups across overlap, divergence, and tension
+- explicit trails with `a`, `{`, `}`, and `T`, including replay and detached branching
+- explanation blocks for non-obvious results such as shared refs, bridge candidates, dormant notes, planning-date relations, task-state matches, and weak integration
+
+This is the settled cockpit line for `0.5.x`: the dedicated buffer is the
+interactive exploratory house, while saved views, broader headless workflows,
+and programmable workbench extraction remain later work.
 
 When the current node record includes indexed metadata, the node summary also
 renders file modification time plus backlink and forward-link counts without

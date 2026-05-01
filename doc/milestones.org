@@ -53,7 +53,8 @@ Outcomes:
 - bridge detection between distant regions
 - dormant or weakly connected material surfacing around the current context
 - explicit comparison and trail management
-- better support for ambiguity, tension, and unresolved work
+- better support for ambiguity, tension, and unresolved work across refs,
+  planning dates, and task states
 - the exploratory model becomes durable enough to extract beyond the cockpit
 
 Exit criteria:
@@ -64,6 +65,8 @@ Exit criteria:
   while durable saved views remain later workbench work
 - cockpit behavior rests on explicit shared semantics rather than buffer-local
   improvisation
+- the cockpit is documented and tested as a coherent exploratory surface, not
+  a bag of sections
 
 * Milestone 4: Programmable Research Workbench
 

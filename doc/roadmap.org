@@ -42,13 +42,36 @@ Watchpoints:
 - do not replace structural discovery with vague ranking theatrics
 - do not let transport, CLI, or extension concerns freeze the model too early
 
+* 0.5.x
+
+Theme: settle the cockpit model.
+
+Focus:
+
+- coherent lens-local rendering and explanation presentation
+- richer task, ref, and time reasoning inside dedicated exploration
+- factual comparison of overlap, divergence, ambiguity, and tension
+- clearer trail replay, detached branching, and cockpit legibility
+- benchmark and regression coverage for real dedicated exploration paths
+- keep saved views, broader headless workflows, and public workbench
+  extraction explicitly deferred
+
+Watchpoints:
+
+- do not mistake cockpit settlement for programmable-workbench readiness
+- do not let docs imply saved-view or headless maturity that does not yet
+  exist
+- do not let “polish” work dissolve the hard persistent-versus-dedicated
+  cost split
+
 * 0.8.x
 
 Theme: research workbench and platform maturity.
 
 Focus:
 
-- saved views and programmable exploration
+- saved views and programmable exploration extracted from the settled cockpit
+  model
 - stronger CLI and headless workflows
 - extension points for advanced users
 - larger benchmark corpora and stricter scale guarantees
