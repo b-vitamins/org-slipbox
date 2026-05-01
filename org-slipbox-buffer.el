@@ -51,20 +51,12 @@
           (const :tag "Always" always))
   :group 'org-slipbox)
 
-(defcustom org-slipbox-buffer-sections
+(defcustom org-slipbox-buffer-persistent-sections
   (list #'org-slipbox-buffer-node-section
         #'org-slipbox-buffer-refs-section
         #'org-slipbox-buffer-backlinks-section
-        #'org-slipbox-buffer-forward-links-section
-        #'org-slipbox-buffer-reflinks-section
-        #'org-slipbox-buffer-unlinked-references-section
-        #'org-slipbox-buffer-time-neighbors-section
-        #'org-slipbox-buffer-task-neighbors-section
-        #'org-slipbox-buffer-bridge-candidates-section
-        #'org-slipbox-buffer-dormant-notes-section
-        #'org-slipbox-buffer-unresolved-tasks-section
-        #'org-slipbox-buffer-weakly-integrated-notes-section)
-  "Section specifications rendered by `org-slipbox-buffer-render-contents'.
+        #'org-slipbox-buffer-forward-links-section)
+  "Cheap section plan rendered by persistent org-slipbox buffers.
 
 Each item is either a function called with the current node, or a
 list whose car is a function and whose remaining items are passed as
@@ -76,6 +68,58 @@ additional arguments. For example:
                          (list :tag "Function with arguments"
                                (symbol :tag "Function")
                                (repeat :tag "Arguments" :inline t (sexp :tag "Arg")))))
+  :group 'org-slipbox)
+
+(defconst org-slipbox-buffer-lenses
+  '(structure refs time tasks bridges dormant unresolved)
+  "Declared exploration lenses supported by the dedicated buffer.")
+
+(defcustom org-slipbox-buffer-lens-plans
+  '((structure
+     org-slipbox-buffer-node-section
+     org-slipbox-buffer-refs-section
+     org-slipbox-buffer-backlinks-section
+     org-slipbox-buffer-forward-links-section)
+    (refs
+     org-slipbox-buffer-node-section
+     org-slipbox-buffer-refs-section
+     org-slipbox-buffer-reflinks-section
+     org-slipbox-buffer-unlinked-references-section)
+    (time
+     org-slipbox-buffer-node-section
+     org-slipbox-buffer-refs-section
+     org-slipbox-buffer-time-neighbors-section)
+    (tasks
+     org-slipbox-buffer-node-section
+     org-slipbox-buffer-refs-section
+     org-slipbox-buffer-task-neighbors-section)
+    (bridges
+     org-slipbox-buffer-node-section
+     org-slipbox-buffer-refs-section
+     org-slipbox-buffer-bridge-candidates-section)
+    (dormant
+     org-slipbox-buffer-node-section
+     org-slipbox-buffer-refs-section
+     org-slipbox-buffer-dormant-notes-section)
+    (unresolved
+     org-slipbox-buffer-node-section
+     org-slipbox-buffer-refs-section
+     org-slipbox-buffer-unresolved-tasks-section
+     org-slipbox-buffer-weakly-integrated-notes-section))
+  "Dedicated-buffer section plans keyed by exploration lens.
+
+Each plan is an alist entry whose car is a declared lens symbol and
+whose cdr is a list of section specifications rendered in order."
+  :type `(alist
+          :key-type (choice ,@(mapcar (lambda (lens)
+                                        `(const :tag ,(symbol-name lens) ,lens))
+                                      org-slipbox-buffer-lenses))
+          :value-type (repeat (choice (symbol :tag "Function")
+                                      (list :tag "Function with arguments"
+                                            (symbol :tag "Function")
+                                            (repeat :tag "Arguments"
+                                                    :inline t
+                                                    (sexp :tag "Arg"))))))
   :group 'org-slipbox)
 
 (defcustom org-slipbox-buffer-postrender-functions nil
@@ -91,12 +135,39 @@ Return non-nil to render the section, or nil to skip it."
   :type '(choice (const :tag "None" nil) function)
   :group 'org-slipbox)
 
-(defconst org-slipbox-buffer-lenses
-  '(structure refs time tasks bridges dormant unresolved)
-  "Declared exploration lenses supported by the dedicated buffer.")
-
 (defconst org-slipbox-buffer-comparison-groups '(all overlap divergence tension)
   "Declared comparison groups supported by the dedicated buffer.")
+
+(defcustom org-slipbox-buffer-comparison-group-plans
+  '((all
+     shared-refs
+     shared-planning-dates
+     left-only-refs
+     right-only-refs
+     shared-backlinks
+     shared-forward-links
+     contrasting-task-states
+     planning-tensions
+     indirect-connectors)
+    (overlap
+     shared-refs
+     shared-planning-dates
+     shared-backlinks
+     shared-forward-links)
+    (divergence
+     left-only-refs
+     right-only-refs)
+    (tension
+     contrasting-task-states
+     planning-tensions
+     indirect-connectors))
+  "Comparison section plans keyed by dedicated comparison group."
+  :type `(alist
+          :key-type (choice ,@(mapcar (lambda (group)
+                                        `(const :tag ,(symbol-name group) ,group))
+                                      org-slipbox-buffer-comparison-groups))
+          :value-type (repeat symbol))
+  :group 'org-slipbox)
 
 (cl-defstruct org-slipbox-buffer-session
   "Explicit session state for an org-slipbox context buffer."
@@ -373,16 +444,15 @@ Return non-nil to render the section, or nil to skip it."
     (goto-char (point-min))))
 
 (defun org-slipbox-buffer--render-sections (node)
-  "Render configured sections for NODE."
-  (dolist (section org-slipbox-buffer-sections)
+  "Render the active section plan for NODE."
+  (dolist (section (org-slipbox-buffer--current-section-plan))
     (when (org-slipbox-buffer--section-allowed-p section node)
       (org-slipbox-buffer--render-section section node))))
 
 (defun org-slipbox-buffer--section-allowed-p (section node)
   "Return non-nil when SECTION should render for NODE."
-  (and (org-slipbox-buffer--section-visible-p section)
-       (or (null org-slipbox-buffer-section-filter-function)
-           (funcall org-slipbox-buffer-section-filter-function section node))))
+  (or (null org-slipbox-buffer-section-filter-function)
+      (funcall org-slipbox-buffer-section-filter-function section node)))
 
 (defun org-slipbox-buffer--render-section (section node)
   "Render SECTION for NODE."
@@ -394,7 +464,7 @@ Return non-nil to render the section, or nil to skip it."
        (user-error "Invalid org-slipbox buffer section function: %S" fn))
      (apply fn node args))
     (_
-     (user-error "Invalid `org-slipbox-buffer-sections' specification: %S" section))))
+     (user-error "Invalid org-slipbox buffer section specification: %S" section))))
 
 (defun org-slipbox-buffer--redisplay-h ()
   "Keep the persistent org-slipbox context buffer in sync with point."
@@ -448,15 +518,20 @@ Return non-nil to render the section, or nil to skip it."
       (concat (propertize " " 'display '(space :align-to 0))
               (string-join parts "  |  ")))))
 
-(defun org-slipbox-buffer--section-visible-p (section)
-  "Return non-nil when SECTION belongs in the current buffer mode."
-  (let ((lens (org-slipbox-buffer--section-lens section)))
-    (cond
-     ((null lens) t)
-     ((org-slipbox-buffer--dedicated-p)
-      (eq lens (org-slipbox-buffer--current-lens)))
-     (t
-      (memq lens '(structure refs))))))
+(defun org-slipbox-buffer--current-section-plan ()
+  "Return the active section plan for the current buffer."
+  (if (org-slipbox-buffer--dedicated-p)
+      (org-slipbox-buffer--dedicated-section-plan)
+    org-slipbox-buffer-persistent-sections))
+
+(defun org-slipbox-buffer--dedicated-section-plan (&optional lens)
+  "Return the dedicated section plan for LENS or the current lens."
+  (let ((plan (alist-get (or lens (org-slipbox-buffer--current-lens))
+                         org-slipbox-buffer-lens-plans)))
+    (unless plan
+      (user-error "No org-slipbox dedicated section plan for lens %S"
+                  (or lens (org-slipbox-buffer--current-lens))))
+    plan))
 
 (defun org-slipbox-buffer--make-persistent-session (&optional node)
   "Return a persistent context-buffer session for NODE."
@@ -517,23 +592,6 @@ Dedicated-only state must not survive on the persistent tracking path."
   (pcase section
     ((pred functionp) section)
     (`(,fn . ,_) fn)
-    (_ nil)))
-
-(defun org-slipbox-buffer--section-lens (section)
-  "Return the declared exploration lens for SECTION, or nil."
-  (pcase (org-slipbox-buffer--section-function section)
-    ('org-slipbox-buffer-node-section nil)
-    ('org-slipbox-buffer-refs-section 'refs)
-    ('org-slipbox-buffer-backlinks-section 'structure)
-    ('org-slipbox-buffer-forward-links-section 'structure)
-    ('org-slipbox-buffer-reflinks-section 'refs)
-    ('org-slipbox-buffer-unlinked-references-section 'refs)
-    ('org-slipbox-buffer-time-neighbors-section 'time)
-    ('org-slipbox-buffer-task-neighbors-section 'tasks)
-    ('org-slipbox-buffer-bridge-candidates-section 'bridges)
-    ('org-slipbox-buffer-dormant-notes-section 'dormant)
-    ('org-slipbox-buffer-unresolved-tasks-section 'unresolved)
-    ('org-slipbox-buffer-weakly-integrated-notes-section 'unresolved)
     (_ nil)))
 
 (defun org-slipbox-buffer--current-lens (&optional session)
@@ -752,32 +810,31 @@ Dedicated-only state must not survive on the persistent tracking path."
   (let* ((left-note (plist-get comparison :left_note))
          (right-note (plist-get comparison :right_note))
          (group (org-slipbox-buffer--current-comparison-group))
-         (sections (org-slipbox--plist-sequence (plist-get comparison :sections))))
-    (dolist (section sections)
-      (when (org-slipbox-buffer--comparison-section-visible-p
-             group
-             (plist-get section :kind))
+         (section-table
+          (org-slipbox-buffer--comparison-section-table
+           (org-slipbox--plist-sequence (plist-get comparison :sections)))))
+    (dolist (kind (org-slipbox-buffer--comparison-section-plan group))
+      (when-let ((section (gethash (symbol-name kind) section-table)))
         (org-slipbox-buffer--insert-occurrence-section
          (org-slipbox-buffer--comparison-section-heading section left-note right-note)
          (org-slipbox--plist-sequence (plist-get section :entries))
          (org-slipbox-buffer--comparison-empty-message section)
          #'org-slipbox-buffer--insert-comparison-entry)))))
 
-(defun org-slipbox-buffer--comparison-section-visible-p (group kind)
-  "Return non-nil when comparison section KIND belongs in GROUP."
-  (or (eq group 'all)
-      (eq group (org-slipbox-buffer--comparison-section-group kind))))
+(defun org-slipbox-buffer--comparison-section-plan (&optional group)
+  "Return the comparison section plan for GROUP or the active group."
+  (let ((plan (alist-get (or group (org-slipbox-buffer--current-comparison-group))
+                         org-slipbox-buffer-comparison-group-plans)))
+    (unless plan
+      (user-error "No org-slipbox comparison section plan for group %S"
+                  (or group (org-slipbox-buffer--current-comparison-group))))
+    plan))
 
-(defun org-slipbox-buffer--comparison-section-group (kind)
-  "Return the comparison group for section KIND."
-  (pcase kind
-    ((or "shared-refs" "shared-planning-dates"
-         "shared-backlinks" "shared-forward-links")
-     'overlap)
-    ((or "left-only-refs" "right-only-refs") 'divergence)
-    ((or "contrasting-task-states" "planning-tensions" "indirect-connectors")
-     'tension)
-    (_ nil)))
+(defun org-slipbox-buffer--comparison-section-table (sections)
+  "Return a hash table of comparison SECTIONS keyed by kind."
+  (let ((table (make-hash-table :test #'equal)))
+    (dolist (section sections table)
+      (puthash (plist-get section :kind) section table))))
 
 (defun org-slipbox-buffer--comparison-section-heading (section left-note right-note)
   "Return the rendered heading for SECTION between LEFT-NOTE and RIGHT-NOTE."
@@ -1141,79 +1198,101 @@ node. LIMIT bounds the number of rows requested."
                    title)))
              ordered-titles))))
 
-(defun org-slipbox-buffer--explanation-string (entry)
-  "Return a display string for ENTRY's explanation payload."
+(defun org-slipbox-buffer--inline-explanation-string (entry)
+  "Return an inline explanation string for ENTRY."
   (when-let ((explanation (plist-get entry :explanation)))
     (pcase (plist-get explanation :kind)
       ("backlink" "direct backlink")
       ("forward-link" "direct forward link")
       ("shared-reference"
        (format "shared ref: %s" (plist-get explanation :reference)))
-      ("shared-planning-date"
-       (format "current note %s, compare target %s"
-               (org-slipbox-buffer--planning-field-label
-                (plist-get entry :left_field))
-               (org-slipbox-buffer--planning-field-label
-                (plist-get entry :right_field))))
       ("left-only-reference" "only in current note")
       ("right-only-reference" "only in compare target")
       ("shared-backlink" "shared backlink")
       ("shared-forward-link" "shared forward link")
-      ("contrasting-task-state" "different task states")
-      ("planning-tension"
-       (format "current note %s, compare target %s"
-               (org-slipbox-buffer--planning-field-label
-                (plist-get entry :left_field))
-               (org-slipbox-buffer--planning-field-label
-                (plist-get entry :right_field))))
       ("indirect-connector"
        (pcase (plist-get explanation :direction)
          ("left-to-right" "current note -> compare target")
          ("right-to-left" "compare target -> current note")
          ("bidirectional" "bidirectional connector")))
-      ("bridge-candidate"
-       (format "%s via %s"
-               (org-slipbox-buffer--shared-reference-summary explanation)
-               (org-slipbox-buffer--bridge-via-note-summary explanation)))
-      ("dormant-shared-reference"
-       (format "%s, older untouched material"
-               (org-slipbox-buffer--shared-reference-summary explanation)))
-      ("unresolved-shared-reference"
-       (format "%s, task state: %s"
-               (org-slipbox-buffer--shared-reference-summary explanation)
-               (plist-get explanation :todo_keyword)))
-      ("weakly-integrated-shared-reference"
-       (format "%s, structural links: %s"
-               (org-slipbox-buffer--shared-reference-summary explanation)
-               (plist-get explanation :structural_link_count)))
       ("unlinked-reference"
-       (format "unlinked mention: %s"
-               (plist-get explanation :matched_text)))
+       (format "unlinked mention: %s" (plist-get explanation :matched_text))))))
+
+(defun org-slipbox-buffer--block-explanation-lines (entry)
+  "Return block-style explanation lines for ENTRY."
+  (when-let ((explanation (plist-get entry :explanation)))
+    (pcase (plist-get explanation :kind)
+      ("shared-planning-date"
+       (list
+        (format "because planning overlap: current note %s, compare target %s"
+                (org-slipbox-buffer--planning-field-label
+                 (plist-get entry :left_field))
+                (org-slipbox-buffer--planning-field-label
+                 (plist-get entry :right_field)))))
+      ("contrasting-task-state"
+       (list
+        (format "because task tension: %s <> %s"
+                (plist-get entry :left_todo_keyword)
+                (plist-get entry :right_todo_keyword))))
+      ("planning-tension"
+       (list
+        (format "because planning tension: current note %s, compare target %s"
+                (org-slipbox-buffer--planning-field-label
+                 (plist-get entry :left_field))
+                (org-slipbox-buffer--planning-field-label
+                 (plist-get entry :right_field)))))
+      ("bridge-candidate"
+       (list
+        (format "because %s"
+                (org-slipbox-buffer--shared-reference-summary explanation))
+        (format "via bridge notes: %s"
+                (org-slipbox-buffer--bridge-via-note-summary explanation))))
+      ("dormant-shared-reference"
+       (list
+        (format "because %s"
+                (org-slipbox-buffer--shared-reference-summary explanation))
+        "state: older untouched material"))
+      ("unresolved-shared-reference"
+       (list
+        (format "because %s"
+                (org-slipbox-buffer--shared-reference-summary explanation))
+        (format "task state: %s"
+                (plist-get explanation :todo_keyword))))
+      ("weakly-integrated-shared-reference"
+       (list
+        (format "because %s"
+                (org-slipbox-buffer--shared-reference-summary explanation))
+        (format "structural links: %s"
+                (plist-get explanation :structural_link_count))))
       ("time-neighbor"
-       (format "time match: %s"
-               (org-slipbox-buffer--planning-relations-summary
-                (plist-get explanation :relations))))
+       (list
+        (format "because planning overlap: %s"
+                (org-slipbox-buffer--planning-relations-summary
+                 (plist-get explanation :relations)))))
       ("task-neighbor"
        (let ((todo-keyword (plist-get explanation :shared_todo_keyword))
-             (planning-relations (append (plist-get explanation :planning_relations) nil)))
-         (cond
-          ((and todo-keyword planning-relations)
-           (format "task match: %s; %s"
-                   todo-keyword
-                   (org-slipbox-buffer--planning-relations-summary
-                    planning-relations)))
-          (todo-keyword
-           (format "task match: %s" todo-keyword))
-          (planning-relations
-           (format "task match: %s"
-                   (org-slipbox-buffer--planning-relations-summary
-                    planning-relations)))))))))
+             (planning-relations (append (plist-get explanation :planning_relations) nil))
+             lines)
+         (when todo-keyword
+           (push (format "because shared task state: %s" todo-keyword) lines))
+         (when planning-relations
+           (push (format "%splanning overlap: %s"
+                         (if lines "" "because ")
+                         (org-slipbox-buffer--planning-relations-summary
+                          planning-relations))
+                 lines))
+         (nreverse lines))))))
 
 (defun org-slipbox-buffer--insert-explanation (entry)
   "Insert ENTRY's explanation payload when it is present."
-  (when-let ((reason (org-slipbox-buffer--explanation-string entry)))
-    (insert " "
-            (propertize reason 'face 'italic))))
+  (cond
+   ((when-let ((lines (org-slipbox-buffer--block-explanation-lines entry)))
+      (dolist (line lines)
+        (insert "\n  " (propertize line 'face 'italic)))
+      t))
+   ((when-let ((reason (org-slipbox-buffer--inline-explanation-string entry)))
+      (insert " " (propertize reason 'face 'italic))
+      t))))
 
 (defun org-slipbox-buffer--insert-backlink-entry (entry)
   "Insert a preview-rich backlink ENTRY."

@@ -255,11 +255,17 @@ local filesystem stats.
 The buffer surface is configurable:
 
 ```emacs-lisp
-(setq org-slipbox-buffer-sections
+(setq org-slipbox-buffer-persistent-sections
       '((org-slipbox-buffer-backlinks-section :unique t)
         org-slipbox-buffer-forward-links-section
-        org-slipbox-buffer-refs-section
-        org-slipbox-buffer-reflinks-section))
+        org-slipbox-buffer-refs-section))
+
+(setq org-slipbox-buffer-lens-plans
+      '((refs
+         org-slipbox-buffer-node-section
+         org-slipbox-buffer-refs-section
+         org-slipbox-buffer-reflinks-section
+         org-slipbox-buffer-unlinked-references-section)))
 
 (setq org-slipbox-buffer-expensive-sections 'dedicated)
 ```

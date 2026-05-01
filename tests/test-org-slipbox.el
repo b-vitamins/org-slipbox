@@ -2417,7 +2417,7 @@ ROOT-NODE defaults to NODE."
           (format-time-string
            "%Y-%m-%d"
            (seconds-to-time (/ (float mtime-ns) 1000000000.0))))
-         (org-slipbox-buffer-sections '(org-slipbox-buffer-node-section)))
+         (org-slipbox-buffer-persistent-sections '(org-slipbox-buffer-node-section)))
     (with-current-buffer (get-buffer-create "*org-slipbox metadata test*")
       (unwind-protect
           (progn
@@ -2440,7 +2440,7 @@ ROOT-NODE defaults to NODE."
 
 (ert-deftest org-slipbox-test-buffer-render-honors-section-order-and-postrender-hook ()
   "Configured sections should render in order and support postrender hooks."
-  (let ((org-slipbox-buffer-sections
+  (let ((org-slipbox-buffer-persistent-sections
          '((org-slipbox-buffer-backlinks-section
             :unique t
             :section-heading "Unique Backlinks")
@@ -2487,7 +2487,7 @@ ROOT-NODE defaults to NODE."
 
 (ert-deftest org-slipbox-test-buffer-section-filter-skips-selected-sections ()
   "Section filters should be able to suppress configured sections."
-  (let ((org-slipbox-buffer-sections
+  (let ((org-slipbox-buffer-persistent-sections
          '(org-slipbox-buffer-node-section
            org-slipbox-buffer-refs-section
            org-slipbox-buffer-backlinks-section))
@@ -2514,6 +2514,43 @@ ROOT-NODE defaults to NODE."
               (org-slipbox-buffer-render-contents))
             (should-not (string-match-p "\nRefs\n----\n" (buffer-string)))
             (should (string-match-p "\nBacklinks\n---------\n" (buffer-string))))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-dedicated-render-honors-lens-plan-order ()
+  "Dedicated buffers should follow the configured plan for the active lens."
+  (let ((org-slipbox-buffer-lens-plans
+         '((refs
+            (org-slipbox-buffer-reflinks-section :section-heading "Plan Reflinks")
+            org-slipbox-buffer-refs-section))))
+    (with-current-buffer (get-buffer-create "*org-slipbox lens plan test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session
+                         'dedicated
+                         '(:node_key "heading:note.org:3"
+                           :title "Heading"
+                           :file_path "note.org"
+                           :line 3
+                           :refs ["@smith2024"])))
+            (setf (org-slipbox-buffer-session-active-lens org-slipbox-buffer-session)
+                  'refs)
+            (cl-letf (((symbol-function 'org-slipbox-buffer--reflinks)
+                       (lambda (&rest _args)
+                         '((:source_anchor (:title "Sibling"
+                                            :file_path "refs.org"
+                                            :line 2)
+                            :row 3
+                            :col 7
+                            :preview "cite:smith2024"
+                            :matched_reference "cite:smith2024"
+                            :explanation (:kind "shared-reference"
+                                          :reference "cite:smith2024"))))))
+              (org-slipbox-buffer-render-contents))
+            (let ((contents (buffer-string)))
+              (should (< (string-match-p "Plan Reflinks" contents)
+                         (string-match-p "Refs" contents)))
+              (should-not (string-match-p "\nBacklinks\n---------\n" contents))))
         (kill-buffer (current-buffer))))))
 
 (ert-deftest org-slipbox-test-buffer-visit-location-moves-to-exact-position ()
@@ -2661,7 +2698,8 @@ ROOT-NODE defaults to NODE."
                 :title "Note"
                 :file_path "note.org"
                 :line 1))
-        (org-slipbox-buffer-sections '(org-slipbox-buffer-node-section)))
+        (org-slipbox-buffer-lens-plans
+         '((structure org-slipbox-buffer-node-section))))
     (with-current-buffer (get-buffer-create "*org-slipbox session test*")
       (unwind-protect
           (progn
@@ -2839,10 +2877,10 @@ ROOT-NODE defaults to NODE."
             (should (string-match-p "Shared Refs" (buffer-string)))
             (should (string-match-p "@shared2024" (buffer-string)))
             (should (string-match-p "Shared Planning Dates" (buffer-string)))
-            (should (string-match-p "2026-05-01 current note scheduled, compare target scheduled"
+            (should (string-match-p "2026-05-01\n  because planning overlap: current note scheduled, compare target scheduled"
                                     (buffer-string)))
             (should (string-match-p "Contrasting Task States" (buffer-string)))
-            (should (string-match-p "TODO <> NEXT different task states"
+            (should (string-match-p "TODO <> NEXT\n  because task tension: TODO <> NEXT"
                                     (buffer-string)))
             (should (string-match-p "Indirect Connectors" (buffer-string)))
             (should (string-match-p "current note -> compare target" (buffer-string))))
@@ -2883,6 +2921,37 @@ ROOT-NODE defaults to NODE."
             (should-not (string-match-p "Shared Planning Dates" (buffer-string)))
             (should-not (string-match-p "Contrasting Task States" (buffer-string)))
             (should-not (string-match-p "Indirect Connectors" (buffer-string))))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-comparison-render-honors-group-plan-order ()
+  "Dedicated comparisons should follow the configured group plan order."
+  (let* ((left '(:node_key "file:left.org"
+                 :title "Left"
+                 :file_path "left.org"
+                 :line 1))
+         (right '(:node_key "file:right.org"
+                  :title "Right"
+                  :file_path "right.org"
+                  :line 1))
+         (org-slipbox-buffer-comparison-group-plans
+          '((overlap shared-forward-links shared-refs))))
+    (with-current-buffer (get-buffer-create "*org-slipbox compare plan test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session 'dedicated left))
+            (setf (org-slipbox-buffer-session-compare-target org-slipbox-buffer-session)
+                  right
+                  (org-slipbox-buffer-session-comparison-group org-slipbox-buffer-session)
+                  'overlap)
+            (cl-letf (((symbol-function 'org-slipbox-rpc-compare-notes)
+                       (lambda (_left-key _right-key &optional _limit)
+                         (org-slipbox-test--comparison-result left right))))
+              (org-slipbox-buffer-render-contents))
+            (let ((contents (buffer-string)))
+              (should (< (string-match-p "Shared Forward Links" contents)
+                         (string-match-p "Shared Refs" contents)))
+              (should-not (string-match-p "Shared Planning Dates" contents))))
         (kill-buffer (current-buffer))))))
 
 (ert-deftest org-slipbox-test-buffer-comparison-transitions-are-explicit-and-reversible ()
@@ -3027,15 +3096,18 @@ ROOT-NODE defaults to NODE."
               (should (string-match-p "lens: bridges" header-line-format))
               (should (string-match-p "Bridge Candidates" (buffer-string)))
               (should (string-match-p
-                       "shared refs: @focus2024, @shared2024 via Neighbor, Support"
-                                      (buffer-string)))
+                       "because shared refs: @focus2024, @shared2024"
+                       (buffer-string)))
+              (should (string-match-p
+                       "via bridge notes: Neighbor, Support"
+                       (buffer-string)))
               (org-slipbox-buffer-switch-lens 'unresolved))
             (should (eq (org-slipbox-buffer-session-active-lens
                          org-slipbox-buffer-session)
                         'unresolved))
             (should (string-match-p "Unresolved Tasks" (buffer-string)))
             (should (string-match-p "Weakly Integrated Notes" (buffer-string)))
-            (should (string-match-p "shared refs: @focus2024, @shared2024"
+            (should (string-match-p "because shared refs: @focus2024, @shared2024"
                                     (buffer-string)))
             (should (string-match-p "task state: TODO" (buffer-string)))
             (should (string-match-p "structural links: 1" (buffer-string))))
@@ -3090,10 +3162,12 @@ ROOT-NODE defaults to NODE."
                            (_
                             '(:lens "structure" :sections []))))))
               (org-slipbox-buffer-switch-lens 'time)
-              (should (string-match-p "time match: scheduled->deadline 2026-05-01, deadline->scheduled 2026-05-03"
+              (should (string-match-p "because planning overlap: scheduled->deadline 2026-05-01, deadline->scheduled 2026-05-03"
                                       (buffer-string)))
               (org-slipbox-buffer-switch-lens 'tasks))
-            (should (string-match-p "task match: TODO; scheduled->scheduled 2026-05-01"
+            (should (string-match-p "because shared task state: TODO"
+                                    (buffer-string)))
+            (should (string-match-p "planning overlap: scheduled->scheduled 2026-05-01"
                                     (buffer-string))))
         (kill-buffer (current-buffer))))))
 
