@@ -3570,6 +3570,60 @@ ROOT-NODE defaults to NODE."
             (should (equal (plist-get (car forward-links) :kind) "forward-link")))
         (kill-buffer (current-buffer))))))
 
+(ert-deftest org-slipbox-test-buffer-unresolved-sections-share-cached-lens-query ()
+  "Unresolved sections should share one declared lens query per session."
+  (let ((calls 0)
+        unresolved
+        weak)
+    (with-current-buffer (get-buffer-create "*org-slipbox unresolved cache test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session
+                         'dedicated
+                         '(:node_key "file:focus.org"
+                           :title "Focus"
+                           :file_path "focus.org"
+                           :line 1)
+                         nil
+                         :active-lens 'unresolved))
+            (cl-letf (((symbol-function 'org-slipbox-rpc-explore)
+                       (lambda (_node-key lens &optional _limit _unique)
+                         (setq calls (1+ calls))
+                         (should (eq lens 'unresolved))
+                         '(:lens "unresolved"
+                           :sections
+                           [(:kind "unresolved-tasks"
+                             :entries
+                             [(:kind "anchor"
+                               :anchor (:node_key "file:todo.org"
+                                         :title "Todo"
+                                         :file_path "todo.org"
+                                         :line 4)
+                               :explanation (:kind "unresolved-shared-reference"
+                                             :references ["@focus2024"]
+                                             :todo_keyword "TODO"))])
+                            (:kind "weakly-integrated-notes"
+                             :entries
+                             [(:kind "anchor"
+                               :anchor (:node_key "file:weak.org"
+                                         :title "Weak"
+                                         :file_path "weak.org"
+                                         :line 9)
+                               :explanation (:kind "weakly-integrated-shared-reference"
+                                             :references ["@focus2024"]
+                                             :structural_link_count 1))])]))))
+              (setq unresolved
+                    (org-slipbox-buffer--unresolved-tasks
+                     '(:node_key "file:focus.org")))
+              (setq weak
+                    (org-slipbox-buffer--weakly-integrated-notes
+                     '(:node_key "file:focus.org"))))
+            (should (= calls 1))
+            (should (equal (plist-get (car unresolved) :kind) "anchor"))
+            (should (equal (plist-get (car weak) :kind) "anchor")))
+        (kill-buffer (current-buffer))))))
+
 (ert-deftest org-slipbox-test-buffer-dedicated-render-follows-active-lens ()
   "Dedicated buffers should render the active exploration lens coherently."
   (let* ((mtime-ns 1741353600000000000)

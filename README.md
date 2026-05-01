@@ -597,7 +597,7 @@ These stay opt-in and isolated from startup:
 `org-slipbox` ships with an explicit corpus benchmark harness instead of
 relying on anecdotal scale claims.
 
-- `cargo run --bin slipbox-bench -- check --profile ci` generates a deterministic corpus, measures full indexing, single-file incremental indexing, indexed search, backlinks, node-at-point lookup, agenda queries, and batch Emacs benchmarks for both the persistent tracking buffer and a dedicated comparison render path.
+- `cargo run --bin slipbox-bench -- check --profile ci` generates a deterministic corpus, measures full indexing, single-file incremental indexing, indexed search, backlinks, node-at-point lookup, agenda queries, and batch Emacs benchmarks for the persistent tracking buffer, the dedicated comparison render path, and a guaranteed non-structure dedicated exploration render path rooted in the unresolved lens with trail state.
 - `cargo run --bin slipbox-bench -- run --profile release --keep-corpus` runs the larger local profile and keeps the generated corpus under `target/bench/` for inspection.
 - Benchmark profiles live in [`benches/profiles/ci.json`](/home/b/projects/org-slipbox/benches/profiles/ci.json) and [`benches/profiles/release.json`](/home/b/projects/org-slipbox/benches/profiles/release.json). Reports are written to `target/bench/`.
 

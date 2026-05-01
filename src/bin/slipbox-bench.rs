@@ -19,7 +19,8 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use slipbox_core::{
-    BacklinkRecord, CompareNotesParams, ForwardLinkRecord, NodeRecord, NoteComparisonResult,
+    BacklinkRecord, CompareNotesParams, ExplorationEntry, ExplorationLens, ExplorationSection,
+    ExplorationSectionKind, ExploreResult, ForwardLinkRecord, NodeRecord, NoteComparisonResult,
     SearchNodesSort,
 };
 use slipbox_index::{DiscoveryPolicy, scan_path_with_policy, scan_root_with_policy};
@@ -31,6 +32,9 @@ use reflinks_query::query_reflinks;
 use unlinked_references_query::query_unlinked_references;
 
 const HOT_NODE_ID: &str = "node-000000";
+const EXPLORATION_FOCUS_INDEX: usize = 2;
+const EXPLORATION_SHARED_REF: &str = "cite:bench-explore2026";
+const EXPLORATION_FOCUS_REF: &str = "cite:bench-explore-focus2026";
 const AGENDA_START: &str = "2026-03-01";
 const AGENDA_END: &str = "2026-03-31";
 const DEDICATED_COMPARE_CANDIDATE_LIMIT: usize = 12;
@@ -106,6 +110,8 @@ struct IterationConfig {
     persistent_buffer_iterations: usize,
     dedicated_buffer_samples: usize,
     dedicated_buffer_iterations: usize,
+    dedicated_exploration_buffer_samples: usize,
+    dedicated_exploration_buffer_iterations: usize,
     search_limit: usize,
     backlinks_limit: usize,
     reflinks_limit: usize,
@@ -129,6 +135,7 @@ struct ThresholdConfig {
     agenda_p95_ms: f64,
     persistent_buffer_p95_ms: Option<f64>,
     dedicated_buffer_p95_ms: Option<f64>,
+    dedicated_exploration_buffer_p95_ms: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -149,6 +156,7 @@ struct BenchmarkReport {
     agenda: TimingReport,
     persistent_buffer: Option<TimingReport>,
     dedicated_buffer: Option<TimingReport>,
+    dedicated_exploration_buffer: Option<TimingReport>,
 }
 
 #[derive(Debug, Serialize)]
@@ -178,6 +186,7 @@ struct CorpusFixture {
     mutable_relative_path: String,
     mutable_template: String,
     hot_node_id: String,
+    exploration_node_id: String,
     forward_node_id: String,
     search_queries: Vec<String>,
     file_queries: Vec<String>,
@@ -205,6 +214,13 @@ struct DedicatedBufferFixture<'a> {
     node: &'a NodeRecord,
     compare_target: &'a NodeRecord,
     comparison_result: &'a NoteComparisonResult,
+}
+
+#[derive(Debug, Serialize)]
+struct DedicatedExplorationBufferFixture<'a> {
+    node: &'a NodeRecord,
+    lens: ExplorationLens,
+    exploration_result: &'a ExploreResult,
 }
 
 #[derive(Debug, Deserialize)]
@@ -328,6 +344,9 @@ fn run_profile(
     let hot_node = database
         .node_from_id(&fixture.hot_node_id)?
         .context("failed to resolve hot benchmark node")?;
+    let exploration_node = database
+        .node_from_id(&fixture.exploration_node_id)?
+        .context("failed to resolve dedicated exploration benchmark node")?;
     let forward_node = database
         .node_from_id(&fixture.forward_node_id)?
         .context("failed to resolve forward-link benchmark node")?;
@@ -343,8 +362,8 @@ fn run_profile(
         benchmark_unlinked_references(&mut database, profile, &fixture.root, &hot_node)?;
     let node_at_point = benchmark_node_at_point(&mut database, profile, fixture)?;
     let agenda = benchmark_agenda(&mut database, profile)?;
-    let (persistent_buffer, dedicated_buffer) = if skip_elisp {
-        (None, None)
+    let (persistent_buffer, dedicated_buffer, dedicated_exploration_buffer) = if skip_elisp {
+        (None, None, None)
     } else {
         let buffer_backlinks = database.backlinks(
             &hot_node.node_key,
@@ -377,7 +396,23 @@ fn run_profile(
             &compare_target,
             &comparison_result,
         )?;
-        (Some(persistent_buffer), Some(dedicated_buffer))
+        let (exploration_lens, exploration_result) = select_dedicated_exploration_fixture(
+            &database,
+            &exploration_node,
+            profile.iterations.backlinks_limit,
+        )?;
+        let dedicated_exploration_buffer = benchmark_dedicated_exploration_buffer(
+            repo_root,
+            profile,
+            &exploration_node,
+            exploration_lens,
+            &exploration_result,
+        )?;
+        (
+            Some(persistent_buffer),
+            Some(dedicated_buffer),
+            Some(dedicated_exploration_buffer),
+        )
     };
     let index_file = benchmark_index_file(&mut database, profile, fixture, &policy)?;
 
@@ -406,6 +441,7 @@ fn run_profile(
         agenda,
         persistent_buffer,
         dedicated_buffer,
+        dedicated_exploration_buffer,
     })
 }
 
@@ -940,6 +976,116 @@ fn benchmark_dedicated_buffer(
     Ok(TimingReport::from_samples(report.samples_ms))
 }
 
+fn select_dedicated_exploration_fixture(
+    database: &Database,
+    node: &NodeRecord,
+    limit: usize,
+) -> Result<(ExplorationLens, ExploreResult)> {
+    let unresolved_tasks = database.unresolved_tasks(node, limit)?;
+    let weakly_integrated_notes = database.weakly_integrated_notes(node, limit)?;
+    if unresolved_tasks.is_empty() || weakly_integrated_notes.is_empty() {
+        bail!(
+            "dedicated exploration benchmark requires non-empty unresolved and weakly integrated sections for node {}",
+            node.node_key
+        );
+    }
+
+    Ok((
+        ExplorationLens::Unresolved,
+        ExploreResult {
+            lens: ExplorationLens::Unresolved,
+            sections: vec![
+                ExplorationSection {
+                    kind: ExplorationSectionKind::UnresolvedTasks,
+                    entries: unresolved_tasks
+                        .into_iter()
+                        .map(|record| ExplorationEntry::Anchor {
+                            record: Box::new(record),
+                        })
+                        .collect(),
+                },
+                ExplorationSection {
+                    kind: ExplorationSectionKind::WeaklyIntegratedNotes,
+                    entries: weakly_integrated_notes
+                        .into_iter()
+                        .map(|record| ExplorationEntry::Anchor {
+                            record: Box::new(record),
+                        })
+                        .collect(),
+                },
+            ],
+        },
+    ))
+}
+
+fn benchmark_dedicated_exploration_buffer(
+    repo_root: &Path,
+    profile: &BenchmarkProfile,
+    node: &NodeRecord,
+    lens: ExplorationLens,
+    exploration_result: &ExploreResult,
+) -> Result<TimingReport> {
+    let fixture = DedicatedExplorationBufferFixture {
+        node,
+        lens,
+        exploration_result,
+    };
+    let fixture_file = repo_root
+        .join("target")
+        .join("bench")
+        .join("dedicated-exploration-buffer-fixture.json");
+    if let Some(parent) = fixture_file.parent() {
+        fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "failed to create dedicated exploration fixture directory {}",
+                parent.display()
+            )
+        })?;
+    }
+    write_json(&fixture_file, &fixture)?;
+
+    let emacs = std::env::var("EMACS").unwrap_or_else(|_| "emacs".to_owned());
+    let eval = format!(
+        "(princ (org-slipbox-buffer-bench-run-exploration-file {:?} {} {}))",
+        fixture_file.to_string_lossy(),
+        profile.iterations.dedicated_exploration_buffer_samples,
+        profile.iterations.dedicated_exploration_buffer_iterations
+    );
+    let output = Command::new(&emacs)
+        .current_dir(repo_root)
+        .arg("-Q")
+        .arg("--batch")
+        .arg("-L")
+        .arg(".")
+        .arg("-l")
+        .arg("org-slipbox.el")
+        .arg("-l")
+        .arg("benches/org-slipbox-buffer-bench.el")
+        .arg("--eval")
+        .arg(eval)
+        .output()
+        .with_context(|| {
+            format!("failed to execute {emacs} for dedicated exploration benchmark")
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        let message = if stderr.is_empty() {
+            format!("{emacs} exited with {}", output.status)
+        } else {
+            stderr
+        };
+        bail!("dedicated exploration benchmark failed: {message}");
+    }
+
+    let report: ElispTimingReport = serde_json::from_slice(&output.stdout)
+        .context("failed to parse dedicated exploration buffer report")?;
+    if report.samples_ms.is_empty() {
+        bail!("dedicated exploration benchmark produced no samples");
+    }
+    Ok(TimingReport::from_samples(report.samples_ms))
+}
+
 fn measure_iterations(
     iterations: usize,
     mut f: impl FnMut(usize) -> Result<()>,
@@ -954,6 +1100,19 @@ fn measure_iterations(
 }
 
 fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result<CorpusFixture> {
+    let total_headings = config
+        .files
+        .checked_mul(config.headings_per_file)
+        .context("benchmark corpus heading count overflowed")?;
+    if total_headings < 5 {
+        bail!(
+            "benchmark corpus requires at least 5 headings to reserve hot, forward-link, and dedicated exploration fixtures"
+        );
+    }
+    let exploration_unresolved_index = total_headings - 2;
+    let exploration_weak_index = total_headings - 1;
+    let exploration_node_id = format!("node-{EXPLORATION_FOCUS_INDEX:06}");
+
     let root = workspace.join("corpus");
     if root.exists() {
         fs::remove_dir_all(&root)
@@ -1003,38 +1162,73 @@ fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result<CorpusFixt
                 });
             }
 
-            let title = format!("Bench Topic {global_index:06}");
-            let alias = format!("Alias {global_index:06}");
+            let is_exploration_focus = global_index == EXPLORATION_FOCUS_INDEX;
+            let is_exploration_unresolved = global_index == exploration_unresolved_index;
+            let is_exploration_weak = global_index == exploration_weak_index;
+            let is_exploration_fixture =
+                is_exploration_focus || is_exploration_unresolved || is_exploration_weak;
+
+            let title = if is_exploration_focus {
+                "Exploration Focus".to_owned()
+            } else if is_exploration_unresolved {
+                "Exploration Unresolved".to_owned()
+            } else if is_exploration_weak {
+                "Exploration Weak".to_owned()
+            } else {
+                format!("Bench Topic {global_index:06}")
+            };
+            let alias = if is_exploration_focus {
+                "Exploration Focus Alias".to_owned()
+            } else if is_exploration_unresolved {
+                "Exploration Unresolved Alias".to_owned()
+            } else if is_exploration_weak {
+                "Exploration Weak Alias".to_owned()
+            } else {
+                format!("Alias {global_index:06}")
+            };
             let tag = format!("tag{}", global_index % 17);
-            let todo = if global_index % 4 == 0 { "TODO " } else { "" };
+            let todo = if is_exploration_unresolved || global_index % 4 == 0 {
+                "TODO "
+            } else {
+                ""
+            };
             let day = (global_index % 28) + 1;
-            if global_index > 0 && forward_node_id.is_none() {
-                forward_node_id = Some(format!("node-{global_index:06}"));
-            }
 
             lines.push(format!("* {todo}{title} :{tag}:{bucket_tag}:"));
             lines.push(String::from(":PROPERTIES:"));
             lines.push(format!(":ID: node-{global_index:06}"));
             lines.push(format!(":ROAM_ALIASES: \"{alias}\""));
-            if global_index % config.ref_stride == 0 {
+            if is_exploration_focus {
+                lines.push(format!(
+                    ":ROAM_REFS: {EXPLORATION_SHARED_REF} {EXPLORATION_FOCUS_REF}"
+                ));
+            } else if is_exploration_unresolved || is_exploration_weak {
+                lines.push(format!(":ROAM_REFS: {EXPLORATION_SHARED_REF}"));
+            } else if global_index % config.ref_stride == 0 {
                 lines.push(format!(":ROAM_REFS: @cite{global_index:06}"));
             }
             lines.push(String::from(":END:"));
-            if global_index % config.scheduled_stride == 0 {
+            if !is_exploration_fixture && global_index % config.scheduled_stride == 0 {
                 lines.push(format!("SCHEDULED: <2026-03-{day:02} Tue>"));
-            } else if global_index % config.deadline_stride == 0 {
+            } else if !is_exploration_fixture && global_index % config.deadline_stride == 0 {
                 lines.push(format!("DEADLINE: <2026-03-{day:02} Tue>"));
             }
             lines.push(format!("Bench body for {title}."));
-            if global_index > 0 {
+            if !is_exploration_fixture && global_index > 0 {
                 lines.push(format!("Prev [[id:node-{:06}][prev]].", global_index - 1));
                 expected_links += 1;
+                if forward_node_id.is_none() {
+                    forward_node_id = Some(format!("node-{global_index:06}"));
+                }
             }
-            if global_index != 0 && global_index % config.hot_link_stride == 0 {
+            if !is_exploration_fixture
+                && global_index != 0
+                && global_index % config.hot_link_stride == 0
+            {
                 lines.push(format!("Hub [[id:{HOT_NODE_ID}][hub]]."));
                 expected_links += 1;
             }
-            if global_index % config.hot_link_stride == 0 {
+            if !is_exploration_fixture && global_index % config.hot_link_stride == 0 {
                 lines.push(String::from("Reference cite:cite000000."));
                 lines.push(String::from("Mention Bench Topic 000000."));
                 lines.push(String::from("[[id:node-000000][Bench Topic 000000]]."));
@@ -1071,6 +1265,7 @@ fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result<CorpusFixt
         mutable_relative_path,
         mutable_template,
         hot_node_id: HOT_NODE_ID.to_owned(),
+        exploration_node_id,
         forward_node_id: forward_node_id
             .context("benchmark corpus did not produce a forward-link source node")?,
         search_queries: search_queries
@@ -1181,6 +1376,12 @@ fn enforce_thresholds(report: &BenchmarkReport, thresholds: &ThresholdConfig) ->
     {
         check_threshold("dedicated_buffer", observed.p95_ms, limit)?;
     }
+    if let (Some(observed), Some(limit)) = (
+        &report.dedicated_exploration_buffer,
+        thresholds.dedicated_exploration_buffer_p95_ms,
+    ) {
+        check_threshold("dedicated_exploration_buffer", observed.p95_ms, limit)?;
+    }
     Ok(())
 }
 
@@ -1221,6 +1422,9 @@ fn print_summary(report: &BenchmarkReport, check: bool, output_path: &Path) {
     }
     if let Some(dedicated_buffer) = &report.dedicated_buffer {
         print_metric("dedicatedBuffer", dedicated_buffer);
+    }
+    if let Some(dedicated_exploration_buffer) = &report.dedicated_exploration_buffer {
+        print_metric("dedicatedExplorationBuffer", dedicated_exploration_buffer);
     }
 }
 
@@ -1368,6 +1572,14 @@ impl BenchmarkProfile {
                 "dedicated_buffer_iterations",
                 self.iterations.dedicated_buffer_iterations,
             ),
+            (
+                "dedicated_exploration_buffer_samples",
+                self.iterations.dedicated_exploration_buffer_samples,
+            ),
+            (
+                "dedicated_exploration_buffer_iterations",
+                self.iterations.dedicated_exploration_buffer_iterations,
+            ),
             ("search_limit", self.iterations.search_limit),
             ("backlinks_limit", self.iterations.backlinks_limit),
             ("reflinks_limit", self.iterations.reflinks_limit),
@@ -1428,6 +1640,43 @@ mod tests {
         assert_expected_counts(&database, &fixture)?;
         assert!(!fixture.search_queries.is_empty());
         assert!(!fixture.point_queries.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn generated_corpus_guarantees_a_non_structure_exploration_fixture() -> Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let config = CorpusConfig {
+            files: 3,
+            headings_per_file: 4,
+            hot_link_stride: 2,
+            ref_stride: 2,
+            scheduled_stride: 2,
+            deadline_stride: 3,
+            query_count: 4,
+        };
+        let fixture = generate_corpus(tempdir.path(), &config)?;
+        let files = scan_root_with_policy(&fixture.root, &DiscoveryPolicy::default())?;
+        let mut database = Database::open(&tempdir.path().join("bench.sqlite3"))?;
+        database.sync_index(&files)?;
+        let exploration_node = database
+            .node_from_id(&fixture.exploration_node_id)?
+            .context("exploration node should exist")?;
+        let (lens, result) =
+            select_dedicated_exploration_fixture(&database, &exploration_node, 20)?;
+        assert_eq!(lens, ExplorationLens::Unresolved);
+        assert_eq!(result.lens, ExplorationLens::Unresolved);
+        assert_eq!(result.sections.len(), 2);
+        assert_eq!(
+            result.sections[0].kind,
+            ExplorationSectionKind::UnresolvedTasks
+        );
+        assert_eq!(
+            result.sections[1].kind,
+            ExplorationSectionKind::WeaklyIntegratedNotes
+        );
+        assert!(!result.sections[0].entries.is_empty());
+        assert!(!result.sections[1].entries.is_empty());
         Ok(())
     }
 

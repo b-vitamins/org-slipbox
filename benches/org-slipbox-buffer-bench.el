@@ -23,6 +23,9 @@
 (defvar org-slipbox-buffer-bench--dedicated-fixture nil
   "Private fixture used by compiled dedicated-buffer benchmarks.")
 
+(defvar org-slipbox-buffer-bench--exploration-fixture nil
+  "Private fixture used by compiled dedicated exploration benchmarks.")
+
 (defun org-slipbox-buffer-bench--read-fixture (fixture-file)
   "Decode benchmark FIXTURE-FILE into a plist."
   (with-temp-buffer
@@ -52,6 +55,41 @@
                            :compare-target compare-target
                            :comparison-group 'all))
         :trail-index 1
+        :frozen-context t))
+      (org-slipbox-buffer-render-contents))))
+
+(defun org-slipbox-buffer-bench--exploration-branch-base-lens (lens)
+  "Return a contrasting branch-base lens for LENS."
+  (pcase lens
+    ('unresolved 'bridges)
+    ('bridges 'unresolved)
+    ('dormant 'bridges)
+    (_ 'structure)))
+
+(defun org-slipbox-buffer-bench--render-dedicated-exploration ()
+  "Render one dedicated exploration state from the private bench fixture."
+  (let* ((fixture org-slipbox-buffer-bench--exploration-fixture)
+         (node (plist-get fixture :node))
+         (lens (intern (plist-get fixture :lens)))
+         (exploration-result (plist-get fixture :exploration_result))
+         (branch-base-lens (org-slipbox-buffer-bench--exploration-branch-base-lens lens)))
+    (cl-letf (((symbol-function 'org-slipbox-rpc-explore)
+               (lambda (_node-key requested-lens &optional _limit _unique)
+                 (if (eq requested-lens lens)
+                     exploration-result
+                   `(:lens ,(symbol-name requested-lens) :sections [])))))
+      (setq-local
+       org-slipbox-buffer-session
+       (make-org-slipbox-buffer-session
+        :kind 'dedicated
+        :current-node node
+        :root-node node
+        :active-lens lens
+        :trail (list (list :current-node node
+                           :root-node node
+                           :active-lens branch-base-lens
+                           :frozen-context t))
+        :trail-index 0
         :frozen-context t))
       (org-slipbox-buffer-render-contents))))
 
@@ -110,6 +148,30 @@ ITERATIONS is the number of dedicated renders per sample."
                    iterations))
              samples-ms)))
       (setq org-slipbox-buffer-bench--dedicated-fixture nil)
+      (when (get-buffer buffer-name)
+        (kill-buffer buffer-name)))
+    (json-encode `((samples_ms . ,(nreverse samples-ms))))))
+
+(defun org-slipbox-buffer-bench-run-exploration-file (fixture-file samples iterations)
+  "Return dedicated-exploration JSON benchmark data for FIXTURE-FILE.
+SAMPLES is the number of independent timing samples to collect and
+ITERATIONS is the number of dedicated exploration renders per sample."
+  (let* ((fixture (org-slipbox-buffer-bench--read-fixture fixture-file))
+         (buffer-name "*org-slipbox-exploration-bench*")
+         (org-slipbox-buffer-postrender-functions nil)
+         (org-slipbox-buffer-section-filter-function nil)
+         samples-ms)
+    (unwind-protect
+        (dotimes (_ samples)
+          (with-current-buffer (get-buffer-create buffer-name)
+            (setq org-slipbox-buffer-bench--exploration-fixture fixture)
+            (push
+             (* 1000.0
+                (/ (car (benchmark-run-compiled iterations
+                          (org-slipbox-buffer-bench--render-dedicated-exploration)))
+                   iterations))
+             samples-ms)))
+      (setq org-slipbox-buffer-bench--exploration-fixture nil)
       (when (get-buffer buffer-name)
         (kill-buffer buffer-name)))
     (json-encode `((samples_ms . ,(nreverse samples-ms))))))

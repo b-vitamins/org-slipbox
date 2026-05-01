@@ -25,6 +25,8 @@
     "persistent_buffer_iterations": 30,
     "dedicated_buffer_samples": 5,
     "dedicated_buffer_iterations": 20,
+    "dedicated_exploration_buffer_samples": 5,
+    "dedicated_exploration_buffer_iterations": 20,
     "search_limit": 25,
     "backlinks_limit": 200,
     "reflinks_limit": 200,
@@ -45,6 +47,7 @@
     "node_at_point_p95_ms": 2.0,
     "agenda_p95_ms": 25.0,
     "persistent_buffer_p95_ms": 20.0,
-    "dedicated_buffer_p95_ms": 30.0
+    "dedicated_buffer_p95_ms": 30.0,
+    "dedicated_exploration_buffer_p95_ms": 30.0
   }
 }
