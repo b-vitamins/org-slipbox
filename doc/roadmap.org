@@ -64,15 +64,36 @@ Watchpoints:
 - do not let “polish” work dissolve the hard persistent-versus-dedicated
   cost split
 
-* 0.8.x
+* 0.6.x
 
-Theme: research workbench and platform maturity.
+Theme: first workbench foundation.
 
 Focus:
 
-- saved views and programmable exploration extracted from the settled cockpit
-  model
-- stronger CLI and headless workflows
+- durable exploration artifacts for saved views, trails, and comparisons
+- Rust-owned artifact semantics, persistence, and execution
+- dedicated-cockpit save, load, and replay over those artifacts
+- first narrow task-shaped machine operations around those artifacts
+- keep broad CLI families, extension APIs, and agent adapters deferred
+
+Watchpoints:
+
+- do not let saved artifacts pollute public note semantics
+- do not reconstruct artifact semantics in Emacs Lisp
+- do not mirror raw transport methods when the public unit is a meaningful
+  exploratory operation
+- do not let workbench extraction weaken the persistent-versus-dedicated cost
+  split
+
+* 0.8.x
+
+Theme: broader research workbench and platform maturity.
+
+Focus:
+
+- richer programmable exploration built on durable artifacts from the settled
+  cockpit model
+- broader CLI and headless workflows
 - extension points for advanced users
 - larger benchmark corpora and stricter scale guarantees
 - extract the already-proven exploratory model into task-shaped public

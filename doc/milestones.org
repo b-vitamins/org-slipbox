@@ -74,14 +74,16 @@ Expose the engine and exploratory model as a serious programmable environment.
 
 Outcomes:
 
-- saved views and query surfaces
+- durable exploration artifacts for saved views, trails, and comparisons
+- query surfaces and first task-shaped public operations around those artifacts
 - stronger CLI and headless workflows
 - stable hooks and extension points around exploration
 - richer task, ref, and citation-driven navigation
-- task-shaped public operations instead of transport mirroring
 
 Exit criteria:
 
+- saved artifacts can be persisted, replayed, and executed through the same
+  exploration semantics already proven in the cockpit
 - users can script and automate meaningful exploratory workflows
 - buffer and query surfaces compose without reaching into unstable internals
 - extensions add capability without bending core architecture

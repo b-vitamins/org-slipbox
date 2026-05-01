@@ -70,13 +70,16 @@ that same model.
 
 The cockpit should feel settled before saved views or broader headless
 workbench extraction harden any later public surface.
+The first extraction step should be durable artifacts for saved views, trails,
+and comparisons, followed only later by broader headless and extension
+surfaces.
 
 This implies:
 
 - lenses mean the same thing in the cockpit and in headless workflows
 - explanations come from the engine rather than ad hoc frontend reconstruction
-- trails, comparisons, and later saved views are durable domain concepts, not
-  buffer accidents
+- trails, comparisons, saved views, and later workbench artifacts are durable
+  domain concepts, not buffer accidents
 - programmable surfaces expose meaningful operations rather than transport guts
 - the workbench should be extracted from a proven exploratory model, not
   invented in parallel and allowed to drift
