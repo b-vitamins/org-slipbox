@@ -6,8 +6,8 @@ use slipbox_core::{
     ExplorationSectionKind, ExploreParams, ExploreResult, ForwardLinksParams, ForwardLinksResult,
     GraphParams, GraphResult, IndexFileParams, IndexedFilesResult, ListExplorationArtifactsParams,
     ListExplorationArtifactsResult, NodeAtPointParams, NodeFromIdParams, NodeFromRefParams,
-    NodeFromTitleOrAliasParams, NoteComparisonResult, PingInfo, RandomNodeResult, ReflinksParams,
-    ReflinksResult, SaveExplorationArtifactParams, SaveExplorationArtifactResult,
+    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, PingInfo, RandomNodeResult,
+    ReflinksParams, ReflinksResult, SaveExplorationArtifactParams, SaveExplorationArtifactResult,
     SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailStep,
     SearchFilesParams, SearchFilesResult, SearchNodesParams, SearchNodesResult,
     SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams, SearchRefsResult,
@@ -469,8 +469,12 @@ fn execute_explore_query(
 fn execute_saved_lens_view(
     state: &mut ServerState,
     artifact: &SavedLensViewArtifact,
-) -> Result<ExploreResult, JsonRpcError> {
-    execute_explore_query(state, &artifact.explore_params())
+) -> Result<(NodeRecord, NodeRecord, ExploreResult), JsonRpcError> {
+    let root_note = state.known_note(&artifact.root_node_key, "saved lens-view root note")?;
+    let current_note =
+        state.known_note(&artifact.current_node_key, "saved lens-view current note")?;
+    let result = execute_explore_query(state, &artifact.explore_params())?;
+    Ok((root_note, current_note, result))
 }
 
 fn execute_compare_notes_query(
@@ -488,8 +492,10 @@ fn execute_compare_notes_query(
 fn execute_saved_comparison(
     state: &mut ServerState,
     artifact: &SavedComparisonArtifact,
-) -> Result<NoteComparisonResult, JsonRpcError> {
-    execute_compare_notes_query(state, &artifact.compare_notes_params())
+) -> Result<(NodeRecord, NoteComparisonResult), JsonRpcError> {
+    let root_note = state.known_note(&artifact.root_node_key, "saved comparison root note")?;
+    let result = execute_compare_notes_query(state, &artifact.compare_notes_params())?;
+    Ok((root_note, result))
 }
 
 fn replay_saved_trail_step(
@@ -497,14 +503,23 @@ fn replay_saved_trail_step(
     step: &SavedTrailStep,
 ) -> Result<TrailReplayStepResult, JsonRpcError> {
     match step {
-        SavedTrailStep::LensView { artifact } => Ok(TrailReplayStepResult::LensView {
-            artifact: artifact.clone(),
-            result: Box::new(execute_saved_lens_view(state, artifact)?),
-        }),
-        SavedTrailStep::Comparison { artifact } => Ok(TrailReplayStepResult::Comparison {
-            artifact: artifact.clone(),
-            result: Box::new(execute_saved_comparison(state, artifact)?),
-        }),
+        SavedTrailStep::LensView { artifact } => {
+            let (root_note, current_note, result) = execute_saved_lens_view(state, artifact)?;
+            Ok(TrailReplayStepResult::LensView {
+                artifact: artifact.clone(),
+                root_note: Box::new(root_note),
+                current_note: Box::new(current_note),
+                result: Box::new(result),
+            })
+        }
+        SavedTrailStep::Comparison { artifact } => {
+            let (root_note, result) = execute_saved_comparison(state, artifact)?;
+            Ok(TrailReplayStepResult::Comparison {
+                artifact: artifact.clone(),
+                root_note: Box::new(root_note),
+                result: Box::new(result),
+            })
+        }
     }
 }
 
@@ -520,15 +535,20 @@ pub(crate) fn execute_saved_exploration_artifact(
 
     let payload = match &artifact.payload {
         slipbox_core::ExplorationArtifactPayload::LensView { artifact } => {
+            let (root_note, current_note, result) = execute_saved_lens_view(state, artifact)?;
             ExecutedExplorationArtifactPayload::LensView {
                 artifact: artifact.clone(),
-                result: Box::new(execute_saved_lens_view(state, artifact)?),
+                root_note: Box::new(root_note),
+                current_note: Box::new(current_note),
+                result: Box::new(result),
             }
         }
         slipbox_core::ExplorationArtifactPayload::Comparison { artifact } => {
+            let (root_note, result) = execute_saved_comparison(state, artifact)?;
             ExecutedExplorationArtifactPayload::Comparison {
                 artifact: artifact.clone(),
-                result: Box::new(execute_saved_comparison(state, artifact)?),
+                root_note: Box::new(root_note),
+                result: Box::new(result),
             }
         }
         slipbox_core::ExplorationArtifactPayload::Trail { artifact } => {
@@ -1202,6 +1222,7 @@ mod tests {
                 ExecutedExplorationArtifactPayload::LensView {
                     artifact: executed_artifact,
                     result,
+                    ..
                 } => {
                     match artifact.payload {
                         ExplorationArtifactPayload::LensView { artifact } => {
@@ -1287,6 +1308,7 @@ mod tests {
             ExecutedExplorationArtifactPayload::Comparison {
                 artifact: executed_artifact,
                 result,
+                ..
             } => {
                 match artifact.payload {
                     ExplorationArtifactPayload::Comparison { artifact } => {
@@ -1315,6 +1337,8 @@ mod tests {
             root_node_key: left_key.clone(),
             left_node_key: left_key.clone(),
             right_node_key: right_key.clone(),
+            active_lens: ExplorationLens::Structure,
+            structure_unique: false,
             comparison_group: Default::default(),
             limit: 20,
             frozen_context: false,
@@ -1382,7 +1406,9 @@ mod tests {
                 assert_eq!(replay.cursor, 1);
                 assert_eq!(replay.steps.len(), 2);
                 match &replay.steps[0] {
-                    TrailReplayStepResult::LensView { artifact, result } => {
+                    TrailReplayStepResult::LensView {
+                        artifact, result, ..
+                    } => {
                         assert_eq!(artifact.as_ref(), &lens_step);
                         assert_eq!(result.as_ref(), &expected_lens);
                     }
@@ -1392,7 +1418,9 @@ mod tests {
                     ),
                 }
                 match &replay.steps[1] {
-                    TrailReplayStepResult::Comparison { artifact, result } => {
+                    TrailReplayStepResult::Comparison {
+                        artifact, result, ..
+                    } => {
                         assert_eq!(artifact.as_ref(), &comparison_step);
                         assert_eq!(result.as_ref(), &expected_comparison);
                     }
@@ -1404,7 +1432,9 @@ mod tests {
                     }
                 }
                 match replay.detached_step.as_deref() {
-                    Some(TrailReplayStepResult::LensView { artifact, result }) => {
+                    Some(TrailReplayStepResult::LensView {
+                        artifact, result, ..
+                    }) => {
                         assert_eq!(artifact.as_ref(), &detached_step);
                         assert_eq!(result.as_ref(), &expected_detached);
                     }
@@ -1514,6 +1544,7 @@ mod tests {
             ExecutedExplorationArtifactPayload::LensView {
                 artifact: executed_artifact,
                 result,
+                ..
             } => {
                 match artifact.payload {
                     ExplorationArtifactPayload::LensView { artifact } => {
@@ -1642,6 +1673,8 @@ mod tests {
                     root_node_key: left_node_key.to_owned(),
                     left_node_key: left_node_key.to_owned(),
                     right_node_key: right_node_key.to_owned(),
+                    active_lens: ExplorationLens::Structure,
+                    structure_unique: false,
                     comparison_group: Default::default(),
                     limit: 20,
                     frozen_context: false,

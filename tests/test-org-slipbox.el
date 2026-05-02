@@ -22,7 +22,11 @@
 ROOT-NODE defaults to NODE."
   (let ((params (copy-tree
                  (if (eq kind 'dedicated)
-                     '(:active-lens structure :comparison-group all :frozen-context t)
+                     `(:active-lens structure
+                       :comparison-group all
+                       :query-limit ,org-slipbox-buffer-default-query-limit
+                       :structure-unique nil
+                       :frozen-context t)
                    nil))))
     (while properties
       (setq params (plist-put params (pop properties) (pop properties))))
@@ -93,12 +97,55 @@ ROOT-NODE defaults to NODE."
      (:kind "indirect-connectors"
       :entries
       [(:kind "node"
-        :node (:node_key "file:bridge.org"
+       :node (:node_key "file:bridge.org"
                :title "Bridge"
                :file_path "bridge.org"
                :line 7)
         :explanation (:kind "indirect-connector"
                       :direction "left-to-right"))])]))
+
+(defun org-slipbox-test--structure-explore-result ()
+  "Return a minimal structure-lens exploration result."
+  '(:lens "structure"
+    :sections
+    [(:kind "backlinks" :entries [])
+     (:kind "forward-links" :entries [])]))
+
+(defun org-slipbox-test--lens-artifact-execution
+    (artifact-id title root current lens limit unique frozen)
+  "Return an executed lens-view artifact for the given saved state."
+  `(:artifact_id ,artifact-id
+    :title ,title
+    :summary nil
+    :kind "lens-view"
+    :artifact (:root_node_key ,(plist-get root :node_key)
+               :current_node_key ,(plist-get current :node_key)
+               :lens ,(symbol-name lens)
+               :limit ,limit
+               :unique ,unique
+               :frozen_context ,frozen)
+    :root_note ,root
+    :current_note ,current
+    :result ,(org-slipbox-test--structure-explore-result)))
+
+(defun org-slipbox-test--comparison-artifact-execution
+    (artifact-id title root left right active-lens limit structure-unique
+                 comparison-group frozen)
+  "Return an executed comparison artifact for the given saved state."
+  `(:artifact_id ,artifact-id
+    :title ,title
+    :summary nil
+    :kind "comparison"
+    :artifact (:root_node_key ,(plist-get root :node_key)
+               :left_node_key ,(plist-get left :node_key)
+               :right_node_key ,(plist-get right :node_key)
+               :active_lens ,(symbol-name active-lens)
+               :structure_unique ,structure-unique
+               :comparison_group ,(symbol-name comparison-group)
+               :limit ,limit
+               :frozen_context ,frozen)
+    :root_note ,root
+    :result ,(org-slipbox-test--comparison-result left right)))
 
 (ert-deftest org-slipbox-test-feature-provided ()
   "The package entry feature should load cleanly."
@@ -3421,6 +3468,8 @@ ROOT-NODE defaults to NODE."
             (should (equal (plist-get saved-artifact :root_node_key) "file:left.org"))
             (should (equal (plist-get saved-artifact :left_node_key) "file:left.org"))
             (should (equal (plist-get saved-artifact :right_node_key) "file:right.org"))
+            (should (equal (plist-get saved-artifact :active_lens) "structure"))
+            (should (eq (plist-get saved-artifact :structure_unique) :json-false))
             (should (equal (plist-get saved-artifact :comparison_group) "tension"))
             (should (= (plist-get saved-artifact :limit)
                        org-slipbox-buffer-default-query-limit))
@@ -3527,6 +3576,257 @@ ROOT-NODE defaults to NODE."
                          (ert-fail "save RPC should not run for unrepresentable structure plans"))))
               (should-error (org-slipbox-buffer-save-artifact)
                             :type 'user-error)))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-load-artifact-restores-lens-view-session ()
+  "Dedicated load should restore a saved lens-view into the cockpit model."
+  (let* ((stale '(:node_key "file:stale.org" :title "Stale" :file_path "stale.org" :line 1))
+         (root '(:node_key "file:root.org" :title "Root" :file_path "root.org" :line 1))
+         (current '(:node_key "file:current.org"
+                    :title "Current"
+                    :file_path "current.org"
+                    :line 1))
+         (summary '(:artifact_id "saved-structure"
+                    :title "Saved Structure"
+                    :kind "lens-view"))
+         executed-id
+         explore-args)
+    (with-current-buffer (get-buffer-create "*org-slipbox load lens test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session 'dedicated stale))
+            (cl-letf (((symbol-function 'completing-read)
+                       (lambda (_prompt choices &rest _args)
+                         (caar choices)))
+                      ((symbol-function 'org-slipbox-rpc-list-exploration-artifacts)
+                       (lambda ()
+                         `(:artifacts [,summary])))
+                      ((symbol-function 'org-slipbox-rpc-execute-exploration-artifact)
+                       (lambda (artifact-id)
+                         (setq executed-id artifact-id)
+                         `(:artifact
+                           ,(org-slipbox-test--lens-artifact-execution
+                             "saved-structure"
+                             "Saved Structure"
+                             root
+                             current
+                             'structure
+                             25
+                             t
+                             t))))
+                      ((symbol-function 'org-slipbox-rpc-explore)
+                       (lambda (node-key lens &optional limit unique)
+                         (setq explore-args (list node-key lens limit unique))
+                         (org-slipbox-test--structure-explore-result)))
+                      ((symbol-function 'message)
+                       #'ignore))
+              (should
+               (equal (org-slipbox-buffer-load-artifact)
+                      summary)))
+            (should (equal executed-id "saved-structure"))
+            (should (equal (org-slipbox-buffer-session-current-node org-slipbox-buffer-session)
+                           current))
+            (should (equal (org-slipbox-buffer-session-root-node org-slipbox-buffer-session)
+                           root))
+            (should (eq (org-slipbox-buffer--current-lens) 'structure))
+            (should (= (org-slipbox-buffer--current-query-limit) 25))
+            (should (org-slipbox-buffer--current-structure-unique))
+            (should (org-slipbox-buffer-session-frozen-context org-slipbox-buffer-session))
+            (should (equal explore-args '("file:current.org" structure 25 t)))
+            (should (string-match-p "Current  |  lens: structure  |  root: Root"
+                                    header-line-format)))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-load-artifact-refuses-conflicting-structure-plan ()
+  "Dedicated load should reject saved structure semantics the current plan overrides."
+  (let ((org-slipbox-buffer-lens-plans
+         '((structure
+            org-slipbox-buffer-node-section
+            (org-slipbox-buffer-backlinks-section :unique nil :limit 200)
+            (org-slipbox-buffer-forward-links-section :unique nil :limit 200))))
+        (stale '(:node_key "file:stale.org" :title "Stale" :file_path "stale.org" :line 1))
+        (root '(:node_key "file:root.org" :title "Root" :file_path "root.org" :line 1))
+        (current '(:node_key "file:current.org"
+                   :title "Current"
+                   :file_path "current.org"
+                   :line 1))
+        (summary '(:artifact_id "saved-structure"
+                   :title "Saved Structure"
+                   :kind "lens-view")))
+    (with-current-buffer (get-buffer-create "*org-slipbox load invalid structure test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session 'dedicated stale))
+            (cl-letf (((symbol-function 'completing-read)
+                       (lambda (_prompt choices &rest _args)
+                         (caar choices)))
+                      ((symbol-function 'org-slipbox-rpc-list-exploration-artifacts)
+                       (lambda ()
+                         `(:artifacts [,summary])))
+                      ((symbol-function 'org-slipbox-rpc-execute-exploration-artifact)
+                       (lambda (_artifact-id)
+                         `(:artifact
+                           ,(org-slipbox-test--lens-artifact-execution
+                             "saved-structure"
+                             "Saved Structure"
+                             root
+                             current
+                             'structure
+                             25
+                             t
+                             t))))
+                      ((symbol-function 'org-slipbox-rpc-explore)
+                       (lambda (&rest _args)
+                         (ert-fail "load should reject conflicting structure plans before querying"))))
+              (should-error (org-slipbox-buffer-load-artifact)
+                            :type 'user-error)))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-load-artifact-restores-comparison-state ()
+  "Dedicated load should restore comparison mode and its underlying lens."
+  (let* ((stale '(:node_key "file:stale.org" :title "Stale" :file_path "stale.org" :line 1))
+         (root '(:node_key "file:root.org" :title "Root" :file_path "root.org" :line 1))
+         (left '(:node_key "file:left.org" :title "Left" :file_path "left.org" :line 1))
+         (right '(:node_key "file:right.org" :title "Right" :file_path "right.org" :line 1))
+         (summary '(:artifact_id "saved-comparison"
+                    :title "Saved Comparison"
+                    :kind "comparison"))
+         compare-args
+         explore-args)
+    (with-current-buffer (get-buffer-create "*org-slipbox load comparison test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session 'dedicated stale))
+            (cl-letf (((symbol-function 'completing-read)
+                       (lambda (_prompt choices &rest _args)
+                         (caar choices)))
+                      ((symbol-function 'org-slipbox-rpc-list-exploration-artifacts)
+                       (lambda ()
+                         `(:artifacts [,summary])))
+                      ((symbol-function 'org-slipbox-rpc-execute-exploration-artifact)
+                       (lambda (_artifact-id)
+                         `(:artifact
+                           ,(org-slipbox-test--comparison-artifact-execution
+                             "saved-comparison"
+                             "Saved Comparison"
+                             root
+                             left
+                             right
+                             'tasks
+                             30
+                             nil
+                             'tension
+                             t))))
+                      ((symbol-function 'org-slipbox-rpc-compare-notes)
+                       (lambda (left-key right-key &optional limit)
+                         (setq compare-args (list left-key right-key limit))
+                         (org-slipbox-test--comparison-result left right)))
+                      ((symbol-function 'org-slipbox-rpc-explore)
+                       (lambda (node-key lens &optional limit unique)
+                         (setq explore-args (list node-key lens limit unique))
+                         '(:lens "tasks"
+                           :sections [(:kind "task-neighbors" :entries [])])))
+                      ((symbol-function 'message) #'ignore))
+              (let ((loaded (org-slipbox-buffer-load-artifact)))
+                (should (equal loaded summary))
+                (should (equal compare-args '("file:left.org" "file:right.org" 30)))
+                (should (eq (org-slipbox-buffer--current-lens) 'tasks))
+                (should (= (org-slipbox-buffer--current-query-limit) 30))
+                (should-not (org-slipbox-buffer--current-structure-unique))
+                (should (eq (org-slipbox-buffer--current-comparison-group) 'tension))
+                (should (equal (org-slipbox-buffer--compare-target) right))
+                (should (equal (org-slipbox-buffer-session-root-node org-slipbox-buffer-session)
+                               root))
+                (should (org-slipbox-buffer-session-frozen-context org-slipbox-buffer-session))
+                (org-slipbox-buffer-clear-compare-target)
+                (should (equal explore-args '("file:left.org" tasks 30 nil)))
+                (should-not (org-slipbox-buffer--compare-target))
+                (should (eq (org-slipbox-buffer--current-lens) 'tasks)))))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-load-artifact-restores-detached-trail-state ()
+  "Dedicated load should restore saved trail replay without a parallel mode."
+  (let* ((stale '(:node_key "file:stale.org" :title "Stale" :file_path "stale.org" :line 1))
+         (root '(:node_key "file:root.org" :title "Root" :file_path "root.org" :line 1))
+         (trail-a '(:node_key "file:a.org" :title "A" :file_path "a.org" :line 1))
+         (trail-b '(:node_key "file:b.org" :title "B" :file_path "b.org" :line 1))
+         (trail-c '(:node_key "file:c.org" :title "C" :file_path "c.org" :line 1))
+         (summary '(:artifact_id "saved-trail"
+                    :title "Saved Trail"
+                    :kind "trail"))
+         (executed
+          `(:artifact_id "saved-trail"
+            :title "Saved Trail"
+            :summary nil
+            :kind "trail"
+            :artifact (:steps []
+                       :cursor 0)
+            :replay
+            (:steps
+             [,(org-slipbox-test--lens-artifact-execution
+                 "trail-step-1" "Trail Step 1" root trail-a
+                 'structure 25 t t)
+              ,(org-slipbox-test--comparison-artifact-execution
+                 "trail-step-2" "Trail Step 2" root trail-b trail-c
+                 'bridges 40 nil 'overlap t)]
+             :cursor 0
+             :detached_step
+             ,(org-slipbox-test--lens-artifact-execution
+               "trail-detached" "Trail Detached" root trail-c
+               'refs 15 nil t))))
+         compare-args
+         explore-args)
+    (with-current-buffer (get-buffer-create "*org-slipbox load trail test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session 'dedicated stale))
+            (cl-letf (((symbol-function 'completing-read)
+                       (lambda (_prompt choices &rest _args)
+                         (caar choices)))
+                      ((symbol-function 'org-slipbox-rpc-list-exploration-artifacts)
+                       (lambda ()
+                         `(:artifacts [,summary])))
+                      ((symbol-function 'org-slipbox-rpc-execute-exploration-artifact)
+                       (lambda (_artifact-id)
+                         `(:artifact ,executed)))
+                      ((symbol-function 'org-slipbox-rpc-explore)
+                       (lambda (node-key lens &optional limit unique)
+                         (setq explore-args (list node-key lens limit unique))
+                         (pcase lens
+                           ('refs
+                            '(:lens "refs"
+                              :sections
+                              [(:kind "reflinks" :entries [])
+                               (:kind "unlinked-references" :entries [])]))
+                           (_
+                            (org-slipbox-test--structure-explore-result)))))
+                      ((symbol-function 'org-slipbox-rpc-compare-notes)
+                       (lambda (left-key right-key &optional limit)
+                         (setq compare-args (list left-key right-key limit))
+                         (org-slipbox-test--comparison-result trail-b trail-c)))
+                      ((symbol-function 'message)
+                       #'ignore))
+              (let ((loaded (org-slipbox-buffer-load-artifact)))
+                (should (equal loaded summary))
+                (should (= (length (org-slipbox-buffer--trail)) 2))
+                (should (= (org-slipbox-buffer--trail-position) 0))
+                (should (org-slipbox-buffer--trail-detached-p))
+                (should (equal (org-slipbox-buffer-session-current-node org-slipbox-buffer-session)
+                               trail-c))
+                (should (eq (org-slipbox-buffer--current-lens) 'refs))
+                (should (= (org-slipbox-buffer--current-query-limit) 15))
+                (should (equal explore-args '("file:c.org" refs 15 nil)))
+                (org-slipbox-buffer-trail-forward)
+                (should (equal compare-args '("file:b.org" "file:c.org" 40)))
+                (should (org-slipbox-buffer--trail-attached-p))
+                (should (equal (org-slipbox-buffer-session-current-node org-slipbox-buffer-session)
+                               trail-b))
+                (should (equal (org-slipbox-buffer--compare-target) trail-c))
+                (should (eq (org-slipbox-buffer--current-comparison-group) 'overlap)))))
         (kill-buffer (current-buffer))))))
 
 (ert-deftest org-slipbox-test-buffer-save-artifact-prompts-before-overwrite ()
@@ -4335,6 +4635,18 @@ ROOT-NODE defaults to NODE."
       (org-slipbox-rpc-list-exploration-artifacts))
     (should (equal method "slipbox/listExplorationArtifacts"))
     (should-not params)))
+
+(ert-deftest org-slipbox-test-rpc-execute-exploration-artifact-encodes-params ()
+  "Executing a saved artifact should encode its durable identifier explicitly."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:artifact (:artifact_id "focus")))))
+      (org-slipbox-rpc-execute-exploration-artifact "focus"))
+    (should (equal method "slipbox/executeExplorationArtifact"))
+    (should (equal params '(:artifact_id "focus")))))
 
 (ert-deftest org-slipbox-test-rpc-reflinks-encodes-params ()
   "Reflink RPC should encode node key and limit explicitly."

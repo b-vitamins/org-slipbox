@@ -990,6 +990,9 @@ pub struct SavedComparisonArtifact {
     pub root_node_key: String,
     pub left_node_key: String,
     pub right_node_key: String,
+    pub active_lens: ExplorationLens,
+    #[serde(default)]
+    pub structure_unique: bool,
     #[serde(default)]
     pub comparison_group: NoteComparisonGroup,
     #[serde(default = "default_backlink_limit")]
@@ -1028,6 +1031,14 @@ impl SavedComparisonArtifact {
             .or_else(|| {
                 (self.left_node_key.trim() == self.right_node_key.trim())
                     .then(|| "left_node_key and right_node_key must differ".to_owned())
+            })
+            .or_else(|| {
+                (self.structure_unique && self.active_lens != ExplorationLens::Structure).then(
+                    || {
+                        "comparison structure_unique is only supported for the structure lens"
+                            .to_owned()
+                    },
+                )
             })
     }
 }
@@ -1157,10 +1168,13 @@ impl SavedExplorationArtifact {
 pub enum TrailReplayStepResult {
     LensView {
         artifact: Box<SavedLensViewArtifact>,
+        root_note: Box<NodeRecord>,
+        current_note: Box<NodeRecord>,
         result: Box<ExploreResult>,
     },
     Comparison {
         artifact: Box<SavedComparisonArtifact>,
+        root_note: Box<NodeRecord>,
         result: Box<NoteComparisonResult>,
     },
 }
@@ -1178,10 +1192,13 @@ pub struct TrailReplayResult {
 pub enum ExecutedExplorationArtifactPayload {
     LensView {
         artifact: Box<SavedLensViewArtifact>,
+        root_note: Box<NodeRecord>,
+        current_note: Box<NodeRecord>,
         result: Box<ExploreResult>,
     },
     Comparison {
         artifact: Box<SavedComparisonArtifact>,
+        root_note: Box<NodeRecord>,
         result: Box<NoteComparisonResult>,
     },
     Trail {
@@ -2542,6 +2559,8 @@ mod tests {
                     root_node_key: "file:focus.org".to_owned(),
                     left_node_key: "heading:focus.org:3".to_owned(),
                     right_node_key: "heading:neighbor.org:7".to_owned(),
+                    active_lens: ExplorationLens::Tasks,
+                    structure_unique: false,
                     comparison_group: NoteComparisonGroup::Tension,
                     limit: 0,
                     frozen_context: true,
@@ -2563,6 +2582,8 @@ mod tests {
                 "root_node_key": "file:focus.org",
                 "left_node_key": "heading:focus.org:3",
                 "right_node_key": "heading:neighbor.org:7",
+                "active_lens": "tasks",
+                "structure_unique": false,
                 "comparison_group": "tension",
                 "limit": 0,
                 "frozen_context": true
@@ -2576,6 +2597,8 @@ mod tests {
             root_node_key: "heading:focus.org:3".to_owned(),
             left_node_key: "heading:focus.org:3".to_owned(),
             right_node_key: "heading:focus.org:3".to_owned(),
+            active_lens: ExplorationLens::Structure,
+            structure_unique: false,
             comparison_group: NoteComparisonGroup::All,
             limit: 25,
             frozen_context: false,
@@ -2590,6 +2613,8 @@ mod tests {
             root_node_key: "heading:previous.org:1".to_owned(),
             left_node_key: "heading:focus.org:3".to_owned(),
             right_node_key: "heading:neighbor.org:7".to_owned(),
+            active_lens: ExplorationLens::Structure,
+            structure_unique: false,
             comparison_group: NoteComparisonGroup::All,
             limit: 25,
             frozen_context: false,
@@ -2627,6 +2652,8 @@ mod tests {
                                 root_node_key: "file:focus.org".to_owned(),
                                 left_node_key: "heading:focus.org:3".to_owned(),
                                 right_node_key: "heading:neighbor.org:7".to_owned(),
+                                active_lens: ExplorationLens::Refs,
+                                structure_unique: false,
                                 comparison_group: NoteComparisonGroup::Overlap,
                                 limit: 100,
                                 frozen_context: true,
@@ -2639,6 +2666,8 @@ mod tests {
                             root_node_key: "file:focus.org".to_owned(),
                             left_node_key: "heading:focus.org:3".to_owned(),
                             right_node_key: "heading:tension.org:9".to_owned(),
+                            active_lens: ExplorationLens::Structure,
+                            structure_unique: true,
                             comparison_group: NoteComparisonGroup::Tension,
                             limit: 100,
                             frozen_context: true,
@@ -2694,6 +2723,46 @@ mod tests {
                             limit: 5,
                             unique: false,
                             frozen_context: false,
+                        }),
+                        root_note: Box::new(NodeRecord {
+                            node_key: "file:focus.org".to_owned(),
+                            explicit_id: Some("focus-id".to_owned()),
+                            file_path: "focus.org".to_owned(),
+                            title: "Focus".to_owned(),
+                            outline_path: String::new(),
+                            aliases: Vec::new(),
+                            tags: Vec::new(),
+                            refs: Vec::new(),
+                            todo_keyword: None,
+                            scheduled_for: None,
+                            deadline_for: None,
+                            closed_at: None,
+                            level: 0,
+                            line: 1,
+                            kind: NodeKind::File,
+                            file_mtime_ns: 123,
+                            backlink_count: 1,
+                            forward_link_count: 0,
+                        }),
+                        current_note: Box::new(NodeRecord {
+                            node_key: "file:focus.org".to_owned(),
+                            explicit_id: Some("focus-id".to_owned()),
+                            file_path: "focus.org".to_owned(),
+                            title: "Focus".to_owned(),
+                            outline_path: String::new(),
+                            aliases: Vec::new(),
+                            tags: Vec::new(),
+                            refs: Vec::new(),
+                            todo_keyword: None,
+                            scheduled_for: None,
+                            deadline_for: None,
+                            closed_at: None,
+                            level: 0,
+                            line: 1,
+                            kind: NodeKind::File,
+                            file_mtime_ns: 123,
+                            backlink_count: 1,
+                            forward_link_count: 0,
                         }),
                         result: Box::new(ExploreResult {
                             lens: ExplorationLens::Structure,
@@ -2791,6 +2860,46 @@ mod tests {
                         limit: 20,
                         unique: false,
                         frozen_context: false,
+                    }),
+                    root_note: Box::new(NodeRecord {
+                        node_key: "file:focus.org".to_owned(),
+                        explicit_id: None,
+                        file_path: "focus.org".to_owned(),
+                        title: "Focus".to_owned(),
+                        outline_path: String::new(),
+                        aliases: Vec::new(),
+                        tags: Vec::new(),
+                        refs: Vec::new(),
+                        todo_keyword: None,
+                        scheduled_for: None,
+                        deadline_for: None,
+                        closed_at: None,
+                        level: 0,
+                        line: 1,
+                        kind: NodeKind::File,
+                        file_mtime_ns: 0,
+                        backlink_count: 0,
+                        forward_link_count: 0,
+                    }),
+                    current_note: Box::new(NodeRecord {
+                        node_key: "file:focus.org".to_owned(),
+                        explicit_id: None,
+                        file_path: "focus.org".to_owned(),
+                        title: "Focus".to_owned(),
+                        outline_path: String::new(),
+                        aliases: Vec::new(),
+                        tags: Vec::new(),
+                        refs: Vec::new(),
+                        todo_keyword: None,
+                        scheduled_for: None,
+                        deadline_for: None,
+                        closed_at: None,
+                        level: 0,
+                        line: 1,
+                        kind: NodeKind::File,
+                        file_mtime_ns: 0,
+                        backlink_count: 0,
+                        forward_link_count: 0,
                     }),
                     result: Box::new(ExploreResult {
                         lens: ExplorationLens::Structure,
@@ -2936,6 +3045,8 @@ mod tests {
                     root_node_key: "heading:focus.org:3".to_owned(),
                     left_node_key: "heading:focus.org:3".to_owned(),
                     right_node_key: "heading:focus.org:3".to_owned(),
+                    active_lens: ExplorationLens::Structure,
+                    structure_unique: false,
                     comparison_group: NoteComparisonGroup::All,
                     limit: 10,
                     frozen_context: false,

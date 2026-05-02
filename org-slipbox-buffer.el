@@ -180,6 +180,8 @@ Return non-nil to render the section, or nil to skip it."
   active-lens
   compare-target
   comparison-group
+  query-limit
+  structure-unique
   trail
   trail-index
   history
@@ -196,6 +198,7 @@ Return non-nil to render the section, or nil to skip it."
 (defvar org-slipbox-buffer-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "l") #'org-slipbox-buffer-switch-lens)
+    (define-key map (kbd "o") #'org-slipbox-buffer-load-artifact)
     (define-key map (kbd "s") #'org-slipbox-buffer-save-artifact)
     (define-key map (kbd "c") #'org-slipbox-buffer-set-compare-target)
     (define-key map (kbd "C") #'org-slipbox-buffer-clear-compare-target)
@@ -402,6 +405,18 @@ Return non-nil to render the section, or nil to skip it."
       (message "Saved exploration artifact %s" (plist-get saved :artifact_id))
       saved)))
 
+(defun org-slipbox-buffer-load-artifact ()
+  "Load a saved exploration artifact into the current dedicated cockpit."
+  (interactive)
+  (let* ((session (org-slipbox-buffer--require-dedicated-session))
+         (summary (org-slipbox-buffer--read-artifact-summary))
+         (artifact-id (plist-get summary :artifact_id))
+         (response (org-slipbox-rpc-execute-exploration-artifact artifact-id))
+         (executed (plist-get response :artifact)))
+    (org-slipbox-buffer--restore-executed-artifact session executed)
+    (message "Loaded exploration artifact %s" artifact-id)
+    summary))
+
 (defun org-slipbox-buffer-history-back ()
   "Move backward through dedicated-buffer navigation history."
   (interactive)
@@ -569,6 +584,8 @@ Dedicated-only state must not survive on the persistent tracking path."
         (org-slipbox-buffer-session-active-lens session) nil
         (org-slipbox-buffer-session-compare-target session) nil
         (org-slipbox-buffer-session-comparison-group session) nil
+        (org-slipbox-buffer-session-query-limit session) nil
+        (org-slipbox-buffer-session-structure-unique session) nil
         (org-slipbox-buffer-session-trail session) nil
         (org-slipbox-buffer-session-trail-index session) nil
         (org-slipbox-buffer-session-history session) nil
@@ -585,6 +602,8 @@ Dedicated-only state must not survive on the persistent tracking path."
    :root-node node
    :active-lens 'structure
    :comparison-group 'all
+   :query-limit org-slipbox-buffer-default-query-limit
+   :structure-unique nil
    :frozen-context t))
 
 (defun org-slipbox-buffer--session-node (&optional session)
@@ -618,6 +637,17 @@ Dedicated-only state must not survive on the persistent tracking path."
   "Return the active exploration lens for SESSION or the current buffer."
   (when-let ((session (or session org-slipbox-buffer-session)))
     (org-slipbox-buffer-session-active-lens session)))
+
+(defun org-slipbox-buffer--current-query-limit (&optional session)
+  "Return the active query limit for SESSION or the current buffer."
+  (when-let ((session (or session org-slipbox-buffer-session)))
+    (or (org-slipbox-buffer-session-query-limit session)
+        org-slipbox-buffer-default-query-limit)))
+
+(defun org-slipbox-buffer--current-structure-unique (&optional session)
+  "Return the active structure-unique flag for SESSION or the current buffer."
+  (when-let ((session (or session org-slipbox-buffer-session)))
+    (and (org-slipbox-buffer-session-structure-unique session) t)))
 
 (defun org-slipbox-buffer--compare-target (&optional session)
   "Return the comparison target for SESSION or the current buffer."
@@ -679,6 +709,8 @@ Dedicated-only state must not survive on the persistent tracking path."
           :active-lens (org-slipbox-buffer-session-active-lens session)
           :compare-target (org-slipbox-buffer-session-compare-target session)
           :comparison-group (org-slipbox-buffer--current-comparison-group session)
+          :query-limit (org-slipbox-buffer--current-query-limit session)
+          :structure-unique (org-slipbox-buffer--current-structure-unique session)
           :frozen-context (org-slipbox-buffer-session-frozen-context session))))
 
 (defun org-slipbox-buffer--artifact-save-scope-choices (session)
@@ -778,6 +810,23 @@ Dedicated-only state must not survive on the persistent tracking path."
   (org-slipbox--plist-sequence
    (plist-get (org-slipbox-rpc-list-exploration-artifacts) :artifacts)))
 
+(defun org-slipbox-buffer--artifact-summary-choice (summary)
+  "Return a completing-read choice for saved artifact SUMMARY."
+  (cons (format "%s [%s] <%s>"
+                (plist-get summary :title)
+                (plist-get summary :kind)
+                (plist-get summary :artifact_id))
+        summary))
+
+(defun org-slipbox-buffer--read-artifact-summary ()
+  "Read a saved exploration artifact summary."
+  (let* ((summaries (org-slipbox-buffer--artifact-summaries))
+         (choices (mapcar #'org-slipbox-buffer--artifact-summary-choice summaries)))
+    (unless choices
+      (user-error "No saved exploration artifacts"))
+    (cdr (assoc (completing-read "Open artifact: " choices nil t nil nil (caar choices))
+                choices))))
+
 (defun org-slipbox-buffer--confirm-artifact-overwrite (artifact-id)
   "Prompt before overwriting saved ARTIFACT-ID."
   (when-let ((existing
@@ -795,6 +844,14 @@ Dedicated-only state must not survive on the persistent tracking path."
   (or (plist-get node :node_key)
       (user-error "Current %s does not have a node key" context)))
 
+(defun org-slipbox-buffer--artifact-lens-symbol (value)
+  "Return VALUE normalized as an exploration lens symbol."
+  (if (symbolp value) value (intern value)))
+
+(defun org-slipbox-buffer--artifact-comparison-group-symbol (value)
+  "Return VALUE normalized as a comparison-group symbol."
+  (if (symbolp value) value (intern (or value "all"))))
+
 (defun org-slipbox-buffer--section-args (section)
   "Return SECTION argument plist, or nil for a bare function SECTION."
   (pcase section
@@ -803,10 +860,10 @@ Dedicated-only state must not survive on the persistent tracking path."
     (_
      (user-error "Invalid org-slipbox buffer section specification: %S" section))))
 
-(defun org-slipbox-buffer--saved-structure-section-options (section)
-  "Return representable structure-query options for SECTION.
+(defun org-slipbox-buffer--structure-section-query-shape (section)
+  "Return representable structure-query shape metadata for SECTION.
 Signal a user error when SECTION changes the structure view in a way the
-saved artifact model cannot encode faithfully."
+session and saved artifact models cannot encode faithfully."
   (let* ((function (org-slipbox-buffer--section-function section))
          (args (org-slipbox-buffer--section-args section))
          (allowed-filter-key
@@ -815,15 +872,19 @@ saved artifact model cannot encode faithfully."
             ('org-slipbox-buffer-forward-links-section :show-forward-link-p)
             (_
              (user-error "Unsupported structure section %S" function))))
+         (explicit-unique-p nil)
          (unique nil)
+         (explicit-limit-p nil)
          (limit org-slipbox-buffer-default-query-limit))
     (while args
       (let ((key (pop args))
             (value (pop args)))
         (pcase key
           (:unique
+           (setq explicit-unique-p t)
            (setq unique (and value t)))
           (:limit
+           (setq explicit-limit-p t)
            (setq limit value))
           (:section-heading nil)
           ((guard (eq key allowed-filter-key))
@@ -837,49 +898,71 @@ saved artifact model cannot encode faithfully."
             "Current structure lens plan cannot be saved faithfully: %S uses unsupported option %S"
             function
             key)))))
-    `(:unique ,unique :limit ,limit)))
+    `(:function ,function
+      :explicit-unique-p ,explicit-unique-p
+      :unique ,unique
+      :explicit-limit-p ,explicit-limit-p
+      :limit ,limit)))
 
-(defun org-slipbox-buffer--saved-structure-query-options ()
-  "Return representable saved-query options for the structure lens.
-Signal a user error when the active dedicated structure plan cannot be
-serialized faithfully into the saved artifact model."
+(defun org-slipbox-buffer--structure-plan-query-options (fallback-limit fallback-unique)
+  "Return effective structure query options for the active dedicated plan.
+FALLBACK-LIMIT and FALLBACK-UNIQUE supply the session-owned values when the
+dedicated plan omits explicit structure-query modifiers."
   (let ((plan (org-slipbox-buffer--dedicated-section-plan 'structure))
-        backlinks-options
-        forward-links-options)
+        backlinks-shape
+        forward-links-shape)
     (dolist (section plan)
       (pcase (org-slipbox-buffer--section-function section)
         ((or 'org-slipbox-buffer-node-section
              'org-slipbox-buffer-refs-section)
          nil)
         ('org-slipbox-buffer-backlinks-section
-         (when backlinks-options
+         (when backlinks-shape
            (user-error
             "Current structure lens plan cannot be saved faithfully: multiple backlink sections are not representable"))
-         (setq backlinks-options
-               (org-slipbox-buffer--saved-structure-section-options section)))
+         (setq backlinks-shape
+               (org-slipbox-buffer--structure-section-query-shape section)))
         ('org-slipbox-buffer-forward-links-section
-         (when forward-links-options
+         (when forward-links-shape
            (user-error
             "Current structure lens plan cannot be saved faithfully: multiple forward-link sections are not representable"))
-         (setq forward-links-options
-               (org-slipbox-buffer--saved-structure-section-options section)))
+         (setq forward-links-shape
+               (org-slipbox-buffer--structure-section-query-shape section)))
         (_
          (user-error
           "Current structure lens plan cannot be saved faithfully: section %S is not part of the saved structure lens model"
           (org-slipbox-buffer--section-function section)))))
-    (unless (and backlinks-options forward-links-options)
+    (unless (and backlinks-shape forward-links-shape)
       (user-error
        "Current structure lens plan cannot be saved faithfully: it must include exactly one backlinks section and one forward-links section"))
-    (unless (equal backlinks-options forward-links-options)
-      (user-error
-       "Current structure lens plan cannot be saved faithfully: backlinks and forward links must use the same :unique and :limit"))
-    backlinks-options))
+    (let* ((backlinks-options
+            `(:limit ,(if (plist-get backlinks-shape :explicit-limit-p)
+                          (plist-get backlinks-shape :limit)
+                        fallback-limit)
+              :unique ,(if (plist-get backlinks-shape :explicit-unique-p)
+                           (plist-get backlinks-shape :unique)
+                         fallback-unique)))
+           (forward-links-options
+            `(:limit ,(if (plist-get forward-links-shape :explicit-limit-p)
+                          (plist-get forward-links-shape :limit)
+                        fallback-limit)
+              :unique ,(if (plist-get forward-links-shape :explicit-unique-p)
+                           (plist-get forward-links-shape :unique)
+                         fallback-unique))))
+      (unless (equal backlinks-options forward-links-options)
+        (user-error
+         "Current structure lens plan cannot be saved faithfully: backlinks and forward links must use the same effective :unique and :limit"))
+      backlinks-options)))
 
-(defun org-slipbox-buffer--saved-lens-query-options (lens)
-  "Return representable saved-query options for LENS."
-  (if (eq lens 'structure)
-      (org-slipbox-buffer--saved-structure-query-options)
-    `(:limit ,org-slipbox-buffer-default-query-limit
+(defun org-slipbox-buffer--saved-lens-query-options (snapshot)
+  "Return representable saved-query options for SNAPSHOT."
+  (if (eq (plist-get snapshot :active-lens) 'structure)
+      (org-slipbox-buffer--structure-plan-query-options
+       (or (plist-get snapshot :query-limit)
+           org-slipbox-buffer-default-query-limit)
+       (and (plist-get snapshot :structure-unique) t))
+    `(:limit ,(or (plist-get snapshot :query-limit)
+                  org-slipbox-buffer-default-query-limit)
       :unique nil)))
 
 (defun org-slipbox-buffer--saved-lens-view-artifact (snapshot)
@@ -887,9 +970,7 @@ serialized faithfully into the saved artifact model."
   (let ((root-node (plist-get snapshot :root-node))
         (current-node (plist-get snapshot :current-node))
         (lens (plist-get snapshot :active-lens))
-        (query-options
-         (org-slipbox-buffer--saved-lens-query-options
-          (plist-get snapshot :active-lens))))
+        (query-options (org-slipbox-buffer--saved-lens-query-options snapshot)))
     `(:kind "lens-view"
       :root_node_key ,(org-slipbox-buffer--required-node-key root-node "root node")
       :current_node_key ,(org-slipbox-buffer--required-node-key current-node "node")
@@ -898,6 +979,110 @@ serialized faithfully into the saved artifact model."
       :unique ,(org-slipbox-rpc--bool (plist-get query-options :unique))
       :frozen_context
       ,(org-slipbox-rpc--bool (plist-get snapshot :frozen-context)))))
+
+(defun org-slipbox-buffer--validate-restored-snapshot (snapshot)
+  "Validate that restored dedicated SNAPSHOT can replay faithfully here."
+  (when (eq (plist-get snapshot :active-lens) 'structure)
+    (let* ((requested-limit (or (plist-get snapshot :query-limit)
+                                org-slipbox-buffer-default-query-limit))
+           (requested-unique (and (plist-get snapshot :structure-unique) t))
+           (effective
+            (org-slipbox-buffer--structure-plan-query-options
+             requested-limit
+             requested-unique)))
+      (unless (equal effective
+                     `(:limit ,requested-limit :unique ,requested-unique))
+        (user-error
+         "Current structure lens plan cannot replay this artifact faithfully: saved and effective structure query semantics differ"))))
+  snapshot)
+
+(defun org-slipbox-buffer--snapshot-from-executed-lens-view (execution)
+  "Return a dedicated snapshot restored from executed lens-view EXECUTION."
+  (org-slipbox-buffer--validate-restored-snapshot
+   `(:current-node ,(plist-get execution :current_note)
+     :root-node ,(plist-get execution :root_note)
+     :active-lens ,(org-slipbox-buffer--artifact-lens-symbol
+                    (plist-get (plist-get execution :artifact) :lens))
+     :compare-target nil
+     :comparison-group all
+     :query-limit ,(plist-get (plist-get execution :artifact) :limit)
+     :structure-unique ,(and (plist-get (plist-get execution :artifact) :unique) t)
+     :frozen-context ,(plist-get (plist-get execution :artifact) :frozen_context))))
+
+(defun org-slipbox-buffer--snapshot-from-executed-comparison (execution)
+  "Return a dedicated snapshot restored from executed comparison EXECUTION."
+  (let ((artifact (plist-get execution :artifact))
+        (result (plist-get execution :result)))
+    (org-slipbox-buffer--validate-restored-snapshot
+     `(:current-node ,(plist-get result :left_note)
+       :root-node ,(plist-get execution :root_note)
+       :active-lens ,(org-slipbox-buffer--artifact-lens-symbol
+                      (plist-get artifact :active_lens))
+       :compare-target ,(plist-get result :right_note)
+       :comparison-group
+       ,(org-slipbox-buffer--artifact-comparison-group-symbol
+         (plist-get artifact :comparison_group))
+       :query-limit ,(plist-get artifact :limit)
+       :structure-unique ,(and (plist-get artifact :structure_unique) t)
+       :frozen-context ,(plist-get artifact :frozen_context)))))
+
+(defun org-slipbox-buffer--snapshot-from-executed-trail-step (step)
+  "Return a dedicated snapshot restored from executed trail STEP."
+  (pcase (plist-get step :kind)
+    ("lens-view"
+     (org-slipbox-buffer--snapshot-from-executed-lens-view step))
+    ("comparison"
+     (org-slipbox-buffer--snapshot-from-executed-comparison step))
+    (_
+     (user-error "Unsupported executed trail step kind %S"
+                 (plist-get step :kind)))))
+
+(defun org-slipbox-buffer--restore-trail-state (session replay)
+  "Restore dedicated SESSION from executed trail REPLAY."
+  (let* ((steps (mapcar #'org-slipbox-buffer--snapshot-from-executed-trail-step
+                        (org-slipbox--plist-sequence (plist-get replay :steps))))
+         (cursor (plist-get replay :cursor))
+         (detached-step
+          (when-let ((step (plist-get replay :detached_step)))
+            (org-slipbox-buffer--snapshot-from-executed-trail-step step)))
+         (current-snapshot (or detached-step (nth cursor steps))))
+    (unless current-snapshot
+      (user-error "Executed trail artifact did not yield a current cockpit state"))
+    (setf (org-slipbox-buffer-session-history session) nil
+          (org-slipbox-buffer-session-future session) nil
+          (org-slipbox-buffer-session-trail session) steps
+          (org-slipbox-buffer-session-trail-index session) cursor)
+    (org-slipbox-buffer--apply-history-snapshot session current-snapshot)
+    session))
+
+(defun org-slipbox-buffer--restore-executed-artifact (session executed)
+  "Restore dedicated SESSION from executed exploration artifact EXECUTED."
+  (pcase (plist-get executed :kind)
+    ("lens-view"
+     (setf (org-slipbox-buffer-session-history session) nil
+           (org-slipbox-buffer-session-future session) nil
+           (org-slipbox-buffer-session-trail session) nil
+           (org-slipbox-buffer-session-trail-index session) nil)
+     (org-slipbox-buffer--apply-history-snapshot
+      session
+      (org-slipbox-buffer--snapshot-from-executed-lens-view executed)))
+    ("comparison"
+     (setf (org-slipbox-buffer-session-history session) nil
+           (org-slipbox-buffer-session-future session) nil
+           (org-slipbox-buffer-session-trail session) nil
+           (org-slipbox-buffer-session-trail-index session) nil)
+     (org-slipbox-buffer--apply-history-snapshot
+      session
+      (org-slipbox-buffer--snapshot-from-executed-comparison executed)))
+    ("trail"
+     (org-slipbox-buffer--restore-trail-state
+      session
+      (plist-get executed :replay)))
+    (_
+     (user-error "Unsupported executed artifact kind %S"
+                 (plist-get executed :kind))))
+  (org-slipbox-buffer-render-contents)
+  session)
 
 (defun org-slipbox-buffer--saved-comparison-artifact (snapshot)
   "Return a saved comparison artifact plist from dedicated SNAPSHOT."
@@ -908,8 +1093,12 @@ serialized faithfully into the saved artifact model."
       :root_node_key ,(org-slipbox-buffer--required-node-key root-node "root node")
       :left_node_key ,(org-slipbox-buffer--required-node-key left-node "comparison source")
       :right_node_key ,(org-slipbox-buffer--required-node-key right-node "comparison target")
+      :active_lens ,(symbol-name (plist-get snapshot :active-lens))
+      :structure_unique
+      ,(org-slipbox-rpc--bool (plist-get snapshot :structure-unique))
       :comparison_group ,(symbol-name (plist-get snapshot :comparison-group))
-      :limit ,org-slipbox-buffer-default-query-limit
+      :limit ,(or (plist-get snapshot :query-limit)
+                  org-slipbox-buffer-default-query-limit)
       :frozen_context
       ,(org-slipbox-rpc--bool (plist-get snapshot :frozen-context)))))
 
@@ -974,6 +1163,11 @@ and ARTIFACT-ID with TITLE define durable metadata."
         (plist-get snapshot :compare-target)
         (org-slipbox-buffer-session-comparison-group session)
         (plist-get snapshot :comparison-group)
+        (org-slipbox-buffer-session-query-limit session)
+        (or (plist-get snapshot :query-limit)
+            org-slipbox-buffer-default-query-limit)
+        (org-slipbox-buffer-session-structure-unique session)
+        (and (plist-get snapshot :structure-unique) t)
         (org-slipbox-buffer-session-frozen-context session)
         (plist-get snapshot :frozen-context)
         (org-slipbox-buffer-session-lens-cache session) nil
@@ -1311,9 +1505,9 @@ HEADING overrides the default section title, which is the node title."
       t)))
 
 (cl-defun org-slipbox-buffer-backlinks-section
-    (node &key unique show-backlink-p
+    (node &key (unique (org-slipbox-buffer--current-structure-unique)) show-backlink-p
           (section-heading "Backlinks")
-          (limit org-slipbox-buffer-default-query-limit))
+          (limit (org-slipbox-buffer--current-query-limit)))
   "Insert a backlink section for NODE.
 When UNIQUE is non-nil, only show the first backlink occurrence per
 source node. SHOW-BACKLINK-P filters backlink entries when non-nil.
@@ -1329,9 +1523,9 @@ SECTION-HEADING overrides the rendered heading. LIMIT bounds the query."
      #'org-slipbox-buffer--insert-backlink-entry)))
 
 (cl-defun org-slipbox-buffer-forward-links-section
-    (node &key unique show-forward-link-p
+    (node &key (unique (org-slipbox-buffer--current-structure-unique)) show-forward-link-p
           (section-heading "Forward Links")
-          (limit org-slipbox-buffer-default-query-limit))
+          (limit (org-slipbox-buffer--current-query-limit)))
   "Insert a forward-links section for NODE.
 When UNIQUE is non-nil, only show the first forward-link occurrence per
 destination node. SHOW-FORWARD-LINK-P filters forward-link entries when
@@ -1768,42 +1962,42 @@ node. LIMIT bounds the number of rows requested."
 (defun org-slipbox-buffer--reflinks (node)
   "Return daemon-backed reflink matches for NODE."
   (org-slipbox-buffer--exploration-section-entries
-   node 'refs 'reflinks nil 200))
+   node 'refs 'reflinks nil (org-slipbox-buffer--current-query-limit)))
 
 (defun org-slipbox-buffer--unlinked-references (node)
   "Return daemon-backed unlinked references for NODE."
   (org-slipbox-buffer--exploration-section-entries
-   node 'refs 'unlinked-references nil 200))
+   node 'refs 'unlinked-references nil (org-slipbox-buffer--current-query-limit)))
 
 (defun org-slipbox-buffer--time-neighbors (node)
   "Return daemon-backed time neighbors for NODE."
   (org-slipbox-buffer--exploration-section-entries
-   node 'time 'time-neighbors nil 200))
+   node 'time 'time-neighbors nil (org-slipbox-buffer--current-query-limit)))
 
 (defun org-slipbox-buffer--task-neighbors (node)
   "Return daemon-backed task neighbors for NODE."
   (org-slipbox-buffer--exploration-section-entries
-   node 'tasks 'task-neighbors nil 200))
+   node 'tasks 'task-neighbors nil (org-slipbox-buffer--current-query-limit)))
 
 (defun org-slipbox-buffer--bridge-candidates (node)
   "Return daemon-backed bridge candidates for NODE."
   (org-slipbox-buffer--exploration-section-entries
-   node 'bridges 'bridge-candidates nil 200))
+   node 'bridges 'bridge-candidates nil (org-slipbox-buffer--current-query-limit)))
 
 (defun org-slipbox-buffer--dormant-notes (node)
   "Return daemon-backed dormant notes for NODE."
   (org-slipbox-buffer--exploration-section-entries
-   node 'dormant 'dormant-notes nil 200))
+   node 'dormant 'dormant-notes nil (org-slipbox-buffer--current-query-limit)))
 
 (defun org-slipbox-buffer--unresolved-tasks (node)
   "Return daemon-backed unresolved tasks for NODE."
   (org-slipbox-buffer--exploration-section-entries
-   node 'unresolved 'unresolved-tasks nil 200))
+   node 'unresolved 'unresolved-tasks nil (org-slipbox-buffer--current-query-limit)))
 
 (defun org-slipbox-buffer--weakly-integrated-notes (node)
   "Return daemon-backed weakly integrated notes for NODE."
   (org-slipbox-buffer--exploration-section-entries
-   node 'unresolved 'weakly-integrated-notes nil 200))
+   node 'unresolved 'weakly-integrated-notes nil (org-slipbox-buffer--current-query-limit)))
 
 (defun org-slipbox-buffer--backlinks (node &optional unique limit)
   "Return backlinks for NODE.
@@ -1871,7 +2065,7 @@ node. LIMIT bounds the number of rows requested."
 
 (defun org-slipbox-buffer--comparison-result (left-node right-node &optional limit)
   "Return cached comparison results for LEFT-NODE and RIGHT-NODE."
-  (let ((limit (or limit org-slipbox-buffer-default-query-limit)))
+  (let ((limit (or limit (org-slipbox-buffer--current-query-limit))))
     (when-let ((left-key (plist-get left-node :node_key))
                (right-key (plist-get right-node :node_key)))
       (if-let* ((session org-slipbox-buffer-session)
