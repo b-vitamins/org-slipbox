@@ -6,6 +6,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-05-03
+
 ### Added
 - Added durable exploration artifacts for saved lens views, comparisons, full
   trails, and detached trail slices, with Rust-owned persistence outside the
