@@ -17,6 +17,10 @@ Current development starts from the released `0.6.1` foundation.
 
 The documented workflow surface is intended to remain complete enough for
 day-to-day replacement use while the project deepens its exploratory model.
+The next planned release band is `0.7.x`: the first usable headless
+workbench, with task-shaped CLI flows for live exploration, comparison, and
+durable artifact lifecycle over the canonical daemon boundary. Broader
+platform, extension, and agent-adapter claims remain deferred.
 
 ## Requirements
 
@@ -251,9 +255,11 @@ The dedicated buffer currently supports:
 
 This is the settled cockpit line through `0.6.x`: the dedicated buffer remains
 the interactive exploratory house, while `0.6.x` adds durable exploration
-artifacts and a first narrow machine-facing surface around them. Broader
-headless workflows, CLI families, extension APIs, and programmable workbench
-extraction remain later work.
+artifacts and a first narrow machine-facing surface around them. `0.7.x`
+should turn that narrow surface into the first usable headless workbench for
+live exploration, comparison, and artifact lifecycle over `slipbox serve`.
+Broader platform maturity, extension APIs, and agent-adapter work remain
+later work.
 
 When the current node record includes indexed metadata, the node summary also
 renders file modification time plus backlink and forward-link counts without
@@ -626,7 +632,10 @@ that the whole programmable platform is done.
 - `o` asks the daemon to execute a saved artifact and then restores the dedicated session from the executed result.
 - The daemon persists those artifacts outside the derived SQLite index, so rebuilds do not erase them and note-facing query surfaces do not start treating artifacts as notes.
 - The machine-facing surface is deliberately narrow: `saveExplorationArtifact`, `explorationArtifact`, `listExplorationArtifacts`, `executeExplorationArtifact`, and `deleteExplorationArtifact`.
-- Broader CLI families, extension APIs, and agent adapters are still deferred.
+- `0.7.x` is the next step: first usable headless workbench commands over the
+  canonical daemon boundary for live explore, compare, and artifact lifecycle.
+- Broad CLI families, extension APIs, MCP surfaces, and agent adapters are
+  still deferred.
 
 ## FAQ
 

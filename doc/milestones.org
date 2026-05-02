@@ -77,20 +77,23 @@ Outcomes:
 - durable exploration artifacts for saved views, trails, and comparisons
 - query surfaces and first task-shaped public operations around those artifacts
   such as save, inspect, list, execute, and delete
-- stronger CLI and headless workflows
-- stable hooks and extension points around exploration
+- a first usable headless workbench around live explore, compare, and artifact
+  lifecycle over the canonical daemon boundary
+- stronger CLI and headless workflows built from that same exploratory model
+- stable hooks and extension points around exploration only after the first
+  usable headless workbench has proven its shape
 - richer task, ref, and citation-driven navigation
 
 Exit criteria:
 
 - saved artifacts can be persisted, replayed, and executed through the same
   exploration semantics already proven in the cockpit
-- those artifact operations remain narrower than a broad CLI or extension
-  platform story
+- the first public headless surface remains task-shaped rather than becoming a
+  broad CLI or extension platform story
 - users can script and automate meaningful exploratory workflows
 - buffer and query surfaces compose without reaching into unstable internals
-- extensions add capability without bending core architecture
 - headless surfaces reuse the exploratory model already proven in the cockpit
+- any later extension surface adds capability without bending core architecture
 
 * Milestone 5: Dependable Platform
 

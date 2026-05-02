@@ -86,15 +86,38 @@ Watchpoints:
 - do not let workbench extraction weaken the persistent-versus-dedicated cost
   split
 
+* 0.7.x
+
+Theme: first usable headless workbench.
+
+Focus:
+
+- a typed Rust daemon client over the canonical JSON-RPC stdio boundary
+- shared CLI runtime, connection, and JSON-first output scaffolding
+- task-shaped live headless operations for resolve, explore, and compare
+- durable artifact lifecycle commands for list, show, run, delete, import,
+  export, and save from live exploration/comparison flows
+- end-to-end CLI coverage that proves the headless surface is real rather than
+  transport-shaped aspiration
+
+Watchpoints:
+
+- do not bypass `slipbox serve` through in-process shortcuts
+- do not turn the CLI into a thin wrapper over every RPC method
+- do not invent a second ontology for headless work that drifts from cockpit
+  semantics
+- do not let extension APIs, MCP, or agent-adapter ambitions leak into this
+  milestone
+
 * 0.8.x
 
 Theme: broader research workbench and platform maturity.
 
 Focus:
 
-- richer programmable exploration built on durable artifacts from the settled
-  cockpit model
-- broader CLI and headless workflows
+- richer programmable exploration built on the first usable headless
+  workbench and the durable artifacts from the settled cockpit model
+- broader headless composition and named workbench workflows
 - extension points for advanced users
 - larger benchmark corpora and stricter scale guarantees
 - extract the already-proven exploratory model into task-shaped public
