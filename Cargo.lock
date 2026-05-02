@@ -499,6 +499,7 @@ dependencies = [
  "serde",
  "serde_json",
  "slipbox-core",
+ "slipbox-daemon-client",
  "slipbox-index",
  "slipbox-rpc",
  "slipbox-store",
@@ -512,6 +513,18 @@ version = "0.6.1"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "slipbox-daemon-client"
+version = "0.6.1"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "slipbox-core",
+ "slipbox-rpc",
+ "thiserror",
 ]
 
 [[package]]
@@ -529,6 +542,7 @@ dependencies = [
 name = "slipbox-rpc"
 version = "0.6.1"
 dependencies = [
+ "anyhow",
  "serde",
  "serde_json",
  "thiserror",

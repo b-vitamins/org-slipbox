@@ -1,5 +1,8 @@
 use std::fmt;
+use std::io::{BufRead, Write};
 
+use anyhow::{Context, Result};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
@@ -57,9 +60,21 @@ pub struct JsonRpcRequest {
     pub params: Value,
 }
 
+impl JsonRpcRequest {
+    #[must_use]
+    pub fn new(id: Value, method: impl Into<String>, params: Value) -> Self {
+        Self {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(id),
+            method: method.into(),
+            params,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JsonRpcResponse {
-    pub jsonrpc: &'static str,
+    pub jsonrpc: String,
     pub id: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<Value>,
@@ -71,7 +86,7 @@ impl JsonRpcResponse {
     #[must_use]
     pub fn success(id: Value, result: Value) -> Self {
         Self {
-            jsonrpc: "2.0",
+            jsonrpc: "2.0".to_owned(),
             id,
             result: Some(result),
             error: None,
@@ -81,7 +96,7 @@ impl JsonRpcResponse {
     #[must_use]
     pub fn error(id: Value, error: JsonRpcErrorObject) -> Self {
         Self {
-            jsonrpc: "2.0",
+            jsonrpc: "2.0".to_owned(),
             id,
             result: None,
             error: Some(error),
@@ -150,5 +165,97 @@ impl JsonRpcError {
     #[must_use]
     pub fn into_inner(self) -> JsonRpcErrorObject {
         self.inner
+    }
+}
+
+pub fn read_framed_message<T>(reader: &mut impl BufRead) -> Result<Option<T>>
+where
+    T: DeserializeOwned,
+{
+    let mut content_length = None;
+
+    loop {
+        let mut line = String::new();
+        let bytes = reader
+            .read_line(&mut line)
+            .context("failed to read framing header")?;
+        if bytes == 0 {
+            return Ok(None);
+        }
+
+        if line == "\r\n" {
+            break;
+        }
+
+        let trimmed = line.trim_end_matches(['\r', '\n']);
+        let (name, value) = trimmed
+            .split_once(':')
+            .with_context(|| format!("invalid header line: {trimmed}"))?;
+        if name.eq_ignore_ascii_case("content-length") {
+            let parsed = value
+                .trim()
+                .parse::<usize>()
+                .with_context(|| format!("invalid content length: {}", value.trim()))?;
+            content_length = Some(parsed);
+        }
+    }
+
+    let length = content_length.context("missing Content-Length header")?;
+    let mut body = vec![0_u8; length];
+    reader
+        .read_exact(&mut body)
+        .context("failed to read framed body")?;
+    let message = serde_json::from_slice(&body).context("invalid framed JSON body")?;
+    Ok(Some(message))
+}
+
+pub fn write_framed_message<T>(writer: &mut impl Write, message: &T) -> Result<()>
+where
+    T: Serialize,
+{
+    let body = serde_json::to_vec(message).context("failed to serialize framed JSON body")?;
+    write!(writer, "Content-Length: {}\r\n\r\n", body.len())
+        .context("failed to write framing header")?;
+    writer
+        .write_all(&body)
+        .context("failed to write framed JSON body")?;
+    writer
+        .flush()
+        .context("failed to flush framed JSON message")?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::BufReader;
+
+    use serde_json::json;
+
+    use super::{JsonRpcRequest, read_framed_message, write_framed_message};
+
+    #[test]
+    fn framed_messages_round_trip() {
+        let request = JsonRpcRequest::new(json!(7), "slipbox/ping", serde_json::Value::Null);
+        let mut framed = Vec::new();
+
+        write_framed_message(&mut framed, &request).expect("request should frame");
+
+        let mut reader = BufReader::new(framed.as_slice());
+        let decoded: JsonRpcRequest = read_framed_message(&mut reader)
+            .expect("request should decode")
+            .expect("request should be present");
+
+        assert_eq!(decoded, request);
+    }
+
+    #[test]
+    fn framed_messages_reject_missing_content_length() {
+        let bytes = b"X-Header: nope\r\n\r\n{}".to_vec();
+        let mut reader = BufReader::new(bytes.as_slice());
+
+        let error =
+            read_framed_message::<JsonRpcRequest>(&mut reader).expect_err("missing length fails");
+
+        assert!(error.to_string().contains("missing Content-Length header"));
     }
 }

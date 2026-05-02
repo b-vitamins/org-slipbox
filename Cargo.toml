@@ -43,6 +43,7 @@ regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 slipbox-core = { path = "crates/slipbox-core" }
+slipbox-daemon-client = { path = "crates/slipbox-daemon-client" }
 slipbox-index = { path = "crates/slipbox-index" }
 slipbox-rpc = { path = "crates/slipbox-rpc" }
 slipbox-store = { path = "crates/slipbox-store", default-features = false }

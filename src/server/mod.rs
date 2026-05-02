@@ -1,5 +1,4 @@
 mod dispatch;
-mod framing;
 mod handlers;
 mod rpc;
 mod state;
@@ -9,10 +8,9 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use slipbox_index::DiscoveryPolicy;
-use slipbox_rpc::{JsonRpcErrorObject, JsonRpcResponse};
+use slipbox_rpc::{JsonRpcErrorObject, JsonRpcResponse, read_framed_message, write_framed_message};
 
 use self::dispatch::handle_request;
-use self::framing::{read_request, write_response};
 use self::state::ServerState;
 
 pub(crate) fn serve(root: PathBuf, db: PathBuf, discovery: DiscoveryPolicy) -> Result<()> {
@@ -26,10 +24,10 @@ pub(crate) fn serve(root: PathBuf, db: PathBuf, discovery: DiscoveryPolicy) -> R
     let mut writer = stdout.lock();
 
     loop {
-        match read_request(&mut reader) {
+        match read_framed_message(&mut reader) {
             Ok(Some(request)) => {
                 let response = handle_request(&mut state, request);
-                write_response(&mut writer, &response)?;
+                write_framed_message(&mut writer, &response)?;
             }
             Ok(None) => break,
             Err(error) => {
@@ -37,7 +35,7 @@ pub(crate) fn serve(root: PathBuf, db: PathBuf, discovery: DiscoveryPolicy) -> R
                     serde_json::Value::Null,
                     JsonRpcErrorObject::parse_error(error.to_string()),
                 );
-                write_response(&mut writer, &response)?;
+                write_framed_message(&mut writer, &response)?;
             }
         }
     }
