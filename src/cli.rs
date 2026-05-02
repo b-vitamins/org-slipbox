@@ -7,10 +7,11 @@ use anyhow::{Context, Result};
 use clap::{ArgGroup, Args, ValueEnum};
 use serde::{Deserialize, Serialize};
 use slipbox_core::{
-    AnchorRecord, ExplorationEntry, ExplorationExplanation, ExplorationLens,
-    ExplorationSectionKind, ExploreParams, ExploreResult, NodeFromIdParams, NodeFromKeyParams,
-    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord, PlanningField,
-    PlanningRelationRecord, StatusInfo,
+    AnchorRecord, CompareNotesParams, ComparisonConnectorDirection, ExplorationEntry,
+    ExplorationExplanation, ExplorationLens, ExplorationSectionKind, ExploreParams, ExploreResult,
+    NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
+    NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
+    NoteComparisonSectionKind, PlanningField, PlanningRelationRecord, StatusInfo,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonClientError, DaemonServeConfig};
 use slipbox_index::DiscoveryPolicy;
@@ -199,6 +200,119 @@ pub(crate) struct ExploreArgs {
     pub(crate) unique: bool,
 }
 
+#[derive(Debug, Clone, Args)]
+#[command(group(
+    ArgGroup::new("left-target")
+        .args(["left_id", "left_title", "left_reference", "left_key"])
+        .required(true)
+        .multiple(false)
+))]
+pub(crate) struct CompareLeftTargetArgs {
+    /// Resolve the left note by exact explicit Org ID.
+    #[arg(long = "left-id", group = "left-target")]
+    pub(crate) left_id: Option<String>,
+    /// Resolve the left note by exact title or alias.
+    #[arg(long = "left-title", group = "left-target")]
+    pub(crate) left_title: Option<String>,
+    /// Resolve the left note by exact reference.
+    #[arg(long = "left-ref", group = "left-target")]
+    pub(crate) left_reference: Option<String>,
+    /// Resolve the left note by exact node key.
+    #[arg(long = "left-key", group = "left-target")]
+    pub(crate) left_key: Option<String>,
+}
+
+impl CompareLeftTargetArgs {
+    #[must_use]
+    pub(crate) fn target(&self) -> ResolveTarget {
+        if let Some(id) = &self.left_id {
+            ResolveTarget::Id(id.clone())
+        } else if let Some(title) = &self.left_title {
+            ResolveTarget::Title(title.clone())
+        } else if let Some(reference) = &self.left_reference {
+            ResolveTarget::Reference(reference.clone())
+        } else if let Some(node_key) = &self.left_key {
+            ResolveTarget::Key(node_key.clone())
+        } else {
+            unreachable!("clap enforces exactly one left target selector");
+        }
+    }
+}
+
+#[derive(Debug, Clone, Args)]
+#[command(group(
+    ArgGroup::new("right-target")
+        .args(["right_id", "right_title", "right_reference", "right_key"])
+        .required(true)
+        .multiple(false)
+))]
+pub(crate) struct CompareRightTargetArgs {
+    /// Resolve the right note by exact explicit Org ID.
+    #[arg(long = "right-id", group = "right-target")]
+    pub(crate) right_id: Option<String>,
+    /// Resolve the right note by exact title or alias.
+    #[arg(long = "right-title", group = "right-target")]
+    pub(crate) right_title: Option<String>,
+    /// Resolve the right note by exact reference.
+    #[arg(long = "right-ref", group = "right-target")]
+    pub(crate) right_reference: Option<String>,
+    /// Resolve the right note by exact node key.
+    #[arg(long = "right-key", group = "right-target")]
+    pub(crate) right_key: Option<String>,
+}
+
+impl CompareRightTargetArgs {
+    #[must_use]
+    pub(crate) fn target(&self) -> ResolveTarget {
+        if let Some(id) = &self.right_id {
+            ResolveTarget::Id(id.clone())
+        } else if let Some(title) = &self.right_title {
+            ResolveTarget::Title(title.clone())
+        } else if let Some(reference) = &self.right_reference {
+            ResolveTarget::Reference(reference.clone())
+        } else if let Some(node_key) = &self.right_key {
+            ResolveTarget::Key(node_key.clone())
+        } else {
+            unreachable!("clap enforces exactly one right target selector");
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub(crate) enum CompareGroupArg {
+    All,
+    Overlap,
+    Divergence,
+    Tension,
+}
+
+impl From<CompareGroupArg> for NoteComparisonGroup {
+    fn from(value: CompareGroupArg) -> Self {
+        match value {
+            CompareGroupArg::All => Self::All,
+            CompareGroupArg::Overlap => Self::Overlap,
+            CompareGroupArg::Divergence => Self::Divergence,
+            CompareGroupArg::Tension => Self::Tension,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct CompareArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    #[command(flatten)]
+    pub(crate) left: CompareLeftTargetArgs,
+    #[command(flatten)]
+    pub(crate) right: CompareRightTargetArgs,
+    /// Comparison group to retain in the output.
+    #[arg(long, value_enum, default_value_t = CompareGroupArg::All)]
+    pub(crate) group: CompareGroupArg,
+    /// Maximum entries per comparison section.
+    #[arg(long, default_value_t = 200)]
+    pub(crate) limit: usize,
+}
+
 pub(crate) trait HeadlessCommand {
     type Output: Serialize;
 
@@ -216,6 +330,10 @@ pub(crate) fn run_resolve_node(args: &ResolveNodeArgs) -> Result<(), CliCommandE
 }
 
 pub(crate) fn run_explore(args: &ExploreArgs) -> Result<(), CliCommandError> {
+    run_headless_command(args)
+}
+
+pub(crate) fn run_compare(args: &CompareArgs) -> Result<(), CliCommandError> {
     run_headless_command(args)
 }
 
@@ -370,6 +488,29 @@ impl HeadlessCommand for ExploreArgs {
 
     fn render_human(&self, output: &Self::Output) -> String {
         render_explore_result(output)
+    }
+}
+
+impl HeadlessCommand for CompareArgs {
+    type Output = NoteComparisonResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        let left = resolve_note_target(client, &self.left.target())?;
+        let right = resolve_note_target(client, &self.right.target())?;
+        let result = client.compare_notes(&CompareNotesParams {
+            left_node_key: left.node_key,
+            right_node_key: right.node_key,
+            limit: self.limit,
+        })?;
+        Ok(result.filtered_to_group(self.group.into()))
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_compare_result(output, self.group.into())
     }
 }
 
@@ -681,6 +822,126 @@ fn render_planning_field(field: PlanningField) -> &'static str {
     match field {
         PlanningField::Scheduled => "scheduled",
         PlanningField::Deadline => "deadline",
+    }
+}
+
+fn render_compare_result(result: &NoteComparisonResult, group: NoteComparisonGroup) -> String {
+    let mut output = String::new();
+    output.push_str(&format!("group: {}\n", render_comparison_group(group)));
+    output.push_str(&format!(
+        "left: {}\n",
+        render_node_identity(&result.left_note)
+    ));
+    output.push_str(&format!(
+        "right: {}\n",
+        render_node_identity(&result.right_note)
+    ));
+    for section in &result.sections {
+        output.push('\n');
+        output.push_str(&format!(
+            "[{}]\n",
+            render_comparison_section_kind(section.kind)
+        ));
+        if section.entries.is_empty() {
+            output.push_str("(none)\n");
+            continue;
+        }
+        for entry in &section.entries {
+            render_comparison_entry(&mut output, entry);
+        }
+    }
+    output
+}
+
+fn render_comparison_group(group: NoteComparisonGroup) -> &'static str {
+    match group {
+        NoteComparisonGroup::All => "all",
+        NoteComparisonGroup::Overlap => "overlap",
+        NoteComparisonGroup::Divergence => "divergence",
+        NoteComparisonGroup::Tension => "tension",
+    }
+}
+
+fn render_comparison_section_kind(kind: NoteComparisonSectionKind) -> &'static str {
+    match kind {
+        NoteComparisonSectionKind::SharedRefs => "shared refs",
+        NoteComparisonSectionKind::SharedPlanningDates => "shared planning dates",
+        NoteComparisonSectionKind::LeftOnlyRefs => "left-only refs",
+        NoteComparisonSectionKind::RightOnlyRefs => "right-only refs",
+        NoteComparisonSectionKind::SharedBacklinks => "shared backlinks",
+        NoteComparisonSectionKind::SharedForwardLinks => "shared forward links",
+        NoteComparisonSectionKind::ContrastingTaskStates => "contrasting task states",
+        NoteComparisonSectionKind::PlanningTensions => "planning tensions",
+        NoteComparisonSectionKind::IndirectConnectors => "indirect connectors",
+    }
+}
+
+fn render_comparison_entry(output: &mut String, entry: &NoteComparisonEntry) {
+    match entry {
+        NoteComparisonEntry::Reference { record } => {
+            output.push_str(&format!("- {}\n", record.reference));
+            output.push_str(&format!(
+                "  why: {}\n",
+                render_note_comparison_explanation(&record.explanation)
+            ));
+        }
+        NoteComparisonEntry::Node { record } => {
+            output.push_str(&format!("- {}\n", render_node_identity(&record.node)));
+            output.push_str(&format!(
+                "  why: {}\n",
+                render_note_comparison_explanation(&record.explanation)
+            ));
+        }
+        NoteComparisonEntry::PlanningRelation { record } => {
+            output.push_str(&format!(
+                "- {} {} <> {} {}\n",
+                record.date,
+                render_planning_field(record.left_field),
+                render_planning_field(record.right_field),
+                record.date
+            ));
+            output.push_str(&format!(
+                "  why: {}\n",
+                render_note_comparison_explanation(&record.explanation)
+            ));
+        }
+        NoteComparisonEntry::TaskState { record } => {
+            output.push_str(&format!(
+                "- {} <> {}\n",
+                record.left_todo_keyword, record.right_todo_keyword
+            ));
+            output.push_str(&format!(
+                "  why: {}\n",
+                render_note_comparison_explanation(&record.explanation)
+            ));
+        }
+    }
+}
+
+fn render_note_comparison_explanation(explanation: &NoteComparisonExplanation) -> String {
+    match explanation {
+        NoteComparisonExplanation::SharedReference => "shared reference".to_owned(),
+        NoteComparisonExplanation::SharedPlanningDate => "shared planning date".to_owned(),
+        NoteComparisonExplanation::LeftOnlyReference => "left-only reference".to_owned(),
+        NoteComparisonExplanation::RightOnlyReference => "right-only reference".to_owned(),
+        NoteComparisonExplanation::SharedBacklink => "shared backlink".to_owned(),
+        NoteComparisonExplanation::SharedForwardLink => "shared forward link".to_owned(),
+        NoteComparisonExplanation::ContrastingTaskState => "contrasting task state".to_owned(),
+        NoteComparisonExplanation::PlanningTension => "planning tension".to_owned(),
+        NoteComparisonExplanation::IndirectConnector { direction } => {
+            format!(
+                "indirect connector {}",
+                render_connector_direction(*direction)
+            )
+        }
+    }
+}
+
+fn render_connector_direction(direction: ComparisonConnectorDirection) -> &'static str {
+    match direction {
+        ComparisonConnectorDirection::LeftToRight => "left-to-right",
+        ComparisonConnectorDirection::RightToLeft => "right-to-left",
+        ComparisonConnectorDirection::Bidirectional => "bidirectional",
     }
 }
 

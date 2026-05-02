@@ -27,6 +27,8 @@ enum Command {
     ResolveNode(cli::ResolveNodeArgs),
     /// Run live declared-lens exploration over the canonical headless connection path.
     Explore(cli::ExploreArgs),
+    /// Compare two resolved notes over the canonical headless connection path.
+    Compare(cli::CompareArgs),
 }
 
 #[derive(Debug, Args)]
@@ -50,6 +52,7 @@ fn run() -> Result<(), cli::CliCommandError> {
         Command::Status(args) => cli::run_status(&args),
         Command::ResolveNode(args) => cli::run_resolve_node(&args),
         Command::Explore(args) => cli::run_explore(&args),
+        Command::Compare(args) => cli::run_compare(&args),
     }
 }
 

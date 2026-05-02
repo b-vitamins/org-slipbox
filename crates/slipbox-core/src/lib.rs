@@ -820,6 +820,32 @@ pub enum NoteComparisonGroup {
     Tension,
 }
 
+impl NoteComparisonGroup {
+    #[must_use]
+    pub fn includes(self, kind: NoteComparisonSectionKind) -> bool {
+        match self {
+            Self::All => true,
+            Self::Overlap => matches!(
+                kind,
+                NoteComparisonSectionKind::SharedRefs
+                    | NoteComparisonSectionKind::SharedPlanningDates
+                    | NoteComparisonSectionKind::SharedBacklinks
+                    | NoteComparisonSectionKind::SharedForwardLinks
+            ),
+            Self::Divergence => matches!(
+                kind,
+                NoteComparisonSectionKind::LeftOnlyRefs | NoteComparisonSectionKind::RightOnlyRefs
+            ),
+            Self::Tension => matches!(
+                kind,
+                NoteComparisonSectionKind::ContrastingTaskStates
+                    | NoteComparisonSectionKind::PlanningTensions
+                    | NoteComparisonSectionKind::IndirectConnectors
+            ),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ComparisonConnectorDirection {
@@ -903,6 +929,26 @@ pub struct NoteComparisonResult {
     pub left_note: NodeRecord,
     pub right_note: NodeRecord,
     pub sections: Vec<NoteComparisonSection>,
+}
+
+impl NoteComparisonResult {
+    #[must_use]
+    pub fn filtered_to_group(&self, group: NoteComparisonGroup) -> Self {
+        if group == NoteComparisonGroup::All {
+            return self.clone();
+        }
+
+        Self {
+            left_note: self.left_note.clone(),
+            right_note: self.right_note.clone(),
+            sections: self
+                .sections
+                .iter()
+                .filter(|section| group.includes(section.kind))
+                .cloned()
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -2465,6 +2511,94 @@ mod tests {
                     }
                 ]
             })
+        );
+    }
+
+    #[test]
+    fn note_comparison_group_filters_declared_sections() {
+        let result = NoteComparisonResult {
+            left_note: NodeRecord {
+                node_key: "heading:left.org:3".to_owned(),
+                explicit_id: Some("left-id".to_owned()),
+                file_path: "left.org".to_owned(),
+                title: "Left".to_owned(),
+                outline_path: "Left".to_owned(),
+                aliases: Vec::new(),
+                tags: Vec::new(),
+                refs: Vec::new(),
+                todo_keyword: None,
+                scheduled_for: None,
+                deadline_for: None,
+                closed_at: None,
+                level: 1,
+                line: 3,
+                kind: NodeKind::Heading,
+                file_mtime_ns: 0,
+                backlink_count: 0,
+                forward_link_count: 0,
+            },
+            right_note: NodeRecord {
+                node_key: "heading:right.org:7".to_owned(),
+                explicit_id: Some("right-id".to_owned()),
+                file_path: "right.org".to_owned(),
+                title: "Right".to_owned(),
+                outline_path: "Right".to_owned(),
+                aliases: Vec::new(),
+                tags: Vec::new(),
+                refs: Vec::new(),
+                todo_keyword: None,
+                scheduled_for: None,
+                deadline_for: None,
+                closed_at: None,
+                level: 1,
+                line: 7,
+                kind: NodeKind::Heading,
+                file_mtime_ns: 0,
+                backlink_count: 0,
+                forward_link_count: 0,
+            },
+            sections: vec![
+                NoteComparisonSection {
+                    kind: NoteComparisonSectionKind::SharedRefs,
+                    entries: Vec::new(),
+                },
+                NoteComparisonSection {
+                    kind: NoteComparisonSectionKind::LeftOnlyRefs,
+                    entries: Vec::new(),
+                },
+                NoteComparisonSection {
+                    kind: NoteComparisonSectionKind::ContrastingTaskStates,
+                    entries: Vec::new(),
+                },
+            ],
+        };
+
+        assert_eq!(
+            result
+                .filtered_to_group(NoteComparisonGroup::Overlap)
+                .sections
+                .iter()
+                .map(|section| section.kind)
+                .collect::<Vec<_>>(),
+            vec![NoteComparisonSectionKind::SharedRefs]
+        );
+        assert_eq!(
+            result
+                .filtered_to_group(NoteComparisonGroup::Divergence)
+                .sections
+                .iter()
+                .map(|section| section.kind)
+                .collect::<Vec<_>>(),
+            vec![NoteComparisonSectionKind::LeftOnlyRefs]
+        );
+        assert_eq!(
+            result
+                .filtered_to_group(NoteComparisonGroup::Tension)
+                .sections
+                .iter()
+                .map(|section| section.kind)
+                .collect::<Vec<_>>(),
+            vec![NoteComparisonSectionKind::ContrastingTaskStates]
         );
     }
 
