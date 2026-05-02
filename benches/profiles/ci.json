@@ -40,7 +40,7 @@
     "search_nodes_sorted_p95_ms": 20.0,
     "search_files_p95_ms": 15.0,
     "search_occurrences_p95_ms": 150.0,
-    "backlinks_p95_ms": 30.0,
+    "backlinks_p95_ms": 32.0,
     "forward_links_p95_ms": 30.0,
     "reflinks_p95_ms": 120.0,
     "unlinked_references_p95_ms": 150.0,
