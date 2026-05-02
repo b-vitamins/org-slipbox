@@ -4,11 +4,13 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
-use clap::{ArgGroup, Args};
+use clap::{ArgGroup, Args, ValueEnum};
 use serde::{Deserialize, Serialize};
 use slipbox_core::{
-    NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
-    StatusInfo,
+    AnchorRecord, ExplorationEntry, ExplorationExplanation, ExplorationLens,
+    ExplorationSectionKind, ExploreParams, ExploreResult, NodeFromIdParams, NodeFromKeyParams,
+    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord, PlanningField,
+    PlanningRelationRecord, StatusInfo,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonClientError, DaemonServeConfig};
 use slipbox_index::DiscoveryPolicy;
@@ -155,6 +157,48 @@ pub(crate) struct ResolveNodeArgs {
     pub(crate) target: ResolveTargetArgs,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub(crate) enum ExploreLensArg {
+    Structure,
+    Refs,
+    Time,
+    Tasks,
+    Bridges,
+    Dormant,
+    Unresolved,
+}
+
+impl From<ExploreLensArg> for ExplorationLens {
+    fn from(value: ExploreLensArg) -> Self {
+        match value {
+            ExploreLensArg::Structure => Self::Structure,
+            ExploreLensArg::Refs => Self::Refs,
+            ExploreLensArg::Time => Self::Time,
+            ExploreLensArg::Tasks => Self::Tasks,
+            ExploreLensArg::Bridges => Self::Bridges,
+            ExploreLensArg::Dormant => Self::Dormant,
+            ExploreLensArg::Unresolved => Self::Unresolved,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ExploreArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    #[command(flatten)]
+    pub(crate) target: ResolveTargetArgs,
+    /// Declared exploration lens to execute.
+    #[arg(long, value_enum)]
+    pub(crate) lens: ExploreLensArg,
+    /// Maximum entries per section.
+    #[arg(long, default_value_t = 200)]
+    pub(crate) limit: usize,
+    /// Deduplicate structural backlinks and forward links by source/destination note.
+    #[arg(long)]
+    pub(crate) unique: bool,
+}
+
 pub(crate) trait HeadlessCommand {
     type Output: Serialize;
 
@@ -168,6 +212,10 @@ pub(crate) fn run_status(args: &StatusArgs) -> Result<(), CliCommandError> {
 }
 
 pub(crate) fn run_resolve_node(args: &ResolveNodeArgs) -> Result<(), CliCommandError> {
+    run_headless_command(args)
+}
+
+pub(crate) fn run_explore(args: &ExploreArgs) -> Result<(), CliCommandError> {
     run_headless_command(args)
 }
 
@@ -303,6 +351,28 @@ impl HeadlessCommand for ResolveNodeArgs {
     }
 }
 
+impl HeadlessCommand for ExploreArgs {
+    type Output = ExploreResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        let focus_node_key = resolve_explore_focus_node_key(client, &self.target.target())?;
+        client.explore(&ExploreParams {
+            node_key: focus_node_key,
+            lens: self.lens.into(),
+            limit: self.limit,
+            unique: self.unique,
+        })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_explore_result(output)
+    }
+}
+
 pub(crate) fn resolve_note_target(
     client: &mut DaemonClient,
     target: &ResolveTarget,
@@ -331,6 +401,16 @@ pub(crate) fn resolve_note_target(
             })?,
             format!("unknown node key: {node_key}"),
         ),
+    }
+}
+
+fn resolve_explore_focus_node_key(
+    client: &mut DaemonClient,
+    target: &ResolveTarget,
+) -> Result<String, DaemonClientError> {
+    match target {
+        ResolveTarget::Key(node_key) => Ok(node_key.clone()),
+        _ => resolve_note_target(client, target).map(|node| node.node_key),
     }
 }
 
@@ -376,6 +456,232 @@ fn render_node_summary(node: &NodeRecord) -> String {
         output.push_str(&format!("closed: {closed_at}\n"));
     }
     output
+}
+
+fn render_explore_result(result: &ExploreResult) -> String {
+    let mut output = String::new();
+    output.push_str(&format!("lens: {}\n", render_exploration_lens(result.lens)));
+    for section in &result.sections {
+        output.push('\n');
+        output.push_str(&format!(
+            "[{}]\n",
+            render_exploration_section_kind(section.kind)
+        ));
+        if section.entries.is_empty() {
+            output.push_str("(none)\n");
+            continue;
+        }
+        for entry in &section.entries {
+            render_exploration_entry(&mut output, entry);
+        }
+    }
+    output
+}
+
+fn render_exploration_lens(lens: ExplorationLens) -> &'static str {
+    match lens {
+        ExplorationLens::Structure => "structure",
+        ExplorationLens::Refs => "refs",
+        ExplorationLens::Time => "time",
+        ExplorationLens::Tasks => "tasks",
+        ExplorationLens::Bridges => "bridges",
+        ExplorationLens::Dormant => "dormant",
+        ExplorationLens::Unresolved => "unresolved",
+    }
+}
+
+fn render_exploration_section_kind(kind: ExplorationSectionKind) -> &'static str {
+    match kind {
+        ExplorationSectionKind::Backlinks => "backlinks",
+        ExplorationSectionKind::ForwardLinks => "forward links",
+        ExplorationSectionKind::Reflinks => "reflinks",
+        ExplorationSectionKind::UnlinkedReferences => "unlinked references",
+        ExplorationSectionKind::TimeNeighbors => "time neighbors",
+        ExplorationSectionKind::TaskNeighbors => "task neighbors",
+        ExplorationSectionKind::BridgeCandidates => "bridge candidates",
+        ExplorationSectionKind::DormantNotes => "dormant notes",
+        ExplorationSectionKind::UnresolvedTasks => "unresolved tasks",
+        ExplorationSectionKind::WeaklyIntegratedNotes => "weakly integrated notes",
+    }
+}
+
+fn render_exploration_entry(output: &mut String, entry: &ExplorationEntry) {
+    match entry {
+        ExplorationEntry::Backlink { record } => {
+            output.push_str(&format!(
+                "- {} at {}:{}\n",
+                render_node_identity(&record.source_note),
+                record.row,
+                record.col
+            ));
+            if let Some(anchor) = &record.source_anchor {
+                output.push_str(&format!("  anchor: {}\n", render_anchor_identity(anchor)));
+            }
+            output.push_str(&format!("  preview: {}\n", record.preview));
+            output.push_str(&format!(
+                "  why: {}\n",
+                render_exploration_explanation(&record.explanation)
+            ));
+        }
+        ExplorationEntry::ForwardLink { record } => {
+            output.push_str(&format!(
+                "- {} at {}:{}\n",
+                render_node_identity(&record.destination_note),
+                record.row,
+                record.col
+            ));
+            output.push_str(&format!("  preview: {}\n", record.preview));
+            output.push_str(&format!(
+                "  why: {}\n",
+                render_exploration_explanation(&record.explanation)
+            ));
+        }
+        ExplorationEntry::Reflink { record } => {
+            output.push_str(&format!(
+                "- {} at {}:{}\n",
+                render_anchor_identity(&record.source_anchor),
+                record.row,
+                record.col
+            ));
+            output.push_str(&format!(
+                "  matched reference: {}\n",
+                record.matched_reference
+            ));
+            output.push_str(&format!("  preview: {}\n", record.preview));
+            output.push_str(&format!(
+                "  why: {}\n",
+                render_exploration_explanation(&record.explanation)
+            ));
+        }
+        ExplorationEntry::UnlinkedReference { record } => {
+            output.push_str(&format!(
+                "- {} at {}:{}\n",
+                render_anchor_identity(&record.source_anchor),
+                record.row,
+                record.col
+            ));
+            output.push_str(&format!("  matched text: {}\n", record.matched_text));
+            output.push_str(&format!("  preview: {}\n", record.preview));
+            output.push_str(&format!(
+                "  why: {}\n",
+                render_exploration_explanation(&record.explanation)
+            ));
+        }
+        ExplorationEntry::Anchor { record } => {
+            output.push_str(&format!("- {}\n", render_anchor_identity(&record.anchor)));
+            output.push_str(&format!(
+                "  why: {}\n",
+                render_exploration_explanation(&record.explanation)
+            ));
+        }
+    }
+}
+
+fn render_node_identity(node: &NodeRecord) -> String {
+    format!(
+        "{} [{}] {}:{}",
+        node.title, node.node_key, node.file_path, node.line
+    )
+}
+
+fn render_anchor_identity(anchor: &AnchorRecord) -> String {
+    format!(
+        "{} [{}] {}:{}",
+        anchor.title, anchor.node_key, anchor.file_path, anchor.line
+    )
+}
+
+fn render_exploration_explanation(explanation: &ExplorationExplanation) -> String {
+    match explanation {
+        ExplorationExplanation::Backlink => "backlink".to_owned(),
+        ExplorationExplanation::ForwardLink => "forward link".to_owned(),
+        ExplorationExplanation::SharedReference { reference } => {
+            format!("shared reference {reference}")
+        }
+        ExplorationExplanation::UnlinkedReference { matched_text } => {
+            format!("unlinked reference text match {matched_text}")
+        }
+        ExplorationExplanation::TimeNeighbor { relations } => {
+            format!(
+                "planning relations {}",
+                render_planning_relations(relations)
+            )
+        }
+        ExplorationExplanation::TaskNeighbor {
+            shared_todo_keyword,
+            planning_relations,
+        } => {
+            let mut parts = Vec::new();
+            if let Some(keyword) = shared_todo_keyword {
+                parts.push(format!("shared todo {keyword}"));
+            }
+            if !planning_relations.is_empty() {
+                parts.push(format!(
+                    "planning relations {}",
+                    render_planning_relations(planning_relations)
+                ));
+            }
+            parts.join("; ")
+        }
+        ExplorationExplanation::BridgeCandidate {
+            references,
+            via_notes,
+        } => format!(
+            "shared references {}; via {}",
+            references.join(", "),
+            via_notes
+                .iter()
+                .map(|note| format!("{} [{}]", note.title, note.node_key))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        ExplorationExplanation::DormantSharedReference {
+            references,
+            modified_at_ns,
+        } => format!(
+            "shared references {}; modified_at_ns {}",
+            references.join(", "),
+            modified_at_ns
+        ),
+        ExplorationExplanation::UnresolvedSharedReference {
+            references,
+            todo_keyword,
+        } => format!(
+            "shared references {}; todo {}",
+            references.join(", "),
+            todo_keyword
+        ),
+        ExplorationExplanation::WeaklyIntegratedSharedReference {
+            references,
+            structural_link_count,
+        } => format!(
+            "shared references {}; structural link count {}",
+            references.join(", "),
+            structural_link_count
+        ),
+    }
+}
+
+fn render_planning_relations(relations: &[PlanningRelationRecord]) -> String {
+    relations
+        .iter()
+        .map(|relation| {
+            format!(
+                "{}->{} {}",
+                render_planning_field(relation.source_field),
+                render_planning_field(relation.candidate_field),
+                relation.date
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn render_planning_field(field: PlanningField) -> &'static str {
+    match field {
+        PlanningField::Scheduled => "scheduled",
+        PlanningField::Deadline => "deadline",
+    }
 }
 
 #[cfg(test)]
