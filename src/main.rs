@@ -1,14 +1,14 @@
+mod cli;
 mod occurrences_query;
 mod reflinks_query;
 mod server;
 mod text_query;
 mod unlinked_references_query;
 
-use std::path::PathBuf;
+use std::process::ExitCode;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
-use slipbox_index::DiscoveryPolicy;
+use clap::{Args, Parser, Subcommand};
 
 #[derive(Debug, Parser)]
 #[command(author, version, about = "Org slipbox tools")]
@@ -20,37 +20,34 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Run the JSON-RPC daemon over stdio.
-    Serve {
-        /// Root directory containing Org files.
-        #[arg(long)]
-        root: PathBuf,
-        /// SQLite database path.
-        #[arg(long)]
-        db: PathBuf,
-        /// File extensions eligible for discovery and indexing.
-        #[arg(long = "file-extension")]
-        file_extensions: Vec<String>,
-        /// Relative-path regular expressions to exclude from discovery.
-        #[arg(long = "exclude-regexp")]
-        exclude_regexps: Vec<String>,
-    },
+    Serve(ServeArgs),
+    /// Show daemon status over the canonical headless connection path.
+    Status(cli::StatusArgs),
 }
 
-fn main() -> Result<()> {
+#[derive(Debug, Args)]
+struct ServeArgs {
+    #[command(flatten)]
+    scope: cli::ScopeArgs,
+}
+
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => cli::report_error(&error),
+    }
+}
+
+fn run() -> Result<(), cli::CliCommandError> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Serve {
-            root,
-            db,
-            file_extensions,
-            exclude_regexps,
-        } => {
-            let discovery = if file_extensions.is_empty() && exclude_regexps.is_empty() {
-                DiscoveryPolicy::default()
-            } else {
-                DiscoveryPolicy::new(file_extensions, exclude_regexps)?
-            };
-            server::serve(root, db, discovery)
-        }
+        Command::Serve(args) => run_serve(args)
+            .map_err(|error| cli::CliCommandError::new(cli::OutputMode::Human, error)),
+        Command::Status(args) => cli::run_status(&args),
     }
+}
+
+fn run_serve(args: ServeArgs) -> Result<()> {
+    let discovery = args.scope.discovery_policy()?;
+    server::serve(args.scope.root, args.scope.db, discovery)
 }
