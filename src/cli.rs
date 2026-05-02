@@ -11,12 +11,13 @@ use slipbox_core::{
     AnchorRecord, CompareNotesParams, ComparisonConnectorDirection,
     DeleteExplorationArtifactResult, ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
     ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactKind,
-    ExplorationArtifactResult, ExplorationArtifactSummary, ExplorationEntry,
-    ExplorationExplanation, ExplorationLens, ExplorationSectionKind, ExploreParams, ExploreResult,
-    ListExplorationArtifactsResult, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
-    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonEntry, NoteComparisonExplanation,
-    NoteComparisonGroup, NoteComparisonResult, NoteComparisonSectionKind, PlanningField,
-    PlanningRelationRecord, SavedComparisonArtifact, SavedExplorationArtifact,
+    ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
+    ExplorationArtifactSummary, ExplorationEntry, ExplorationExplanation, ExplorationLens,
+    ExplorationSectionKind, ExploreParams, ExploreResult, ListExplorationArtifactsResult,
+    NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
+    NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
+    NoteComparisonSectionKind, PlanningField, PlanningRelationRecord,
+    SaveExplorationArtifactParams, SavedComparisonArtifact, SavedExplorationArtifact,
     SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, StatusInfo, TrailReplayResult,
     TrailReplayStepResult,
 };
@@ -205,6 +206,8 @@ pub(crate) struct ExploreArgs {
     /// Deduplicate structural backlinks and forward links by source/destination note.
     #[arg(long)]
     pub(crate) unique: bool,
+    #[command(flatten)]
+    pub(crate) save: SaveArtifactArgs,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -318,6 +321,27 @@ pub(crate) struct CompareArgs {
     /// Maximum entries per comparison section.
     #[arg(long, default_value_t = 200)]
     pub(crate) limit: usize,
+    #[command(flatten)]
+    pub(crate) save: SaveArtifactArgs,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct SaveArtifactArgs {
+    /// Persist the live command as a durable exploration artifact.
+    #[arg(long)]
+    pub(crate) save: bool,
+    /// Durable identifier to assign to the saved artifact.
+    #[arg(long = "artifact-id")]
+    pub(crate) artifact_id: Option<String>,
+    /// Human title to assign to the saved artifact.
+    #[arg(long = "artifact-title")]
+    pub(crate) artifact_title: Option<String>,
+    /// Optional human summary for the saved artifact.
+    #[arg(long = "artifact-summary")]
+    pub(crate) artifact_summary: Option<String>,
+    /// Replace an existing saved artifact with the same durable identifier.
+    #[arg(long)]
+    pub(crate) overwrite: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -412,11 +436,107 @@ pub(crate) fn run_resolve_node(args: &ResolveNodeArgs) -> Result<(), CliCommandE
 }
 
 pub(crate) fn run_explore(args: &ExploreArgs) -> Result<(), CliCommandError> {
-    run_headless_command(args)
+    let output_mode = args.headless.output_mode();
+    let Some(save_request) = args
+        .save
+        .request()
+        .map_err(|error| CliCommandError::new(output_mode, error))?
+    else {
+        return run_headless_command(args);
+    };
+
+    let mut client = args.headless.connect()?;
+    let (focus_node_key, result) = execute_live_explore(args, &mut client)
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    let artifact = SavedExplorationArtifact {
+        metadata: save_request.metadata,
+        payload: ExplorationArtifactPayload::LensView {
+            artifact: Box::new(SavedLensViewArtifact {
+                root_node_key: focus_node_key.clone(),
+                current_node_key: focus_node_key,
+                lens: args.lens.into(),
+                limit: args.limit,
+                unique: args.unique,
+                frozen_context: false,
+            }),
+        },
+    };
+    let saved = client
+        .save_exploration_artifact(&SaveExplorationArtifactParams {
+            artifact,
+            overwrite: save_request.overwrite,
+        })
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    client
+        .shutdown()
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+
+    let command_result = SavedExploreCommandResult {
+        result,
+        artifact: saved.artifact,
+    };
+    let stdout = io::stdout();
+    let mut writer = stdout.lock();
+    write_output(&mut writer, output_mode, &command_result, |value| {
+        let mut output = render_explore_result(&value.result);
+        output.push('\n');
+        output.push_str(&render_saved_artifact_summary(&value.artifact));
+        output
+    })
+    .map_err(|error| CliCommandError::new(output_mode, error))
 }
 
 pub(crate) fn run_compare(args: &CompareArgs) -> Result<(), CliCommandError> {
-    run_headless_command(args)
+    let output_mode = args.headless.output_mode();
+    let Some(save_request) = args
+        .save
+        .request()
+        .map_err(|error| CliCommandError::new(output_mode, error))?
+    else {
+        return run_headless_command(args);
+    };
+
+    let mut client = args.headless.connect()?;
+    let (left, right, result) = execute_live_compare(args, &mut client)
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    let artifact = SavedExplorationArtifact {
+        metadata: save_request.metadata,
+        payload: ExplorationArtifactPayload::Comparison {
+            artifact: Box::new(SavedComparisonArtifact {
+                root_node_key: left.node_key.clone(),
+                left_node_key: left.node_key,
+                right_node_key: right.node_key,
+                active_lens: ExplorationLens::Structure,
+                structure_unique: false,
+                comparison_group: args.group.into(),
+                limit: args.limit,
+                frozen_context: false,
+            }),
+        },
+    };
+    let saved = client
+        .save_exploration_artifact(&SaveExplorationArtifactParams {
+            artifact,
+            overwrite: save_request.overwrite,
+        })
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    client
+        .shutdown()
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+
+    let command_result = SavedCompareCommandResult {
+        result,
+        artifact: saved.artifact,
+    };
+    let stdout = io::stdout();
+    let mut writer = stdout.lock();
+    write_output(&mut writer, output_mode, &command_result, |value| {
+        let mut output = render_compare_result(&value.result, args.group.into());
+        output.push('\n');
+        output.push_str(&render_saved_artifact_summary(&value.artifact));
+        output
+    })
+    .map_err(|error| CliCommandError::new(output_mode, error))
 }
 
 pub(crate) fn run_artifact(args: &ArtifactArgs) -> Result<(), CliCommandError> {
@@ -441,6 +561,75 @@ pub(crate) fn report_error(error: &CliCommandError) -> ExitCode {
 struct ArtifactExportFileResult {
     artifact: ExplorationArtifactSummary,
     output_path: String,
+}
+
+#[derive(Debug, Serialize)]
+struct SavedExploreCommandResult {
+    result: ExploreResult,
+    artifact: ExplorationArtifactSummary,
+}
+
+#[derive(Debug, Serialize)]
+struct SavedCompareCommandResult {
+    result: NoteComparisonResult,
+    artifact: ExplorationArtifactSummary,
+}
+
+#[derive(Debug, Clone)]
+struct SaveArtifactRequest {
+    metadata: ExplorationArtifactMetadata,
+    overwrite: bool,
+}
+
+impl SaveArtifactArgs {
+    fn request(&self) -> Result<Option<SaveArtifactRequest>> {
+        let mut stray_flags = Vec::new();
+        if self.artifact_id.is_some() {
+            stray_flags.push("--artifact-id");
+        }
+        if self.artifact_title.is_some() {
+            stray_flags.push("--artifact-title");
+        }
+        if self.artifact_summary.is_some() {
+            stray_flags.push("--artifact-summary");
+        }
+        if self.overwrite {
+            stray_flags.push("--overwrite");
+        }
+
+        if !self.save {
+            if stray_flags.is_empty() {
+                return Ok(None);
+            }
+            anyhow::bail!("{} require --save", render_flag_list(&stray_flags));
+        }
+
+        let mut missing_flags = Vec::new();
+        if self.artifact_id.is_none() {
+            missing_flags.push("--artifact-id");
+        }
+        if self.artifact_title.is_none() {
+            missing_flags.push("--artifact-title");
+        }
+        if !missing_flags.is_empty() {
+            anyhow::bail!("--save requires {}", render_flag_list(&missing_flags));
+        }
+
+        Ok(Some(SaveArtifactRequest {
+            metadata: ExplorationArtifactMetadata {
+                artifact_id: self
+                    .artifact_id
+                    .clone()
+                    .expect("validated artifact_id should be present"),
+                title: self
+                    .artifact_title
+                    .clone()
+                    .expect("validated artifact_title should be present"),
+                summary: self.artifact_summary.clone(),
+            },
+            overwrite: self.overwrite,
+        }))
+    }
 }
 
 pub(crate) struct CliCommandError {
@@ -699,13 +888,7 @@ impl HeadlessCommand for ExploreArgs {
     }
 
     fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
-        let focus_node_key = resolve_explore_focus_node_key(client, &self.target.target())?;
-        client.explore(&ExploreParams {
-            node_key: focus_node_key,
-            lens: self.lens.into(),
-            limit: self.limit,
-            unique: self.unique,
-        })
+        execute_live_explore(self, client).map(|(_, result)| result)
     }
 
     fn render_human(&self, output: &Self::Output) -> String {
@@ -721,14 +904,7 @@ impl HeadlessCommand for CompareArgs {
     }
 
     fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
-        let left = resolve_note_target(client, &self.left.target())?;
-        let right = resolve_note_target(client, &self.right.target())?;
-        let result = client.compare_notes(&CompareNotesParams {
-            left_node_key: left.node_key,
-            right_node_key: right.node_key,
-            limit: self.limit,
-        })?;
-        Ok(result.filtered_to_group(self.group.into()))
+        execute_live_compare(self, client).map(|(_, _, result)| result)
     }
 
     fn render_human(&self, output: &Self::Output) -> String {
@@ -837,6 +1013,36 @@ pub(crate) fn resolve_note_target(
     }
 }
 
+fn execute_live_explore(
+    command: &ExploreArgs,
+    client: &mut DaemonClient,
+) -> Result<(String, ExploreResult), DaemonClientError> {
+    let focus_node_key = resolve_explore_focus_node_key(client, &command.target.target())?;
+    let result = client.explore(&ExploreParams {
+        node_key: focus_node_key.clone(),
+        lens: command.lens.into(),
+        limit: command.limit,
+        unique: command.unique,
+    })?;
+    Ok((focus_node_key, result))
+}
+
+fn execute_live_compare(
+    command: &CompareArgs,
+    client: &mut DaemonClient,
+) -> Result<(NodeRecord, NodeRecord, NoteComparisonResult), DaemonClientError> {
+    let left = resolve_note_target(client, &command.left.target())?;
+    let right = resolve_note_target(client, &command.right.target())?;
+    let result = client
+        .compare_notes(&CompareNotesParams {
+            left_node_key: left.node_key.clone(),
+            right_node_key: right.node_key.clone(),
+            limit: command.limit,
+        })?
+        .filtered_to_group(command.group.into());
+    Ok((left, right, result))
+}
+
 fn resolve_explore_focus_node_key(
     client: &mut DaemonClient,
     target: &ResolveTarget,
@@ -852,6 +1058,28 @@ fn require_resolved_node(
     error_message: String,
 ) -> Result<NodeRecord, DaemonClientError> {
     node.ok_or_else(|| DaemonClientError::Rpc(JsonRpcErrorObject::invalid_request(error_message)))
+}
+
+fn render_flag_list(flags: &[&str]) -> String {
+    match flags {
+        [] => String::new(),
+        [flag] => (*flag).to_owned(),
+        [first, second] => format!("{first} and {second}"),
+        _ => {
+            let mut output = flags[..flags.len() - 1].join(", ");
+            output.push_str(", and ");
+            output.push_str(flags[flags.len() - 1]);
+            output
+        }
+    }
+}
+
+fn render_saved_artifact_summary(artifact: &ExplorationArtifactSummary) -> String {
+    format!(
+        "saved artifact: {} [{}]\n",
+        artifact.metadata.artifact_id,
+        render_artifact_kind(artifact.kind)
+    )
 }
 
 fn render_node_summary(node: &NodeRecord) -> String {

@@ -160,6 +160,32 @@ impl ServerState {
             })
     }
 
+    pub(super) fn known_note_for_node_or_anchor(
+        &mut self,
+        node_key: &str,
+        description: &str,
+    ) -> Result<NodeRecord, JsonRpcError> {
+        if let Some(note) = self.database.note_by_key(node_key).map_err(|error| {
+            internal_error(error.context(format!("failed to fetch {description}")))
+        })? {
+            return Ok(note);
+        }
+
+        let anchor = self.known_anchor(node_key, description)?;
+        self.database
+            .note_for_anchor(&anchor)
+            .map_err(|error| {
+                internal_error(
+                    error.context(format!("failed to resolve owner note for {description}")),
+                )
+            })?
+            .ok_or_else(|| {
+                internal_error(anyhow!(
+                    "owner note for {description} {node_key} was not found after indexing"
+                ))
+            })
+    }
+
     pub(super) fn require_anchor(
         &mut self,
         node_key: &str,

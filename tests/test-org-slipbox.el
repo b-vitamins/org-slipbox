@@ -112,14 +112,16 @@ ROOT-NODE defaults to NODE."
      (:kind "forward-links" :entries [])]))
 
 (defun org-slipbox-test--lens-artifact-execution
-    (artifact-id title root current lens limit unique frozen)
+    (artifact-id title root current lens limit unique frozen
+                 &optional root-focus-key current-focus-key)
   "Return an executed lens-view artifact for the given saved state."
   `(:artifact_id ,artifact-id
     :title ,title
     :summary nil
     :kind "lens-view"
-    :artifact (:root_node_key ,(plist-get root :node_key)
-               :current_node_key ,(plist-get current :node_key)
+    :artifact (:root_node_key ,(or root-focus-key (plist-get root :node_key))
+               :current_node_key ,(or current-focus-key
+                                      (plist-get current :node_key))
                :lens ,(symbol-name lens)
                :limit ,limit
                :unique ,unique
@@ -3636,6 +3638,68 @@ ROOT-NODE defaults to NODE."
             (should (equal explore-args '("file:current.org" structure 25 t)))
             (should (string-match-p "Current  |  lens: structure  |  root: Root"
                                     header-line-format)))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-load-artifact-preserves-anchor-focused-lens-view-session ()
+  "Dedicated load should keep anchor-scoped lens focus faithful."
+  (let* ((stale '(:node_key "file:stale.org" :title "Stale" :file_path "stale.org" :line 1))
+         (owner '(:node_key "file:owner.org"
+                  :title "Owner"
+                  :file_path "owner.org"
+                  :line 12))
+         (anchor-key "heading:owner.org:12")
+         (summary '(:artifact_id "saved-time"
+                    :title "Saved Time"
+                    :kind "lens-view"))
+         explore-args)
+    (with-current-buffer (get-buffer-create "*org-slipbox load anchor lens test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session 'dedicated stale))
+            (cl-letf (((symbol-function 'completing-read)
+                       (lambda (_prompt choices &rest _args)
+                         (caar choices)))
+                      ((symbol-function 'org-slipbox-rpc-list-exploration-artifacts)
+                       (lambda ()
+                         `(:artifacts [,summary])))
+                      ((symbol-function 'org-slipbox-rpc-execute-exploration-artifact)
+                       (lambda (_artifact-id)
+                         `(:artifact
+                           ,(org-slipbox-test--lens-artifact-execution
+                             "saved-time"
+                             "Saved Time"
+                             owner
+                             owner
+                             'time
+                             10
+                             nil
+                             nil
+                             anchor-key
+                             anchor-key))))
+                      ((symbol-function 'org-slipbox-rpc-explore)
+                       (lambda (node-key lens &optional limit unique)
+                         (push (list node-key lens limit unique) explore-args)
+                         '(:lens "time"
+                           :sections [(:kind "time-neighbors" :entries [])])))
+                      ((symbol-function 'message)
+                       #'ignore))
+              (should (equal (org-slipbox-buffer-load-artifact) summary))
+              (should (equal (org-slipbox-buffer--current-focus-key) anchor-key))
+              (should (equal (org-slipbox-buffer--root-focus-key) anchor-key))
+              (should (equal (car (last explore-args))
+                             (list anchor-key 'time 10 nil)))
+              (should (equal
+                       (plist-get
+                        (org-slipbox-buffer--saved-lens-view-artifact
+                         (org-slipbox-buffer--history-snapshot))
+                        :current_node_key)
+                       anchor-key))
+              (org-slipbox-buffer-switch-lens 'structure)
+              (should (equal (org-slipbox-buffer--current-focus-key)
+                             "file:owner.org"))
+              (should (equal (car explore-args)
+                             (list "file:owner.org" 'structure 10 nil)))))
         (kill-buffer (current-buffer))))))
 
 (ert-deftest org-slipbox-test-buffer-load-artifact-refuses-conflicting-structure-plan ()

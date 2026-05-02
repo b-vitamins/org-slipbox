@@ -177,6 +177,8 @@ Return non-nil to render the section, or nil to skip it."
   kind
   current-node
   root-node
+  current-focus-key
+  root-focus-key
   active-lens
   compare-target
   comparison-group
@@ -294,6 +296,14 @@ Return non-nil to render the section, or nil to skip it."
   (let* ((session (org-slipbox-buffer--require-dedicated-session))
          (snapshot (org-slipbox-buffer--history-snapshot session)))
     (setq snapshot (plist-put snapshot :active-lens lens))
+    (unless (memq lens '(refs time tasks))
+      (setq snapshot
+            (plist-put snapshot :current-focus-key
+                       (plist-get (plist-get snapshot :current-node) :node_key)))
+      (setq snapshot
+            (plist-put snapshot :root-focus-key
+                       (or (plist-get (plist-get snapshot :root-node) :node_key)
+                           (plist-get (plist-get snapshot :current-node) :node_key)))))
     (org-slipbox-buffer--transition-dedicated snapshot)))
 
 (defun org-slipbox-buffer-set-compare-target (node)
@@ -456,10 +466,14 @@ Return non-nil to render the section, or nil to skip it."
     (setq snapshot (plist-put snapshot :frozen-context frozen))
     (unless frozen
       (setq snapshot (plist-put snapshot :root-node
-                                (org-slipbox-buffer-session-current-node session))))
+                                (org-slipbox-buffer-session-current-node session)))
+      (setq snapshot (plist-put snapshot :root-focus-key
+                                (org-slipbox-buffer--current-focus-key session))))
     (when (and frozen (null (plist-get snapshot :root-node)))
       (setq snapshot (plist-put snapshot :root-node
-                                (org-slipbox-buffer-session-current-node session))))
+                                (org-slipbox-buffer-session-current-node session)))
+      (setq snapshot (plist-put snapshot :root-focus-key
+                                (org-slipbox-buffer--current-focus-key session))))
     (org-slipbox-buffer--transition-dedicated snapshot)))
 
 (defun org-slipbox-buffer-render-contents ()
@@ -573,7 +587,9 @@ Return non-nil to render the section, or nil to skip it."
   (make-org-slipbox-buffer-session
    :kind 'persistent
    :current-node node
-   :root-node node))
+   :root-node node
+   :current-focus-key (plist-get node :node_key)
+   :root-focus-key (plist-get node :node_key)))
 
 (defun org-slipbox-buffer--normalize-persistent-session (session node)
   "Normalize persistent SESSION around NODE.
@@ -581,6 +597,10 @@ Dedicated-only state must not survive on the persistent tracking path."
   (setf (org-slipbox-buffer-session-kind session) 'persistent
         (org-slipbox-buffer-session-current-node session) node
         (org-slipbox-buffer-session-root-node session) node
+        (org-slipbox-buffer-session-current-focus-key session)
+        (plist-get node :node_key)
+        (org-slipbox-buffer-session-root-focus-key session)
+        (plist-get node :node_key)
         (org-slipbox-buffer-session-active-lens session) nil
         (org-slipbox-buffer-session-compare-target session) nil
         (org-slipbox-buffer-session-comparison-group session) nil
@@ -600,6 +620,8 @@ Dedicated-only state must not survive on the persistent tracking path."
    :kind 'dedicated
    :current-node node
    :root-node node
+   :current-focus-key (plist-get node :node_key)
+   :root-focus-key (plist-get node :node_key)
    :active-lens 'structure
    :comparison-group 'all
    :query-limit org-slipbox-buffer-default-query-limit
@@ -637,6 +659,19 @@ Dedicated-only state must not survive on the persistent tracking path."
   "Return the active exploration lens for SESSION or the current buffer."
   (when-let ((session (or session org-slipbox-buffer-session)))
     (org-slipbox-buffer-session-active-lens session)))
+
+(defun org-slipbox-buffer--current-focus-key (&optional session)
+  "Return the active exploration focus key for SESSION or the current buffer."
+  (when-let ((session (or session org-slipbox-buffer-session)))
+    (or (org-slipbox-buffer-session-current-focus-key session)
+        (plist-get (org-slipbox-buffer-session-current-node session) :node_key))))
+
+(defun org-slipbox-buffer--root-focus-key (&optional session)
+  "Return the root exploration focus key for SESSION or the current buffer."
+  (when-let ((session (or session org-slipbox-buffer-session)))
+    (or (org-slipbox-buffer-session-root-focus-key session)
+        (plist-get (org-slipbox-buffer-session-root-node session) :node_key)
+        (org-slipbox-buffer--current-focus-key session))))
 
 (defun org-slipbox-buffer--current-query-limit (&optional session)
   "Return the active query limit for SESSION or the current buffer."
@@ -706,6 +741,8 @@ Dedicated-only state must not survive on the persistent tracking path."
   (let ((session (or session org-slipbox-buffer-session)))
     (list :current-node (org-slipbox-buffer-session-current-node session)
           :root-node (org-slipbox-buffer-session-root-node session)
+          :current-focus-key (org-slipbox-buffer--current-focus-key session)
+          :root-focus-key (org-slipbox-buffer--root-focus-key session)
           :active-lens (org-slipbox-buffer-session-active-lens session)
           :compare-target (org-slipbox-buffer-session-compare-target session)
           :comparison-group (org-slipbox-buffer--current-comparison-group session)
@@ -844,6 +881,17 @@ Dedicated-only state must not survive on the persistent tracking path."
   (or (plist-get node :node_key)
       (user-error "Current %s does not have a node key" context)))
 
+(defun org-slipbox-buffer--required-focus-key (snapshot key context)
+  "Return SNAPSHOT's required focus KEY for CONTEXT, or signal a user error."
+  (or (plist-get snapshot key)
+      (org-slipbox-buffer--required-node-key
+       (plist-get snapshot
+                  (pcase key
+                    (:root-focus-key :root-node)
+                    (:current-focus-key :current-node)
+                    (_ (user-error "Unsupported focus slot %S" key))))
+       context)))
+
 (defun org-slipbox-buffer--artifact-lens-symbol (value)
   "Return VALUE normalized as an exploration lens symbol."
   (if (symbolp value) value (intern value)))
@@ -967,13 +1015,15 @@ dedicated plan omits explicit structure-query modifiers."
 
 (defun org-slipbox-buffer--saved-lens-view-artifact (snapshot)
   "Return a saved lens-view artifact plist from dedicated SNAPSHOT."
-  (let ((root-node (plist-get snapshot :root-node))
-        (current-node (plist-get snapshot :current-node))
-        (lens (plist-get snapshot :active-lens))
+  (let ((lens (plist-get snapshot :active-lens))
         (query-options (org-slipbox-buffer--saved-lens-query-options snapshot)))
     `(:kind "lens-view"
-      :root_node_key ,(org-slipbox-buffer--required-node-key root-node "root node")
-      :current_node_key ,(org-slipbox-buffer--required-node-key current-node "node")
+      :root_node_key
+      ,(org-slipbox-buffer--required-focus-key
+        snapshot :root-focus-key "root focus")
+      :current_node_key
+      ,(org-slipbox-buffer--required-focus-key
+        snapshot :current-focus-key "node focus")
       :lens ,(symbol-name lens)
       :limit ,(plist-get query-options :limit)
       :unique ,(org-slipbox-rpc--bool (plist-get query-options :unique))
@@ -998,16 +1048,19 @@ dedicated plan omits explicit structure-query modifiers."
 
 (defun org-slipbox-buffer--snapshot-from-executed-lens-view (execution)
   "Return a dedicated snapshot restored from executed lens-view EXECUTION."
-  (org-slipbox-buffer--validate-restored-snapshot
-   `(:current-node ,(plist-get execution :current_note)
-     :root-node ,(plist-get execution :root_note)
-     :active-lens ,(org-slipbox-buffer--artifact-lens-symbol
-                    (plist-get (plist-get execution :artifact) :lens))
-     :compare-target nil
-     :comparison-group all
-     :query-limit ,(plist-get (plist-get execution :artifact) :limit)
-     :structure-unique ,(and (plist-get (plist-get execution :artifact) :unique) t)
-     :frozen-context ,(plist-get (plist-get execution :artifact) :frozen_context))))
+  (let ((artifact (plist-get execution :artifact)))
+    (org-slipbox-buffer--validate-restored-snapshot
+     `(:current-node ,(plist-get execution :current_note)
+       :root-node ,(plist-get execution :root_note)
+       :current-focus-key ,(plist-get artifact :current_node_key)
+       :root-focus-key ,(plist-get artifact :root_node_key)
+       :active-lens ,(org-slipbox-buffer--artifact-lens-symbol
+                      (plist-get artifact :lens))
+       :compare-target nil
+       :comparison-group all
+       :query-limit ,(plist-get artifact :limit)
+       :structure-unique ,(and (plist-get artifact :unique) t)
+       :frozen-context ,(plist-get artifact :frozen_context)))))
 
 (defun org-slipbox-buffer--snapshot-from-executed-comparison (execution)
   "Return a dedicated snapshot restored from executed comparison EXECUTION."
@@ -1016,6 +1069,8 @@ dedicated plan omits explicit structure-query modifiers."
     (org-slipbox-buffer--validate-restored-snapshot
      `(:current-node ,(plist-get result :left_note)
        :root-node ,(plist-get execution :root_note)
+       :current-focus-key ,(plist-get (plist-get result :left_note) :node_key)
+       :root-focus-key ,(plist-get (plist-get execution :root_note) :node_key)
        :active-lens ,(org-slipbox-buffer--artifact-lens-symbol
                       (plist-get artifact :active_lens))
        :compare-target ,(plist-get result :right_note)
@@ -1157,6 +1212,14 @@ and ARTIFACT-ID with TITLE define durable metadata."
         (plist-get snapshot :current-node)
         (org-slipbox-buffer-session-root-node session)
         (plist-get snapshot :root-node)
+        (org-slipbox-buffer-session-current-focus-key session)
+        (or (plist-get snapshot :current-focus-key)
+            (plist-get (plist-get snapshot :current-node) :node_key))
+        (org-slipbox-buffer-session-root-focus-key session)
+        (or (plist-get snapshot :root-focus-key)
+            (plist-get (plist-get snapshot :root-node) :node_key)
+            (plist-get snapshot :current-focus-key)
+            (plist-get (plist-get snapshot :current-node) :node_key))
         (org-slipbox-buffer-session-active-lens session)
         (plist-get snapshot :active-lens)
         (org-slipbox-buffer-session-compare-target session)
@@ -1717,7 +1780,12 @@ node. LIMIT bounds the number of rows requested."
                         (org-slipbox-buffer-session-root-node session)
                       node)))
     (setq snapshot (plist-put snapshot :current-node node))
+    (setq snapshot (plist-put snapshot :current-focus-key
+                              (plist-get node :node_key)))
     (setq snapshot (plist-put snapshot :root-node root-node))
+    (unless (org-slipbox-buffer-session-frozen-context session)
+      (setq snapshot (plist-put snapshot :root-focus-key
+                                (plist-get root-node :node_key))))
     (org-slipbox-buffer--transition-dedicated snapshot)))
 
 (defun org-slipbox-buffer--format-explanation-list (values)
@@ -2022,24 +2090,28 @@ node. LIMIT bounds the number of rows requested."
     (_
      (user-error "Unsupported exploration section kind %S" section-kind))))
 
-(defun org-slipbox-buffer--exploration-cache-key (lens unique limit)
-  "Return the cache key for exploration LENS, UNIQUE, and LIMIT."
-  (list lens
+(defun org-slipbox-buffer--exploration-cache-key (focus-key lens unique limit)
+  "Return the cache key for FOCUS-KEY, exploration LENS, UNIQUE, and LIMIT."
+  (list focus-key
+        lens
         (or limit org-slipbox-buffer-default-query-limit)
         (and unique t)))
 
 (defun org-slipbox-buffer--exploration-result (node lens &optional unique limit)
   "Return cached exploration results for NODE under LENS."
   (let ((limit (or limit org-slipbox-buffer-default-query-limit)))
-    (when-let ((node-key (plist-get node :node_key)))
+    (when-let ((focus-key (or (org-slipbox-buffer--current-focus-key)
+                              (plist-get node :node_key))))
     (if-let* ((session org-slipbox-buffer-session)
-              (cache-key (org-slipbox-buffer--exploration-cache-key lens unique limit))
+              (cache-key (org-slipbox-buffer--exploration-cache-key
+                          focus-key lens unique limit))
               (cached (assoc cache-key
                              (org-slipbox-buffer-session-lens-cache session))))
         (cdr cached)
-      (let ((result (org-slipbox-rpc-explore node-key lens limit unique)))
+      (let ((result (org-slipbox-rpc-explore focus-key lens limit unique)))
         (when-let ((session org-slipbox-buffer-session))
-          (let ((cache-key (org-slipbox-buffer--exploration-cache-key lens unique limit))
+          (let ((cache-key (org-slipbox-buffer--exploration-cache-key
+                            focus-key lens unique limit))
                 (existing (org-slipbox-buffer-session-lens-cache session)))
             (setf (org-slipbox-buffer-session-lens-cache session)
                   (cons (cons cache-key result)

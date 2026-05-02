@@ -482,9 +482,12 @@ fn execute_saved_lens_view(
     state: &mut ServerState,
     artifact: &SavedLensViewArtifact,
 ) -> Result<(NodeRecord, NodeRecord, ExploreResult), JsonRpcError> {
-    let root_note = state.known_note(&artifact.root_node_key, "saved lens-view root note")?;
-    let current_note =
-        state.known_note(&artifact.current_node_key, "saved lens-view current note")?;
+    let root_note = state
+        .known_note_for_node_or_anchor(&artifact.root_node_key, "saved lens-view root focus")?;
+    let current_note = state.known_note_for_node_or_anchor(
+        &artifact.current_node_key,
+        "saved lens-view current focus",
+    )?;
     let result = execute_explore_query(state, &artifact.explore_params())?;
     Ok((root_note, current_note, result))
 }
