@@ -79,6 +79,9 @@ resolves it through `exec-path'."
 (defconst org-slipbox-rpc-method-unlinked-references "slipbox/unlinkedReferences")
 (defconst org-slipbox-rpc-method-explore "slipbox/explore")
 (defconst org-slipbox-rpc-method-compare-notes "slipbox/compareNotes")
+(defconst org-slipbox-rpc-method-save-exploration-artifact "slipbox/saveExplorationArtifact")
+(defconst org-slipbox-rpc-method-exploration-artifact "slipbox/explorationArtifact")
+(defconst org-slipbox-rpc-method-list-exploration-artifacts "slipbox/listExplorationArtifacts")
 (defconst org-slipbox-rpc-method-agenda "slipbox/agenda")
 (defconst org-slipbox-rpc-method-search-refs "slipbox/searchRefs")
 (defconst org-slipbox-rpc-method-capture-node "slipbox/captureNode")
@@ -410,6 +413,23 @@ non-nil, structure-lens occurrences collapse to one row per related note."
    `(:left_node_key ,left-node-key
                     :right_node_key ,right-node-key
                     :limit ,(or limit 200))))
+
+(defun org-slipbox-rpc-save-exploration-artifact (artifact)
+  "Persist saved exploration ARTIFACT through the daemon."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-save-exploration-artifact
+   `(:artifact ,artifact)))
+
+(defun org-slipbox-rpc-exploration-artifact (artifact-id)
+  "Load the saved exploration artifact identified by ARTIFACT-ID."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-exploration-artifact
+   `(:artifact_id ,artifact-id)))
+
+(defun org-slipbox-rpc-list-exploration-artifacts ()
+  "List saved exploration artifact summaries."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-list-exploration-artifacts))
 
 (defun org-slipbox-rpc-reflinks (node-key &optional limit)
   "Return reflinks for NODE-KEY, optionally capped by LIMIT."

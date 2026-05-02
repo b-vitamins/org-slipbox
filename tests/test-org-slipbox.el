@@ -20,15 +20,18 @@
 (defun org-slipbox-test--buffer-session (kind node &optional root-node &rest properties)
   "Return a context-buffer session with KIND and NODE.
 ROOT-NODE defaults to NODE."
-  (let ((defaults (if (eq kind 'dedicated)
-                      '(:active-lens structure :comparison-group all :frozen-context t)
-                    nil)))
+  (let ((params (copy-tree
+                 (if (eq kind 'dedicated)
+                     '(:active-lens structure :comparison-group all :frozen-context t)
+                   nil))))
+    (while properties
+      (setq params (plist-put params (pop properties) (pop properties))))
     (apply
      #'make-org-slipbox-buffer-session
      :kind kind
      :current-node node
      :root-node (or root-node node)
-     (append defaults properties))))
+     params)))
 
 (defun org-slipbox-test--comparison-result (left right)
   "Return a structured comparison result for LEFT and RIGHT."
@@ -3281,6 +3284,297 @@ ROOT-NODE defaults to NODE."
                                     (buffer-string))))
         (kill-buffer (current-buffer))))))
 
+(ert-deftest org-slipbox-test-buffer-save-artifact-saves-current-lens-view ()
+  "Dedicated save should persist the current lens view through the RPC layer."
+  (let ((node '(:node_key "file:focus.org"
+                :title "Focus"
+                :file_path "focus.org"
+                :line 1))
+        saved-artifact)
+    (with-current-buffer (get-buffer-create "*org-slipbox save lens test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session
+                         'dedicated
+                         node
+                         nil
+                         :active-lens 'bridges))
+            (cl-letf (((symbol-function 'read-string)
+                       (let ((responses '("Focus Bridges" "focus-bridges")))
+                         (lambda (&rest _args)
+                           (pop responses))))
+                      ((symbol-function 'org-slipbox-rpc-list-exploration-artifacts)
+                       (lambda ()
+                         '(:artifacts [])))
+                      ((symbol-function 'org-slipbox-rpc-save-exploration-artifact)
+                       (lambda (artifact)
+                         (setq saved-artifact artifact)
+                         `(:artifact (:artifact_id ,(plist-get artifact :artifact_id)
+                                     :title ,(plist-get artifact :title)
+                                     :kind ,(plist-get artifact :kind)))))
+                      ((symbol-function 'message)
+                       #'ignore))
+              (should
+               (equal (org-slipbox-buffer-save-artifact)
+                      '(:artifact_id "focus-bridges"
+                        :title "Focus Bridges"
+                        :kind "lens-view"))))
+            (should (equal (plist-get saved-artifact :artifact_id) "focus-bridges"))
+            (should (equal (plist-get saved-artifact :title) "Focus Bridges"))
+            (should (equal (plist-get saved-artifact :kind) "lens-view"))
+            (should (equal (plist-get saved-artifact :root_node_key) "file:focus.org"))
+            (should (equal (plist-get saved-artifact :current_node_key) "file:focus.org"))
+            (should (equal (plist-get saved-artifact :lens) "bridges"))
+            (should (= (plist-get saved-artifact :limit)
+                       org-slipbox-buffer-default-query-limit))
+            (should (eq (plist-get saved-artifact :unique) :json-false))
+            (should (eq (plist-get saved-artifact :frozen_context) t)))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-save-artifact-saves-structure-plan-query-semantics ()
+  "Dedicated save should preserve representable structure-plan query options."
+  (let ((org-slipbox-buffer-lens-plans
+         '((structure
+            org-slipbox-buffer-node-section
+            (org-slipbox-buffer-backlinks-section
+             :unique t
+             :limit 25
+             :section-heading "Unique Backlinks")
+            (org-slipbox-buffer-forward-links-section
+             :unique t
+             :limit 25
+             :section-heading "Unique Forward Links"))))
+        (node '(:node_key "file:focus.org"
+                :title "Focus"
+                :file_path "focus.org"
+                :line 1))
+        saved-artifact)
+    (with-current-buffer (get-buffer-create "*org-slipbox save structure test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session
+                         'dedicated
+                         node
+                         nil
+                         :active-lens 'structure))
+            (cl-letf (((symbol-function 'read-string)
+                       (let ((responses '("Focus Structure" "focus-structure")))
+                         (lambda (&rest _args)
+                           (pop responses))))
+                      ((symbol-function 'org-slipbox-rpc-list-exploration-artifacts)
+                       (lambda ()
+                         '(:artifacts [])))
+                      ((symbol-function 'org-slipbox-rpc-save-exploration-artifact)
+                       (lambda (artifact)
+                         (setq saved-artifact artifact)
+                         `(:artifact (:artifact_id ,(plist-get artifact :artifact_id)
+                                     :title ,(plist-get artifact :title)
+                                     :kind ,(plist-get artifact :kind)))))
+                      ((symbol-function 'message)
+                       #'ignore))
+              (org-slipbox-buffer-save-artifact))
+            (should (equal (plist-get saved-artifact :kind) "lens-view"))
+            (should (= (plist-get saved-artifact :limit) 25))
+            (should (eq (plist-get saved-artifact :unique) t)))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-save-artifact-saves-current-comparison ()
+  "Dedicated save should persist the current comparison through the RPC layer."
+  (let ((left '(:node_key "file:left.org"
+                 :title "Left"
+                 :file_path "left.org"
+                 :line 1))
+        (right '(:node_key "file:right.org"
+                  :title "Right"
+                  :file_path "right.org"
+                  :line 1))
+        saved-artifact)
+    (with-current-buffer (get-buffer-create "*org-slipbox save comparison test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session
+                         'dedicated
+                         left
+                         nil
+                         :compare-target right
+                         :comparison-group 'tension))
+            (cl-letf (((symbol-function 'read-string)
+                       (let ((responses '("Left vs Right" "left-vs-right")))
+                         (lambda (&rest _args)
+                           (pop responses))))
+                      ((symbol-function 'org-slipbox-rpc-list-exploration-artifacts)
+                       (lambda ()
+                         '(:artifacts [])))
+                      ((symbol-function 'org-slipbox-rpc-save-exploration-artifact)
+                       (lambda (artifact)
+                         (setq saved-artifact artifact)
+                         `(:artifact (:artifact_id ,(plist-get artifact :artifact_id)
+                                     :title ,(plist-get artifact :title)
+                                     :kind ,(plist-get artifact :kind)))))
+                      ((symbol-function 'message)
+                       #'ignore))
+              (org-slipbox-buffer-save-artifact))
+            (should (equal (plist-get saved-artifact :kind) "comparison"))
+            (should (equal (plist-get saved-artifact :root_node_key) "file:left.org"))
+            (should (equal (plist-get saved-artifact :left_node_key) "file:left.org"))
+            (should (equal (plist-get saved-artifact :right_node_key) "file:right.org"))
+            (should (equal (plist-get saved-artifact :comparison_group) "tension"))
+            (should (= (plist-get saved-artifact :limit)
+                       org-slipbox-buffer-default-query-limit))
+            (should (eq (plist-get saved-artifact :frozen_context) t)))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-save-artifact-saves-detached-trail-slice ()
+  "Dedicated save should support trail-slice artifacts with detached branches."
+  (let* ((org-slipbox-buffer-lens-plans
+          '((structure
+             org-slipbox-buffer-node-section
+             (org-slipbox-buffer-backlinks-section :unique t :limit 25)
+             (org-slipbox-buffer-forward-links-section :unique t :limit 25))))
+         (node-a '(:node_key "file:a.org" :title "A" :file_path "a.org" :line 1))
+         (node-b '(:node_key "file:b.org" :title "B" :file_path "b.org" :line 1))
+         (node-c '(:node_key "file:c.org" :title "C" :file_path "c.org" :line 1))
+         (snapshot-a `(:current-node ,node-a
+                       :root-node ,node-a
+                       :active-lens structure
+                       :compare-target nil
+                       :comparison-group all
+                       :frozen-context t))
+         (snapshot-b `(:current-node ,node-b
+                       :root-node ,node-a
+                       :active-lens structure
+                       :compare-target nil
+                       :comparison-group all
+                       :frozen-context t))
+         saved-artifact)
+    (with-current-buffer (get-buffer-create "*org-slipbox save trail slice test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session
+                         'dedicated
+                         node-c
+                         node-a
+                         :trail (list snapshot-a snapshot-b)
+                         :trail-index 0))
+            (cl-letf (((symbol-function 'completing-read)
+                       (lambda (&rest _args)
+                         "Current trail slice"))
+                      ((symbol-function 'read-string)
+                       (let ((responses '("Trail Slice" "trail-slice")))
+                         (lambda (&rest _args)
+                           (pop responses))))
+                      ((symbol-function 'org-slipbox-rpc-list-exploration-artifacts)
+                       (lambda ()
+                         '(:artifacts [])))
+                      ((symbol-function 'org-slipbox-rpc-save-exploration-artifact)
+                       (lambda (artifact)
+                         (setq saved-artifact artifact)
+                         `(:artifact (:artifact_id ,(plist-get artifact :artifact_id)
+                                     :title ,(plist-get artifact :title)
+                                     :kind ,(plist-get artifact :kind)))))
+                      ((symbol-function 'message)
+                       #'ignore))
+              (org-slipbox-buffer-save-artifact))
+            (should (equal (plist-get saved-artifact :kind) "trail"))
+            (should (= (plist-get saved-artifact :cursor) 0))
+            (let ((steps (plist-get saved-artifact :steps))
+                  (detached (plist-get saved-artifact :detached_step)))
+              (should (= (length steps) 1))
+              (should (equal (plist-get (car steps) :kind) "lens-view"))
+              (should (equal (plist-get (car steps) :current_node_key) "file:a.org"))
+              (should (= (plist-get (car steps) :limit) 25))
+              (should (eq (plist-get (car steps) :unique) t))
+              (should (equal (plist-get detached :kind) "lens-view"))
+              (should (equal (plist-get detached :current_node_key) "file:c.org"))
+              (should (equal (plist-get detached :root_node_key) "file:a.org"))
+              (should (= (plist-get detached :limit) 25))
+              (should (eq (plist-get detached :unique) t))))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-save-artifact-refuses-unrepresentable-structure-plan ()
+  "Dedicated save should refuse structure plans it cannot encode faithfully."
+  (let ((org-slipbox-buffer-lens-plans
+         '((structure
+            org-slipbox-buffer-node-section
+            (org-slipbox-buffer-backlinks-section :show-backlink-p ignore)
+            org-slipbox-buffer-forward-links-section)))
+        (node '(:node_key "file:focus.org"
+                :title "Focus"
+                :file_path "focus.org"
+                :line 1)))
+    (with-current-buffer (get-buffer-create "*org-slipbox save invalid structure test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session
+                         'dedicated
+                         node
+                         nil
+                         :active-lens 'structure))
+            (cl-letf (((symbol-function 'read-string)
+                       (let ((responses '("Focus Structure" "focus-structure")))
+                         (lambda (&rest _args)
+                           (pop responses))))
+                      ((symbol-function 'org-slipbox-rpc-list-exploration-artifacts)
+                       (lambda ()
+                         '(:artifacts [])))
+                      ((symbol-function 'org-slipbox-rpc-save-exploration-artifact)
+                       (lambda (_artifact)
+                         (ert-fail "save RPC should not run for unrepresentable structure plans"))))
+              (should-error (org-slipbox-buffer-save-artifact)
+                            :type 'user-error)))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-save-artifact-prompts-before-overwrite ()
+  "Dedicated save should refuse overwrite when the user declines."
+  (let ((node '(:node_key "file:focus.org"
+                :title "Focus"
+                :file_path "focus.org"
+                :line 1)))
+    (with-current-buffer (get-buffer-create "*org-slipbox save overwrite test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session 'dedicated node))
+            (cl-letf (((symbol-function 'read-string)
+                       (let ((responses '("Focus" "focus")))
+                         (lambda (&rest _args)
+                           (pop responses))))
+                      ((symbol-function 'org-slipbox-rpc-list-exploration-artifacts)
+                       (lambda ()
+                         '(:artifacts [(:artifact_id "focus"
+                                       :title "Existing Focus"
+                                       :kind "lens-view")])))
+                      ((symbol-function 'y-or-n-p)
+                       (lambda (_prompt)
+                         nil))
+                      ((symbol-function 'org-slipbox-rpc-save-exploration-artifact)
+                       (lambda (_artifact)
+                         (ert-fail "save RPC should not run after overwrite refusal"))))
+              (should-error (org-slipbox-buffer-save-artifact)
+                            :type 'user-error)))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-save-artifact-requires-dedicated-buffer ()
+  "Artifact save should reject non-dedicated org-slipbox buffers."
+  (with-current-buffer (get-buffer-create "*org-slipbox save invalid test*")
+    (unwind-protect
+        (progn
+          (setq-local org-slipbox-buffer-session
+                      (org-slipbox-test--buffer-session
+                       'persistent
+                       '(:node_key "file:focus.org"
+                         :title "Focus"
+                         :file_path "focus.org"
+                         :line 1)))
+          (should-error (org-slipbox-buffer-save-artifact)
+                        :type 'user-error))
+      (kill-buffer (current-buffer)))))
+
 (ert-deftest org-slipbox-test-graph-write-dot-uses-rpc-and-writes-file ()
   "Graph DOT export should request DOT from the daemon and write it to disk."
   (require 'org-slipbox-graph)
@@ -3999,6 +4293,48 @@ ROOT-NODE defaults to NODE."
     (should (equal params '(:left_node_key "heading:left.org:3"
                             :right_node_key "heading:right.org:7"
                             :limit 25)))))
+
+(ert-deftest org-slipbox-test-rpc-save-exploration-artifact-encodes-params ()
+  "Saved-artifact RPC should encode the artifact payload explicitly."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:artifact (:artifact_id "focus")))))
+      (org-slipbox-rpc-save-exploration-artifact
+       '(:artifact_id "focus"
+         :title "Focus"
+         :kind "lens-view"
+         :root_node_key "file:focus.org"
+         :current_node_key "file:focus.org"
+         :lens "structure"
+         :limit 200
+         :unique :json-false
+         :frozen_context t)))
+    (should (equal method "slipbox/saveExplorationArtifact"))
+    (should (equal params
+                   '(:artifact (:artifact_id "focus"
+                               :title "Focus"
+                               :kind "lens-view"
+                               :root_node_key "file:focus.org"
+                               :current_node_key "file:focus.org"
+                               :lens "structure"
+                               :limit 200
+                               :unique :json-false
+                               :frozen_context t))))))
+
+(ert-deftest org-slipbox-test-rpc-list-exploration-artifacts-uses-empty-params ()
+  "Listing saved artifacts should use the dedicated RPC surface."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method &optional request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:artifacts []))))
+      (org-slipbox-rpc-list-exploration-artifacts))
+    (should (equal method "slipbox/listExplorationArtifacts"))
+    (should-not params)))
 
 (ert-deftest org-slipbox-test-rpc-reflinks-encodes-params ()
   "Reflink RPC should encode node key and limit explicitly."

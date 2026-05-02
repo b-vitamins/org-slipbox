@@ -169,6 +169,9 @@ Return non-nil to render the section, or nil to skip it."
           :value-type (repeat symbol))
   :group 'org-slipbox)
 
+(defconst org-slipbox-buffer-default-query-limit 200
+  "Default per-section query limit for dedicated exploration and comparison.")
+
 (cl-defstruct org-slipbox-buffer-session
   "Explicit session state for an org-slipbox context buffer."
   kind
@@ -193,6 +196,7 @@ Return non-nil to render the section, or nil to skip it."
 (defvar org-slipbox-buffer-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "l") #'org-slipbox-buffer-switch-lens)
+    (define-key map (kbd "s") #'org-slipbox-buffer-save-artifact)
     (define-key map (kbd "c") #'org-slipbox-buffer-set-compare-target)
     (define-key map (kbd "C") #'org-slipbox-buffer-clear-compare-target)
     (define-key map (kbd "g") #'org-slipbox-buffer-switch-comparison-group)
@@ -383,6 +387,20 @@ Return non-nil to render the section, or nil to skip it."
     (setf (org-slipbox-buffer-session-trail session) nil
           (org-slipbox-buffer-session-trail-index session) nil)
     (org-slipbox-buffer-render-contents)))
+
+(defun org-slipbox-buffer-save-artifact ()
+  "Save the current dedicated cockpit state as a durable artifact."
+  (interactive)
+  (let* ((session (org-slipbox-buffer--require-dedicated-session))
+         (scope (org-slipbox-buffer--read-artifact-save-scope session))
+         (title (org-slipbox-buffer--read-artifact-title session scope))
+         (artifact-id (org-slipbox-buffer--read-artifact-id title))
+         (artifact (org-slipbox-buffer--saved-artifact session scope artifact-id title)))
+    (org-slipbox-buffer--confirm-artifact-overwrite artifact-id)
+    (let* ((response (org-slipbox-rpc-save-exploration-artifact artifact))
+           (saved (plist-get response :artifact)))
+      (message "Saved exploration artifact %s" (plist-get saved :artifact_id))
+      saved)))
 
 (defun org-slipbox-buffer-history-back ()
   "Move backward through dedicated-buffer navigation history."
@@ -662,6 +680,287 @@ Dedicated-only state must not survive on the persistent tracking path."
           :compare-target (org-slipbox-buffer-session-compare-target session)
           :comparison-group (org-slipbox-buffer--current-comparison-group session)
           :frozen-context (org-slipbox-buffer-session-frozen-context session))))
+
+(defun org-slipbox-buffer--artifact-save-scope-choices (session)
+  "Return saveable artifact scope choices for dedicated SESSION."
+  (let ((choices
+         (list
+          (cons (if (org-slipbox-buffer--comparison-active-p session)
+                    "Current comparison"
+                  "Current lens view")
+                'current))))
+    (when (org-slipbox-buffer--trail-active-p session)
+      (setq choices
+            (append choices
+                    '(("Current trail" . trail)
+                      ("Current trail slice" . trail-slice)))))
+    choices))
+
+(defun org-slipbox-buffer--read-artifact-save-scope (session)
+  "Read an artifact save scope for dedicated SESSION."
+  (let ((choices (org-slipbox-buffer--artifact-save-scope-choices session)))
+    (if (= (length choices) 1)
+        (cdar choices)
+      (cdr (assoc (completing-read "Save artifact from: "
+                                   choices
+                                   nil
+                                   t
+                                   nil
+                                   nil
+                                   (caar choices))
+                  choices)))))
+
+(defun org-slipbox-buffer--artifact-default-title (session scope)
+  "Return a default durable artifact title for SESSION and save SCOPE."
+  (let* ((snapshot (org-slipbox-buffer--history-snapshot session))
+         (node (plist-get snapshot :current-node))
+         (compare-target (plist-get snapshot :compare-target))
+         (trail (org-slipbox-buffer--trail session))
+         (trail-start (and trail (plist-get (car trail) :current-node)))
+         (trail-index (or (org-slipbox-buffer--trail-position session) 0))
+         (detached (org-slipbox-buffer--trail-detached-p session)))
+    (pcase scope
+      ('current
+       (if compare-target
+           (format "%s vs %s"
+                   (plist-get node :title)
+                   (plist-get compare-target :title))
+         (format "%s (%s)"
+                 (plist-get node :title)
+                 (symbol-name (plist-get snapshot :active-lens)))))
+      ('trail
+       (format "Trail from %s (%s steps%s)"
+               (plist-get trail-start :title)
+               (length trail)
+               (if detached " + branch" "")))
+      ('trail-slice
+       (format "Trail slice from %s (step %s of %s%s)"
+               (plist-get trail-start :title)
+               (1+ trail-index)
+               (length trail)
+               (if detached " + branch" "")))
+      (_
+       (user-error "Unsupported artifact save scope %S" scope)))))
+
+(defun org-slipbox-buffer--artifact-default-id (title)
+  "Return a stable default artifact identifier for TITLE."
+  (let* ((slug (downcase (string-trim (or title ""))))
+         (slug (replace-regexp-in-string "[^[:alnum:]]+" "-" slug))
+         (slug (string-trim slug "-+" "-+")))
+    (if (string-empty-p slug)
+        "artifact"
+      slug)))
+
+(defun org-slipbox-buffer--read-artifact-title (session scope)
+  "Prompt for a durable artifact title for SESSION and save SCOPE."
+  (let* ((default (org-slipbox-buffer--artifact-default-title session scope))
+         (value (read-string (format "Artifact title (%s): " default)
+                             nil
+                             nil
+                             default)))
+    (if (string-empty-p (string-trim value))
+        default
+      (string-trim value))))
+
+(defun org-slipbox-buffer--read-artifact-id (title)
+  "Prompt for a durable artifact identifier using TITLE as context."
+  (let* ((default (org-slipbox-buffer--artifact-default-id title))
+         (value (read-string (format "Artifact id (%s): " default)
+                             nil
+                             nil
+                             default)))
+    (if (string-empty-p (string-trim value))
+        default
+      (string-trim value))))
+
+(defun org-slipbox-buffer--artifact-summaries ()
+  "Return saved exploration artifact summaries through the daemon."
+  (org-slipbox--plist-sequence
+   (plist-get (org-slipbox-rpc-list-exploration-artifacts) :artifacts)))
+
+(defun org-slipbox-buffer--confirm-artifact-overwrite (artifact-id)
+  "Prompt before overwriting saved ARTIFACT-ID."
+  (when-let ((existing
+              (seq-find (lambda (summary)
+                          (equal (plist-get summary :artifact_id) artifact-id))
+                        (org-slipbox-buffer--artifact-summaries))))
+    (unless (y-or-n-p
+             (format "Overwrite exploration artifact %s (%s)? "
+                     artifact-id
+                     (plist-get existing :title)))
+      (user-error "Aborted artifact save"))))
+
+(defun org-slipbox-buffer--required-node-key (node context)
+  "Return NODE's required node key for CONTEXT, or signal a user error."
+  (or (plist-get node :node_key)
+      (user-error "Current %s does not have a node key" context)))
+
+(defun org-slipbox-buffer--section-args (section)
+  "Return SECTION argument plist, or nil for a bare function SECTION."
+  (pcase section
+    ((pred functionp) nil)
+    (`(,_ . ,args) args)
+    (_
+     (user-error "Invalid org-slipbox buffer section specification: %S" section))))
+
+(defun org-slipbox-buffer--saved-structure-section-options (section)
+  "Return representable structure-query options for SECTION.
+Signal a user error when SECTION changes the structure view in a way the
+saved artifact model cannot encode faithfully."
+  (let* ((function (org-slipbox-buffer--section-function section))
+         (args (org-slipbox-buffer--section-args section))
+         (allowed-filter-key
+          (pcase function
+            ('org-slipbox-buffer-backlinks-section :show-backlink-p)
+            ('org-slipbox-buffer-forward-links-section :show-forward-link-p)
+            (_
+             (user-error "Unsupported structure section %S" function))))
+         (unique nil)
+         (limit org-slipbox-buffer-default-query-limit))
+    (while args
+      (let ((key (pop args))
+            (value (pop args)))
+        (pcase key
+          (:unique
+           (setq unique (and value t)))
+          (:limit
+           (setq limit value))
+          (:section-heading nil)
+          ((guard (eq key allowed-filter-key))
+           (when value
+             (user-error
+              "Current structure lens plan cannot be saved faithfully: %S uses %S"
+              function
+              key)))
+          (_
+           (user-error
+            "Current structure lens plan cannot be saved faithfully: %S uses unsupported option %S"
+            function
+            key)))))
+    `(:unique ,unique :limit ,limit)))
+
+(defun org-slipbox-buffer--saved-structure-query-options ()
+  "Return representable saved-query options for the structure lens.
+Signal a user error when the active dedicated structure plan cannot be
+serialized faithfully into the saved artifact model."
+  (let ((plan (org-slipbox-buffer--dedicated-section-plan 'structure))
+        backlinks-options
+        forward-links-options)
+    (dolist (section plan)
+      (pcase (org-slipbox-buffer--section-function section)
+        ((or 'org-slipbox-buffer-node-section
+             'org-slipbox-buffer-refs-section)
+         nil)
+        ('org-slipbox-buffer-backlinks-section
+         (when backlinks-options
+           (user-error
+            "Current structure lens plan cannot be saved faithfully: multiple backlink sections are not representable"))
+         (setq backlinks-options
+               (org-slipbox-buffer--saved-structure-section-options section)))
+        ('org-slipbox-buffer-forward-links-section
+         (when forward-links-options
+           (user-error
+            "Current structure lens plan cannot be saved faithfully: multiple forward-link sections are not representable"))
+         (setq forward-links-options
+               (org-slipbox-buffer--saved-structure-section-options section)))
+        (_
+         (user-error
+          "Current structure lens plan cannot be saved faithfully: section %S is not part of the saved structure lens model"
+          (org-slipbox-buffer--section-function section)))))
+    (unless (and backlinks-options forward-links-options)
+      (user-error
+       "Current structure lens plan cannot be saved faithfully: it must include exactly one backlinks section and one forward-links section"))
+    (unless (equal backlinks-options forward-links-options)
+      (user-error
+       "Current structure lens plan cannot be saved faithfully: backlinks and forward links must use the same :unique and :limit"))
+    backlinks-options))
+
+(defun org-slipbox-buffer--saved-lens-query-options (lens)
+  "Return representable saved-query options for LENS."
+  (if (eq lens 'structure)
+      (org-slipbox-buffer--saved-structure-query-options)
+    `(:limit ,org-slipbox-buffer-default-query-limit
+      :unique nil)))
+
+(defun org-slipbox-buffer--saved-lens-view-artifact (snapshot)
+  "Return a saved lens-view artifact plist from dedicated SNAPSHOT."
+  (let ((root-node (plist-get snapshot :root-node))
+        (current-node (plist-get snapshot :current-node))
+        (lens (plist-get snapshot :active-lens))
+        (query-options
+         (org-slipbox-buffer--saved-lens-query-options
+          (plist-get snapshot :active-lens))))
+    `(:kind "lens-view"
+      :root_node_key ,(org-slipbox-buffer--required-node-key root-node "root node")
+      :current_node_key ,(org-slipbox-buffer--required-node-key current-node "node")
+      :lens ,(symbol-name lens)
+      :limit ,(plist-get query-options :limit)
+      :unique ,(org-slipbox-rpc--bool (plist-get query-options :unique))
+      :frozen_context
+      ,(org-slipbox-rpc--bool (plist-get snapshot :frozen-context)))))
+
+(defun org-slipbox-buffer--saved-comparison-artifact (snapshot)
+  "Return a saved comparison artifact plist from dedicated SNAPSHOT."
+  (let ((root-node (plist-get snapshot :root-node))
+        (left-node (plist-get snapshot :current-node))
+        (right-node (plist-get snapshot :compare-target)))
+    `(:kind "comparison"
+      :root_node_key ,(org-slipbox-buffer--required-node-key root-node "root node")
+      :left_node_key ,(org-slipbox-buffer--required-node-key left-node "comparison source")
+      :right_node_key ,(org-slipbox-buffer--required-node-key right-node "comparison target")
+      :comparison_group ,(symbol-name (plist-get snapshot :comparison-group))
+      :limit ,org-slipbox-buffer-default-query-limit
+      :frozen_context
+      ,(org-slipbox-rpc--bool (plist-get snapshot :frozen-context)))))
+
+(defun org-slipbox-buffer--saved-trail-step (snapshot)
+  "Return a saved trail step plist from dedicated SNAPSHOT."
+  (if (plist-get snapshot :compare-target)
+      (org-slipbox-buffer--saved-comparison-artifact snapshot)
+    (org-slipbox-buffer--saved-lens-view-artifact snapshot)))
+
+(defun org-slipbox-buffer--saved-trail-artifact (session scope)
+  "Return a saved trail artifact plist for SESSION and save SCOPE."
+  (let* ((trail (copy-tree (org-slipbox-buffer--trail session)))
+         (trail-index (org-slipbox-buffer--trail-position session)))
+    (unless trail
+      (user-error "No active trail to save"))
+    (when (null trail-index)
+      (user-error "Current trail does not have an active cursor"))
+    (let* ((steps-snapshots (pcase scope
+                              ('trail trail)
+                              ('trail-slice (cl-subseq trail 0 (1+ trail-index)))
+                              (_ (user-error "Unsupported trail save scope %S" scope))))
+           (detached-step (and (org-slipbox-buffer--trail-detached-p session)
+                               (org-slipbox-buffer--saved-trail-step
+                                (org-slipbox-buffer--history-snapshot session)))))
+      `(:kind "trail"
+        :steps ,(mapcar #'org-slipbox-buffer--saved-trail-step steps-snapshots)
+        :cursor ,(if (eq scope 'trail)
+                     trail-index
+                   (1- (length steps-snapshots)))
+        :detached_step ,detached-step))))
+
+(defun org-slipbox-buffer--saved-artifact-payload (session scope)
+  "Return a saved artifact payload plist for dedicated SESSION and save SCOPE."
+  (let ((snapshot (org-slipbox-buffer--history-snapshot session)))
+    (pcase scope
+      ('current
+       (if (plist-get snapshot :compare-target)
+           (org-slipbox-buffer--saved-comparison-artifact snapshot)
+         (org-slipbox-buffer--saved-lens-view-artifact snapshot)))
+      ((or 'trail 'trail-slice)
+       (org-slipbox-buffer--saved-trail-artifact session scope))
+      (_
+       (user-error "Unsupported artifact save scope %S" scope)))))
+
+(defun org-slipbox-buffer--saved-artifact (session scope artifact-id title)
+  "Return a durable saved artifact plist.
+SESSION supplies the current cockpit state, SCOPE selects what to save,
+and ARTIFACT-ID with TITLE define durable metadata."
+  (append `(:artifact_id ,artifact-id
+            :title ,title)
+          (org-slipbox-buffer--saved-artifact-payload session scope)))
 
 (defun org-slipbox-buffer--apply-history-snapshot (session snapshot)
   "Apply SNAPSHOT to SESSION and clear its transient caches."
@@ -1012,7 +1311,9 @@ HEADING overrides the default section title, which is the node title."
       t)))
 
 (cl-defun org-slipbox-buffer-backlinks-section
-    (node &key unique show-backlink-p (section-heading "Backlinks") (limit 200))
+    (node &key unique show-backlink-p
+          (section-heading "Backlinks")
+          (limit org-slipbox-buffer-default-query-limit))
   "Insert a backlink section for NODE.
 When UNIQUE is non-nil, only show the first backlink occurrence per
 source node. SHOW-BACKLINK-P filters backlink entries when non-nil.
@@ -1028,7 +1329,9 @@ SECTION-HEADING overrides the rendered heading. LIMIT bounds the query."
      #'org-slipbox-buffer--insert-backlink-entry)))
 
 (cl-defun org-slipbox-buffer-forward-links-section
-    (node &key unique show-forward-link-p (section-heading "Forward Links") (limit 200))
+    (node &key unique show-forward-link-p
+          (section-heading "Forward Links")
+          (limit org-slipbox-buffer-default-query-limit))
   "Insert a forward-links section for NODE.
 When UNIQUE is non-nil, only show the first forward-link occurrence per
 destination node. SHOW-FORWARD-LINK-P filters forward-link entries when
@@ -1527,11 +1830,13 @@ node. LIMIT bounds the number of rows requested."
 
 (defun org-slipbox-buffer--exploration-cache-key (lens unique limit)
   "Return the cache key for exploration LENS, UNIQUE, and LIMIT."
-  (list lens (or limit 200) (and unique t)))
+  (list lens
+        (or limit org-slipbox-buffer-default-query-limit)
+        (and unique t)))
 
 (defun org-slipbox-buffer--exploration-result (node lens &optional unique limit)
   "Return cached exploration results for NODE under LENS."
-  (let ((limit (or limit 200)))
+  (let ((limit (or limit org-slipbox-buffer-default-query-limit)))
     (when-let ((node-key (plist-get node :node_key)))
     (if-let* ((session org-slipbox-buffer-session)
               (cache-key (org-slipbox-buffer--exploration-cache-key lens unique limit))
@@ -1562,11 +1867,11 @@ node. LIMIT bounds the number of rows requested."
   "Return the cache key for LEFT-NODE, RIGHT-NODE, and LIMIT."
   (list (plist-get left-node :node_key)
         (plist-get right-node :node_key)
-        (or limit 200)))
+        (or limit org-slipbox-buffer-default-query-limit)))
 
 (defun org-slipbox-buffer--comparison-result (left-node right-node &optional limit)
   "Return cached comparison results for LEFT-NODE and RIGHT-NODE."
-  (let ((limit (or limit 200)))
+  (let ((limit (or limit org-slipbox-buffer-default-query-limit)))
     (when-let ((left-key (plist-get left-node :node_key))
                (right-key (plist-get right-node :node_key)))
       (if-let* ((session org-slipbox-buffer-session)
