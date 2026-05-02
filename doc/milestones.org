@@ -76,6 +76,7 @@ Outcomes:
 
 - durable exploration artifacts for saved views, trails, and comparisons
 - query surfaces and first task-shaped public operations around those artifacts
+  such as save, inspect, list, execute, and delete
 - stronger CLI and headless workflows
 - stable hooks and extension points around exploration
 - richer task, ref, and citation-driven navigation
@@ -84,6 +85,8 @@ Exit criteria:
 
 - saved artifacts can be persisted, replayed, and executed through the same
   exploration semantics already proven in the cockpit
+- those artifact operations remain narrower than a broad CLI or extension
+  platform story
 - users can script and automate meaningful exploratory workflows
 - buffer and query surfaces compose without reaching into unstable internals
 - extensions add capability without bending core architecture

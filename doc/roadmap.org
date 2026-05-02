@@ -73,7 +73,8 @@ Focus:
 - durable exploration artifacts for saved views, trails, and comparisons
 - Rust-owned artifact semantics, persistence, and execution
 - dedicated-cockpit save, load, and replay over those artifacts
-- first narrow task-shaped machine operations around those artifacts
+- first narrow task-shaped machine operations around those artifacts:
+  save, inspect, list, execute, and delete
 - keep broad CLI families, extension APIs, and agent adapters deferred
 
 Watchpoints:

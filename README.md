@@ -246,11 +246,14 @@ The dedicated buffer currently supports:
 - explicit pivot history with `[` and `]`, plus frozen-root toggling with `f`
 - note comparison with `c` to set a compare target, `C` to clear it, and `g` to switch comparison groups across overlap, divergence, and tension
 - explicit trails with `a`, `{`, `}`, and `T`, including replay and detached branching
+- durable exploration artifacts with `s` to save the current lens, comparison, or trail state and `o` to reload a saved artifact into the dedicated cockpit
 - explanation blocks for non-obvious results such as shared refs, bridge candidates, dormant notes, planning-date relations, task-state matches, and weak integration
 
-This is the settled cockpit line for `0.5.x`: the dedicated buffer is the
-interactive exploratory house, while saved views, broader headless workflows,
-and programmable workbench extraction remain later work.
+This is the settled cockpit line through `0.6.x`: the dedicated buffer remains
+the interactive exploratory house, while `0.6.x` adds durable exploration
+artifacts and a first narrow machine-facing surface around them. Broader
+headless workflows, CLI families, extension APIs, and programmable workbench
+extraction remain later work.
 
 When the current node record includes indexed metadata, the node summary also
 renders file modification time plus backlink and forward-link counts without
@@ -586,6 +589,9 @@ These stay opt-in and isolated from startup:
 - Support org-roam-style typed capture templates with `entry`, `plain`, `item`, `checkitem`, and `table-line` content.
 - Honor capture lifecycle actions such as `:finalize`, `:jump-to-captured`, `:immediate-finish`, `:no-save`, and template finalize handlers.
 - Display a persistent or dedicated context buffer with declared lenses, inline result explanations, pivot history, comparison groups, explicit trails, configurable ordered sections, postrender hooks, unique-backlink variants, and dedicated-buffer discovery sections.
+- Save durable exploration artifacts for dedicated lens views, comparisons, full trails, and detached trail slices, then reload them back into the dedicated cockpit without reconstructing semantics in Elisp.
+- Persist durable exploration artifacts outside the derived SQLite index so they survive schema rebuilds and do not pollute public note, search, ref, or graph surfaces.
+- Expose narrow JSON-RPC operations for saved artifacts: `saveExplorationArtifact`, `explorationArtifact`, `listExplorationArtifacts`, `executeExplorationArtifact`, and `deleteExplorationArtifact`.
 - Complete and follow title-based org-slipbox links, with optional rewrite to stable `id:` links.
 - Refile either the active region or the current subtree between indexed notes, and extract subtrees into new promoted file notes.
 - Query indexed agenda entries from scheduled and deadline planning lines.
@@ -610,6 +616,17 @@ guidance. `org-slipbox` does not expose GC-tuning knobs for cache builds,
 because the heavy parse/index/query path lives in Rust rather than in a large
 Elisp caching pass. The replacement answer here is benchmarked behavior, not
 more GC tuning variables.
+
+## Durable Exploration Artifacts
+
+`0.6.x` introduces the first workbench-foundation surface without pretending
+that the whole programmable platform is done.
+
+- In the dedicated cockpit, `s` saves the current lens view, comparison, full trail, or detached trail slice as a durable artifact.
+- `o` asks the daemon to execute a saved artifact and then restores the dedicated session from the executed result.
+- The daemon persists those artifacts outside the derived SQLite index, so rebuilds do not erase them and note-facing query surfaces do not start treating artifacts as notes.
+- The machine-facing surface is deliberately narrow: `saveExplorationArtifact`, `explorationArtifact`, `listExplorationArtifacts`, `executeExplorationArtifact`, and `deleteExplorationArtifact`.
+- Broader CLI families, extension APIs, and agent adapters are still deferred.
 
 ## FAQ
 

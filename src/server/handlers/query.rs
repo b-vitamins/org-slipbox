@@ -1573,6 +1573,226 @@ mod tests {
     }
 
     #[test]
+    fn artifact_rpc_replays_saved_comparisons_and_trails_after_reopen() {
+        let (_workspace, mut state, left_key, right_key) = comparison_state();
+        let comparison = saved_comparison_artifact(
+            "saved-comparison",
+            "Saved Comparison",
+            &left_key,
+            &right_key,
+        );
+        let trail = SavedExplorationArtifact {
+            metadata: ExplorationArtifactMetadata {
+                artifact_id: "saved-trail".to_owned(),
+                title: "Saved Trail".to_owned(),
+                summary: Some("Persisted replay".to_owned()),
+            },
+            payload: ExplorationArtifactPayload::Trail {
+                artifact: Box::new(SavedTrailArtifact {
+                    steps: vec![
+                        SavedTrailStep::LensView {
+                            artifact: Box::new(SavedLensViewArtifact {
+                                root_node_key: left_key.clone(),
+                                current_node_key: left_key.clone(),
+                                lens: ExplorationLens::Structure,
+                                limit: 20,
+                                unique: false,
+                                frozen_context: false,
+                            }),
+                        },
+                        SavedTrailStep::Comparison {
+                            artifact: Box::new(SavedComparisonArtifact {
+                                root_node_key: left_key.clone(),
+                                left_node_key: left_key.clone(),
+                                right_node_key: right_key.clone(),
+                                active_lens: ExplorationLens::Structure,
+                                structure_unique: false,
+                                comparison_group: Default::default(),
+                                limit: 20,
+                                frozen_context: false,
+                            }),
+                        },
+                    ],
+                    cursor: 1,
+                    detached_step: Some(Box::new(SavedTrailStep::LensView {
+                        artifact: Box::new(SavedLensViewArtifact {
+                            root_node_key: right_key.clone(),
+                            current_node_key: right_key.clone(),
+                            lens: ExplorationLens::Structure,
+                            limit: 20,
+                            unique: false,
+                            frozen_context: false,
+                        }),
+                    })),
+                }),
+            },
+        };
+
+        for artifact in [comparison.clone(), trail.clone()] {
+            let _: SaveExplorationArtifactResult = serde_json::from_value(
+                save_exploration_artifact(&mut state, json!({ "artifact": artifact }))
+                    .expect("save artifact RPC should succeed"),
+            )
+            .expect("save result should decode");
+        }
+
+        let root = state.root.clone();
+        let db_path = state.db_path.clone();
+        let discovery = state.discovery.clone();
+        drop(state);
+
+        let mut reopened =
+            ServerState::new(root, db_path, discovery).expect("state should reopen cleanly");
+
+        let listed: ListExplorationArtifactsResult = serde_json::from_value(
+            list_exploration_artifacts(&mut reopened, json!({}))
+                .expect("list after reopen should succeed"),
+        )
+        .expect("list after reopen should decode");
+        let mut ids = listed
+            .artifacts
+            .into_iter()
+            .map(|summary| summary.metadata.artifact_id)
+            .collect::<Vec<_>>();
+        ids.sort();
+        assert_eq!(
+            ids,
+            vec!["saved-comparison".to_owned(), "saved-trail".to_owned()]
+        );
+
+        let expected_left_structure = execute_explore_query(
+            &mut reopened,
+            &ExploreParams {
+                node_key: left_key.clone(),
+                lens: ExplorationLens::Structure,
+                limit: 20,
+                unique: false,
+            },
+        )
+        .expect("live left structure should succeed");
+        let expected_right_structure = execute_explore_query(
+            &mut reopened,
+            &ExploreParams {
+                node_key: right_key.clone(),
+                lens: ExplorationLens::Structure,
+                limit: 20,
+                unique: false,
+            },
+        )
+        .expect("live right structure should succeed");
+        let expected_comparison = execute_compare_notes_query(
+            &mut reopened,
+            &CompareNotesParams {
+                left_node_key: left_key.clone(),
+                right_node_key: right_key.clone(),
+                limit: 20,
+            },
+        )
+        .expect("live comparison should succeed");
+
+        let executed_comparison: ExecuteExplorationArtifactResult = serde_json::from_value(
+            execute_exploration_artifact(
+                &mut reopened,
+                json!({ "artifact_id": "saved-comparison" }),
+            )
+            .expect("comparison execution after reopen should succeed"),
+        )
+        .expect("comparison execution result should decode");
+        match executed_comparison.artifact.payload {
+            ExecutedExplorationArtifactPayload::Comparison {
+                artifact: executed_artifact,
+                result,
+                ..
+            } => {
+                match comparison.payload {
+                    ExplorationArtifactPayload::Comparison { artifact } => {
+                        assert_eq!(executed_artifact, artifact);
+                    }
+                    _ => panic!("expected saved comparison artifact"),
+                }
+                assert_eq!(*result, expected_comparison);
+            }
+            payload => panic!("expected comparison execution, got {:?}", payload.kind()),
+        }
+
+        let executed_trail: ExecuteExplorationArtifactResult = serde_json::from_value(
+            execute_exploration_artifact(&mut reopened, json!({ "artifact_id": "saved-trail" }))
+                .expect("trail execution after reopen should succeed"),
+        )
+        .expect("trail execution result should decode");
+        match executed_trail.artifact.payload {
+            ExecutedExplorationArtifactPayload::Trail {
+                artifact: executed_artifact,
+                replay,
+            } => {
+                match trail.payload {
+                    ExplorationArtifactPayload::Trail { artifact } => {
+                        assert_eq!(executed_artifact, artifact);
+                    }
+                    _ => panic!("expected saved trail artifact"),
+                }
+                assert_eq!(replay.cursor, 1);
+                assert_eq!(replay.steps.len(), 2);
+                match &replay.steps[0] {
+                    TrailReplayStepResult::LensView {
+                        artifact, result, ..
+                    } => {
+                        match &executed_artifact.steps[0] {
+                            SavedTrailStep::LensView {
+                                artifact: expected_artifact,
+                            } => {
+                                assert_eq!(artifact.as_ref(), expected_artifact.as_ref());
+                            }
+                            _ => panic!("expected first trail step artifact to be lens-view"),
+                        }
+                        assert_eq!(result.as_ref(), &expected_left_structure);
+                    }
+                    other => panic!(
+                        "expected first replay step to be lens-view, got {:?}",
+                        other
+                    ),
+                }
+                match &replay.steps[1] {
+                    TrailReplayStepResult::Comparison {
+                        artifact, result, ..
+                    } => {
+                        match &executed_artifact.steps[1] {
+                            SavedTrailStep::Comparison {
+                                artifact: expected_artifact,
+                            } => {
+                                assert_eq!(artifact.as_ref(), expected_artifact.as_ref());
+                            }
+                            _ => panic!("expected second trail step artifact to be comparison"),
+                        }
+                        assert_eq!(result.as_ref(), &expected_comparison);
+                    }
+                    other => panic!(
+                        "expected second replay step to be comparison, got {:?}",
+                        other
+                    ),
+                }
+                match replay.detached_step.as_deref() {
+                    Some(TrailReplayStepResult::LensView {
+                        artifact, result, ..
+                    }) => {
+                        match executed_artifact.detached_step.as_deref() {
+                            Some(SavedTrailStep::LensView {
+                                artifact: expected_artifact,
+                            }) => {
+                                assert_eq!(artifact.as_ref(), expected_artifact.as_ref());
+                            }
+                            _ => panic!("expected detached trail step artifact to be lens-view"),
+                        }
+                        assert_eq!(result.as_ref(), &expected_right_structure);
+                    }
+                    other => panic!("expected detached replay step, got {:?}", other),
+                }
+            }
+            payload => panic!("expected trail execution, got {:?}", payload.kind()),
+        }
+    }
+
+    #[test]
     fn artifact_rpc_reports_missing_and_invalid_artifacts() {
         let (_workspace, mut state, _target_key) = indexed_state();
 

@@ -6,6 +6,26 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+### Added
+- Added durable exploration artifacts for saved lens views, comparisons, full
+  trails, and detached trail slices, with Rust-owned persistence outside the
+  derived SQLite index and narrow machine-facing operations to save, inspect,
+  list, execute, and delete them.
+
+### Changed
+- Reused the settled cockpit exploration semantics when saving, replaying, and
+  reloading durable artifacts, so dedicated-buffer load flows restore query
+  limits, structure uniqueness, comparison context, and detached trail state
+  instead of reconstructing weaker approximations in Emacs Lisp.
+- Tightened the durable product docs around the first workbench-foundation
+  surface so `0.6.x` claims durable artifacts and narrow artifact operations,
+  while broader CLI, extension, and agent-facing platform work remains later.
+
+### Fixed
+- Hardened durable-artifact verification so persisted comparison and trail
+  artifacts are replayed through the real saved-artifact RPC path even after a
+  fresh server reopen.
+
 ## [0.5.0] - 2026-05-01
 
 ### Added
