@@ -29,6 +29,8 @@ enum Command {
     Explore(cli::ExploreArgs),
     /// Compare two resolved notes over the canonical headless connection path.
     Compare(cli::CompareArgs),
+    /// Manage durable exploration artifacts over the canonical headless connection path.
+    Artifact(cli::ArtifactArgs),
 }
 
 #[derive(Debug, Args)]
@@ -53,6 +55,7 @@ fn run() -> Result<(), cli::CliCommandError> {
         Command::ResolveNode(args) => cli::run_resolve_node(&args),
         Command::Explore(args) => cli::run_explore(&args),
         Command::Compare(args) => cli::run_compare(&args),
+        Command::Artifact(args) => cli::run_artifact(&args),
     }
 }
 

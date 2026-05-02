@@ -4,14 +4,19 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
-use clap::{ArgGroup, Args, ValueEnum};
+use clap::{ArgGroup, Args, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use slipbox_core::{
-    AnchorRecord, CompareNotesParams, ComparisonConnectorDirection, ExplorationEntry,
-    ExplorationExplanation, ExplorationLens, ExplorationSectionKind, ExploreParams, ExploreResult,
+    AnchorRecord, CompareNotesParams, ComparisonConnectorDirection,
+    DeleteExplorationArtifactResult, ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
+    ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactKind,
+    ExplorationArtifactResult, ExplorationEntry, ExplorationExplanation, ExplorationLens,
+    ExplorationSectionKind, ExploreParams, ExploreResult, ListExplorationArtifactsResult,
     NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
     NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
-    NoteComparisonSectionKind, PlanningField, PlanningRelationRecord, StatusInfo,
+    NoteComparisonSectionKind, PlanningField, PlanningRelationRecord, SavedComparisonArtifact,
+    SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep,
+    StatusInfo, TrailReplayResult, TrailReplayStepResult,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonClientError, DaemonServeConfig};
 use slipbox_index::DiscoveryPolicy;
@@ -313,6 +318,56 @@ pub(crate) struct CompareArgs {
     pub(crate) limit: usize,
 }
 
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ArtifactArgs {
+    #[command(subcommand)]
+    pub(crate) command: ArtifactCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum ArtifactCommand {
+    /// List saved exploration artifacts.
+    List(ArtifactListArgs),
+    /// Show a saved artifact definition.
+    Show(ArtifactShowArgs),
+    /// Execute a saved artifact through the live daemon semantics.
+    Run(ArtifactRunArgs),
+    /// Delete a saved artifact by durable identifier.
+    Delete(ArtifactDeleteArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ArtifactListArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ArtifactIdArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// Durable saved artifact identifier.
+    pub(crate) artifact_id: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ArtifactShowArgs {
+    #[command(flatten)]
+    pub(crate) artifact: ArtifactIdArgs,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ArtifactRunArgs {
+    #[command(flatten)]
+    pub(crate) artifact: ArtifactIdArgs,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ArtifactDeleteArgs {
+    #[command(flatten)]
+    pub(crate) artifact: ArtifactIdArgs,
+}
+
 pub(crate) trait HeadlessCommand {
     type Output: Serialize;
 
@@ -335,6 +390,15 @@ pub(crate) fn run_explore(args: &ExploreArgs) -> Result<(), CliCommandError> {
 
 pub(crate) fn run_compare(args: &CompareArgs) -> Result<(), CliCommandError> {
     run_headless_command(args)
+}
+
+pub(crate) fn run_artifact(args: &ArtifactArgs) -> Result<(), CliCommandError> {
+    match &args.command {
+        ArtifactCommand::List(command) => run_headless_command(command),
+        ArtifactCommand::Show(command) => run_headless_command(command),
+        ArtifactCommand::Run(command) => run_headless_command(command),
+        ArtifactCommand::Delete(command) => run_headless_command(command),
+    }
 }
 
 pub(crate) fn report_error(error: &CliCommandError) -> ExitCode {
@@ -511,6 +575,76 @@ impl HeadlessCommand for CompareArgs {
 
     fn render_human(&self, output: &Self::Output) -> String {
         render_compare_result(output, self.group.into())
+    }
+}
+
+impl HeadlessCommand for ArtifactListArgs {
+    type Output = ListExplorationArtifactsResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.list_exploration_artifacts()
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_artifact_list(output)
+    }
+}
+
+impl HeadlessCommand for ArtifactShowArgs {
+    type Output = ExplorationArtifactResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.artifact.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.exploration_artifact(&ExplorationArtifactIdParams {
+            artifact_id: self.artifact.artifact_id.clone(),
+        })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_saved_exploration_artifact(&output.artifact)
+    }
+}
+
+impl HeadlessCommand for ArtifactRunArgs {
+    type Output = ExecuteExplorationArtifactResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.artifact.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.execute_exploration_artifact(&ExplorationArtifactIdParams {
+            artifact_id: self.artifact.artifact_id.clone(),
+        })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_executed_exploration_artifact(&output.artifact)
+    }
+}
+
+impl HeadlessCommand for ArtifactDeleteArgs {
+    type Output = DeleteExplorationArtifactResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.artifact.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.delete_exploration_artifact(&ExplorationArtifactIdParams {
+            artifact_id: self.artifact.artifact_id.clone(),
+        })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        format!("deleted artifact: {}\n", output.artifact_id)
     }
 }
 
@@ -851,6 +985,280 @@ fn render_compare_result(result: &NoteComparisonResult, group: NoteComparisonGro
         }
     }
     output
+}
+
+fn render_artifact_list(result: &ListExplorationArtifactsResult) -> String {
+    let mut output = String::new();
+    if result.artifacts.is_empty() {
+        output.push_str("(none)\n");
+        return output;
+    }
+
+    for artifact in &result.artifacts {
+        output.push_str(&format!(
+            "- {} [{}]\n",
+            artifact.metadata.title,
+            render_artifact_kind(artifact.kind)
+        ));
+        output.push_str(&format!(
+            "  artifact id: {}\n",
+            artifact.metadata.artifact_id
+        ));
+        if let Some(summary) = &artifact.metadata.summary {
+            output.push_str(&format!("  summary: {summary}\n"));
+        }
+    }
+    output
+}
+
+fn render_saved_exploration_artifact(artifact: &SavedExplorationArtifact) -> String {
+    let mut output = String::new();
+    render_artifact_metadata(&mut output, &artifact.metadata, artifact.kind());
+    match &artifact.payload {
+        slipbox_core::ExplorationArtifactPayload::LensView { artifact } => {
+            render_saved_lens_view_artifact(&mut output, artifact);
+        }
+        slipbox_core::ExplorationArtifactPayload::Comparison { artifact } => {
+            render_saved_comparison_artifact(&mut output, artifact);
+        }
+        slipbox_core::ExplorationArtifactPayload::Trail { artifact } => {
+            render_saved_trail_artifact(&mut output, artifact);
+        }
+    }
+    output
+}
+
+fn render_executed_exploration_artifact(artifact: &ExecutedExplorationArtifact) -> String {
+    let mut output = String::new();
+    render_artifact_metadata(&mut output, &artifact.metadata, artifact.kind());
+    match &artifact.payload {
+        ExecutedExplorationArtifactPayload::LensView {
+            artifact,
+            root_note,
+            current_note,
+            result,
+        } => {
+            output.push_str(&format!("root: {}\n", render_node_identity(root_note)));
+            output.push_str(&format!(
+                "current: {}\n",
+                render_node_identity(current_note)
+            ));
+            render_saved_lens_view_state(&mut output, artifact, "saved ");
+            output.push('\n');
+            output.push_str("[result]\n");
+            output.push_str(&render_explore_result(result));
+        }
+        ExecutedExplorationArtifactPayload::Comparison {
+            artifact,
+            root_note,
+            result,
+        } => {
+            output.push_str(&format!("root: {}\n", render_node_identity(root_note)));
+            render_saved_comparison_state(&mut output, artifact, "saved ");
+            output.push('\n');
+            output.push_str("[result]\n");
+            output.push_str(&render_compare_result(result, NoteComparisonGroup::All));
+        }
+        ExecutedExplorationArtifactPayload::Trail { artifact, replay } => {
+            render_saved_trail_state(&mut output, artifact);
+            output.push('\n');
+            output.push_str("[replay]\n");
+            output.push_str(&render_trail_replay_result(replay));
+        }
+    }
+    output
+}
+
+fn render_artifact_metadata(
+    output: &mut String,
+    metadata: &slipbox_core::ExplorationArtifactMetadata,
+    kind: ExplorationArtifactKind,
+) {
+    output.push_str(&format!("artifact id: {}\n", metadata.artifact_id));
+    output.push_str(&format!("title: {}\n", metadata.title));
+    output.push_str(&format!("kind: {}\n", render_artifact_kind(kind)));
+    if let Some(summary) = &metadata.summary {
+        output.push_str(&format!("summary: {summary}\n"));
+    }
+}
+
+fn render_saved_lens_view_artifact(output: &mut String, artifact: &SavedLensViewArtifact) {
+    render_saved_lens_view_state(output, artifact, "");
+}
+
+fn render_saved_lens_view_state(
+    output: &mut String,
+    artifact: &SavedLensViewArtifact,
+    label_prefix: &str,
+) {
+    output.push_str(&format!(
+        "{}root node key: {}\n",
+        label_prefix, artifact.root_node_key
+    ));
+    output.push_str(&format!(
+        "{}current node key: {}\n",
+        label_prefix, artifact.current_node_key
+    ));
+    output.push_str(&format!(
+        "{}lens: {}\n",
+        label_prefix,
+        render_exploration_lens(artifact.lens)
+    ));
+    output.push_str(&format!("{}limit: {}\n", label_prefix, artifact.limit));
+    output.push_str(&format!("{}unique: {}\n", label_prefix, artifact.unique));
+    output.push_str(&format!(
+        "{}frozen context: {}\n",
+        label_prefix, artifact.frozen_context
+    ));
+}
+
+fn render_saved_comparison_artifact(output: &mut String, artifact: &SavedComparisonArtifact) {
+    render_saved_comparison_state(output, artifact, "");
+}
+
+fn render_saved_comparison_state(
+    output: &mut String,
+    artifact: &SavedComparisonArtifact,
+    label_prefix: &str,
+) {
+    output.push_str(&format!(
+        "{}root node key: {}\n",
+        label_prefix, artifact.root_node_key
+    ));
+    output.push_str(&format!(
+        "{}left node key: {}\n",
+        label_prefix, artifact.left_node_key
+    ));
+    output.push_str(&format!(
+        "{}right node key: {}\n",
+        label_prefix, artifact.right_node_key
+    ));
+    output.push_str(&format!(
+        "{}active lens: {}\n",
+        label_prefix,
+        render_exploration_lens(artifact.active_lens)
+    ));
+    output.push_str(&format!(
+        "{}comparison group: {}\n",
+        label_prefix,
+        render_comparison_group(artifact.comparison_group)
+    ));
+    output.push_str(&format!("{}limit: {}\n", label_prefix, artifact.limit));
+    output.push_str(&format!(
+        "{}structure unique: {}\n",
+        label_prefix, artifact.structure_unique
+    ));
+    output.push_str(&format!(
+        "{}frozen context: {}\n",
+        label_prefix, artifact.frozen_context
+    ));
+}
+
+fn render_saved_trail_artifact(output: &mut String, artifact: &SavedTrailArtifact) {
+    render_saved_trail_state(output, artifact);
+    for (index, step) in artifact.steps.iter().enumerate() {
+        output.push('\n');
+        output.push_str(&format!("[step {index}]\n"));
+        render_saved_trail_step(output, step);
+    }
+    if let Some(step) = &artifact.detached_step {
+        output.push('\n');
+        output.push_str("[detached step]\n");
+        render_saved_trail_step(output, step);
+    }
+}
+
+fn render_saved_trail_state(output: &mut String, artifact: &SavedTrailArtifact) {
+    output.push_str(&format!("steps: {}\n", artifact.steps.len()));
+    output.push_str(&format!("cursor: {}\n", artifact.cursor));
+    output.push_str(&format!(
+        "detached step: {}\n",
+        if artifact.detached_step.is_some() {
+            "present"
+        } else {
+            "none"
+        }
+    ));
+}
+
+fn render_saved_trail_step(output: &mut String, step: &SavedTrailStep) {
+    match step {
+        SavedTrailStep::LensView { artifact } => {
+            output.push_str("kind: lens-view\n");
+            render_saved_lens_view_state(output, artifact, "");
+        }
+        SavedTrailStep::Comparison { artifact } => {
+            output.push_str("kind: comparison\n");
+            render_saved_comparison_state(output, artifact, "");
+        }
+    }
+}
+
+fn render_trail_replay_result(replay: &TrailReplayResult) -> String {
+    let mut output = String::new();
+    output.push_str(&format!("steps: {}\n", replay.steps.len()));
+    output.push_str(&format!("cursor: {}\n", replay.cursor));
+    output.push_str(&format!(
+        "detached step: {}\n",
+        if replay.detached_step.is_some() {
+            "present"
+        } else {
+            "none"
+        }
+    ));
+    for (index, step) in replay.steps.iter().enumerate() {
+        output.push('\n');
+        output.push_str(&format!("[step {index}]\n"));
+        render_trail_replay_step(&mut output, step);
+    }
+    if let Some(step) = &replay.detached_step {
+        output.push('\n');
+        output.push_str("[detached step]\n");
+        render_trail_replay_step(&mut output, step);
+    }
+    output
+}
+
+fn render_trail_replay_step(output: &mut String, step: &TrailReplayStepResult) {
+    match step {
+        TrailReplayStepResult::LensView {
+            artifact,
+            root_note,
+            current_note,
+            result,
+        } => {
+            output.push_str("kind: lens-view\n");
+            output.push_str(&format!("root: {}\n", render_node_identity(root_note)));
+            output.push_str(&format!(
+                "current: {}\n",
+                render_node_identity(current_note)
+            ));
+            render_saved_lens_view_state(output, artifact, "saved ");
+            output.push('\n');
+            output.push_str("[result]\n");
+            output.push_str(&render_explore_result(result));
+        }
+        TrailReplayStepResult::Comparison {
+            artifact,
+            root_note,
+            result,
+        } => {
+            output.push_str("kind: comparison\n");
+            output.push_str(&format!("root: {}\n", render_node_identity(root_note)));
+            render_saved_comparison_state(output, artifact, "saved ");
+            output.push('\n');
+            output.push_str("[result]\n");
+            output.push_str(&render_compare_result(result, NoteComparisonGroup::All));
+        }
+    }
+}
+
+fn render_artifact_kind(kind: ExplorationArtifactKind) -> &'static str {
+    match kind {
+        ExplorationArtifactKind::LensView => "lens-view",
+        ExplorationArtifactKind::Comparison => "comparison",
+        ExplorationArtifactKind::Trail => "trail",
+    }
 }
 
 fn render_comparison_group(group: NoteComparisonGroup) -> &'static str {
