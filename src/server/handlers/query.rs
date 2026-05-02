@@ -1,12 +1,15 @@
 use slipbox_core::{
     AgendaParams, AgendaResult, BacklinksParams, BacklinksResult, CompareNotesParams,
-    ExecutedExplorationArtifact, ExecutedExplorationArtifactPayload, ExplorationEntry,
-    ExplorationLens, ExplorationSection, ExplorationSectionKind, ExploreParams, ExploreResult,
-    ForwardLinksParams, ForwardLinksResult, GraphParams, GraphResult, IndexFileParams,
-    IndexedFilesResult, NodeAtPointParams, NodeFromIdParams, NodeFromRefParams,
+    DeleteExplorationArtifactResult, ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
+    ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactResult,
+    ExplorationArtifactSummary, ExplorationEntry, ExplorationLens, ExplorationSection,
+    ExplorationSectionKind, ExploreParams, ExploreResult, ForwardLinksParams, ForwardLinksResult,
+    GraphParams, GraphResult, IndexFileParams, IndexedFilesResult, ListExplorationArtifactsParams,
+    ListExplorationArtifactsResult, NodeAtPointParams, NodeFromIdParams, NodeFromRefParams,
     NodeFromTitleOrAliasParams, NoteComparisonResult, PingInfo, RandomNodeResult, ReflinksParams,
-    ReflinksResult, SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact,
-    SavedTrailStep, SearchFilesParams, SearchFilesResult, SearchNodesParams, SearchNodesResult,
+    ReflinksResult, SaveExplorationArtifactParams, SaveExplorationArtifactResult,
+    SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailStep,
+    SearchFilesParams, SearchFilesResult, SearchNodesParams, SearchNodesResult,
     SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams, SearchRefsResult,
     SearchTagsParams, SearchTagsResult, StatusInfo, TrailReplayResult, TrailReplayStepResult,
     UnlinkedReferencesParams, UnlinkedReferencesResult,
@@ -463,7 +466,6 @@ fn execute_explore_query(
     })
 }
 
-#[allow(dead_code)]
 fn execute_saved_lens_view(
     state: &mut ServerState,
     artifact: &SavedLensViewArtifact,
@@ -483,7 +485,6 @@ fn execute_compare_notes_query(
         .map_err(|error| internal_error(error.context("failed to compare notes")))
 }
 
-#[allow(dead_code)]
 fn execute_saved_comparison(
     state: &mut ServerState,
     artifact: &SavedComparisonArtifact,
@@ -491,7 +492,6 @@ fn execute_saved_comparison(
     execute_compare_notes_query(state, &artifact.compare_notes_params())
 }
 
-#[allow(dead_code)]
 fn replay_saved_trail_step(
     state: &mut ServerState,
     step: &SavedTrailStep,
@@ -508,7 +508,6 @@ fn replay_saved_trail_step(
     }
 }
 
-#[allow(dead_code)]
 pub(crate) fn execute_saved_exploration_artifact(
     state: &mut ServerState,
     artifact: &SavedExplorationArtifact,
@@ -560,7 +559,6 @@ pub(crate) fn execute_saved_exploration_artifact(
     })
 }
 
-#[allow(dead_code)]
 pub(crate) fn execute_saved_exploration_artifact_by_id(
     state: &mut ServerState,
     artifact_id: &str,
@@ -573,6 +571,110 @@ pub(crate) fn execute_saved_exploration_artifact_by_id(
         .as_ref()
         .map(|saved| execute_saved_exploration_artifact(state, saved))
         .transpose()
+}
+
+fn invalid_request(message: String) -> JsonRpcError {
+    JsonRpcError::new(JsonRpcErrorObject::invalid_request(message))
+}
+
+fn validate_artifact_id_params(params: &ExplorationArtifactIdParams) -> Result<(), JsonRpcError> {
+    if let Some(message) = params.validation_error() {
+        return Err(invalid_request(message));
+    }
+    Ok(())
+}
+
+fn known_exploration_artifact(
+    state: &ServerState,
+    artifact_id: &str,
+) -> Result<SavedExplorationArtifact, JsonRpcError> {
+    let artifact = state
+        .database
+        .exploration_artifact(artifact_id)
+        .map_err(|error| internal_error(error.context("failed to load exploration artifact")))?;
+    artifact.ok_or_else(|| invalid_request(format!("unknown exploration artifact: {artifact_id}")))
+}
+
+pub(crate) fn save_exploration_artifact(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: SaveExplorationArtifactParams = parse_params(params)?;
+    if let Some(message) = params.validation_error() {
+        return Err(invalid_request(message));
+    }
+    state
+        .database
+        .save_exploration_artifact(&params.artifact)
+        .map_err(|error| internal_error(error.context("failed to save exploration artifact")))?;
+    to_value(SaveExplorationArtifactResult {
+        artifact: ExplorationArtifactSummary::from(&params.artifact),
+    })
+}
+
+pub(crate) fn exploration_artifact(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: ExplorationArtifactIdParams = parse_params(params)?;
+    validate_artifact_id_params(&params)?;
+    to_value(ExplorationArtifactResult {
+        artifact: known_exploration_artifact(state, &params.artifact_id)?,
+    })
+}
+
+pub(crate) fn list_exploration_artifacts(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let _params: ListExplorationArtifactsParams = parse_params(params)?;
+    let artifacts = state
+        .database
+        .list_exploration_artifacts()
+        .map_err(|error| internal_error(error.context("failed to list exploration artifacts")))?;
+    to_value(ListExplorationArtifactsResult {
+        artifacts: artifacts
+            .iter()
+            .map(ExplorationArtifactSummary::from)
+            .collect(),
+    })
+}
+
+pub(crate) fn delete_exploration_artifact(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: ExplorationArtifactIdParams = parse_params(params)?;
+    validate_artifact_id_params(&params)?;
+    if !state
+        .database
+        .delete_exploration_artifact(&params.artifact_id)
+        .map_err(|error| internal_error(error.context("failed to delete exploration artifact")))?
+    {
+        return Err(invalid_request(format!(
+            "unknown exploration artifact: {}",
+            params.artifact_id
+        )));
+    }
+    to_value(DeleteExplorationArtifactResult {
+        artifact_id: params.artifact_id,
+    })
+}
+
+pub(crate) fn execute_exploration_artifact(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: ExplorationArtifactIdParams = parse_params(params)?;
+    validate_artifact_id_params(&params)?;
+    let artifact = execute_saved_exploration_artifact_by_id(state, &params.artifact_id)?
+        .ok_or_else(|| {
+            invalid_request(format!(
+                "unknown exploration artifact: {}",
+                params.artifact_id
+            ))
+        })?;
+    to_value(ExecuteExplorationArtifactResult { artifact })
 }
 
 pub(crate) fn explore(
@@ -656,19 +758,23 @@ mod tests {
 
     use serde_json::json;
     use slipbox_core::{
-        CompareNotesParams, ComparisonConnectorDirection, ExecutedExplorationArtifactPayload,
-        ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationEntry,
-        ExplorationExplanation, ExplorationLens, ExplorationSectionKind, ExploreParams,
-        ExploreResult, NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonResult,
-        NoteComparisonSectionKind, SavedComparisonArtifact, SavedExplorationArtifact,
+        CompareNotesParams, ComparisonConnectorDirection, DeleteExplorationArtifactResult,
+        ExecuteExplorationArtifactResult, ExecutedExplorationArtifactPayload,
+        ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
+        ExplorationEntry, ExplorationExplanation, ExplorationLens, ExplorationSectionKind,
+        ExploreParams, ExploreResult, ListExplorationArtifactsResult, NoteComparisonEntry,
+        NoteComparisonExplanation, NoteComparisonResult, NoteComparisonSectionKind,
+        SaveExplorationArtifactResult, SavedComparisonArtifact, SavedExplorationArtifact,
         SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, TrailReplayStepResult,
     };
     use slipbox_index::{DiscoveryPolicy, scan_root_with_policy};
     use tempfile::TempDir;
 
     use super::{
-        compare_notes, execute_compare_notes_query, execute_explore_query,
-        execute_saved_exploration_artifact, execute_saved_exploration_artifact_by_id, explore,
+        compare_notes, delete_exploration_artifact, execute_compare_notes_query,
+        execute_exploration_artifact, execute_explore_query, execute_saved_exploration_artifact,
+        execute_saved_exploration_artifact_by_id, exploration_artifact, explore,
+        list_exploration_artifacts, save_exploration_artifact,
     };
     use crate::server::state::ServerState;
 
@@ -1349,6 +1455,145 @@ mod tests {
 
         let error = execute_saved_exploration_artifact(&mut state, &invalid)
             .expect_err("direct execution should reject malformed artifacts");
+        assert_eq!(
+            error.into_inner().message,
+            "trail cursor must point to an existing step"
+        );
+    }
+
+    #[test]
+    fn artifact_rpc_operations_round_trip_saved_artifacts() {
+        let (_workspace, mut state, focus_key) = non_obvious_state();
+        let artifact = saved_lens_artifact(
+            "saved-unresolved",
+            "Saved Unresolved",
+            &focus_key,
+            ExplorationLens::Unresolved,
+        );
+
+        let saved: SaveExplorationArtifactResult = serde_json::from_value(
+            save_exploration_artifact(&mut state, json!({ "artifact": artifact.clone() }))
+                .expect("save artifact RPC should succeed"),
+        )
+        .expect("save result should decode");
+        assert_eq!(saved.artifact.metadata, artifact.metadata);
+        assert_eq!(saved.artifact.kind, artifact.kind());
+
+        let listed: ListExplorationArtifactsResult = serde_json::from_value(
+            list_exploration_artifacts(&mut state, json!({}))
+                .expect("list artifacts RPC should succeed"),
+        )
+        .expect("list result should decode");
+        assert_eq!(listed.artifacts.len(), 1);
+        assert_eq!(listed.artifacts[0], saved.artifact);
+
+        let inspected: ExplorationArtifactResult = serde_json::from_value(
+            exploration_artifact(&mut state, json!({ "artifact_id": "saved-unresolved" }))
+                .expect("inspect artifact RPC should succeed"),
+        )
+        .expect("inspect result should decode");
+        assert_eq!(inspected.artifact, artifact);
+
+        let live = execute_explore_query(
+            &mut state,
+            &ExploreParams {
+                node_key: focus_key,
+                lens: ExplorationLens::Unresolved,
+                limit: 20,
+                unique: false,
+            },
+        )
+        .expect("live explore should succeed");
+        let executed: ExecuteExplorationArtifactResult = serde_json::from_value(
+            execute_exploration_artifact(&mut state, json!({ "artifact_id": "saved-unresolved" }))
+                .expect("execute artifact RPC should succeed"),
+        )
+        .expect("execute result should decode");
+        assert_eq!(executed.artifact.metadata, artifact.metadata);
+        match executed.artifact.payload {
+            ExecutedExplorationArtifactPayload::LensView {
+                artifact: executed_artifact,
+                result,
+            } => {
+                match artifact.payload {
+                    ExplorationArtifactPayload::LensView { artifact } => {
+                        assert_eq!(executed_artifact, artifact);
+                    }
+                    _ => panic!("expected saved lens-view artifact"),
+                }
+                assert_eq!(*result, live);
+            }
+            payload => panic!("expected lens-view execution, got {:?}", payload.kind()),
+        }
+
+        let deleted: DeleteExplorationArtifactResult = serde_json::from_value(
+            delete_exploration_artifact(&mut state, json!({ "artifact_id": "saved-unresolved" }))
+                .expect("delete artifact RPC should succeed"),
+        )
+        .expect("delete result should decode");
+        assert_eq!(deleted.artifact_id, "saved-unresolved");
+
+        let listed_after_delete: ListExplorationArtifactsResult = serde_json::from_value(
+            list_exploration_artifacts(&mut state, json!({}))
+                .expect("list after delete should succeed"),
+        )
+        .expect("list after delete should decode");
+        assert!(listed_after_delete.artifacts.is_empty());
+    }
+
+    #[test]
+    fn artifact_rpc_reports_missing_and_invalid_artifacts() {
+        let (_workspace, mut state, _target_key) = indexed_state();
+
+        let padded_error = exploration_artifact(&mut state, json!({ "artifact_id": " missing " }))
+            .expect_err("padded artifact id should be rejected");
+        assert_eq!(
+            padded_error.into_inner().message,
+            "artifact_id must not have leading or trailing whitespace"
+        );
+
+        for operation in [
+            exploration_artifact(&mut state, json!({ "artifact_id": "missing" })),
+            execute_exploration_artifact(&mut state, json!({ "artifact_id": "missing" })),
+            delete_exploration_artifact(&mut state, json!({ "artifact_id": "missing" })),
+        ] {
+            let error = operation.expect_err("missing artifact should be rejected");
+            assert_eq!(
+                error.into_inner().message,
+                "unknown exploration artifact: missing"
+            );
+        }
+    }
+
+    #[test]
+    fn save_exploration_artifact_rpc_rejects_invalid_artifacts() {
+        let (_workspace, mut state, target_key) = indexed_state();
+        let invalid = SavedExplorationArtifact {
+            metadata: ExplorationArtifactMetadata {
+                artifact_id: "invalid-trail".to_owned(),
+                title: "Invalid Trail".to_owned(),
+                summary: None,
+            },
+            payload: ExplorationArtifactPayload::Trail {
+                artifact: Box::new(SavedTrailArtifact {
+                    steps: vec![SavedTrailStep::LensView {
+                        artifact: Box::new(SavedLensViewArtifact {
+                            root_node_key: target_key.clone(),
+                            current_node_key: target_key,
+                            lens: ExplorationLens::Structure,
+                            limit: 20,
+                            unique: false,
+                            frozen_context: false,
+                        }),
+                    }],
+                    cursor: 1,
+                    detached_step: None,
+                }),
+            },
+        };
+
+        let error = save_exploration_artifact(&mut state, json!({ "artifact": invalid }))
+            .expect_err("save artifact RPC should reject malformed artifacts");
         assert_eq!(
             error.into_inner().message,
             "trail cursor must point to an existing step"

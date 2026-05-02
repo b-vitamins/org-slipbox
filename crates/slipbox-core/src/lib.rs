@@ -926,6 +926,22 @@ impl ExplorationArtifactMetadata {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExplorationArtifactSummary {
+    #[serde(flatten)]
+    pub metadata: ExplorationArtifactMetadata,
+    pub kind: ExplorationArtifactKind,
+}
+
+impl From<&SavedExplorationArtifact> for ExplorationArtifactSummary {
+    fn from(artifact: &SavedExplorationArtifact) -> Self {
+        Self {
+            metadata: artifact.metadata.clone(),
+            kind: artifact.kind(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SavedLensViewArtifact {
     pub root_node_key: String,
     pub current_node_key: String,
@@ -1198,6 +1214,58 @@ impl ExecutedExplorationArtifact {
     pub fn kind(&self) -> ExplorationArtifactKind {
         self.payload.kind()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SaveExplorationArtifactParams {
+    pub artifact: SavedExplorationArtifact,
+}
+
+impl SaveExplorationArtifactParams {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        self.artifact.validation_error()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SaveExplorationArtifactResult {
+    pub artifact: ExplorationArtifactSummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExplorationArtifactIdParams {
+    pub artifact_id: String,
+}
+
+impl ExplorationArtifactIdParams {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_artifact_id_field(&self.artifact_id)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ListExplorationArtifactsParams {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExplorationArtifactResult {
+    pub artifact: SavedExplorationArtifact,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListExplorationArtifactsResult {
+    pub artifacts: Vec<ExplorationArtifactSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeleteExplorationArtifactResult {
+    pub artifact_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecuteExplorationArtifactResult {
+    pub artifact: ExecutedExplorationArtifact,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1685,17 +1753,20 @@ mod tests {
     use super::{
         BacklinkRecord, BridgeEvidenceRecord, CaptureNodeParams, CaptureTemplatePreviewResult,
         CompareNotesParams, ComparisonConnectorDirection, ComparisonPlanningRecord,
-        ComparisonReferenceRecord, ComparisonTaskStateRecord, ExecutedExplorationArtifact,
-        ExecutedExplorationArtifactPayload, ExplorationArtifactKind, ExplorationArtifactMetadata,
-        ExplorationArtifactPayload, ExplorationEntry, ExplorationExplanation, ExplorationLens,
+        ComparisonReferenceRecord, ComparisonTaskStateRecord, DeleteExplorationArtifactResult,
+        ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
+        ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactKind,
+        ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
+        ExplorationArtifactSummary, ExplorationEntry, ExplorationExplanation, ExplorationLens,
         ExplorationSection, ExplorationSectionKind, ExploreParams, ExploreResult,
-        NodeFromTitleOrAliasParams, NodeKind, NodeRecord, NoteComparisonEntry,
-        NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
+        ListExplorationArtifactsResult, NodeFromTitleOrAliasParams, NodeKind, NodeRecord,
+        NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
         NoteComparisonSection, NoteComparisonSectionKind, PlanningField, PlanningRelationRecord,
-        PreviewNodeRecord, SavedComparisonArtifact, SavedExplorationArtifact,
-        SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, SearchNodesParams,
-        SearchNodesSort, TrailReplayResult, TrailReplayStepResult, UnlinkedReferencesParams,
-        UpdateNodeMetadataParams, normalize_reference,
+        PreviewNodeRecord, SaveExplorationArtifactParams, SaveExplorationArtifactResult,
+        SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact,
+        SavedTrailArtifact, SavedTrailStep, SearchNodesParams, SearchNodesSort, TrailReplayResult,
+        TrailReplayStepResult, UnlinkedReferencesParams, UpdateNodeMetadataParams,
+        normalize_reference,
     };
     use serde_json::json;
 
@@ -2678,6 +2749,112 @@ mod tests {
     }
 
     #[test]
+    fn exploration_artifact_rpc_contracts_round_trip() {
+        let artifact = SavedExplorationArtifact {
+            metadata: ExplorationArtifactMetadata {
+                artifact_id: "lens/focus".to_owned(),
+                title: "Lens Focus".to_owned(),
+                summary: Some("Saved structure lens".to_owned()),
+            },
+            payload: ExplorationArtifactPayload::LensView {
+                artifact: Box::new(SavedLensViewArtifact {
+                    root_node_key: "file:focus.org".to_owned(),
+                    current_node_key: "file:focus.org".to_owned(),
+                    lens: ExplorationLens::Structure,
+                    limit: 20,
+                    unique: false,
+                    frozen_context: false,
+                }),
+            },
+        };
+        let summary = ExplorationArtifactSummary::from(&artifact);
+        let save_params = SaveExplorationArtifactParams {
+            artifact: artifact.clone(),
+        };
+        let save_result = SaveExplorationArtifactResult {
+            artifact: summary.clone(),
+        };
+        let list_result = ListExplorationArtifactsResult {
+            artifacts: vec![summary.clone()],
+        };
+        let inspect_result = ExplorationArtifactResult {
+            artifact: artifact.clone(),
+        };
+        let execute_result = ExecuteExplorationArtifactResult {
+            artifact: ExecutedExplorationArtifact {
+                metadata: artifact.metadata.clone(),
+                payload: ExecutedExplorationArtifactPayload::LensView {
+                    artifact: Box::new(SavedLensViewArtifact {
+                        root_node_key: "file:focus.org".to_owned(),
+                        current_node_key: "file:focus.org".to_owned(),
+                        lens: ExplorationLens::Structure,
+                        limit: 20,
+                        unique: false,
+                        frozen_context: false,
+                    }),
+                    result: Box::new(ExploreResult {
+                        lens: ExplorationLens::Structure,
+                        sections: Vec::new(),
+                    }),
+                },
+            },
+        };
+        let delete_result = DeleteExplorationArtifactResult {
+            artifact_id: "lens/focus".to_owned(),
+        };
+        let id_params = ExplorationArtifactIdParams {
+            artifact_id: "lens/focus".to_owned(),
+        };
+
+        let save_json = serde_json::to_value(&save_params).expect("save params should serialize");
+        assert_eq!(save_json["artifact"]["artifact_id"], json!("lens/focus"));
+        assert_eq!(save_json["artifact"]["kind"], json!("lens-view"));
+
+        let save_round_trip: SaveExplorationArtifactParams =
+            serde_json::from_value(save_json).expect("save params should deserialize");
+        assert_eq!(save_round_trip, save_params);
+
+        let save_result_round_trip: SaveExplorationArtifactResult = serde_json::from_value(
+            serde_json::to_value(&save_result).expect("save result should serialize"),
+        )
+        .expect("save result should deserialize");
+        assert_eq!(save_result_round_trip, save_result);
+
+        let summary_json = serde_json::to_value(&summary).expect("summary should serialize");
+        assert_eq!(summary_json["kind"], json!("lens-view"));
+
+        let list_round_trip: ListExplorationArtifactsResult = serde_json::from_value(
+            serde_json::to_value(&list_result).expect("list result should serialize"),
+        )
+        .expect("list result should deserialize");
+        assert_eq!(list_round_trip, list_result);
+
+        let inspect_round_trip: ExplorationArtifactResult = serde_json::from_value(
+            serde_json::to_value(&inspect_result).expect("inspect result should serialize"),
+        )
+        .expect("inspect result should deserialize");
+        assert_eq!(inspect_round_trip, inspect_result);
+
+        let execute_round_trip: ExecuteExplorationArtifactResult = serde_json::from_value(
+            serde_json::to_value(&execute_result).expect("execute result should serialize"),
+        )
+        .expect("execute result should deserialize");
+        assert_eq!(execute_round_trip, execute_result);
+
+        let delete_round_trip: DeleteExplorationArtifactResult = serde_json::from_value(
+            serde_json::to_value(&delete_result).expect("delete result should serialize"),
+        )
+        .expect("delete result should deserialize");
+        assert_eq!(delete_round_trip, delete_result);
+
+        let id_round_trip: ExplorationArtifactIdParams = serde_json::from_value(
+            serde_json::to_value(&id_params).expect("id params should serialize"),
+        )
+        .expect("id params should deserialize");
+        assert_eq!(id_round_trip, id_params);
+    }
+
+    #[test]
     fn saved_exploration_artifacts_reject_malformed_metadata_and_trails() {
         let blank_metadata = SavedExplorationArtifact {
             metadata: ExplorationArtifactMetadata {
@@ -2799,6 +2976,17 @@ mod tests {
         assert_eq!(
             attached_detached_step.validation_error().as_deref(),
             Some("detached trail step must not duplicate any recorded trail step")
+        );
+    }
+
+    #[test]
+    fn exploration_artifact_id_params_reject_padded_ids() {
+        let padded = ExplorationArtifactIdParams {
+            artifact_id: " lens/focus ".to_owned(),
+        };
+        assert_eq!(
+            padded.validation_error().as_deref(),
+            Some("artifact_id must not have leading or trailing whitespace")
         );
     }
 
