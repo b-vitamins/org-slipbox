@@ -1287,6 +1287,8 @@ impl ExecutedExplorationArtifact {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SaveExplorationArtifactParams {
     pub artifact: SavedExplorationArtifact,
+    #[serde(default = "default_artifact_overwrite")]
+    pub overwrite: bool,
 }
 
 impl SaveExplorationArtifactParams {
@@ -1664,6 +1666,10 @@ const fn default_search_limit() -> usize {
 
 const fn default_backlink_limit() -> usize {
     200
+}
+
+const fn default_artifact_overwrite() -> bool {
+    true
 }
 
 const fn default_tag_limit() -> usize {
@@ -2978,6 +2984,7 @@ mod tests {
         let summary = ExplorationArtifactSummary::from(&artifact);
         let save_params = SaveExplorationArtifactParams {
             artifact: artifact.clone(),
+            overwrite: false,
         };
         let save_result = SaveExplorationArtifactResult {
             artifact: summary.clone(),
@@ -3057,10 +3064,17 @@ mod tests {
         let save_json = serde_json::to_value(&save_params).expect("save params should serialize");
         assert_eq!(save_json["artifact"]["artifact_id"], json!("lens/focus"));
         assert_eq!(save_json["artifact"]["kind"], json!("lens-view"));
+        assert_eq!(save_json["overwrite"], json!(false));
 
         let save_round_trip: SaveExplorationArtifactParams =
             serde_json::from_value(save_json).expect("save params should deserialize");
         assert_eq!(save_round_trip, save_params);
+
+        let legacy_round_trip: SaveExplorationArtifactParams =
+            serde_json::from_value(json!({ "artifact": artifact.clone() }))
+                .expect("legacy save params should deserialize");
+        assert!(legacy_round_trip.overwrite);
+        assert_eq!(legacy_round_trip.artifact, artifact);
 
         let save_result_round_trip: SaveExplorationArtifactResult = serde_json::from_value(
             serde_json::to_value(&save_result).expect("save result should serialize"),

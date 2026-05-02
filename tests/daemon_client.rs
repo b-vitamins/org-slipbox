@@ -158,6 +158,7 @@ fn daemon_client_queries_spawned_daemon_and_round_trips_artifacts() -> Result<()
 
     let save = client.save_exploration_artifact(&SaveExplorationArtifactParams {
         artifact: saved.clone(),
+        overwrite: true,
     })?;
     assert_eq!(save.artifact.metadata.artifact_id, "alpha-structure");
 

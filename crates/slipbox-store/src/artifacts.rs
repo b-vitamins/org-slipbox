@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -46,6 +47,18 @@ impl ExplorationArtifactStore {
             "{}.{}",
             encode(artifact_id),
             ARTIFACT_FILE_EXTENSION
+        ))
+    }
+
+    fn temporary_artifact_path(&self, artifact_id: &str) -> PathBuf {
+        self.version_dir().join(format!(
+            ".{}.tmp-{}-{}",
+            encode(artifact_id),
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
         ))
     }
 
@@ -105,29 +118,48 @@ impl ExplorationArtifactStore {
         Ok(paths)
     }
 
+    fn write_temporary_artifact_file(
+        &self,
+        artifact: &SavedExplorationArtifact,
+    ) -> Result<PathBuf> {
+        let temporary_path = self.temporary_artifact_path(&artifact.metadata.artifact_id);
+        let json = serde_json::to_vec_pretty(artifact)
+            .context("failed to serialize exploration artifact")?;
+        let mut file = match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary_path)
+        {
+            Ok(file) => file,
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "failed to create temporary exploration artifact {}",
+                        temporary_path.display()
+                    )
+                });
+            }
+        };
+        if let Err(error) = file.write_all(&json).and_then(|_| file.sync_all()) {
+            drop(file);
+            let _ = fs::remove_file(&temporary_path);
+            return Err(error).with_context(|| {
+                format!(
+                    "failed to write temporary exploration artifact {}",
+                    temporary_path.display()
+                )
+            });
+        }
+        Ok(temporary_path)
+    }
+
     fn save(&self, artifact: &SavedExplorationArtifact) -> Result<()> {
         if let Some(error) = artifact.validation_error() {
             anyhow::bail!("exploration artifact is invalid: {error}");
         }
 
         let path = self.artifact_path(&artifact.metadata.artifact_id);
-        let temporary_path = self.version_dir().join(format!(
-            ".{}.tmp-{}-{}",
-            encode(&artifact.metadata.artifact_id),
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ));
-        let json = serde_json::to_string_pretty(artifact)
-            .context("failed to serialize exploration artifact")?;
-        fs::write(&temporary_path, json).with_context(|| {
-            format!(
-                "failed to write temporary exploration artifact {}",
-                temporary_path.display()
-            )
-        })?;
+        let temporary_path = self.write_temporary_artifact_file(artifact)?;
         #[cfg(windows)]
         if path.exists() {
             fs::remove_file(&path).with_context(|| {
@@ -137,10 +169,46 @@ impl ExplorationArtifactStore {
                 )
             })?;
         }
-        fs::rename(&temporary_path, &path).with_context(|| {
-            format!("failed to finalize exploration artifact {}", path.display())
-        })?;
+        if let Err(error) = fs::rename(&temporary_path, &path) {
+            let _ = fs::remove_file(&temporary_path);
+            return Err(error).with_context(|| {
+                format!("failed to finalize exploration artifact {}", path.display())
+            });
+        }
         Ok(())
+    }
+
+    fn save_if_absent(&self, artifact: &SavedExplorationArtifact) -> Result<bool> {
+        if let Some(error) = artifact.validation_error() {
+            anyhow::bail!("exploration artifact is invalid: {error}");
+        }
+
+        let path = self.artifact_path(&artifact.metadata.artifact_id);
+        let temporary_path = self.write_temporary_artifact_file(artifact)?;
+        match fs::hard_link(&temporary_path, &path) {
+            Ok(()) => {
+                fs::remove_file(&temporary_path).with_context(|| {
+                    format!(
+                        "failed to clean up temporary exploration artifact {}",
+                        temporary_path.display()
+                    )
+                })?;
+                Ok(true)
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                let _ = fs::remove_file(&temporary_path);
+                Ok(false)
+            }
+            Err(error) => {
+                let _ = fs::remove_file(&temporary_path);
+                Err(error).with_context(|| {
+                    format!(
+                        "failed to finalize new exploration artifact {}",
+                        path.display()
+                    )
+                })
+            }
+        }
     }
 
     fn load(&self, artifact_id: &str) -> Result<Option<SavedExplorationArtifact>> {
@@ -184,6 +252,13 @@ impl ExplorationArtifactStore {
 impl Database {
     pub fn save_exploration_artifact(&self, artifact: &SavedExplorationArtifact) -> Result<()> {
         self.artifact_store.save(artifact)
+    }
+
+    pub fn save_exploration_artifact_if_absent(
+        &self,
+        artifact: &SavedExplorationArtifact,
+    ) -> Result<bool> {
+        self.artifact_store.save_if_absent(artifact)
     }
 
     pub fn exploration_artifact(
@@ -258,6 +333,27 @@ mod tests {
         assert_eq!(database.exploration_artifact("lens/focus")?, None);
         assert!(database.list_exploration_artifacts()?.is_empty());
         assert!(!database.delete_exploration_artifact("lens/focus")?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn save_if_absent_refuses_to_replace_existing_artifacts() -> Result<()> {
+        let workspace = tempfile::tempdir()?;
+        let db_path = workspace.path().join("index.sqlite3");
+        let database = Database::open(&db_path)?;
+        let original = lens_view_artifact("lens/focus", "Original", None);
+        let replacement = lens_view_artifact("lens/focus", "Replacement", None);
+
+        assert!(database.save_exploration_artifact_if_absent(&original)?);
+        assert!(!database.save_exploration_artifact_if_absent(&replacement)?);
+        assert_eq!(database.exploration_artifact("lens/focus")?, Some(original));
+        let version_dir = ExplorationArtifactStore::for_database_path(&db_path).version_dir();
+        let mut file_names = fs::read_dir(version_dir)?
+            .map(|entry| entry.map(|value| value.file_name().to_string_lossy().into_owned()))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        file_names.sort();
+        assert_eq!(file_names, vec!["lens%2Ffocus.json".to_owned()]);
 
         Ok(())
     }

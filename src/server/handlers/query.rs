@@ -635,10 +635,25 @@ pub(crate) fn save_exploration_artifact(
     if let Some(message) = params.validation_error() {
         return Err(invalid_request(message));
     }
-    state
+    if params.overwrite {
+        state
+            .database
+            .save_exploration_artifact(&params.artifact)
+            .map_err(|error| {
+                internal_error(error.context("failed to save exploration artifact"))
+            })?;
+    } else if !state
         .database
-        .save_exploration_artifact(&params.artifact)
-        .map_err(|error| internal_error(error.context("failed to save exploration artifact")))?;
+        .save_exploration_artifact_if_absent(&params.artifact)
+        .map_err(|error| {
+            internal_error(error.context("failed to save exploration artifact without overwrite"))
+        })?
+    {
+        return Err(invalid_request(format!(
+            "exploration artifact already exists: {}",
+            params.artifact.metadata.artifact_id
+        )));
+    }
     to_value(SaveExplorationArtifactResult {
         artifact: ExplorationArtifactSummary::from(&params.artifact),
     })
@@ -1514,8 +1529,11 @@ mod tests {
         );
 
         let saved: SaveExplorationArtifactResult = serde_json::from_value(
-            save_exploration_artifact(&mut state, json!({ "artifact": artifact.clone() }))
-                .expect("save artifact RPC should succeed"),
+            save_exploration_artifact(
+                &mut state,
+                json!({ "artifact": artifact.clone(), "overwrite": true }),
+            )
+            .expect("save artifact RPC should succeed"),
         )
         .expect("save result should decode");
         assert_eq!(saved.artifact.metadata, artifact.metadata);
@@ -1642,8 +1660,11 @@ mod tests {
 
         for artifact in [comparison.clone(), trail.clone()] {
             let _: SaveExplorationArtifactResult = serde_json::from_value(
-                save_exploration_artifact(&mut state, json!({ "artifact": artifact }))
-                    .expect("save artifact RPC should succeed"),
+                save_exploration_artifact(
+                    &mut state,
+                    json!({ "artifact": artifact, "overwrite": true }),
+                )
+                .expect("save artifact RPC should succeed"),
             )
             .expect("save result should decode");
         }
@@ -1861,6 +1882,49 @@ mod tests {
             error.into_inner().message,
             "trail cursor must point to an existing step"
         );
+    }
+
+    #[test]
+    fn save_exploration_artifact_rpc_respects_non_overwrite_policy() {
+        let (_workspace, mut state, focus_key) = non_obvious_state();
+        let original = saved_lens_artifact(
+            "saved-unresolved",
+            "Original",
+            &focus_key,
+            ExplorationLens::Refs,
+        );
+        let replacement = saved_lens_artifact(
+            "saved-unresolved",
+            "Replacement",
+            &focus_key,
+            ExplorationLens::Unresolved,
+        );
+
+        let _: SaveExplorationArtifactResult = serde_json::from_value(
+            save_exploration_artifact(
+                &mut state,
+                json!({ "artifact": original.clone(), "overwrite": true }),
+            )
+            .expect("initial save should succeed"),
+        )
+        .expect("save result should decode");
+
+        let error = save_exploration_artifact(
+            &mut state,
+            json!({ "artifact": replacement, "overwrite": false }),
+        )
+        .expect_err("non-overwrite save should reject replacement");
+        assert_eq!(
+            error.into_inner().message,
+            "exploration artifact already exists: saved-unresolved"
+        );
+
+        let stored = state
+            .database
+            .exploration_artifact("saved-unresolved")
+            .expect("stored artifact lookup should succeed")
+            .expect("stored artifact should remain readable");
+        assert_eq!(stored, original);
     }
 
     fn saved_lens_artifact(

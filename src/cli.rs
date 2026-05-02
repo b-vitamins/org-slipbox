@@ -1,6 +1,7 @@
 use std::env;
-use std::io::{self, Write};
-use std::path::PathBuf;
+use std::fs;
+use std::io::{self, Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
@@ -10,13 +11,14 @@ use slipbox_core::{
     AnchorRecord, CompareNotesParams, ComparisonConnectorDirection,
     DeleteExplorationArtifactResult, ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
     ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactKind,
-    ExplorationArtifactResult, ExplorationEntry, ExplorationExplanation, ExplorationLens,
-    ExplorationSectionKind, ExploreParams, ExploreResult, ListExplorationArtifactsResult,
-    NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
-    NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
-    NoteComparisonSectionKind, PlanningField, PlanningRelationRecord, SavedComparisonArtifact,
-    SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep,
-    StatusInfo, TrailReplayResult, TrailReplayStepResult,
+    ExplorationArtifactResult, ExplorationArtifactSummary, ExplorationEntry,
+    ExplorationExplanation, ExplorationLens, ExplorationSectionKind, ExploreParams, ExploreResult,
+    ListExplorationArtifactsResult, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
+    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonEntry, NoteComparisonExplanation,
+    NoteComparisonGroup, NoteComparisonResult, NoteComparisonSectionKind, PlanningField,
+    PlanningRelationRecord, SavedComparisonArtifact, SavedExplorationArtifact,
+    SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, StatusInfo, TrailReplayResult,
+    TrailReplayStepResult,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonClientError, DaemonServeConfig};
 use slipbox_index::DiscoveryPolicy;
@@ -332,6 +334,10 @@ pub(crate) enum ArtifactCommand {
     Show(ArtifactShowArgs),
     /// Execute a saved artifact through the live daemon semantics.
     Run(ArtifactRunArgs),
+    /// Export a saved artifact definition as stable JSON.
+    Export(ArtifactExportArgs),
+    /// Import a saved artifact definition from stable JSON.
+    Import(ArtifactImportArgs),
     /// Delete a saved artifact by durable identifier.
     Delete(ArtifactDeleteArgs),
 }
@@ -368,6 +374,27 @@ pub(crate) struct ArtifactDeleteArgs {
     pub(crate) artifact: ArtifactIdArgs,
 }
 
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ArtifactExportArgs {
+    #[command(flatten)]
+    pub(crate) artifact: ArtifactIdArgs,
+    /// Write exported JSON to this path instead of stdout. Use `-` for stdout.
+    #[arg(long)]
+    pub(crate) output: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ArtifactImportArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// Read imported JSON from this path, or `-` for stdin.
+    #[arg(default_value = "-")]
+    pub(crate) input: String,
+    /// Replace an existing artifact with the same durable identifier.
+    #[arg(long)]
+    pub(crate) overwrite: bool,
+}
+
 pub(crate) trait HeadlessCommand {
     type Output: Serialize;
 
@@ -397,6 +424,8 @@ pub(crate) fn run_artifact(args: &ArtifactArgs) -> Result<(), CliCommandError> {
         ArtifactCommand::List(command) => run_headless_command(command),
         ArtifactCommand::Show(command) => run_headless_command(command),
         ArtifactCommand::Run(command) => run_headless_command(command),
+        ArtifactCommand::Export(command) => run_artifact_export(command),
+        ArtifactCommand::Import(command) => run_artifact_import(command),
         ArtifactCommand::Delete(command) => run_headless_command(command),
     }
 }
@@ -406,6 +435,12 @@ pub(crate) fn report_error(error: &CliCommandError) -> ExitCode {
     let mut writer = stderr.lock();
     let _ = error.write(&mut writer);
     ExitCode::from(1)
+}
+
+#[derive(Debug, Serialize)]
+struct ArtifactExportFileResult {
+    artifact: ExplorationArtifactSummary,
+    output_path: String,
 }
 
 pub(crate) struct CliCommandError {
@@ -469,6 +504,129 @@ where
         command.render_human(value)
     })
     .map_err(|error| CliCommandError::new(output_mode, error))
+}
+
+fn run_artifact_export(command: &ArtifactExportArgs) -> Result<(), CliCommandError> {
+    let output_mode = command.artifact.headless.output_mode();
+    let mut client = command.artifact.headless.connect()?;
+    let artifact = client
+        .exploration_artifact(&ExplorationArtifactIdParams {
+            artifact_id: command.artifact.artifact_id.clone(),
+        })
+        .map_err(|error| CliCommandError::new(output_mode, error))?
+        .artifact;
+    client
+        .shutdown()
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+
+    if let Some(output_path) = &command.output
+        && output_path != Path::new("-")
+    {
+        let serialized = serde_json::to_vec_pretty(&artifact)
+            .context("failed to serialize saved exploration artifact")
+            .map_err(|error| CliCommandError::new(output_mode, error))?;
+        fs::write(output_path, serialized)
+            .with_context(|| {
+                format!(
+                    "failed to write exported exploration artifact {}",
+                    output_path.display()
+                )
+            })
+            .map_err(|error| CliCommandError::new(output_mode, error))?;
+
+        let stdout = io::stdout();
+        let mut writer = stdout.lock();
+        let result = ArtifactExportFileResult {
+            artifact: ExplorationArtifactSummary::from(&artifact),
+            output_path: output_path.display().to_string(),
+        };
+        write_output(&mut writer, output_mode, &result, |value| {
+            format!(
+                "exported artifact: {} -> {}\n",
+                value.artifact.metadata.artifact_id, value.output_path
+            )
+        })
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+        return Ok(());
+    }
+
+    let stdout = io::stdout();
+    let mut writer = stdout.lock();
+    match output_mode {
+        OutputMode::Human => {
+            serde_json::to_writer_pretty(&mut writer, &artifact)
+                .context("failed to serialize saved exploration artifact")
+                .map_err(|error| CliCommandError::new(output_mode, error))?;
+            writer
+                .write_all(b"\n")
+                .map_err(|error| CliCommandError::new(output_mode, error))?;
+        }
+        OutputMode::Json => {
+            serde_json::to_writer(&mut writer, &artifact)
+                .context("failed to serialize saved exploration artifact")
+                .map_err(|error| CliCommandError::new(output_mode, error))?;
+            writer
+                .write_all(b"\n")
+                .map_err(|error| CliCommandError::new(output_mode, error))?;
+        }
+    }
+    writer
+        .flush()
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    Ok(())
+}
+
+fn run_artifact_import(command: &ArtifactImportArgs) -> Result<(), CliCommandError> {
+    let output_mode = command.headless.output_mode();
+    let bytes = read_artifact_json_input(&command.input)
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    let artifact: SavedExplorationArtifact = serde_json::from_slice(&bytes)
+        .with_context(|| {
+            if command.input == "-" {
+                "failed to parse saved exploration artifact JSON from stdin".to_owned()
+            } else {
+                format!(
+                    "failed to parse saved exploration artifact JSON from {}",
+                    command.input
+                )
+            }
+        })
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+
+    let mut client = command.headless.connect()?;
+    let saved = client
+        .save_exploration_artifact(&slipbox_core::SaveExplorationArtifactParams {
+            artifact,
+            overwrite: command.overwrite,
+        })
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    client
+        .shutdown()
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+
+    let stdout = io::stdout();
+    let mut writer = stdout.lock();
+    write_output(&mut writer, output_mode, &saved, |value| {
+        format!(
+            "imported artifact: {} [{}]\n",
+            value.artifact.metadata.artifact_id,
+            render_artifact_kind(value.artifact.kind)
+        )
+    })
+    .map_err(|error| CliCommandError::new(output_mode, error))
+}
+
+fn read_artifact_json_input(input: &str) -> Result<Vec<u8>> {
+    if input == "-" {
+        let mut bytes = Vec::new();
+        io::stdin()
+            .read_to_end(&mut bytes)
+            .context("failed to read saved exploration artifact JSON from stdin")?;
+        return Ok(bytes);
+    }
+
+    fs::read(input)
+        .with_context(|| format!("failed to read saved exploration artifact JSON from {input}"))
 }
 
 fn write_output<T>(
