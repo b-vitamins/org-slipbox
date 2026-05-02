@@ -9,8 +9,8 @@ use serde_json::Value;
 use slipbox_core::{
     CompareNotesParams, ExecuteExplorationArtifactResult, ExplorationArtifactIdParams,
     ExplorationArtifactResult, ExploreParams, ExploreResult, ListExplorationArtifactsParams,
-    ListExplorationArtifactsResult, NodeAtPointParams, NodeFromIdParams, NodeFromRefParams,
-    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, PingInfo,
+    ListExplorationArtifactsResult, NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams,
+    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, PingInfo,
     SaveExplorationArtifactParams, SaveExplorationArtifactResult, SearchNodesParams,
     SearchNodesResult, StatusInfo,
 };
@@ -18,7 +18,7 @@ use slipbox_rpc::{
     JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_COMPARE_NOTES,
     METHOD_DELETE_EXPLORATION_ARTIFACT, METHOD_EXECUTE_EXPLORATION_ARTIFACT,
     METHOD_EXPLORATION_ARTIFACT, METHOD_EXPLORE, METHOD_LIST_EXPLORATION_ARTIFACTS,
-    METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_REF,
+    METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_NODE_FROM_REF,
     METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_SAVE_EXPLORATION_ARTIFACT,
     METHOD_SEARCH_NODES, METHOD_STATUS, read_framed_message, write_framed_message,
 };
@@ -201,6 +201,13 @@ where
         params: &NodeFromIdParams,
     ) -> Result<Option<NodeRecord>, DaemonClientError> {
         self.request(METHOD_NODE_FROM_ID, params)
+    }
+
+    fn node_from_key(
+        &mut self,
+        params: &NodeFromKeyParams,
+    ) -> Result<Option<NodeRecord>, DaemonClientError> {
+        self.request(METHOD_NODE_FROM_KEY, params)
     }
 
     fn node_from_title_or_alias(
@@ -427,6 +434,13 @@ impl DaemonClient {
         params: &NodeFromIdParams,
     ) -> Result<Option<NodeRecord>, DaemonClientError> {
         self.rpc.node_from_id(params)
+    }
+
+    pub fn node_from_key(
+        &mut self,
+        params: &NodeFromKeyParams,
+    ) -> Result<Option<NodeRecord>, DaemonClientError> {
+        self.rpc.node_from_key(params)
     }
 
     pub fn node_from_title_or_alias(

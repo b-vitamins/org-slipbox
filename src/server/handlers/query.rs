@@ -5,14 +5,14 @@ use slipbox_core::{
     ExplorationArtifactSummary, ExplorationEntry, ExplorationLens, ExplorationSection,
     ExplorationSectionKind, ExploreParams, ExploreResult, ForwardLinksParams, ForwardLinksResult,
     GraphParams, GraphResult, IndexFileParams, IndexedFilesResult, ListExplorationArtifactsParams,
-    ListExplorationArtifactsResult, NodeAtPointParams, NodeFromIdParams, NodeFromRefParams,
-    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, PingInfo, RandomNodeResult,
-    ReflinksParams, ReflinksResult, SaveExplorationArtifactParams, SaveExplorationArtifactResult,
-    SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailStep,
-    SearchFilesParams, SearchFilesResult, SearchNodesParams, SearchNodesResult,
-    SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams, SearchRefsResult,
-    SearchTagsParams, SearchTagsResult, StatusInfo, TrailReplayResult, TrailReplayStepResult,
-    UnlinkedReferencesParams, UnlinkedReferencesResult,
+    ListExplorationArtifactsResult, NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams,
+    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, PingInfo,
+    RandomNodeResult, ReflinksParams, ReflinksResult, SaveExplorationArtifactParams,
+    SaveExplorationArtifactResult, SavedComparisonArtifact, SavedExplorationArtifact,
+    SavedLensViewArtifact, SavedTrailStep, SearchFilesParams, SearchFilesResult, SearchNodesParams,
+    SearchNodesResult, SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams,
+    SearchRefsResult, SearchTagsParams, SearchTagsResult, StatusInfo, TrailReplayResult,
+    TrailReplayStepResult, UnlinkedReferencesParams, UnlinkedReferencesResult,
 };
 use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
 
@@ -160,6 +160,18 @@ pub(crate) fn node_from_id(
         .database
         .node_from_id(&params.id)
         .map_err(|error| internal_error(error.context("failed to resolve node ID")))?;
+    to_value(node)
+}
+
+pub(crate) fn node_from_key(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: NodeFromKeyParams = parse_params(params)?;
+    let node = state
+        .database
+        .note_by_key(&params.node_key)
+        .map_err(|error| internal_error(error.context("failed to resolve node key")))?;
     to_value(node)
 }
 

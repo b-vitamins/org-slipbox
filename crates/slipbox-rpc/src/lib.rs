@@ -19,6 +19,7 @@ pub const METHOD_SEARCH_NODES: &str = "slipbox/searchNodes";
 pub const METHOD_RANDOM_NODE: &str = "slipbox/randomNode";
 pub const METHOD_SEARCH_TAGS: &str = "slipbox/searchTags";
 pub const METHOD_NODE_FROM_ID: &str = "slipbox/nodeFromId";
+pub const METHOD_NODE_FROM_KEY: &str = "slipbox/nodeFromKey";
 pub const METHOD_NODE_FROM_TITLE_OR_ALIAS: &str = "slipbox/nodeFromTitleOrAlias";
 pub const METHOD_NODE_AT_POINT: &str = "slipbox/nodeAtPoint";
 pub const METHOD_ANCHOR_AT_POINT: &str = "slipbox/anchorAtPoint";
@@ -76,7 +77,11 @@ impl JsonRpcRequest {
 pub struct JsonRpcResponse {
     pub jsonrpc: String,
     pub id: Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_jsonrpc_result",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub result: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<JsonRpcErrorObject>,
@@ -102,6 +107,15 @@ impl JsonRpcResponse {
             error: Some(error),
         }
     }
+}
+
+fn deserialize_optional_jsonrpc_result<'de, D>(deserializer: D) -> Result<Option<Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Some(
+        Option::<Value>::deserialize(deserializer)?.unwrap_or(Value::Null),
+    ))
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -231,7 +245,7 @@ mod tests {
 
     use serde_json::json;
 
-    use super::{JsonRpcRequest, read_framed_message, write_framed_message};
+    use super::{JsonRpcRequest, JsonRpcResponse, read_framed_message, write_framed_message};
 
     #[test]
     fn framed_messages_round_trip() {
@@ -257,5 +271,18 @@ mod tests {
             read_framed_message::<JsonRpcRequest>(&mut reader).expect_err("missing length fails");
 
         assert!(error.to_string().contains("missing Content-Length header"));
+    }
+
+    #[test]
+    fn response_deserialization_preserves_explicit_null_results() {
+        let response: JsonRpcResponse = serde_json::from_value(json!({
+            "jsonrpc": "2.0",
+            "id": 7,
+            "result": null
+        }))
+        .expect("response with null result should deserialize");
+
+        assert_eq!(response.result, Some(serde_json::Value::Null));
+        assert!(response.error.is_none());
     }
 }

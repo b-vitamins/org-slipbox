@@ -4,11 +4,15 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
-use clap::Args;
+use clap::{ArgGroup, Args};
 use serde::{Deserialize, Serialize};
-use slipbox_core::StatusInfo;
+use slipbox_core::{
+    NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
+    StatusInfo,
+};
 use slipbox_daemon_client::{DaemonClient, DaemonClientError, DaemonServeConfig};
 use slipbox_index::DiscoveryPolicy;
+use slipbox_rpc::JsonRpcErrorObject;
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct ScopeArgs {
@@ -96,6 +100,61 @@ pub(crate) struct StatusArgs {
     pub(crate) headless: HeadlessArgs,
 }
 
+#[derive(Debug, Clone, Args)]
+#[command(group(
+    ArgGroup::new("target")
+        .args(["id", "title", "reference", "key"])
+        .required(true)
+        .multiple(false)
+))]
+pub(crate) struct ResolveTargetArgs {
+    /// Resolve an exact explicit Org ID.
+    #[arg(long, group = "target")]
+    pub(crate) id: Option<String>,
+    /// Resolve an exact title or alias.
+    #[arg(long, group = "target")]
+    pub(crate) title: Option<String>,
+    /// Resolve an exact reference.
+    #[arg(long = "ref", group = "target")]
+    pub(crate) reference: Option<String>,
+    /// Resolve an exact node key.
+    #[arg(long, group = "target")]
+    pub(crate) key: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ResolveTarget {
+    Id(String),
+    Title(String),
+    Reference(String),
+    Key(String),
+}
+
+impl ResolveTargetArgs {
+    #[must_use]
+    pub(crate) fn target(&self) -> ResolveTarget {
+        if let Some(id) = &self.id {
+            ResolveTarget::Id(id.clone())
+        } else if let Some(title) = &self.title {
+            ResolveTarget::Title(title.clone())
+        } else if let Some(reference) = &self.reference {
+            ResolveTarget::Reference(reference.clone())
+        } else if let Some(node_key) = &self.key {
+            ResolveTarget::Key(node_key.clone())
+        } else {
+            unreachable!("clap enforces exactly one target selector");
+        }
+    }
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ResolveNodeArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    #[command(flatten)]
+    pub(crate) target: ResolveTargetArgs,
+}
+
 pub(crate) trait HeadlessCommand {
     type Output: Serialize;
 
@@ -105,6 +164,10 @@ pub(crate) trait HeadlessCommand {
 }
 
 pub(crate) fn run_status(args: &StatusArgs) -> Result<(), CliCommandError> {
+    run_headless_command(args)
+}
+
+pub(crate) fn run_resolve_node(args: &ResolveNodeArgs) -> Result<(), CliCommandError> {
     run_headless_command(args)
 }
 
@@ -222,6 +285,97 @@ impl HeadlessCommand for StatusArgs {
             output.links_indexed,
         )
     }
+}
+
+impl HeadlessCommand for ResolveNodeArgs {
+    type Output = NodeRecord;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        resolve_note_target(client, &self.target.target())
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_node_summary(output)
+    }
+}
+
+pub(crate) fn resolve_note_target(
+    client: &mut DaemonClient,
+    target: &ResolveTarget,
+) -> Result<NodeRecord, DaemonClientError> {
+    match target {
+        ResolveTarget::Id(id) => require_resolved_node(
+            client.node_from_id(&NodeFromIdParams { id: id.clone() })?,
+            format!("unknown node id: {id}"),
+        ),
+        ResolveTarget::Title(title_or_alias) => require_resolved_node(
+            client.node_from_title_or_alias(&NodeFromTitleOrAliasParams {
+                title_or_alias: title_or_alias.clone(),
+                nocase: false,
+            })?,
+            format!("unknown node title or alias: {title_or_alias}"),
+        ),
+        ResolveTarget::Reference(reference) => require_resolved_node(
+            client.node_from_ref(&NodeFromRefParams {
+                reference: reference.clone(),
+            })?,
+            format!("unknown node ref: {reference}"),
+        ),
+        ResolveTarget::Key(node_key) => require_resolved_node(
+            client.node_from_key(&NodeFromKeyParams {
+                node_key: node_key.clone(),
+            })?,
+            format!("unknown node key: {node_key}"),
+        ),
+    }
+}
+
+fn require_resolved_node(
+    node: Option<NodeRecord>,
+    error_message: String,
+) -> Result<NodeRecord, DaemonClientError> {
+    node.ok_or_else(|| DaemonClientError::Rpc(JsonRpcErrorObject::invalid_request(error_message)))
+}
+
+fn render_node_summary(node: &NodeRecord) -> String {
+    let mut output = String::new();
+    output.push_str(&format!("node key: {}\n", node.node_key));
+    if let Some(explicit_id) = &node.explicit_id {
+        output.push_str(&format!("id: {explicit_id}\n"));
+    }
+    output.push_str(&format!("title: {}\n", node.title));
+    output.push_str(&format!("kind: {}\n", node.kind.as_str()));
+    output.push_str(&format!("file: {}\n", node.file_path));
+    output.push_str(&format!("line: {}\n", node.line));
+    if !node.outline_path.is_empty() {
+        output.push_str(&format!("outline path: {}\n", node.outline_path));
+    }
+    if !node.aliases.is_empty() {
+        output.push_str(&format!("aliases: {}\n", node.aliases.join(", ")));
+    }
+    if !node.refs.is_empty() {
+        output.push_str(&format!("refs: {}\n", node.refs.join(", ")));
+    }
+    if !node.tags.is_empty() {
+        output.push_str(&format!("tags: {}\n", node.tags.join(", ")));
+    }
+    if let Some(todo_keyword) = &node.todo_keyword {
+        output.push_str(&format!("todo: {todo_keyword}\n"));
+    }
+    if let Some(scheduled_for) = &node.scheduled_for {
+        output.push_str(&format!("scheduled: {scheduled_for}\n"));
+    }
+    if let Some(deadline_for) = &node.deadline_for {
+        output.push_str(&format!("deadline: {deadline_for}\n"));
+    }
+    if let Some(closed_at) = &node.closed_at {
+        output.push_str(&format!("closed: {closed_at}\n"));
+    }
+    output
 }
 
 #[cfg(test)]

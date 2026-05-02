@@ -23,6 +23,8 @@ enum Command {
     Serve(ServeArgs),
     /// Show daemon status over the canonical headless connection path.
     Status(cli::StatusArgs),
+    /// Resolve an exact note target over the canonical headless connection path.
+    ResolveNode(cli::ResolveNodeArgs),
 }
 
 #[derive(Debug, Args)]
@@ -44,6 +46,7 @@ fn run() -> Result<(), cli::CliCommandError> {
         Command::Serve(args) => run_serve(args)
             .map_err(|error| cli::CliCommandError::new(cli::OutputMode::Human, error)),
         Command::Status(args) => cli::run_status(&args),
+        Command::ResolveNode(args) => cli::run_resolve_node(&args),
     }
 }
 

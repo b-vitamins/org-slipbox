@@ -481,6 +481,11 @@ pub struct NodeFromIdParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeFromKeyParams {
+    pub node_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeFromTitleOrAliasParams {
     pub title_or_alias: String,
     #[serde(default)]
@@ -1776,14 +1781,14 @@ mod tests {
         ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
         ExplorationArtifactSummary, ExplorationEntry, ExplorationExplanation, ExplorationLens,
         ExplorationSection, ExplorationSectionKind, ExploreParams, ExploreResult,
-        ListExplorationArtifactsResult, NodeFromTitleOrAliasParams, NodeKind, NodeRecord,
-        NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
-        NoteComparisonSection, NoteComparisonSectionKind, PlanningField, PlanningRelationRecord,
-        PreviewNodeRecord, SaveExplorationArtifactParams, SaveExplorationArtifactResult,
-        SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact,
-        SavedTrailArtifact, SavedTrailStep, SearchNodesParams, SearchNodesSort, TrailReplayResult,
-        TrailReplayStepResult, UnlinkedReferencesParams, UpdateNodeMetadataParams,
-        normalize_reference,
+        ListExplorationArtifactsResult, NodeFromKeyParams, NodeFromTitleOrAliasParams, NodeKind,
+        NodeRecord, NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonGroup,
+        NoteComparisonResult, NoteComparisonSection, NoteComparisonSectionKind, PlanningField,
+        PlanningRelationRecord, PreviewNodeRecord, SaveExplorationArtifactParams,
+        SaveExplorationArtifactResult, SavedComparisonArtifact, SavedExplorationArtifact,
+        SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, SearchNodesParams,
+        SearchNodesSort, TrailReplayResult, TrailReplayStepResult, UnlinkedReferencesParams,
+        UpdateNodeMetadataParams, normalize_reference,
     };
     use serde_json::json;
 
@@ -3147,6 +3152,22 @@ mod tests {
             json!({
                 "title_or_alias": "alpha",
                 "nocase": true
+            })
+        );
+    }
+
+    #[test]
+    fn node_from_key_params_round_trip() {
+        let params: NodeFromKeyParams =
+            serde_json::from_value(json!({ "node_key": "file:alpha.org" }))
+                .expect("node-from-key params should deserialize");
+
+        assert_eq!(params.node_key, "file:alpha.org");
+
+        assert_eq!(
+            serde_json::to_value(&params).expect("node-from-key params should serialize"),
+            json!({
+                "node_key": "file:alpha.org"
             })
         );
     }
