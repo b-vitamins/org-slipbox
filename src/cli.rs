@@ -8,8 +8,9 @@ use anyhow::{Context, Result};
 use clap::{ArgGroup, Args, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use slipbox_core::{
-    AnchorRecord, CompareNotesParams, ComparisonConnectorDirection,
-    DeleteExplorationArtifactResult, ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
+    AnchorRecord, CompareNotesParams, ComparisonConnectorDirection, CorpusAuditEntry,
+    CorpusAuditKind, CorpusAuditParams, CorpusAuditResult, DeleteExplorationArtifactResult,
+    ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
     ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactKind,
     ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
     ExplorationArtifactSummary, ExplorationEntry, ExplorationExplanation, ExplorationLens,
@@ -334,6 +335,33 @@ pub(crate) struct CompareArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+pub(crate) struct AuditArgs {
+    #[command(subcommand)]
+    pub(crate) command: AuditCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum AuditCommand {
+    /// List links that point to missing explicit IDs.
+    DanglingLinks(AuditRunArgs),
+    /// Group note-title collisions that may need disambiguation.
+    DuplicateTitles(AuditRunArgs),
+    /// List notes with no refs, backlinks, or outgoing links.
+    OrphanNotes(AuditRunArgs),
+    /// List ref-backed notes with very weak structural integration.
+    WeaklyIntegratedNotes(AuditRunArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct AuditRunArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// Maximum audit entries to return.
+    #[arg(long, default_value_t = 200)]
+    pub(crate) limit: usize,
+}
+
+#[derive(Debug, Clone, Args)]
 pub(crate) struct WorkflowArgs {
     #[command(subcommand)]
     pub(crate) command: WorkflowCommand,
@@ -648,6 +676,23 @@ pub(crate) fn run_compare(args: &CompareArgs) -> Result<(), CliCommandError> {
         output
     })
     .map_err(|error| CliCommandError::new(output_mode, error))
+}
+
+pub(crate) fn run_audit(args: &AuditArgs) -> Result<(), CliCommandError> {
+    match &args.command {
+        AuditCommand::DanglingLinks(command) => {
+            run_audit_command(CorpusAuditKind::DanglingLinks, command)
+        }
+        AuditCommand::DuplicateTitles(command) => {
+            run_audit_command(CorpusAuditKind::DuplicateTitles, command)
+        }
+        AuditCommand::OrphanNotes(command) => {
+            run_audit_command(CorpusAuditKind::OrphanNotes, command)
+        }
+        AuditCommand::WeaklyIntegratedNotes(command) => {
+            run_audit_command(CorpusAuditKind::WeaklyIntegratedNotes, command)
+        }
+    }
 }
 
 pub(crate) fn run_workflow(args: &WorkflowArgs) -> Result<(), CliCommandError> {
@@ -1336,6 +1381,30 @@ fn require_resolved_node(
     node.ok_or_else(|| DaemonClientError::Rpc(JsonRpcErrorObject::invalid_request(error_message)))
 }
 
+fn run_audit_command(kind: CorpusAuditKind, args: &AuditRunArgs) -> Result<(), CliCommandError> {
+    let output_mode = args.headless.output_mode();
+    let mut client = args.headless.connect()?;
+    let result = client
+        .corpus_audit(&CorpusAuditParams {
+            audit: kind,
+            limit: args.limit,
+        })
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    client
+        .shutdown()
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+
+    let stdout = io::stdout();
+    let mut writer = stdout.lock();
+    write_output(
+        &mut writer,
+        output_mode,
+        &result,
+        render_corpus_audit_result,
+    )
+    .map_err(|error| CliCommandError::new(output_mode, error))
+}
+
 fn render_flag_list(flags: &[&str]) -> String {
     match flags {
         [] => String::new(),
@@ -1403,6 +1472,71 @@ fn render_workflow_spec(workflow: &WorkflowSpec) -> String {
         render_workflow_step_spec(&mut output, step);
     }
     output
+}
+
+fn render_corpus_audit_result(result: &CorpusAuditResult) -> String {
+    let mut output = String::new();
+    output.push_str(&format!(
+        "audit: {}\n",
+        render_corpus_audit_kind(result.audit)
+    ));
+    if result.entries.is_empty() {
+        output.push_str("(none)\n");
+        return output;
+    }
+    for entry in &result.entries {
+        match entry {
+            CorpusAuditEntry::DanglingLink { record } => {
+                output.push_str(&format!(
+                    "\n- {} -> missing id {}\n",
+                    render_anchor_identity(&record.source),
+                    record.missing_explicit_id
+                ));
+                output.push_str(&format!(
+                    "  location: {}:{}:{}\n",
+                    record.source.file_path, record.line, record.column
+                ));
+                output.push_str(&format!("  preview: {}\n", record.preview));
+            }
+            CorpusAuditEntry::DuplicateTitle { record } => {
+                output.push_str(&format!("\n- duplicate title: {}\n", record.title));
+                for note in &record.notes {
+                    output.push_str(&format!("  note: {} [{}]\n", note.title, note.node_key));
+                    output.push_str(&format!("  file: {}:{}\n", note.file_path, note.line));
+                }
+            }
+            CorpusAuditEntry::OrphanNote { record } => {
+                output.push_str(&format!(
+                    "\n- orphan note: {} [{}]\n",
+                    record.note.title, record.note.node_key
+                ));
+                output.push_str(&format!(
+                    "  refs/backlinks/forward-links: {}/{}/{}\n",
+                    record.reference_count, record.backlink_count, record.forward_link_count
+                ));
+            }
+            CorpusAuditEntry::WeaklyIntegratedNote { record } => {
+                output.push_str(&format!(
+                    "\n- weakly integrated note: {} [{}]\n",
+                    record.note.title, record.note.node_key
+                ));
+                output.push_str(&format!(
+                    "  refs/backlinks/forward-links: {}/{}/{}\n",
+                    record.reference_count, record.backlink_count, record.forward_link_count
+                ));
+            }
+        }
+    }
+    output
+}
+
+fn render_corpus_audit_kind(kind: CorpusAuditKind) -> &'static str {
+    match kind {
+        CorpusAuditKind::DanglingLinks => "dangling-links",
+        CorpusAuditKind::DuplicateTitles => "duplicate-titles",
+        CorpusAuditKind::OrphanNotes => "orphan-notes",
+        CorpusAuditKind::WeaklyIntegratedNotes => "weakly-integrated-notes",
+    }
 }
 
 fn render_workflow_input_spec(output: &mut String, input: &WorkflowInputSpec) {

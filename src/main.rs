@@ -29,6 +29,8 @@ enum Command {
     Explore(cli::ExploreArgs),
     /// Compare two resolved notes over the canonical headless connection path.
     Compare(cli::CompareArgs),
+    /// Run corpus-health audits over the canonical headless connection path.
+    Audit(cli::AuditArgs),
     /// Discover, inspect, and run named workflows over the canonical headless connection path.
     Workflow(cli::WorkflowArgs),
     /// Manage durable exploration artifacts over the canonical headless connection path.
@@ -57,6 +59,7 @@ fn run() -> Result<(), cli::CliCommandError> {
         Command::ResolveNode(args) => cli::run_resolve_node(&args),
         Command::Explore(args) => cli::run_explore(&args),
         Command::Compare(args) => cli::run_compare(&args),
+        Command::Audit(args) => cli::run_audit(&args),
         Command::Workflow(args) => cli::run_workflow(&args),
         Command::Artifact(args) => cli::run_artifact(&args),
     }
