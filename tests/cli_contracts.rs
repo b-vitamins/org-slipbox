@@ -6,8 +6,10 @@ use std::process::{Command, Stdio};
 use anyhow::Result;
 use serde_json::Value;
 use slipbox_core::{
+    BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID, BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
     ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationLens,
-    SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact,
+    SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, WorkflowSpec,
+    built_in_workflow,
 };
 use slipbox_index::scan_root;
 use slipbox_store::Database;
@@ -228,6 +230,65 @@ fn artifact_json_command_with_stdin(
     run_command_with_stdin(&args, stdin)
 }
 
+fn workflow_json_command(
+    subcommand: &str,
+    root: &str,
+    db: &str,
+    extra: &[&str],
+) -> Result<std::process::Output> {
+    workflow_json_command_with_dirs(subcommand, root, db, &[], extra)
+}
+
+fn workflow_json_command_with_dirs(
+    subcommand: &str,
+    root: &str,
+    db: &str,
+    workflow_dirs: &[&Path],
+    extra: &[&str],
+) -> Result<std::process::Output> {
+    let mut args = vec!["workflow".to_owned(), subcommand.to_owned()];
+    args.extend(base_args(root, db));
+    for workflow_dir in workflow_dirs {
+        args.push("--workflow-dir".to_owned());
+        args.push(
+            workflow_dir
+                .to_str()
+                .expect("workflow dir path should be valid utf-8")
+                .to_owned(),
+        );
+    }
+    args.push("--json".to_owned());
+    args.extend(extra.iter().map(|value| (*value).to_owned()));
+    run_command(&args)
+}
+
+fn workflow_json_command_with_stdin(
+    subcommand: &str,
+    extra: &[&str],
+    stdin: &[u8],
+) -> Result<std::process::Output> {
+    let mut args = vec![
+        "workflow".to_owned(),
+        subcommand.to_owned(),
+        "--json".to_owned(),
+    ];
+    args.extend(extra.iter().map(|value| (*value).to_owned()));
+    run_command_with_stdin(&args, stdin)
+}
+
+fn audit_json_command(
+    subcommand: &str,
+    root: &str,
+    db: &str,
+    extra: &[&str],
+) -> Result<std::process::Output> {
+    let mut args = vec!["audit".to_owned(), subcommand.to_owned()];
+    args.extend(base_args(root, db));
+    args.push("--json".to_owned());
+    args.extend(extra.iter().map(|value| (*value).to_owned()));
+    run_command(&args)
+}
+
 fn with_bad_server_program(
     mut args: Vec<String>,
     root: &str,
@@ -274,6 +335,23 @@ fn assert_error_failure(output: &std::process::Output, needle: &str) {
 
 fn assert_saved_artifact_summary_keys(value: &Value) {
     assert_exact_object_keys(value, &["artifact_id", "title", "summary", "kind"]);
+}
+
+fn parse_jsonl_values(bytes: &[u8]) -> Vec<Value> {
+    bytes
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(|line| serde_json::from_slice(line).expect("jsonl line should be valid JSON"))
+        .collect()
+}
+
+fn discovered_workflow(workflow_id: &str, title: &str, summary: &str) -> WorkflowSpec {
+    let mut workflow = built_in_workflow(BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID)
+        .expect("built-in workflow should exist");
+    workflow.metadata.workflow_id = workflow_id.to_owned();
+    workflow.metadata.title = title.to_owned();
+    workflow.metadata.summary = Some(summary.to_owned());
+    workflow
 }
 
 #[test]
@@ -499,6 +577,239 @@ fn headless_commands_expose_stable_json_shapes() -> Result<()> {
 }
 
 #[test]
+fn workflow_and_audit_commands_expose_stable_json_shapes() -> Result<()> {
+    let (_workspace, root, db, anonymous_anchor_key) = build_indexed_fixture()?;
+
+    let workflow_list = workflow_json_command("list", &root, &db, &[])?;
+    assert!(workflow_list.status.success(), "{workflow_list:?}");
+    let workflow_list_json: Value = serde_json::from_slice(&workflow_list.stdout)?;
+    assert_exact_object_keys(&workflow_list_json, &["workflows", "issues"]);
+    let first_workflow = &workflow_list_json["workflows"][0];
+    assert_exact_object_keys(
+        first_workflow,
+        &["workflow_id", "title", "summary", "step_count"],
+    );
+
+    let workflow_show =
+        workflow_json_command("show", &root, &db, &[BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID])?;
+    assert!(workflow_show.status.success(), "{workflow_show:?}");
+    let workflow_show_json: Value = serde_json::from_slice(&workflow_show.stdout)?;
+    assert_exact_object_keys(&workflow_show_json, &["workflow"]);
+    assert_exact_object_keys(
+        &workflow_show_json["workflow"],
+        &["workflow_id", "title", "summary", "inputs", "steps"],
+    );
+    assert_exact_object_keys(
+        &workflow_show_json["workflow"]["inputs"][0],
+        &["input_id", "title", "summary", "kind"],
+    );
+    assert_exact_object_keys(
+        &workflow_show_json["workflow"]["steps"][0],
+        &["step_id", "kind", "target"],
+    );
+    assert_exact_object_keys(
+        &workflow_show_json["workflow"]["steps"][1],
+        &["step_id", "kind", "focus", "lens", "limit", "unique"],
+    );
+
+    let workflow_run = workflow_json_command(
+        "run",
+        &root,
+        &db,
+        &[
+            BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
+            "--input",
+            &format!("focus=key:{anonymous_anchor_key}"),
+        ],
+    )?;
+    assert!(workflow_run.status.success(), "{workflow_run:?}");
+    let workflow_run_json: Value = serde_json::from_slice(&workflow_run.stdout)?;
+    assert_exact_object_keys(&workflow_run_json, &["result"]);
+    assert_exact_object_keys(&workflow_run_json["result"], &["workflow", "steps"]);
+    assert_exact_object_keys(
+        &workflow_run_json["result"]["workflow"],
+        &["workflow_id", "title", "summary", "step_count"],
+    );
+    assert_exact_object_keys(
+        &workflow_run_json["result"]["steps"][0],
+        &["step_id", "kind", "node"],
+    );
+    assert_exact_object_keys(
+        &workflow_run_json["result"]["steps"][1],
+        &["step_id", "kind", "focus_node_key", "result"],
+    );
+
+    fs::write(
+        Path::new(&root).join("duplicate-a.org"),
+        r#":PROPERTIES:
+:ID: dup-a-id
+:END:
+#+title: Shared Title
+"#,
+    )?;
+    fs::write(
+        Path::new(&root).join("duplicate-b.org"),
+        r#":PROPERTIES:
+:ID: dup-b-id
+:END:
+#+title: shared title
+"#,
+    )?;
+    let files = scan_root(Path::new(&root))?;
+    let mut database = Database::open(Path::new(&db))?;
+    database.sync_index(&files)?;
+
+    let audit = audit_json_command("duplicate-titles", &root, &db, &[])?;
+    assert!(audit.status.success(), "{audit:?}");
+    let audit_json: Value = serde_json::from_slice(&audit.stdout)?;
+    assert_exact_object_keys(&audit_json, &["audit", "entries"]);
+    assert_exact_object_keys(&audit_json["entries"][0], &["kind", "record"]);
+    assert_exact_object_keys(&audit_json["entries"][0]["record"], &["title", "notes"]);
+
+    Ok(())
+}
+
+#[test]
+fn workflow_discovery_and_report_outputs_expose_stable_json_shapes() -> Result<()> {
+    let (workspace, root, db, anonymous_anchor_key) = build_indexed_fixture()?;
+    let workflow_dir = workspace.path().join("workflows");
+    fs::create_dir_all(&workflow_dir)?;
+
+    let valid = discovered_workflow(
+        "workflow/test/discovered-unresolved",
+        "Discovered Unresolved Sweep",
+        "Discovered workflow fixture.",
+    );
+    fs::write(
+        workflow_dir.join("valid.json"),
+        serde_json::to_vec_pretty(&valid)?,
+    )?;
+
+    let mut invalid = discovered_workflow(
+        "workflow/test/invalid-workflow",
+        "Invalid Workflow",
+        "Invalid workflow fixture.",
+    );
+    invalid.steps.clear();
+    fs::write(
+        workflow_dir.join("invalid.json"),
+        serde_json::to_vec_pretty(&invalid)?,
+    )?;
+
+    let listed =
+        workflow_json_command_with_dirs("list", &root, &db, &[workflow_dir.as_path()], &[])?;
+    assert!(listed.status.success(), "{listed:?}");
+    let listed_json: Value = serde_json::from_slice(&listed.stdout)?;
+    assert_exact_object_keys(&listed_json, &["workflows", "issues"]);
+    assert_exact_object_keys(
+        &listed_json["issues"][0],
+        &["path", "workflow_id", "message"],
+    );
+
+    let workflow_report_path = workspace.path().join("workflow-report.jsonl");
+    let workflow_report = run_command(&[
+        "workflow".to_owned(),
+        "run".to_owned(),
+        "--root".to_owned(),
+        root.clone(),
+        "--db".to_owned(),
+        db.clone(),
+        "--server-program".to_owned(),
+        slipbox_binary().to_owned(),
+        "--jsonl".to_owned(),
+        "--output".to_owned(),
+        workflow_report_path
+            .to_str()
+            .expect("utf-8 path")
+            .to_owned(),
+        BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID.to_owned(),
+        "--input".to_owned(),
+        format!("focus=key:{anonymous_anchor_key}"),
+    ])?;
+    assert!(workflow_report.status.success(), "{workflow_report:?}");
+    let workflow_report_json: Value = serde_json::from_slice(&workflow_report.stdout)?;
+    assert_exact_object_keys(
+        &workflow_report_json,
+        &["workflow", "format", "output_path", "step_count"],
+    );
+    let workflow_lines = parse_jsonl_values(&fs::read(&workflow_report_path)?);
+    assert_exact_object_keys(&workflow_lines[0], &["kind", "workflow"]);
+    assert_exact_object_keys(&workflow_lines[1], &["kind", "step"]);
+
+    let audit_report_path = workspace.path().join("audit-report.json");
+    let audit_report = audit_json_command(
+        "duplicate-titles",
+        &root,
+        &db,
+        &["--output", audit_report_path.to_str().expect("utf-8 path")],
+    )?;
+    assert!(audit_report.status.success(), "{audit_report:?}");
+    let audit_report_json: Value = serde_json::from_slice(&audit_report.stdout)?;
+    assert_exact_object_keys(
+        &audit_report_json,
+        &["audit", "format", "output_path", "entry_count"],
+    );
+    let written_audit: Value = serde_json::from_slice(&fs::read(&audit_report_path)?)?;
+    assert_exact_object_keys(&written_audit, &["audit", "entries"]);
+
+    fs::write(
+        Path::new(&root).join("duplicate-a.org"),
+        r#":PROPERTIES:
+:ID: dup-a-id
+:END:
+#+title: Shared Title
+"#,
+    )?;
+    fs::write(
+        Path::new(&root).join("duplicate-b.org"),
+        r#":PROPERTIES:
+:ID: dup-b-id
+:END:
+#+title: shared title
+"#,
+    )?;
+    let files = scan_root(Path::new(&root))?;
+    let mut database = Database::open(Path::new(&db))?;
+    database.sync_index(&files)?;
+
+    let audit_jsonl = run_command(&[
+        "audit".to_owned(),
+        "duplicate-titles".to_owned(),
+        "--root".to_owned(),
+        root.clone(),
+        "--db".to_owned(),
+        db.clone(),
+        "--server-program".to_owned(),
+        slipbox_binary().to_owned(),
+        "--jsonl".to_owned(),
+    ])?;
+    assert!(audit_jsonl.status.success(), "{audit_jsonl:?}");
+    let audit_lines = parse_jsonl_values(&audit_jsonl.stdout);
+    assert_exact_object_keys(&audit_lines[0], &["kind", "audit"]);
+    assert_exact_object_keys(&audit_lines[1], &["kind", "entry"]);
+
+    Ok(())
+}
+
+#[test]
+fn workflow_show_json_round_trips_into_local_spec_inspection() -> Result<()> {
+    let (_workspace, root, db, _anonymous_anchor_key) = build_indexed_fixture()?;
+
+    let shown = workflow_json_command("show", &root, &db, &[BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID])?;
+    assert!(shown.status.success(), "{shown:?}");
+    let shown_json: Value = serde_json::from_slice(&shown.stdout)?;
+    assert_exact_object_keys(&shown_json, &["workflow"]);
+
+    let workflow_bytes = serde_json::to_vec_pretty(&shown_json["workflow"])?;
+    let local = workflow_json_command_with_stdin("show", &["--spec", "-"], &workflow_bytes)?;
+    assert!(local.status.success(), "{local:?}");
+    let local_json: Value = serde_json::from_slice(&local.stdout)?;
+    assert_eq!(local_json, shown_json);
+
+    Ok(())
+}
+
+#[test]
 fn headless_commands_report_structured_daemon_failures() -> Result<()> {
     let (_workspace, root, db, anonymous_anchor_key) = build_indexed_fixture()?;
     let import_payload = serde_json::to_string(&SavedExplorationArtifact {
@@ -653,6 +964,52 @@ fn headless_commands_report_structured_daemon_failures() -> Result<()> {
         let output = run_command(&command)?;
         assert_error_failure(&output, "failed to start slipbox daemon");
     }
+
+    Ok(())
+}
+
+#[test]
+fn workflow_and_audit_commands_report_structured_json_failures() -> Result<()> {
+    let (workspace, root, db, _anonymous_anchor_key) = build_indexed_fixture()?;
+
+    let malformed_spec =
+        workflow_json_command_with_stdin("show", &["--spec", "-"], br#"{"workflow_id":"broken""#)?;
+    assert_error_failure(
+        &malformed_spec,
+        "failed to parse workflow spec JSON from stdin",
+    );
+
+    let invalid_spec = workflow_json_command_with_stdin(
+        "show",
+        &["--spec", "-"],
+        br#"{"workflow_id":"workflow/invalid","title":"Invalid","inputs":[],"steps":[]}"#,
+    )?;
+    assert_error_failure(
+        &invalid_spec,
+        "invalid workflow spec: workflows must contain at least one step",
+    );
+
+    let unknown_show = workflow_json_command("show", &root, &db, &["workflow/builtin/missing"])?;
+    assert_error_failure(&unknown_show, "unknown workflow: workflow/builtin/missing");
+
+    let unknown_run = workflow_json_command("run", &root, &db, &["workflow/builtin/missing"])?;
+    assert_error_failure(&unknown_run, "unknown workflow: workflow/builtin/missing");
+
+    let audit_failure_path = workspace.path().join("missing").join("audit.jsonl");
+    let audit_failure = run_command(&[
+        "audit".to_owned(),
+        "duplicate-titles".to_owned(),
+        "--root".to_owned(),
+        root.clone(),
+        "--db".to_owned(),
+        db.clone(),
+        "--server-program".to_owned(),
+        slipbox_binary().to_owned(),
+        "--jsonl".to_owned(),
+        "--output".to_owned(),
+        audit_failure_path.to_str().expect("utf-8 path").to_owned(),
+    ])?;
+    assert_error_failure(&audit_failure, "failed to write report to");
 
     Ok(())
 }
