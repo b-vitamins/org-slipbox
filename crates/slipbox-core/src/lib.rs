@@ -1339,6 +1339,330 @@ pub struct ExecuteExplorationArtifactResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowMetadata {
+    pub workflow_id: String,
+    pub title: String,
+    #[serde(default)]
+    pub summary: Option<String>,
+}
+
+impl WorkflowMetadata {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_workflow_id_field(&self.workflow_id)
+            .or_else(|| validate_required_text_field(&self.title, "title"))
+            .or_else(|| validate_optional_text_field(self.summary.as_deref(), "summary"))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowSummary {
+    #[serde(flatten)]
+    pub metadata: WorkflowMetadata,
+    pub step_count: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WorkflowStepKind {
+    Resolve,
+    Explore,
+    Compare,
+    ArtifactRun,
+    ArtifactSave,
+}
+
+impl WorkflowStepKind {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Resolve => "resolve",
+            Self::Explore => "explore",
+            Self::Compare => "compare",
+            Self::ArtifactRun => "artifact-run",
+            Self::ArtifactSave => "artifact-save",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum WorkflowResolveTarget {
+    Id { id: String },
+    Title { title: String },
+    Reference { reference: String },
+    NodeKey { node_key: String },
+}
+
+impl WorkflowResolveTarget {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        match self {
+            Self::Id { id } => validate_required_text_field(id, "id"),
+            Self::Title { title } => validate_required_text_field(title, "title"),
+            Self::Reference { reference } => validate_required_text_field(reference, "reference"),
+            Self::NodeKey { node_key } => validate_required_text_field(node_key, "node_key"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowStepRef {
+    pub step_id: String,
+}
+
+impl WorkflowStepRef {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_workflow_step_id_field(&self.step_id)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum WorkflowExploreFocus {
+    NodeKey { node_key: String },
+    ResolvedStep { step_id: String },
+}
+
+impl WorkflowExploreFocus {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        match self {
+            Self::NodeKey { node_key } => validate_required_text_field(node_key, "node_key"),
+            Self::ResolvedStep { step_id } => validate_workflow_step_id_field(step_id),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum WorkflowArtifactSaveSource {
+    ExploreStep { step_id: String },
+    CompareStep { step_id: String },
+}
+
+impl WorkflowArtifactSaveSource {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        match self {
+            Self::ExploreStep { step_id } | Self::CompareStep { step_id } => {
+                validate_workflow_step_id_field(step_id)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum WorkflowStepPayload {
+    Resolve {
+        target: WorkflowResolveTarget,
+    },
+    Explore {
+        focus: WorkflowExploreFocus,
+        lens: ExplorationLens,
+        #[serde(default = "default_backlink_limit")]
+        limit: usize,
+        #[serde(default)]
+        unique: bool,
+    },
+    Compare {
+        left: WorkflowStepRef,
+        right: WorkflowStepRef,
+        #[serde(default)]
+        group: NoteComparisonGroup,
+        #[serde(default = "default_backlink_limit")]
+        limit: usize,
+    },
+    ArtifactRun {
+        artifact_id: String,
+    },
+    ArtifactSave {
+        source: WorkflowArtifactSaveSource,
+        #[serde(flatten)]
+        metadata: ExplorationArtifactMetadata,
+        #[serde(default = "default_artifact_overwrite")]
+        overwrite: bool,
+    },
+}
+
+impl WorkflowStepPayload {
+    #[must_use]
+    pub fn kind(&self) -> WorkflowStepKind {
+        match self {
+            Self::Resolve { .. } => WorkflowStepKind::Resolve,
+            Self::Explore { .. } => WorkflowStepKind::Explore,
+            Self::Compare { .. } => WorkflowStepKind::Compare,
+            Self::ArtifactRun { .. } => WorkflowStepKind::ArtifactRun,
+            Self::ArtifactSave { .. } => WorkflowStepKind::ArtifactSave,
+        }
+    }
+
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        match self {
+            Self::Resolve { target } => target.validation_error(),
+            Self::Explore {
+                focus,
+                lens,
+                limit,
+                unique,
+            } => focus.validation_error().or_else(|| {
+                ExploreParams {
+                    node_key: "__workflow_focus__".to_owned(),
+                    lens: *lens,
+                    limit: *limit,
+                    unique: *unique,
+                }
+                .validation_error()
+            }),
+            Self::Compare {
+                left,
+                right,
+                group: _,
+                limit: _,
+            } => left
+                .validation_error()
+                .or_else(|| right.validation_error())
+                .or_else(|| {
+                    (left.step_id == right.step_id).then(|| {
+                        "compare left and right must reference distinct resolve steps".to_owned()
+                    })
+                }),
+            Self::ArtifactRun { artifact_id } => validate_artifact_id_field(artifact_id),
+            Self::ArtifactSave {
+                source,
+                metadata,
+                overwrite: _,
+            } => source
+                .validation_error()
+                .or_else(|| metadata.validation_error()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowStepSpec {
+    pub step_id: String,
+    #[serde(flatten)]
+    pub payload: WorkflowStepPayload,
+}
+
+impl WorkflowStepSpec {
+    #[must_use]
+    pub fn kind(&self) -> WorkflowStepKind {
+        self.payload.kind()
+    }
+
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_workflow_step_id_field(&self.step_id).or_else(|| self.payload.validation_error())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowSpec {
+    #[serde(flatten)]
+    pub metadata: WorkflowMetadata,
+    pub steps: Vec<WorkflowStepSpec>,
+}
+
+impl WorkflowSpec {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        self.metadata.validation_error().or_else(|| {
+            if self.steps.is_empty() {
+                return Some("workflows must contain at least one step".to_owned());
+            }
+
+            let mut seen: Vec<(&str, WorkflowStepKind)> = Vec::with_capacity(self.steps.len());
+            for (index, step) in self.steps.iter().enumerate() {
+                if let Some(error) = step.validation_error() {
+                    return Some(format!("workflow step {index} is invalid: {error}"));
+                }
+                if seen.iter().any(|(step_id, _)| *step_id == step.step_id) {
+                    return Some(format!(
+                        "workflow step {index} reuses duplicate step_id {}",
+                        step.step_id
+                    ));
+                }
+                if let Some(error) = validate_workflow_step_references(&step.payload, &seen) {
+                    return Some(format!("workflow step {index} is invalid: {error}"));
+                }
+                seen.push((step.step_id.as_str(), step.kind()));
+            }
+            None
+        })
+    }
+}
+
+impl From<&WorkflowSpec> for WorkflowSummary {
+    fn from(workflow: &WorkflowSpec) -> Self {
+        Self {
+            metadata: workflow.metadata.clone(),
+            step_count: workflow.steps.len(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum WorkflowStepReportPayload {
+    Resolve {
+        node: Box<NodeRecord>,
+    },
+    Explore {
+        focus_node_key: String,
+        result: Box<ExploreResult>,
+    },
+    Compare {
+        left_node: Box<NodeRecord>,
+        right_node: Box<NodeRecord>,
+        result: Box<NoteComparisonResult>,
+    },
+    ArtifactRun {
+        artifact: Box<ExecutedExplorationArtifact>,
+    },
+    ArtifactSave {
+        artifact: Box<ExplorationArtifactSummary>,
+    },
+}
+
+impl WorkflowStepReportPayload {
+    #[must_use]
+    pub fn kind(&self) -> WorkflowStepKind {
+        match self {
+            Self::Resolve { .. } => WorkflowStepKind::Resolve,
+            Self::Explore { .. } => WorkflowStepKind::Explore,
+            Self::Compare { .. } => WorkflowStepKind::Compare,
+            Self::ArtifactRun { .. } => WorkflowStepKind::ArtifactRun,
+            Self::ArtifactSave { .. } => WorkflowStepKind::ArtifactSave,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowStepReport {
+    pub step_id: String,
+    #[serde(flatten)]
+    pub payload: WorkflowStepReportPayload,
+}
+
+impl WorkflowStepReport {
+    #[must_use]
+    pub fn kind(&self) -> WorkflowStepKind {
+        self.payload.kind()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowExecutionResult {
+    pub workflow: WorkflowSummary,
+    pub steps: Vec<WorkflowStepReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgendaParams {
     pub start: String,
     pub end: String,
@@ -1818,8 +2142,84 @@ fn validate_artifact_id_field(value: &str) -> Option<String> {
     })
 }
 
+fn validate_workflow_id_field(value: &str) -> Option<String> {
+    validate_required_text_field(value, "workflow_id").or_else(|| {
+        (value.trim() != value)
+            .then(|| "workflow_id must not have leading or trailing whitespace".to_owned())
+    })
+}
+
+fn validate_workflow_step_id_field(value: &str) -> Option<String> {
+    validate_required_text_field(value, "step_id").or_else(|| {
+        (value.trim() != value)
+            .then(|| "step_id must not have leading or trailing whitespace".to_owned())
+    })
+}
+
 fn validate_optional_text_field(value: Option<&str>, field: &str) -> Option<String> {
     value.and_then(|text| validate_required_text_field(text, field))
+}
+
+fn workflow_step_kind_for_reference(
+    seen: &[(&str, WorkflowStepKind)],
+    step_id: &str,
+) -> Option<WorkflowStepKind> {
+    seen.iter()
+        .find_map(|(existing_id, kind)| (*existing_id == step_id).then_some(*kind))
+}
+
+fn validate_workflow_step_reference(
+    seen: &[(&str, WorkflowStepKind)],
+    step_id: &str,
+    expected: WorkflowStepKind,
+    field: &str,
+) -> Option<String> {
+    match workflow_step_kind_for_reference(seen, step_id) {
+        Some(kind) if kind == expected => None,
+        Some(kind) => Some(format!(
+            "{field} must reference a {} step, not {}",
+            expected.label(),
+            kind.label()
+        )),
+        None => Some(format!(
+            "{field} must reference an earlier {} step",
+            expected.label()
+        )),
+    }
+}
+
+fn validate_workflow_step_references(
+    payload: &WorkflowStepPayload,
+    seen: &[(&str, WorkflowStepKind)],
+) -> Option<String> {
+    match payload {
+        WorkflowStepPayload::Resolve { .. } | WorkflowStepPayload::ArtifactRun { .. } => None,
+        WorkflowStepPayload::Explore { focus, .. } => match focus {
+            WorkflowExploreFocus::NodeKey { .. } => None,
+            WorkflowExploreFocus::ResolvedStep { step_id } => {
+                validate_workflow_step_reference(seen, step_id, WorkflowStepKind::Resolve, "focus")
+            }
+        },
+        WorkflowStepPayload::Compare { left, right, .. } => {
+            validate_workflow_step_reference(seen, &left.step_id, WorkflowStepKind::Resolve, "left")
+                .or_else(|| {
+                    validate_workflow_step_reference(
+                        seen,
+                        &right.step_id,
+                        WorkflowStepKind::Resolve,
+                        "right",
+                    )
+                })
+        }
+        WorkflowStepPayload::ArtifactSave { source, .. } => match source {
+            WorkflowArtifactSaveSource::ExploreStep { step_id } => {
+                validate_workflow_step_reference(seen, step_id, WorkflowStepKind::Explore, "source")
+            }
+            WorkflowArtifactSaveSource::CompareStep { step_id } => {
+                validate_workflow_step_reference(seen, step_id, WorkflowStepKind::Compare, "source")
+            }
+        },
+    }
 }
 
 #[cfg(test)]
@@ -1840,9 +2240,35 @@ mod tests {
         SaveExplorationArtifactResult, SavedComparisonArtifact, SavedExplorationArtifact,
         SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, SearchNodesParams,
         SearchNodesSort, TrailReplayResult, TrailReplayStepResult, UnlinkedReferencesParams,
-        UpdateNodeMetadataParams, normalize_reference,
+        UpdateNodeMetadataParams, WorkflowArtifactSaveSource, WorkflowExecutionResult,
+        WorkflowExploreFocus, WorkflowMetadata, WorkflowResolveTarget, WorkflowSpec,
+        WorkflowStepPayload, WorkflowStepRef, WorkflowStepReport, WorkflowStepReportPayload,
+        WorkflowStepSpec, WorkflowSummary, normalize_reference,
     };
     use serde_json::json;
+
+    fn sample_node(node_key: &str, title: &str) -> NodeRecord {
+        NodeRecord {
+            node_key: node_key.to_owned(),
+            explicit_id: None,
+            file_path: "sample.org".to_owned(),
+            title: title.to_owned(),
+            outline_path: title.to_owned(),
+            aliases: Vec::new(),
+            tags: Vec::new(),
+            refs: Vec::new(),
+            todo_keyword: None,
+            scheduled_for: None,
+            deadline_for: None,
+            closed_at: None,
+            level: 1,
+            line: 1,
+            kind: NodeKind::Heading,
+            file_mtime_ns: 0,
+            backlink_count: 0,
+            forward_link_count: 0,
+        }
+    }
 
     #[test]
     fn normalizes_common_reference_forms() {
@@ -3114,6 +3540,436 @@ mod tests {
         )
         .expect("id params should deserialize");
         assert_eq!(id_round_trip, id_params);
+    }
+
+    #[test]
+    fn workflow_specs_round_trip_and_compose_settled_headless_steps() {
+        let workflow = WorkflowSpec {
+            metadata: WorkflowMetadata {
+                workflow_id: "workflow/research-routine".to_owned(),
+                title: "Research Routine".to_owned(),
+                summary: Some("Resolve, explore, compare, and save".to_owned()),
+            },
+            steps: vec![
+                WorkflowStepSpec {
+                    step_id: "resolve-focus".to_owned(),
+                    payload: WorkflowStepPayload::Resolve {
+                        target: WorkflowResolveTarget::Id {
+                            id: "focus-id".to_owned(),
+                        },
+                    },
+                },
+                WorkflowStepSpec {
+                    step_id: "resolve-neighbor".to_owned(),
+                    payload: WorkflowStepPayload::Resolve {
+                        target: WorkflowResolveTarget::Title {
+                            title: "Neighbor".to_owned(),
+                        },
+                    },
+                },
+                WorkflowStepSpec {
+                    step_id: "run-saved-context".to_owned(),
+                    payload: WorkflowStepPayload::ArtifactRun {
+                        artifact_id: "artifact/context".to_owned(),
+                    },
+                },
+                WorkflowStepSpec {
+                    step_id: "explore-dormant".to_owned(),
+                    payload: WorkflowStepPayload::Explore {
+                        focus: WorkflowExploreFocus::ResolvedStep {
+                            step_id: "resolve-focus".to_owned(),
+                        },
+                        lens: ExplorationLens::Dormant,
+                        limit: 0,
+                        unique: false,
+                    },
+                },
+                WorkflowStepSpec {
+                    step_id: "explore-context".to_owned(),
+                    payload: WorkflowStepPayload::Explore {
+                        focus: WorkflowExploreFocus::ResolvedStep {
+                            step_id: "resolve-neighbor".to_owned(),
+                        },
+                        lens: ExplorationLens::Refs,
+                        limit: 25,
+                        unique: false,
+                    },
+                },
+                WorkflowStepSpec {
+                    step_id: "compare-focus-neighbor".to_owned(),
+                    payload: WorkflowStepPayload::Compare {
+                        left: WorkflowStepRef {
+                            step_id: "resolve-focus".to_owned(),
+                        },
+                        right: WorkflowStepRef {
+                            step_id: "resolve-neighbor".to_owned(),
+                        },
+                        group: NoteComparisonGroup::Tension,
+                        limit: 10,
+                    },
+                },
+                WorkflowStepSpec {
+                    step_id: "save-comparison".to_owned(),
+                    payload: WorkflowStepPayload::ArtifactSave {
+                        source: WorkflowArtifactSaveSource::CompareStep {
+                            step_id: "compare-focus-neighbor".to_owned(),
+                        },
+                        metadata: ExplorationArtifactMetadata {
+                            artifact_id: "artifact/focus-vs-neighbor".to_owned(),
+                            title: "Focus vs Neighbor".to_owned(),
+                            summary: Some("Pinned comparison".to_owned()),
+                        },
+                        overwrite: false,
+                    },
+                },
+            ],
+        };
+
+        assert_eq!(workflow.validation_error(), None);
+        assert_eq!(WorkflowSummary::from(&workflow).step_count, 7);
+
+        let serialized = serde_json::to_value(&workflow).expect("workflow spec should serialize");
+        assert_eq!(
+            serialized["workflow_id"],
+            json!("workflow/research-routine")
+        );
+        assert_eq!(serialized["steps"][0]["kind"], json!("resolve"));
+        assert_eq!(serialized["steps"][3]["kind"], json!("explore"));
+        assert_eq!(serialized["steps"][5]["kind"], json!("compare"));
+        assert_eq!(serialized["steps"][6]["kind"], json!("artifact-save"));
+        assert_eq!(
+            serialized["steps"][6]["artifact_id"],
+            json!("artifact/focus-vs-neighbor")
+        );
+
+        let round_trip: WorkflowSpec =
+            serde_json::from_value(serialized).expect("workflow spec should deserialize");
+        assert_eq!(round_trip, workflow);
+    }
+
+    #[test]
+    fn workflow_execution_results_round_trip_with_typed_step_reports() {
+        let workflow = WorkflowSpec {
+            metadata: WorkflowMetadata {
+                workflow_id: "workflow/round-trip".to_owned(),
+                title: "Round Trip".to_owned(),
+                summary: None,
+            },
+            steps: vec![
+                WorkflowStepSpec {
+                    step_id: "resolve-focus".to_owned(),
+                    payload: WorkflowStepPayload::Resolve {
+                        target: WorkflowResolveTarget::Id {
+                            id: "focus-id".to_owned(),
+                        },
+                    },
+                },
+                WorkflowStepSpec {
+                    step_id: "explore-focus".to_owned(),
+                    payload: WorkflowStepPayload::Explore {
+                        focus: WorkflowExploreFocus::NodeKey {
+                            node_key: "heading:focus.org:3".to_owned(),
+                        },
+                        lens: ExplorationLens::Structure,
+                        limit: 10,
+                        unique: false,
+                    },
+                },
+                WorkflowStepSpec {
+                    step_id: "compare-focus-neighbor".to_owned(),
+                    payload: WorkflowStepPayload::Compare {
+                        left: WorkflowStepRef {
+                            step_id: "resolve-focus".to_owned(),
+                        },
+                        right: WorkflowStepRef {
+                            step_id: "resolve-focus-other".to_owned(),
+                        },
+                        group: NoteComparisonGroup::All,
+                        limit: 10,
+                    },
+                },
+            ],
+        };
+
+        let executed_artifact = ExecutedExplorationArtifact {
+            metadata: ExplorationArtifactMetadata {
+                artifact_id: "artifact/focus".to_owned(),
+                title: "Saved Focus".to_owned(),
+                summary: None,
+            },
+            payload: ExecutedExplorationArtifactPayload::LensView {
+                artifact: Box::new(SavedLensViewArtifact {
+                    root_node_key: "file:focus.org".to_owned(),
+                    current_node_key: "heading:focus.org:3".to_owned(),
+                    lens: ExplorationLens::Refs,
+                    limit: 25,
+                    unique: false,
+                    frozen_context: true,
+                }),
+                root_note: Box::new(sample_node("file:focus.org", "Focus")),
+                current_note: Box::new(sample_node("heading:focus.org:3", "Focus Heading")),
+                result: Box::new(ExploreResult {
+                    lens: ExplorationLens::Refs,
+                    sections: Vec::new(),
+                }),
+            },
+        };
+
+        let result = WorkflowExecutionResult {
+            workflow: WorkflowSummary::from(&workflow),
+            steps: vec![
+                WorkflowStepReport {
+                    step_id: "resolve-focus".to_owned(),
+                    payload: WorkflowStepReportPayload::Resolve {
+                        node: Box::new(sample_node("heading:focus.org:3", "Focus")),
+                    },
+                },
+                WorkflowStepReport {
+                    step_id: "explore-focus".to_owned(),
+                    payload: WorkflowStepReportPayload::Explore {
+                        focus_node_key: "heading:focus.org:3".to_owned(),
+                        result: Box::new(ExploreResult {
+                            lens: ExplorationLens::Structure,
+                            sections: Vec::new(),
+                        }),
+                    },
+                },
+                WorkflowStepReport {
+                    step_id: "compare-focus-neighbor".to_owned(),
+                    payload: WorkflowStepReportPayload::Compare {
+                        left_node: Box::new(sample_node("heading:focus.org:3", "Focus")),
+                        right_node: Box::new(sample_node("heading:neighbor.org:7", "Neighbor")),
+                        result: Box::new(NoteComparisonResult {
+                            left_note: sample_node("heading:focus.org:3", "Focus"),
+                            right_note: sample_node("heading:neighbor.org:7", "Neighbor"),
+                            sections: Vec::new(),
+                        }),
+                    },
+                },
+                WorkflowStepReport {
+                    step_id: "run-artifact".to_owned(),
+                    payload: WorkflowStepReportPayload::ArtifactRun {
+                        artifact: Box::new(executed_artifact),
+                    },
+                },
+                WorkflowStepReport {
+                    step_id: "save-artifact".to_owned(),
+                    payload: WorkflowStepReportPayload::ArtifactSave {
+                        artifact: Box::new(ExplorationArtifactSummary {
+                            metadata: ExplorationArtifactMetadata {
+                                artifact_id: "artifact/focus".to_owned(),
+                                title: "Saved Focus".to_owned(),
+                                summary: None,
+                            },
+                            kind: ExplorationArtifactKind::LensView,
+                        }),
+                    },
+                },
+            ],
+        };
+
+        let serialized =
+            serde_json::to_value(&result).expect("workflow execution result should serialize");
+        assert_eq!(
+            serialized["workflow"]["workflow_id"],
+            json!("workflow/round-trip")
+        );
+        assert_eq!(serialized["steps"][0]["kind"], json!("resolve"));
+        assert_eq!(serialized["steps"][1]["kind"], json!("explore"));
+        assert_eq!(serialized["steps"][2]["kind"], json!("compare"));
+        assert_eq!(serialized["steps"][3]["kind"], json!("artifact-run"));
+        assert_eq!(serialized["steps"][4]["kind"], json!("artifact-save"));
+
+        let round_trip: WorkflowExecutionResult = serde_json::from_value(serialized)
+            .expect("workflow execution result should deserialize");
+        assert_eq!(round_trip, result);
+    }
+
+    #[test]
+    fn workflow_specs_reject_malformed_metadata_and_step_references() {
+        let blank_metadata = WorkflowSpec {
+            metadata: WorkflowMetadata {
+                workflow_id: " ".to_owned(),
+                title: "Workflow".to_owned(),
+                summary: None,
+            },
+            steps: vec![WorkflowStepSpec {
+                step_id: "resolve-focus".to_owned(),
+                payload: WorkflowStepPayload::Resolve {
+                    target: WorkflowResolveTarget::Id {
+                        id: "focus-id".to_owned(),
+                    },
+                },
+            }],
+        };
+        assert_eq!(
+            blank_metadata.validation_error().as_deref(),
+            Some("workflow_id must not be empty")
+        );
+
+        let empty_steps = WorkflowSpec {
+            metadata: WorkflowMetadata {
+                workflow_id: "workflow/empty".to_owned(),
+                title: "Empty".to_owned(),
+                summary: None,
+            },
+            steps: Vec::new(),
+        };
+        assert_eq!(
+            empty_steps.validation_error().as_deref(),
+            Some("workflows must contain at least one step")
+        );
+
+        let duplicate_step_ids = WorkflowSpec {
+            metadata: WorkflowMetadata {
+                workflow_id: "workflow/duplicate".to_owned(),
+                title: "Duplicate".to_owned(),
+                summary: None,
+            },
+            steps: vec![
+                WorkflowStepSpec {
+                    step_id: "resolve-focus".to_owned(),
+                    payload: WorkflowStepPayload::Resolve {
+                        target: WorkflowResolveTarget::Id {
+                            id: "focus-id".to_owned(),
+                        },
+                    },
+                },
+                WorkflowStepSpec {
+                    step_id: "resolve-focus".to_owned(),
+                    payload: WorkflowStepPayload::Resolve {
+                        target: WorkflowResolveTarget::Title {
+                            title: "Other".to_owned(),
+                        },
+                    },
+                },
+            ],
+        };
+        assert_eq!(
+            duplicate_step_ids.validation_error().as_deref(),
+            Some("workflow step 1 reuses duplicate step_id resolve-focus")
+        );
+
+        let missing_reference = WorkflowSpec {
+            metadata: WorkflowMetadata {
+                workflow_id: "workflow/missing-ref".to_owned(),
+                title: "Missing Ref".to_owned(),
+                summary: None,
+            },
+            steps: vec![WorkflowStepSpec {
+                step_id: "explore-focus".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::ResolvedStep {
+                        step_id: "resolve-focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Refs,
+                    limit: 25,
+                    unique: false,
+                },
+            }],
+        };
+        assert_eq!(
+            missing_reference.validation_error().as_deref(),
+            Some("workflow step 0 is invalid: focus must reference an earlier resolve step")
+        );
+
+        let wrong_reference_kind = WorkflowSpec {
+            metadata: WorkflowMetadata {
+                workflow_id: "workflow/wrong-ref".to_owned(),
+                title: "Wrong Ref".to_owned(),
+                summary: None,
+            },
+            steps: vec![
+                WorkflowStepSpec {
+                    step_id: "resolve-focus".to_owned(),
+                    payload: WorkflowStepPayload::Resolve {
+                        target: WorkflowResolveTarget::Id {
+                            id: "focus-id".to_owned(),
+                        },
+                    },
+                },
+                WorkflowStepSpec {
+                    step_id: "save-focus".to_owned(),
+                    payload: WorkflowStepPayload::ArtifactSave {
+                        source: WorkflowArtifactSaveSource::CompareStep {
+                            step_id: "resolve-focus".to_owned(),
+                        },
+                        metadata: ExplorationArtifactMetadata {
+                            artifact_id: "artifact/focus".to_owned(),
+                            title: "Focus".to_owned(),
+                            summary: None,
+                        },
+                        overwrite: true,
+                    },
+                },
+            ],
+        };
+        assert_eq!(
+            wrong_reference_kind.validation_error().as_deref(),
+            Some("workflow step 1 is invalid: source must reference a compare step, not resolve")
+        );
+
+        let same_compare_refs = WorkflowSpec {
+            metadata: WorkflowMetadata {
+                workflow_id: "workflow/same-compare".to_owned(),
+                title: "Same Compare".to_owned(),
+                summary: None,
+            },
+            steps: vec![
+                WorkflowStepSpec {
+                    step_id: "resolve-focus".to_owned(),
+                    payload: WorkflowStepPayload::Resolve {
+                        target: WorkflowResolveTarget::Id {
+                            id: "focus-id".to_owned(),
+                        },
+                    },
+                },
+                WorkflowStepSpec {
+                    step_id: "compare-focus".to_owned(),
+                    payload: WorkflowStepPayload::Compare {
+                        left: WorkflowStepRef {
+                            step_id: "resolve-focus".to_owned(),
+                        },
+                        right: WorkflowStepRef {
+                            step_id: "resolve-focus".to_owned(),
+                        },
+                        group: NoteComparisonGroup::All,
+                        limit: 25,
+                    },
+                },
+            ],
+        };
+        assert_eq!(
+            same_compare_refs.validation_error().as_deref(),
+            Some(
+                "workflow step 1 is invalid: compare left and right must reference distinct resolve steps"
+            )
+        );
+
+        let invalid_explore_unique = WorkflowSpec {
+            metadata: WorkflowMetadata {
+                workflow_id: "workflow/unique-refs".to_owned(),
+                title: "Unique Refs".to_owned(),
+                summary: None,
+            },
+            steps: vec![WorkflowStepSpec {
+                step_id: "explore-focus".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::NodeKey {
+                        node_key: "heading:focus.org:3".to_owned(),
+                    },
+                    lens: ExplorationLens::Refs,
+                    limit: 25,
+                    unique: true,
+                },
+            }],
+        };
+        assert_eq!(
+            invalid_explore_unique.validation_error().as_deref(),
+            Some(
+                "workflow step 0 is invalid: explore unique is only supported for the structure lens"
+            )
+        );
     }
 
     #[test]
