@@ -99,6 +99,8 @@ Focus:
   export, and save from live exploration/comparison flows
 - end-to-end CLI coverage that proves the headless surface is real rather than
   transport-shaped aspiration
+- documentation that treats this as the first usable headless workbench rather
+  than as broad platform completion
 
 Watchpoints:
 
@@ -106,6 +108,8 @@ Watchpoints:
 - do not turn the CLI into a thin wrapper over every RPC method
 - do not invent a second ontology for headless work that drifts from cockpit
   semantics
+- do not let JSON-first machine use turn into “just use raw RPCs” instead of
+  documenting the actual CLI house
 - do not let extension APIs, MCP, or agent-adapter ambitions leak into this
   milestone
 

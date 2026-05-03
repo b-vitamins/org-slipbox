@@ -6,6 +6,26 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+### Added
+- Added the first usable headless workbench surface over the canonical daemon
+  boundary: a typed Rust daemon client, shared CLI runtime/output scaffolding,
+  task-shaped `slipbox` commands for `status`, `resolve-node`, `explore`, and
+  `compare`, plus durable artifact lifecycle commands for `list`, `show`,
+  `run`, `export`, `import`, and `delete`.
+
+### Changed
+- Added live save flows so `slipbox explore --save` and `slipbox compare
+  --save` persist durable artifacts through the same engine-owned artifact
+  semantics already proven in the cockpit.
+- Documented `0.7.x` as the first release band where the workbench is
+  genuinely operable outside Emacs, while keeping broader extension, MCP, and
+  agent-facing platform claims explicitly deferred.
+
+### Fixed
+- Hardened the headless CLI JSON contract suite so daemon-failure, live-save,
+  export/import, and saved-versus-executed artifact distinctions are covered
+  directly at the shipped binary surface.
+
 ## [0.6.1] - 2026-05-03
 
 ### Fixed

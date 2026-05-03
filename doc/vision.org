@@ -75,8 +75,10 @@ The first extraction step is now durable artifacts for saved views, trails, and
 comparisons plus a narrow machine-facing surface for save, inspect, list,
 execute, and delete.
 `0.7.x` should turn that narrow surface into the first usable headless
-workbench through task-shaped live explore, compare, and artifact-lifecycle
-operations over the canonical daemon boundary.
+workbench through task-shaped resolve, live explore, compare, and
+artifact-lifecycle operations over the canonical daemon boundary, with
+JSON-first machine use but without pretending the whole programmable platform
+is complete.
 Broader extension, MCP, and platform surfaces still come later.
 
 This implies:

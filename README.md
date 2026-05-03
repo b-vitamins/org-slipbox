@@ -18,9 +18,10 @@ Current development starts from the released `0.6.1` foundation.
 The documented workflow surface is intended to remain complete enough for
 day-to-day replacement use while the project deepens its exploratory model.
 The next planned release band is `0.7.x`: the first usable headless
-workbench, with task-shaped CLI flows for live exploration, comparison, and
-durable artifact lifecycle over the canonical daemon boundary. Broader
-platform, extension, and agent-adapter claims remain deferred.
+workbench, with task-shaped CLI flows for live exploration, comparison,
+node resolution, and durable artifact lifecycle over the canonical daemon
+boundary. Broader platform, extension, and agent-adapter claims remain
+deferred.
 
 ## Requirements
 
@@ -256,10 +257,10 @@ The dedicated buffer currently supports:
 This is the settled cockpit line through `0.6.x`: the dedicated buffer remains
 the interactive exploratory house, while `0.6.x` adds durable exploration
 artifacts and a first narrow machine-facing surface around them. `0.7.x`
-should turn that narrow surface into the first usable headless workbench for
-live exploration, comparison, and artifact lifecycle over `slipbox serve`.
-Broader platform maturity, extension APIs, and agent-adapter work remain
-later work.
+builds the first usable headless workbench on top of that same model through
+task-shaped `slipbox` commands for node resolution, live exploration,
+comparison, and artifact lifecycle over `slipbox serve`. Broader platform
+maturity, extension APIs, and agent-adapter work remain later work.
 
 When the current node record includes indexed metadata, the node summary also
 renders file modification time plus backlink and forward-link counts without
@@ -636,6 +637,127 @@ that the whole programmable platform is done.
   canonical daemon boundary for live explore, compare, and artifact lifecycle.
 - Broad CLI families, extension APIs, MCP surfaces, and agent adapters are
   still deferred.
+
+## Headless Workbench
+
+`0.7.x` is the first release band where the workbench becomes genuinely usable
+outside Emacs. The CLI stays on the same architectural line as the rest of the
+project:
+
+- every headless command talks to the daemon over canonical JSON-RPC stdio
+- the CLI auto-spawns `slipbox serve` from the current executable unless you
+  override it with `--server-program`
+- `--json` is first-class for machine use
+- the command surface is task-shaped rather than a thin wrapper over every RPC
+
+The shipped headless commands are:
+
+- `slipbox status`
+- `slipbox resolve-node`
+- `slipbox explore`
+- `slipbox compare`
+- `slipbox artifact list`
+- `slipbox artifact show`
+- `slipbox artifact run`
+- `slipbox artifact export`
+- `slipbox artifact import`
+- `slipbox artifact delete`
+
+All headless commands share the same scope arguments:
+
+```bash
+slipbox <command> \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --json
+```
+
+Examples:
+
+Resolve an exact note target:
+
+```bash
+slipbox resolve-node \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --id left-id \
+  --json
+```
+
+Run live exploration through the settled declared-lens model:
+
+```bash
+slipbox explore \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --title "Project X" \
+  --lens dormant \
+  --limit 25 \
+  --json
+```
+
+Compare two notes and keep only the tension group:
+
+```bash
+slipbox compare \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --left-id left-id \
+  --right-id right-id \
+  --group tension \
+  --json
+```
+
+Save a live exploration or comparison as a durable artifact:
+
+```bash
+slipbox explore \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --key file:context.org::42 \
+  --lens time \
+  --save \
+  --artifact-id artifact/current-time-slice \
+  --artifact-title "Current time slice" \
+  --artifact-summary "Anchor-scoped planning context" \
+  --json
+```
+
+```bash
+slipbox compare \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --left-id left-id \
+  --right-id right-id \
+  --group tension \
+  --save \
+  --artifact-id artifact/left-vs-right \
+  --artifact-title "Left vs right" \
+  --json
+```
+
+List, inspect, execute, export, import, and delete durable artifacts:
+
+```bash
+slipbox artifact list --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox artifact show artifact/left-vs-right --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox artifact run artifact/left-vs-right --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox artifact export artifact/left-vs-right --root ~/notes --db ~/.cache/org-slipbox.sqlite --json > left-vs-right.json
+slipbox artifact import --root ~/notes --db ~/.cache/org-slipbox.sqlite --json left-vs-right.json
+slipbox artifact delete artifact/left-vs-right --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+```
+
+The JSON contracts are intentionally different where the semantics differ:
+
+- `slipbox compare --save --json` returns `{ "result": ..., "artifact": ... }`
+- `slipbox artifact run --json` returns `{ "artifact": ... }`, where that
+  payload is the executed artifact shape
+- `slipbox artifact export --json` emits raw saved-artifact JSON, and
+  `slipbox artifact import --json` consumes that same raw saved-artifact JSON
+
+This is the first usable headless workbench surface, not the whole platform.
+There is still no broad CLI for every RPC, no extension API, and no MCP or
+agent-adapter layer in this release band.
 
 ## FAQ
 

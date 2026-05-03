@@ -77,8 +77,8 @@ Outcomes:
 - durable exploration artifacts for saved views, trails, and comparisons
 - query surfaces and first task-shaped public operations around those artifacts
   such as save, inspect, list, execute, and delete
-- a first usable headless workbench around live explore, compare, and artifact
-  lifecycle over the canonical daemon boundary
+- a first usable headless workbench around resolve, live explore, compare, and
+  artifact lifecycle over the canonical daemon boundary
 - stronger CLI and headless workflows built from that same exploratory model
 - stable hooks and extension points around exploration only after the first
   usable headless workbench has proven its shape
@@ -90,6 +90,8 @@ Exit criteria:
   exploration semantics already proven in the cockpit
 - the first public headless surface remains task-shaped rather than becoming a
   broad CLI or extension platform story
+- JSON-first machine use is real and documented without claiming broader
+  platform maturity
 - users can script and automate meaningful exploratory workflows
 - buffer and query surfaces compose without reaching into unstable internals
 - headless surfaces reuse the exploratory model already proven in the cockpit
