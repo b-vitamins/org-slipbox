@@ -13,15 +13,14 @@ side owns commands, session state, and presentation.
 
 ## Status
 
-Current development starts from the released `0.6.1` foundation.
+Current development starts from the released `0.7.0` foundation.
 
 The documented workflow surface is intended to remain complete enough for
 day-to-day replacement use while the project deepens its exploratory model.
-The next planned release band is `0.7.x`: the first usable headless
-workbench, with task-shaped CLI flows for live exploration, comparison,
-node resolution, and durable artifact lifecycle over the canonical daemon
-boundary. Broader platform, extension, and agent-adapter claims remain
-deferred.
+The next planned release band is `0.8.x`: broader research workbench and
+platform maturity built on the shipped headless workbench surface, while
+keeping extension, MCP, and agent-adapter claims deferred until that broader
+surface is genuinely proven.
 
 ## Requirements
 
@@ -633,8 +632,11 @@ that the whole programmable platform is done.
 - `o` asks the daemon to execute a saved artifact and then restores the dedicated session from the executed result.
 - The daemon persists those artifacts outside the derived SQLite index, so rebuilds do not erase them and note-facing query surfaces do not start treating artifacts as notes.
 - The machine-facing surface is deliberately narrow: `saveExplorationArtifact`, `explorationArtifact`, `listExplorationArtifacts`, `executeExplorationArtifact`, and `deleteExplorationArtifact`.
-- `0.7.x` is the next step: first usable headless workbench commands over the
-  canonical daemon boundary for live explore, compare, and artifact lifecycle.
+- `0.7.x` is the shipped step: first usable headless workbench commands over
+  the canonical daemon boundary for live explore, compare, resolve, and
+  artifact lifecycle.
+- `0.8.x` is the next step: broader research workbench composition and named
+  headless workflows built on that same settled exploratory model.
 - Broad CLI families, extension APIs, MCP surfaces, and agent adapters are
   still deferred.
 

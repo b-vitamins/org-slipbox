@@ -53,7 +53,7 @@ explanations, factual comparison, and explicit trails. It should support:
 - explicit pivots between lenses such as refs, time, tasks, bridges, dormant
   material, unresolved material, and structural proximity
 - explicit trails, comparisons, backtracking, and detached branching now, with
-  durable saved artifacts now extracted from that settled model, `0.7.x` next
+  durable saved artifacts extracted from that settled model and `0.7.x`
   turning them into the first usable headless workbench, while broader
   extension and platform surfaces remain later work
 - clear explanations for why a node or section is being shown
@@ -74,7 +74,7 @@ hardens any later public surface.
 The first extraction step is now durable artifacts for saved views, trails, and
 comparisons plus a narrow machine-facing surface for save, inspect, list,
 execute, and delete.
-`0.7.x` should turn that narrow surface into the first usable headless
+`0.7.x` turns that narrow surface into the first usable headless
 workbench through task-shaped resolve, live explore, compare, and
 artifact-lifecycle operations over the canonical daemon boundary, with
 JSON-first machine use but without pretending the whole programmable platform

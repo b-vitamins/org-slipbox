@@ -6,6 +6,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-05-03
+
 ### Added
 - Added the first usable headless workbench surface over the canonical daemon
   boundary: a typed Rust daemon client, shared CLI runtime/output scaffolding,

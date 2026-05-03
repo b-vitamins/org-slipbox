@@ -1748,7 +1748,7 @@ mod tests {
     fn writes_json_output_from_structured_results() {
         let mut output = Vec::new();
         let status = StatusInfo {
-            version: "0.6.1".to_owned(),
+            version: "0.7.0".to_owned(),
             root: "/tmp/root".to_owned(),
             db: "/tmp/db.sqlite".to_owned(),
             files_indexed: 1,

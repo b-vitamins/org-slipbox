@@ -4,7 +4,7 @@
 
 ;; Author: Ayan Das <bvits@riseup.net>
 ;; Maintainer: Ayan Das <bvits@riseup.net>
-;; Version: 0.6.1
+;; Version: 0.7.0
 ;; Package-Requires: ((emacs "29.1") (org "9.6"))
 ;; Keywords: outlines, files, convenience
 
