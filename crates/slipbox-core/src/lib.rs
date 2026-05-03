@@ -1366,6 +1366,7 @@ pub struct WorkflowSummary {
 #[serde(rename_all = "kebab-case")]
 pub enum WorkflowInputKind {
     NoteTarget,
+    FocusTarget,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1383,6 +1384,32 @@ impl WorkflowInputSpec {
         validate_workflow_input_id_field(&self.input_id)
             .or_else(|| validate_required_text_field(&self.title, "title"))
             .or_else(|| validate_optional_text_field(self.summary.as_deref(), "summary"))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowInputAssignment {
+    pub input_id: String,
+    #[serde(flatten)]
+    pub target: WorkflowResolveTarget,
+}
+
+impl WorkflowInputAssignment {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_workflow_input_id_field(&self.input_id).or_else(|| match &self.target {
+            WorkflowResolveTarget::Input { .. } => Some(
+                "workflow input assignments cannot reference another workflow input".to_owned(),
+            ),
+            WorkflowResolveTarget::Id { id } => validate_required_text_field(id, "id"),
+            WorkflowResolveTarget::Title { title } => validate_required_text_field(title, "title"),
+            WorkflowResolveTarget::Reference { reference } => {
+                validate_required_text_field(reference, "reference")
+            }
+            WorkflowResolveTarget::NodeKey { node_key } => {
+                validate_required_text_field(node_key, "node_key")
+            }
+        })
     }
 }
 
@@ -1453,6 +1480,7 @@ impl WorkflowStepRef {
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum WorkflowExploreFocus {
     NodeKey { node_key: String },
+    Input { input_id: String },
     ResolvedStep { step_id: String },
 }
 
@@ -1461,6 +1489,7 @@ impl WorkflowExploreFocus {
     pub fn validation_error(&self) -> Option<String> {
         match self {
             Self::NodeKey { node_key } => validate_required_text_field(node_key, "node_key"),
+            Self::Input { input_id } => validate_workflow_input_id_field(input_id),
             Self::ResolvedStep { step_id } => validate_workflow_step_id_field(step_id),
         }
     }
@@ -1605,21 +1634,22 @@ impl WorkflowSpec {
     #[must_use]
     pub fn validation_error(&self) -> Option<String> {
         self.metadata.validation_error().or_else(|| {
-            let mut seen_inputs: Vec<&str> = Vec::with_capacity(self.inputs.len());
+            let mut seen_inputs: Vec<(&str, WorkflowInputKind)> =
+                Vec::with_capacity(self.inputs.len());
             for (index, input) in self.inputs.iter().enumerate() {
                 if let Some(error) = input.validation_error() {
                     return Some(format!("workflow input {index} is invalid: {error}"));
                 }
                 if seen_inputs
                     .iter()
-                    .any(|input_id| *input_id == input.input_id)
+                    .any(|(input_id, _)| *input_id == input.input_id)
                 {
                     return Some(format!(
                         "workflow input {index} reuses duplicate input_id {}",
                         input.input_id
                     ));
                 }
-                seen_inputs.push(input.input_id.as_str());
+                seen_inputs.push((input.input_id.as_str(), input.kind));
             }
 
             if self.steps.is_empty() {
@@ -1646,6 +1676,46 @@ impl WorkflowSpec {
             }
             None
         })
+    }
+
+    #[must_use]
+    pub fn input_assignments_validation_error(
+        &self,
+        inputs: &[WorkflowInputAssignment],
+    ) -> Option<String> {
+        let mut seen_assignments: Vec<&str> = Vec::with_capacity(inputs.len());
+        for (index, input) in inputs.iter().enumerate() {
+            if let Some(error) = input.validation_error() {
+                return Some(format!(
+                    "workflow input assignment {index} is invalid: {error}"
+                ));
+            }
+            if seen_assignments
+                .iter()
+                .any(|input_id| *input_id == input.input_id)
+            {
+                return Some(format!(
+                    "workflow input assignment {index} reuses duplicate input_id {}",
+                    input.input_id
+                ));
+            }
+            if !self
+                .inputs
+                .iter()
+                .any(|declared| declared.input_id == input.input_id)
+            {
+                return Some(format!(
+                    "workflow input assignment {index} references unknown input_id {}",
+                    input.input_id
+                ));
+            }
+            seen_assignments.push(input.input_id.as_str());
+        }
+
+        self.inputs
+            .iter()
+            .find(|input| !seen_assignments.contains(&input.input_id.as_str()))
+            .map(|input| format!("workflow input {} must be assigned", input.input_id))
     }
 }
 
@@ -1694,9 +1764,9 @@ fn built_in_context_sweep_workflow() -> WorkflowSpec {
         },
         inputs: vec![WorkflowInputSpec {
             input_id: "focus".to_owned(),
-            title: "Focus note".to_owned(),
-            summary: Some("Exact note target to inspect".to_owned()),
-            kind: WorkflowInputKind::NoteTarget,
+            title: "Focus target".to_owned(),
+            summary: Some("Note or anchor target to inspect".to_owned()),
+            kind: WorkflowInputKind::FocusTarget,
         }],
         steps: vec![
             WorkflowStepSpec {
@@ -1721,8 +1791,8 @@ fn built_in_context_sweep_workflow() -> WorkflowSpec {
             WorkflowStepSpec {
                 step_id: "explore-refs".to_owned(),
                 payload: WorkflowStepPayload::Explore {
-                    focus: WorkflowExploreFocus::ResolvedStep {
-                        step_id: "resolve-focus".to_owned(),
+                    focus: WorkflowExploreFocus::Input {
+                        input_id: "focus".to_owned(),
                     },
                     lens: ExplorationLens::Refs,
                     limit: 25,
@@ -1756,9 +1826,9 @@ fn built_in_unresolved_sweep_workflow() -> WorkflowSpec {
         },
         inputs: vec![WorkflowInputSpec {
             input_id: "focus".to_owned(),
-            title: "Focus note".to_owned(),
-            summary: Some("Exact note target to audit for unresolved pressure".to_owned()),
-            kind: WorkflowInputKind::NoteTarget,
+            title: "Focus target".to_owned(),
+            summary: Some("Note or anchor target to audit for unresolved pressure".to_owned()),
+            kind: WorkflowInputKind::FocusTarget,
         }],
         steps: vec![
             WorkflowStepSpec {
@@ -1783,8 +1853,8 @@ fn built_in_unresolved_sweep_workflow() -> WorkflowSpec {
             WorkflowStepSpec {
                 step_id: "explore-tasks".to_owned(),
                 payload: WorkflowStepPayload::Explore {
-                    focus: WorkflowExploreFocus::ResolvedStep {
-                        step_id: "resolve-focus".to_owned(),
+                    focus: WorkflowExploreFocus::Input {
+                        input_id: "focus".to_owned(),
                     },
                     lens: ExplorationLens::Tasks,
                     limit: 25,
@@ -1794,8 +1864,8 @@ fn built_in_unresolved_sweep_workflow() -> WorkflowSpec {
             WorkflowStepSpec {
                 step_id: "explore-time".to_owned(),
                 payload: WorkflowStepPayload::Explore {
-                    focus: WorkflowExploreFocus::ResolvedStep {
-                        step_id: "resolve-focus".to_owned(),
+                    focus: WorkflowExploreFocus::Input {
+                        input_id: "focus".to_owned(),
                     },
                     lens: ExplorationLens::Time,
                     limit: 25,
@@ -1930,6 +2000,50 @@ impl WorkflowStepReport {
 pub struct WorkflowExecutionResult {
     pub workflow: WorkflowSummary,
     pub steps: Vec<WorkflowStepReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowIdParams {
+    pub workflow_id: String,
+}
+
+impl WorkflowIdParams {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_workflow_id_field(&self.workflow_id)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ListWorkflowsParams {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListWorkflowsResult {
+    pub workflows: Vec<WorkflowSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowResult {
+    pub workflow: WorkflowSpec,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunWorkflowParams {
+    pub workflow_id: String,
+    #[serde(default)]
+    pub inputs: Vec<WorkflowInputAssignment>,
+}
+
+impl RunWorkflowParams {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_workflow_id_field(&self.workflow_id)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunWorkflowResult {
+    pub result: WorkflowExecutionResult,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2465,15 +2579,45 @@ fn validate_workflow_step_reference(
     }
 }
 
+fn workflow_input_kind_for_reference(
+    inputs: &[(&str, WorkflowInputKind)],
+    input_id: &str,
+) -> Option<WorkflowInputKind> {
+    inputs
+        .iter()
+        .find_map(|(existing_id, kind)| (*existing_id == input_id).then_some(*kind))
+}
+
+fn validate_workflow_input_reference_kind(
+    inputs: &[(&str, WorkflowInputKind)],
+    input_id: &str,
+    required_kind: WorkflowInputKind,
+    role: &str,
+) -> Option<String> {
+    match workflow_input_kind_for_reference(inputs, input_id) {
+        None => Some(format!("{role} must reference a declared workflow input")),
+        Some(kind) if kind != required_kind => Some(format!(
+            "{role} must reference a declared {} input",
+            match required_kind {
+                WorkflowInputKind::NoteTarget => "note-target",
+                WorkflowInputKind::FocusTarget => "focus-target",
+            }
+        )),
+        Some(_) => None,
+    }
+}
+
 fn validate_workflow_step_references(
     payload: &WorkflowStepPayload,
     seen: &[(&str, WorkflowStepKind)],
-    inputs: &[&str],
+    inputs: &[(&str, WorkflowInputKind)],
 ) -> Option<String> {
     match payload {
         WorkflowStepPayload::Resolve { target } => match target {
-            WorkflowResolveTarget::Input { input_id } => (!inputs.contains(&input_id.as_str()))
-                .then(|| "target must reference a declared workflow input".to_owned()),
+            WorkflowResolveTarget::Input { input_id } => {
+                (workflow_input_kind_for_reference(inputs, input_id).is_none())
+                    .then(|| "target must reference a declared workflow input".to_owned())
+            }
             WorkflowResolveTarget::Id { .. }
             | WorkflowResolveTarget::Title { .. }
             | WorkflowResolveTarget::Reference { .. }
@@ -2482,6 +2626,12 @@ fn validate_workflow_step_references(
         WorkflowStepPayload::ArtifactRun { .. } => None,
         WorkflowStepPayload::Explore { focus, .. } => match focus {
             WorkflowExploreFocus::NodeKey { .. } => None,
+            WorkflowExploreFocus::Input { input_id } => validate_workflow_input_reference_kind(
+                inputs,
+                input_id,
+                WorkflowInputKind::FocusTarget,
+                "focus",
+            ),
             WorkflowExploreFocus::ResolvedStep { step_id } => {
                 validate_workflow_step_reference(seen, step_id, WorkflowStepKind::Resolve, "focus")
             }
@@ -4296,6 +4446,9 @@ mod tests {
                 workflow.metadata.workflow_id
             );
         }
+        assert_eq!(workflows[0].inputs[0].kind, WorkflowInputKind::FocusTarget);
+        assert_eq!(workflows[1].inputs[0].kind, WorkflowInputKind::FocusTarget);
+        assert_eq!(workflows[2].inputs[0].kind, WorkflowInputKind::NoteTarget);
 
         assert_eq!(
             built_in_workflow(BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID),
@@ -4318,11 +4471,13 @@ mod tests {
             .expect("built-in unresolved sweep should exist");
         let serialized =
             serde_json::to_value(&workflow).expect("built-in workflow should serialize");
-        assert_eq!(serialized["inputs"][0]["kind"], json!("note-target"));
+        assert_eq!(serialized["inputs"][0]["kind"], json!("focus-target"));
         assert_eq!(serialized["steps"][0]["kind"], json!("resolve"));
         assert_eq!(serialized["steps"][0]["target"]["kind"], json!("input"));
         assert_eq!(serialized["steps"][0]["target"]["input_id"], json!("focus"));
-        assert_eq!(serialized["steps"][1]["kind"], json!("explore"));
+        assert_eq!(serialized["steps"][2]["kind"], json!("explore"));
+        assert_eq!(serialized["steps"][2]["focus"]["kind"], json!("input"));
+        assert_eq!(serialized["steps"][2]["focus"]["input_id"], json!("focus"));
 
         let round_trip: WorkflowSpec =
             serde_json::from_value(serialized).expect("built-in workflow should deserialize");
@@ -4384,6 +4539,61 @@ mod tests {
         assert_eq!(
             missing_input_target.validation_error().as_deref(),
             Some("workflow step 0 is invalid: target must reference a declared workflow input")
+        );
+
+        let missing_focus_input = WorkflowSpec {
+            metadata: WorkflowMetadata {
+                workflow_id: "workflow/missing-focus-input".to_owned(),
+                title: "Missing Focus Input".to_owned(),
+                summary: None,
+            },
+            inputs: Vec::new(),
+            steps: vec![WorkflowStepSpec {
+                step_id: "explore-focus".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::Input {
+                        input_id: "focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Refs,
+                    limit: 25,
+                    unique: false,
+                },
+            }],
+        };
+        assert_eq!(
+            missing_focus_input.validation_error().as_deref(),
+            Some("workflow step 0 is invalid: focus must reference a declared workflow input")
+        );
+
+        let note_target_used_as_focus_input = WorkflowSpec {
+            metadata: WorkflowMetadata {
+                workflow_id: "workflow/note-focus-mismatch".to_owned(),
+                title: "Note Focus Mismatch".to_owned(),
+                summary: None,
+            },
+            inputs: vec![WorkflowInputSpec {
+                input_id: "focus".to_owned(),
+                title: "Focus".to_owned(),
+                summary: None,
+                kind: WorkflowInputKind::NoteTarget,
+            }],
+            steps: vec![WorkflowStepSpec {
+                step_id: "explore-focus".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::Input {
+                        input_id: "focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Refs,
+                    limit: 25,
+                    unique: false,
+                },
+            }],
+        };
+        assert_eq!(
+            note_target_used_as_focus_input
+                .validation_error()
+                .as_deref(),
+            Some("workflow step 0 is invalid: focus must reference a declared focus-target input")
         );
     }
 

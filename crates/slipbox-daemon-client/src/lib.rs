@@ -9,18 +9,20 @@ use serde_json::Value;
 use slipbox_core::{
     CompareNotesParams, ExecuteExplorationArtifactResult, ExplorationArtifactIdParams,
     ExplorationArtifactResult, ExploreParams, ExploreResult, ListExplorationArtifactsParams,
-    ListExplorationArtifactsResult, NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams,
-    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, PingInfo,
+    ListExplorationArtifactsResult, ListWorkflowsParams, ListWorkflowsResult, NodeAtPointParams,
+    NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
+    NoteComparisonResult, PingInfo, RunWorkflowParams, RunWorkflowResult,
     SaveExplorationArtifactParams, SaveExplorationArtifactResult, SearchNodesParams,
-    SearchNodesResult, StatusInfo,
+    SearchNodesResult, StatusInfo, WorkflowIdParams, WorkflowResult,
 };
 use slipbox_rpc::{
     JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_COMPARE_NOTES,
     METHOD_DELETE_EXPLORATION_ARTIFACT, METHOD_EXECUTE_EXPLORATION_ARTIFACT,
     METHOD_EXPLORATION_ARTIFACT, METHOD_EXPLORE, METHOD_LIST_EXPLORATION_ARTIFACTS,
-    METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_NODE_FROM_REF,
-    METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_SAVE_EXPLORATION_ARTIFACT,
-    METHOD_SEARCH_NODES, METHOD_STATUS, read_framed_message, write_framed_message,
+    METHOD_LIST_WORKFLOWS, METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY,
+    METHOD_NODE_FROM_REF, METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_RUN_WORKFLOW,
+    METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SEARCH_NODES, METHOD_STATUS, METHOD_WORKFLOW,
+    read_framed_message, write_framed_message,
 };
 use thiserror::Error;
 
@@ -240,6 +242,21 @@ where
         params: &CompareNotesParams,
     ) -> Result<NoteComparisonResult, DaemonClientError> {
         self.request(METHOD_COMPARE_NOTES, params)
+    }
+
+    fn list_workflows(&mut self) -> Result<ListWorkflowsResult, DaemonClientError> {
+        self.request(METHOD_LIST_WORKFLOWS, &ListWorkflowsParams::default())
+    }
+
+    fn workflow(&mut self, params: &WorkflowIdParams) -> Result<WorkflowResult, DaemonClientError> {
+        self.request(METHOD_WORKFLOW, params)
+    }
+
+    fn run_workflow(
+        &mut self,
+        params: &RunWorkflowParams,
+    ) -> Result<RunWorkflowResult, DaemonClientError> {
+        self.request(METHOD_RUN_WORKFLOW, params)
     }
 
     fn save_exploration_artifact(
@@ -473,6 +490,24 @@ impl DaemonClient {
         params: &CompareNotesParams,
     ) -> Result<NoteComparisonResult, DaemonClientError> {
         self.rpc.compare_notes(params)
+    }
+
+    pub fn list_workflows(&mut self) -> Result<ListWorkflowsResult, DaemonClientError> {
+        self.rpc.list_workflows()
+    }
+
+    pub fn workflow(
+        &mut self,
+        params: &WorkflowIdParams,
+    ) -> Result<WorkflowResult, DaemonClientError> {
+        self.rpc.workflow(params)
+    }
+
+    pub fn run_workflow(
+        &mut self,
+        params: &RunWorkflowParams,
+    ) -> Result<RunWorkflowResult, DaemonClientError> {
+        self.rpc.run_workflow(params)
     }
 
     pub fn save_exploration_artifact(

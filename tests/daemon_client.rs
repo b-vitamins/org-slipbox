@@ -4,10 +4,12 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result};
 use slipbox_core::{
-    CompareNotesParams, ExecuteExplorationArtifactResult, ExplorationArtifactIdParams,
-    ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationLens, ExploreParams,
-    NodeFromIdParams, NodeFromRefParams, NodeFromTitleOrAliasParams, SaveExplorationArtifactParams,
-    SavedExplorationArtifact, SavedLensViewArtifact, SearchNodesParams,
+    BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, CompareNotesParams, ExecuteExplorationArtifactResult,
+    ExplorationArtifactIdParams, ExplorationArtifactMetadata, ExplorationArtifactPayload,
+    ExplorationLens, ExploreParams, NodeFromIdParams, NodeFromRefParams,
+    NodeFromTitleOrAliasParams, RunWorkflowParams, SaveExplorationArtifactParams,
+    SavedExplorationArtifact, SavedLensViewArtifact, SearchNodesParams, WorkflowIdParams,
+    WorkflowInputAssignment, WorkflowResult,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonServeConfig};
 use slipbox_index::scan_root;
@@ -18,7 +20,7 @@ fn daemon_binary() -> &'static str {
     env!("CARGO_BIN_EXE_slipbox")
 }
 
-fn build_indexed_fixture() -> Result<(TempDir, PathBuf, PathBuf)> {
+fn build_indexed_fixture() -> Result<(TempDir, PathBuf, PathBuf, String)> {
     let workspace = tempdir()?;
     let root = workspace.path().join("notes");
     fs::create_dir_all(&root)?;
@@ -47,6 +49,9 @@ See [[id:beta-id][Beta]].
 :ID: beta-task-id
 :END:
 SCHEDULED: <2026-05-03 Sun>
+
+* TODO Anonymous Follow Up
+SCHEDULED: <2026-05-04 Mon>
 "#,
     )?;
 
@@ -54,13 +59,17 @@ SCHEDULED: <2026-05-03 Sun>
     let db = workspace.path().join("slipbox.sqlite");
     let mut database = Database::open(&db)?;
     database.sync_index(&files)?;
+    let anonymous_anchor_key = database
+        .anchor_at_point("beta.org", 13)?
+        .context("anonymous heading anchor should exist")?
+        .node_key;
 
-    Ok((workspace, root, db))
+    Ok((workspace, root, db, anonymous_anchor_key))
 }
 
 #[test]
 fn daemon_client_queries_spawned_daemon_and_round_trips_artifacts() -> Result<()> {
-    let (_workspace, root, db) = build_indexed_fixture()?;
+    let (_workspace, root, db, anonymous_anchor_key) = build_indexed_fixture()?;
     let canonical_root = root.canonicalize()?;
     let mut client = DaemonClient::spawn(daemon_binary(), &DaemonServeConfig::new(&root, &db))?;
 
@@ -70,7 +79,7 @@ fn daemon_client_queries_spawned_daemon_and_round_trips_artifacts() -> Result<()
 
     let status = client.status()?;
     assert_eq!(status.files_indexed, 2);
-    assert_eq!(status.nodes_indexed, 3);
+    assert_eq!(status.nodes_indexed, 4);
 
     let alpha = client
         .search_nodes(&SearchNodesParams {
@@ -137,6 +146,58 @@ fn daemon_client_queries_spawned_daemon_and_round_trips_artifacts() -> Result<()
             .iter()
             .any(|section| { section.kind == slipbox_core::NoteComparisonSectionKind::SharedRefs })
     );
+
+    let workflows = client.list_workflows()?;
+    assert_eq!(workflows.workflows.len(), 3);
+
+    let comparison_workflow: WorkflowResult = client.workflow(&WorkflowIdParams {
+        workflow_id: BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID.to_owned(),
+    })?;
+    assert_eq!(
+        comparison_workflow.workflow.metadata.workflow_id,
+        BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID
+    );
+    assert_eq!(comparison_workflow.workflow.inputs.len(), 2);
+
+    let workflow_run = client.run_workflow(&RunWorkflowParams {
+        workflow_id: BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID.to_owned(),
+        inputs: vec![
+            WorkflowInputAssignment {
+                input_id: "left".to_owned(),
+                target: slipbox_core::WorkflowResolveTarget::NodeKey {
+                    node_key: alpha.node_key.clone(),
+                },
+            },
+            WorkflowInputAssignment {
+                input_id: "right".to_owned(),
+                target: slipbox_core::WorkflowResolveTarget::NodeKey {
+                    node_key: beta.node_key.clone(),
+                },
+            },
+        ],
+    })?;
+    assert_eq!(workflow_run.result.steps.len(), 4);
+    assert_eq!(workflow_run.result.steps[2].kind().label(), "compare");
+
+    let unresolved_workflow_run = client.run_workflow(&RunWorkflowParams {
+        workflow_id: slipbox_core::BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID.to_owned(),
+        inputs: vec![WorkflowInputAssignment {
+            input_id: "focus".to_owned(),
+            target: slipbox_core::WorkflowResolveTarget::NodeKey {
+                node_key: anonymous_anchor_key.clone(),
+            },
+        }],
+    })?;
+    match &unresolved_workflow_run.result.steps[2].payload {
+        slipbox_core::WorkflowStepReportPayload::Explore {
+            focus_node_key,
+            result,
+        } => {
+            assert_eq!(focus_node_key, &anonymous_anchor_key);
+            assert_eq!(result.lens, ExplorationLens::Tasks);
+        }
+        other => panic!("expected tasks explore step, got {:?}", other.kind()),
+    }
 
     let saved = SavedExplorationArtifact {
         metadata: ExplorationArtifactMetadata {

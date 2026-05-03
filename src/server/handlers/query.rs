@@ -1,18 +1,25 @@
+use std::collections::HashMap;
+
 use slipbox_core::{
     AgendaParams, AgendaResult, BacklinksParams, BacklinksResult, CompareNotesParams,
     DeleteExplorationArtifactResult, ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
-    ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactResult,
-    ExplorationArtifactSummary, ExplorationEntry, ExplorationLens, ExplorationSection,
-    ExplorationSectionKind, ExploreParams, ExploreResult, ForwardLinksParams, ForwardLinksResult,
-    GraphParams, GraphResult, IndexFileParams, IndexedFilesResult, ListExplorationArtifactsParams,
-    ListExplorationArtifactsResult, NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams,
-    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, PingInfo,
-    RandomNodeResult, ReflinksParams, ReflinksResult, SaveExplorationArtifactParams,
-    SaveExplorationArtifactResult, SavedComparisonArtifact, SavedExplorationArtifact,
-    SavedLensViewArtifact, SavedTrailStep, SearchFilesParams, SearchFilesResult, SearchNodesParams,
-    SearchNodesResult, SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams,
-    SearchRefsResult, SearchTagsParams, SearchTagsResult, StatusInfo, TrailReplayResult,
-    TrailReplayStepResult, UnlinkedReferencesParams, UnlinkedReferencesResult,
+    ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactPayload,
+    ExplorationArtifactResult, ExplorationArtifactSummary, ExplorationEntry, ExplorationLens,
+    ExplorationSection, ExplorationSectionKind, ExploreParams, ExploreResult, ForwardLinksParams,
+    ForwardLinksResult, GraphParams, GraphResult, IndexFileParams, IndexedFilesResult,
+    ListExplorationArtifactsParams, ListExplorationArtifactsResult, ListWorkflowsParams,
+    ListWorkflowsResult, NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
+    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonGroup, NoteComparisonResult, PingInfo,
+    RandomNodeResult, ReflinksParams, ReflinksResult, RunWorkflowParams, RunWorkflowResult,
+    SaveExplorationArtifactParams, SaveExplorationArtifactResult, SavedComparisonArtifact,
+    SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailStep, SearchFilesParams,
+    SearchFilesResult, SearchNodesParams, SearchNodesResult, SearchOccurrencesParams,
+    SearchOccurrencesResult, SearchRefsParams, SearchRefsResult, SearchTagsParams,
+    SearchTagsResult, StatusInfo, TrailReplayResult, TrailReplayStepResult,
+    UnlinkedReferencesParams, UnlinkedReferencesResult, WorkflowExecutionResult, WorkflowIdParams,
+    WorkflowInputAssignment, WorkflowResolveTarget, WorkflowResult, WorkflowSpec,
+    WorkflowStepPayload, WorkflowStepReport, WorkflowStepReportPayload, built_in_workflow,
+    built_in_workflow_summaries,
 };
 use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
 
@@ -612,11 +619,489 @@ fn invalid_request(message: String) -> JsonRpcError {
     JsonRpcError::new(JsonRpcErrorObject::invalid_request(message))
 }
 
+fn with_step_context(step_id: &str, error: JsonRpcError) -> JsonRpcError {
+    let inner = error.into_inner();
+    JsonRpcError::new(JsonRpcErrorObject {
+        code: inner.code,
+        message: format!("workflow step {step_id} failed: {}", inner.message),
+    })
+}
+
 fn validate_artifact_id_params(params: &ExplorationArtifactIdParams) -> Result<(), JsonRpcError> {
     if let Some(message) = params.validation_error() {
         return Err(invalid_request(message));
     }
     Ok(())
+}
+
+fn validate_workflow_id_params(params: &WorkflowIdParams) -> Result<(), JsonRpcError> {
+    if let Some(message) = params.validation_error() {
+        return Err(invalid_request(message));
+    }
+    Ok(())
+}
+
+fn workflow_lens_accepts_anchor_focus(lens: ExplorationLens) -> bool {
+    matches!(
+        lens,
+        ExplorationLens::Refs | ExplorationLens::Time | ExplorationLens::Tasks
+    )
+}
+
+fn resolve_workflow_note_target(
+    state: &mut ServerState,
+    target: &WorkflowResolveTarget,
+    description: &str,
+) -> Result<NodeRecord, JsonRpcError> {
+    match target {
+        WorkflowResolveTarget::Id { id } => state
+            .database
+            .node_from_id(id)
+            .map_err(|error| {
+                internal_error(error.context(format!("failed to resolve {description}")))
+            })?
+            .ok_or_else(|| invalid_request(format!("unknown {description}: {id}"))),
+        WorkflowResolveTarget::Title { title } => {
+            let matches = state
+                .database
+                .node_from_title_or_alias(title, false)
+                .map_err(|error| {
+                    internal_error(error.context(format!("failed to resolve {description}")))
+                })?;
+            if matches.len() > 1 {
+                return Err(invalid_request(format!("multiple nodes match {title}")));
+            }
+            matches
+                .into_iter()
+                .next()
+                .ok_or_else(|| invalid_request(format!("unknown {description}: {title}")))
+        }
+        WorkflowResolveTarget::Reference { reference } => state
+            .database
+            .node_from_ref(reference)
+            .map_err(|error| {
+                internal_error(error.context(format!("failed to resolve {description}")))
+            })?
+            .ok_or_else(|| invalid_request(format!("unknown {description}: {reference}"))),
+        WorkflowResolveTarget::NodeKey { node_key } => state.known_note(node_key, description),
+        WorkflowResolveTarget::Input { .. } => Err(internal_error(anyhow::anyhow!(
+            "workflow input reference reached runtime resolution unexpectedly"
+        ))),
+    }
+}
+
+fn resolve_workflow_note_target_from_focus(
+    state: &mut ServerState,
+    target: &WorkflowResolveTarget,
+    description: &str,
+) -> Result<NodeRecord, JsonRpcError> {
+    match target {
+        WorkflowResolveTarget::NodeKey { node_key } => {
+            state.known_note_for_node_or_anchor(node_key, description)
+        }
+        WorkflowResolveTarget::Id { .. }
+        | WorkflowResolveTarget::Title { .. }
+        | WorkflowResolveTarget::Reference { .. } => {
+            resolve_workflow_note_target(state, target, description)
+        }
+        WorkflowResolveTarget::Input { .. } => Err(internal_error(anyhow::anyhow!(
+            "workflow input reference reached runtime note resolution unexpectedly"
+        ))),
+    }
+}
+
+fn resolve_workflow_focus_target(
+    state: &mut ServerState,
+    target: &WorkflowResolveTarget,
+    lens: ExplorationLens,
+    description: &str,
+) -> Result<String, JsonRpcError> {
+    match target {
+        WorkflowResolveTarget::NodeKey { node_key } if workflow_lens_accepts_anchor_focus(lens) => {
+            if state
+                .database
+                .anchor_by_key(node_key)
+                .map_err(|error| {
+                    internal_error(error.context(format!("failed to resolve {description}")))
+                })?
+                .is_some()
+            {
+                Ok(node_key.clone())
+            } else {
+                state
+                    .known_note(node_key, description)
+                    .map(|note| note.node_key)
+            }
+        }
+        WorkflowResolveTarget::NodeKey { node_key } => state
+            .known_note_for_node_or_anchor(node_key, description)
+            .map(|note| note.node_key),
+        WorkflowResolveTarget::Id { .. }
+        | WorkflowResolveTarget::Title { .. }
+        | WorkflowResolveTarget::Reference { .. } => {
+            resolve_workflow_note_target(state, target, description).map(|note| note.node_key)
+        }
+        WorkflowResolveTarget::Input { .. } => Err(internal_error(anyhow::anyhow!(
+            "workflow input reference reached runtime focus resolution unexpectedly"
+        ))),
+    }
+}
+
+fn save_exploration_artifact_with_policy(
+    state: &mut ServerState,
+    artifact: &SavedExplorationArtifact,
+    overwrite: bool,
+) -> Result<ExplorationArtifactSummary, JsonRpcError> {
+    if overwrite {
+        state
+            .database
+            .save_exploration_artifact(artifact)
+            .map_err(|error| {
+                internal_error(error.context("failed to save exploration artifact"))
+            })?;
+    } else if !state
+        .database
+        .save_exploration_artifact_if_absent(artifact)
+        .map_err(|error| {
+            internal_error(error.context("failed to save exploration artifact without overwrite"))
+        })?
+    {
+        return Err(invalid_request(format!(
+            "exploration artifact already exists: {}",
+            artifact.metadata.artifact_id
+        )));
+    }
+
+    Ok(ExplorationArtifactSummary::from(artifact))
+}
+
+#[derive(Debug, Clone)]
+enum WorkflowStepState {
+    Resolve {
+        node: Box<NodeRecord>,
+    },
+    Explore {
+        focus_node_key: String,
+        lens: ExplorationLens,
+        limit: usize,
+        unique: bool,
+        result: Box<ExploreResult>,
+    },
+    Compare {
+        left_node: Box<NodeRecord>,
+        right_node: Box<NodeRecord>,
+        group: NoteComparisonGroup,
+        limit: usize,
+        result: Box<NoteComparisonResult>,
+    },
+    ArtifactRun {
+        artifact: Box<ExecutedExplorationArtifact>,
+    },
+    ArtifactSave {
+        artifact: Box<ExplorationArtifactSummary>,
+    },
+}
+
+impl WorkflowStepState {
+    fn report(&self, step_id: String) -> WorkflowStepReport {
+        let payload = match self {
+            Self::Resolve { node } => WorkflowStepReportPayload::Resolve { node: node.clone() },
+            Self::Explore {
+                focus_node_key,
+                result,
+                ..
+            } => WorkflowStepReportPayload::Explore {
+                focus_node_key: focus_node_key.clone(),
+                result: result.clone(),
+            },
+            Self::Compare {
+                left_node,
+                right_node,
+                result,
+                ..
+            } => WorkflowStepReportPayload::Compare {
+                left_node: left_node.clone(),
+                right_node: right_node.clone(),
+                result: result.clone(),
+            },
+            Self::ArtifactRun { artifact } => WorkflowStepReportPayload::ArtifactRun {
+                artifact: artifact.clone(),
+            },
+            Self::ArtifactSave { artifact } => WorkflowStepReportPayload::ArtifactSave {
+                artifact: artifact.clone(),
+            },
+        };
+        WorkflowStepReport { step_id, payload }
+    }
+}
+
+fn execute_workflow_spec(
+    state: &mut ServerState,
+    workflow: &WorkflowSpec,
+    inputs: &[WorkflowInputAssignment],
+) -> Result<WorkflowExecutionResult, JsonRpcError> {
+    if let Some(message) = workflow.validation_error() {
+        return Err(invalid_request(message));
+    }
+    if let Some(message) = workflow.input_assignments_validation_error(inputs) {
+        return Err(invalid_request(message));
+    }
+
+    let declared_input_kinds: HashMap<&str, slipbox_core::WorkflowInputKind> = workflow
+        .inputs
+        .iter()
+        .map(|input| (input.input_id.as_str(), input.kind))
+        .collect();
+    let input_targets: HashMap<String, WorkflowResolveTarget> = inputs
+        .iter()
+        .map(|input| (input.input_id.clone(), input.target.clone()))
+        .collect();
+    let mut steps: HashMap<String, WorkflowStepState> =
+        HashMap::with_capacity(workflow.steps.len());
+    let mut reports = Vec::with_capacity(workflow.steps.len());
+
+    for step in &workflow.steps {
+        let step_state = (|| -> Result<WorkflowStepState, JsonRpcError> {
+            match &step.payload {
+                WorkflowStepPayload::Resolve { target } => {
+                    let node = match target {
+                        WorkflowResolveTarget::Input { input_id } => {
+                            let target = input_targets.get(input_id).ok_or_else(|| {
+                                invalid_request(format!(
+                                    "workflow input {input_id} must be assigned"
+                                ))
+                            })?;
+                            match declared_input_kinds.get(input_id.as_str()) {
+                                Some(slipbox_core::WorkflowInputKind::NoteTarget) => {
+                                    resolve_workflow_note_target(
+                                        state,
+                                        target,
+                                        "workflow note target",
+                                    )?
+                                }
+                                Some(slipbox_core::WorkflowInputKind::FocusTarget) => {
+                                    resolve_workflow_note_target_from_focus(
+                                        state,
+                                        target,
+                                        "workflow focus target",
+                                    )?
+                                }
+                                None => {
+                                    return Err(invalid_request(format!(
+                                        "workflow input {input_id} must be declared"
+                                    )));
+                                }
+                            }
+                        }
+                        _ => resolve_workflow_note_target(
+                            state,
+                            target,
+                            "workflow note target",
+                        )?,
+                    };
+                    Ok(WorkflowStepState::Resolve {
+                        node: Box::new(node),
+                    })
+                }
+                WorkflowStepPayload::Explore {
+                    focus,
+                    lens,
+                    limit,
+                    unique,
+                } => {
+                    let focus_node_key = match focus {
+                        slipbox_core::WorkflowExploreFocus::NodeKey { node_key } => {
+                            node_key.clone()
+                        }
+                        slipbox_core::WorkflowExploreFocus::Input { input_id } => {
+                            if declared_input_kinds.get(input_id.as_str())
+                                != Some(&slipbox_core::WorkflowInputKind::FocusTarget)
+                            {
+                                return Err(invalid_request(format!(
+                                    "workflow input {input_id} must be declared as a focus-target input"
+                                )));
+                            }
+                            let target = input_targets.get(input_id).ok_or_else(|| {
+                                invalid_request(format!(
+                                    "workflow input {input_id} must be assigned"
+                                ))
+                            })?;
+                            resolve_workflow_focus_target(
+                                state,
+                                target,
+                                *lens,
+                                "workflow focus target",
+                            )?
+                        }
+                        slipbox_core::WorkflowExploreFocus::ResolvedStep { step_id } => {
+                            match steps.get(step_id) {
+                                Some(WorkflowStepState::Resolve { node }) => node.node_key.clone(),
+                                Some(other) => {
+                                    return Err(invalid_request(format!(
+                                        "expected resolve focus source, got {}",
+                                        other.report(step_id.clone()).kind().label()
+                                    )));
+                                }
+                                None => {
+                                    return Err(invalid_request(format!(
+                                        "references unknown focus step {}",
+                                        step_id
+                                    )));
+                                }
+                            }
+                        }
+                    };
+                    let result = execute_explore_query(
+                        state,
+                        &ExploreParams {
+                            node_key: focus_node_key.clone(),
+                            lens: *lens,
+                            limit: *limit,
+                            unique: *unique,
+                        },
+                    )?;
+                    Ok(WorkflowStepState::Explore {
+                        focus_node_key,
+                        lens: *lens,
+                        limit: *limit,
+                        unique: *unique,
+                        result: Box::new(result),
+                    })
+                }
+                WorkflowStepPayload::Compare {
+                    left,
+                    right,
+                    group,
+                    limit,
+                } => {
+                    let left_node = match steps.get(&left.step_id) {
+                        Some(WorkflowStepState::Resolve { node }) => node.clone(),
+                        _ => {
+                            return Err(invalid_request(format!(
+                                "references invalid left resolve step {}",
+                                left.step_id
+                            )));
+                        }
+                    };
+                    let right_node = match steps.get(&right.step_id) {
+                        Some(WorkflowStepState::Resolve { node }) => node.clone(),
+                        _ => {
+                            return Err(invalid_request(format!(
+                                "references invalid right resolve step {}",
+                                right.step_id
+                            )));
+                        }
+                    };
+                    let result = execute_compare_notes_query(
+                        state,
+                        &CompareNotesParams {
+                            left_node_key: left_node.node_key.clone(),
+                            right_node_key: right_node.node_key.clone(),
+                            limit: *limit,
+                        },
+                    )?;
+                    Ok(WorkflowStepState::Compare {
+                        left_node,
+                        right_node,
+                        group: *group,
+                        limit: *limit,
+                        result: Box::new(result),
+                    })
+                }
+                WorkflowStepPayload::ArtifactRun { artifact_id } => {
+                    let artifact = execute_saved_exploration_artifact_by_id(state, artifact_id)?
+                        .ok_or_else(|| {
+                            invalid_request(format!("unknown exploration artifact: {artifact_id}"))
+                        })?;
+                    Ok(WorkflowStepState::ArtifactRun {
+                        artifact: Box::new(artifact),
+                    })
+                }
+                WorkflowStepPayload::ArtifactSave {
+                    source,
+                    metadata,
+                    overwrite,
+                } => {
+                    let artifact = match source {
+                        slipbox_core::WorkflowArtifactSaveSource::ExploreStep { step_id } => {
+                            match steps.get(step_id) {
+                                Some(WorkflowStepState::Explore {
+                                    focus_node_key,
+                                    lens,
+                                    limit,
+                                    unique,
+                                    ..
+                                }) => SavedExplorationArtifact {
+                                    metadata: metadata.clone(),
+                                    payload: ExplorationArtifactPayload::LensView {
+                                        artifact: Box::new(SavedLensViewArtifact {
+                                            root_node_key: focus_node_key.clone(),
+                                            current_node_key: focus_node_key.clone(),
+                                            lens: *lens,
+                                            limit: *limit,
+                                            unique: *unique,
+                                            frozen_context: false,
+                                        }),
+                                    },
+                                },
+                                _ => {
+                                    return Err(invalid_request(format!(
+                                        "references invalid explore source {}",
+                                        step_id
+                                    )));
+                                }
+                            }
+                        }
+                        slipbox_core::WorkflowArtifactSaveSource::CompareStep { step_id } => {
+                            match steps.get(step_id) {
+                                Some(WorkflowStepState::Compare {
+                                    left_node,
+                                    right_node,
+                                    group,
+                                    limit,
+                                    ..
+                                }) => SavedExplorationArtifact {
+                                    metadata: metadata.clone(),
+                                    payload: ExplorationArtifactPayload::Comparison {
+                                        artifact: Box::new(SavedComparisonArtifact {
+                                            root_node_key: left_node.node_key.clone(),
+                                            left_node_key: left_node.node_key.clone(),
+                                            right_node_key: right_node.node_key.clone(),
+                                            active_lens: ExplorationLens::Structure,
+                                            structure_unique: false,
+                                            comparison_group: *group,
+                                            limit: *limit,
+                                            frozen_context: false,
+                                        }),
+                                    },
+                                },
+                                _ => {
+                                    return Err(invalid_request(format!(
+                                        "references invalid compare source {}",
+                                        step_id
+                                    )));
+                                }
+                            }
+                        }
+                    };
+                    let artifact =
+                        save_exploration_artifact_with_policy(state, &artifact, *overwrite)?;
+                    Ok(WorkflowStepState::ArtifactSave {
+                        artifact: Box::new(artifact),
+                    })
+                }
+            }
+        })()
+        .map_err(|error| with_step_context(&step.step_id, error))?;
+
+        reports.push(step_state.report(step.step_id.clone()));
+        steps.insert(step.step_id.clone(), step_state);
+    }
+
+    Ok(WorkflowExecutionResult {
+        workflow: workflow.into(),
+        steps: reports,
+    })
 }
 
 fn known_exploration_artifact(
@@ -638,28 +1123,9 @@ pub(crate) fn save_exploration_artifact(
     if let Some(message) = params.validation_error() {
         return Err(invalid_request(message));
     }
-    if params.overwrite {
-        state
-            .database
-            .save_exploration_artifact(&params.artifact)
-            .map_err(|error| {
-                internal_error(error.context("failed to save exploration artifact"))
-            })?;
-    } else if !state
-        .database
-        .save_exploration_artifact_if_absent(&params.artifact)
-        .map_err(|error| {
-            internal_error(error.context("failed to save exploration artifact without overwrite"))
-        })?
-    {
-        return Err(invalid_request(format!(
-            "exploration artifact already exists: {}",
-            params.artifact.metadata.artifact_id
-        )));
-    }
-    to_value(SaveExplorationArtifactResult {
-        artifact: ExplorationArtifactSummary::from(&params.artifact),
-    })
+    let artifact =
+        save_exploration_artifact_with_policy(state, &params.artifact, params.overwrite)?;
+    to_value(SaveExplorationArtifactResult { artifact })
 }
 
 pub(crate) fn exploration_artifact(
@@ -725,6 +1191,41 @@ pub(crate) fn execute_exploration_artifact(
             ))
         })?;
     to_value(ExecuteExplorationArtifactResult { artifact })
+}
+
+pub(crate) fn list_workflows(
+    _state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let _params: ListWorkflowsParams = parse_params(params)?;
+    to_value(ListWorkflowsResult {
+        workflows: built_in_workflow_summaries(),
+    })
+}
+
+pub(crate) fn workflow(
+    _state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: WorkflowIdParams = parse_params(params)?;
+    validate_workflow_id_params(&params)?;
+    let workflow = built_in_workflow(&params.workflow_id)
+        .ok_or_else(|| invalid_request(format!("unknown workflow: {}", params.workflow_id)))?;
+    to_value(WorkflowResult { workflow })
+}
+
+pub(crate) fn run_workflow(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: RunWorkflowParams = parse_params(params)?;
+    if let Some(message) = params.validation_error() {
+        return Err(invalid_request(message));
+    }
+    let workflow = built_in_workflow(&params.workflow_id)
+        .ok_or_else(|| invalid_request(format!("unknown workflow: {}", params.workflow_id)))?;
+    let result = execute_workflow_spec(state, &workflow, &params.inputs)?;
+    to_value(RunWorkflowResult { result })
 }
 
 pub(crate) fn explore(
@@ -808,14 +1309,19 @@ mod tests {
 
     use serde_json::json;
     use slipbox_core::{
-        CompareNotesParams, ComparisonConnectorDirection, DeleteExplorationArtifactResult,
-        ExecuteExplorationArtifactResult, ExecutedExplorationArtifactPayload,
-        ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
-        ExplorationEntry, ExplorationExplanation, ExplorationLens, ExplorationSectionKind,
-        ExploreParams, ExploreResult, ListExplorationArtifactsResult, NoteComparisonEntry,
-        NoteComparisonExplanation, NoteComparisonResult, NoteComparisonSectionKind,
-        SaveExplorationArtifactResult, SavedComparisonArtifact, SavedExplorationArtifact,
-        SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, TrailReplayStepResult,
+        BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
+        BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID, CompareNotesParams, ComparisonConnectorDirection,
+        DeleteExplorationArtifactResult, ExecuteExplorationArtifactResult,
+        ExecutedExplorationArtifactPayload, ExplorationArtifactMetadata,
+        ExplorationArtifactPayload, ExplorationArtifactResult, ExplorationEntry,
+        ExplorationExplanation, ExplorationLens, ExplorationSectionKind, ExploreParams,
+        ExploreResult, ListExplorationArtifactsResult, ListWorkflowsResult, NoteComparisonEntry,
+        NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
+        NoteComparisonSectionKind, RunWorkflowResult, SaveExplorationArtifactResult,
+        SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact,
+        SavedTrailArtifact, SavedTrailStep, TrailReplayStepResult, WorkflowInputAssignment,
+        WorkflowResolveTarget, WorkflowResult, WorkflowSpec, WorkflowStepReport,
+        WorkflowStepReportPayload,
     };
     use slipbox_index::{DiscoveryPolicy, scan_root_with_policy};
     use tempfile::TempDir;
@@ -823,8 +1329,9 @@ mod tests {
     use super::{
         compare_notes, delete_exploration_artifact, execute_compare_notes_query,
         execute_exploration_artifact, execute_explore_query, execute_saved_exploration_artifact,
-        execute_saved_exploration_artifact_by_id, exploration_artifact, explore,
-        list_exploration_artifacts, save_exploration_artifact,
+        execute_saved_exploration_artifact_by_id, execute_workflow_spec, exploration_artifact,
+        explore, list_exploration_artifacts, list_workflows, run_workflow,
+        save_exploration_artifact, workflow,
     };
     use crate::server::state::ServerState;
 
@@ -1928,6 +2435,278 @@ mod tests {
             .expect("stored artifact lookup should succeed")
             .expect("stored artifact should remain readable");
         assert_eq!(stored, original);
+    }
+
+    #[test]
+    fn execute_workflow_spec_runs_all_supported_step_kinds() {
+        let (_workspace, mut state, left_key, right_key) = comparison_state();
+        let workflow = WorkflowSpec {
+            metadata: slipbox_core::WorkflowMetadata {
+                workflow_id: "workflow/test-all-kinds".to_owned(),
+                title: "All Kinds".to_owned(),
+                summary: Some("Exercise all workflow step kinds".to_owned()),
+            },
+            inputs: vec![
+                slipbox_core::WorkflowInputSpec {
+                    input_id: "left".to_owned(),
+                    title: "Left".to_owned(),
+                    summary: None,
+                    kind: slipbox_core::WorkflowInputKind::NoteTarget,
+                },
+                slipbox_core::WorkflowInputSpec {
+                    input_id: "right".to_owned(),
+                    title: "Right".to_owned(),
+                    summary: None,
+                    kind: slipbox_core::WorkflowInputKind::NoteTarget,
+                },
+            ],
+            steps: vec![
+                slipbox_core::WorkflowStepSpec {
+                    step_id: "resolve-left".to_owned(),
+                    payload: slipbox_core::WorkflowStepPayload::Resolve {
+                        target: WorkflowResolveTarget::Input {
+                            input_id: "left".to_owned(),
+                        },
+                    },
+                },
+                slipbox_core::WorkflowStepSpec {
+                    step_id: "resolve-right".to_owned(),
+                    payload: slipbox_core::WorkflowStepPayload::Resolve {
+                        target: WorkflowResolveTarget::Input {
+                            input_id: "right".to_owned(),
+                        },
+                    },
+                },
+                slipbox_core::WorkflowStepSpec {
+                    step_id: "compare".to_owned(),
+                    payload: slipbox_core::WorkflowStepPayload::Compare {
+                        left: slipbox_core::WorkflowStepRef {
+                            step_id: "resolve-left".to_owned(),
+                        },
+                        right: slipbox_core::WorkflowStepRef {
+                            step_id: "resolve-right".to_owned(),
+                        },
+                        group: NoteComparisonGroup::Tension,
+                        limit: 10,
+                    },
+                },
+                slipbox_core::WorkflowStepSpec {
+                    step_id: "save".to_owned(),
+                    payload: slipbox_core::WorkflowStepPayload::ArtifactSave {
+                        source: slipbox_core::WorkflowArtifactSaveSource::CompareStep {
+                            step_id: "compare".to_owned(),
+                        },
+                        metadata: ExplorationArtifactMetadata {
+                            artifact_id: "workflow-saved-comparison".to_owned(),
+                            title: "Workflow Saved Comparison".to_owned(),
+                            summary: None,
+                        },
+                        overwrite: false,
+                    },
+                },
+                slipbox_core::WorkflowStepSpec {
+                    step_id: "run-saved".to_owned(),
+                    payload: slipbox_core::WorkflowStepPayload::ArtifactRun {
+                        artifact_id: "workflow-saved-comparison".to_owned(),
+                    },
+                },
+            ],
+        };
+
+        let result = execute_workflow_spec(
+            &mut state,
+            &workflow,
+            &[
+                WorkflowInputAssignment {
+                    input_id: "left".to_owned(),
+                    target: WorkflowResolveTarget::NodeKey {
+                        node_key: left_key.clone(),
+                    },
+                },
+                WorkflowInputAssignment {
+                    input_id: "right".to_owned(),
+                    target: WorkflowResolveTarget::NodeKey {
+                        node_key: right_key.clone(),
+                    },
+                },
+            ],
+        )
+        .expect("workflow execution should succeed");
+
+        assert_eq!(
+            result.workflow.metadata.workflow_id,
+            "workflow/test-all-kinds"
+        );
+        assert_eq!(
+            result
+                .steps
+                .iter()
+                .map(WorkflowStepReport::kind)
+                .collect::<Vec<_>>(),
+            vec![
+                slipbox_core::WorkflowStepKind::Resolve,
+                slipbox_core::WorkflowStepKind::Resolve,
+                slipbox_core::WorkflowStepKind::Compare,
+                slipbox_core::WorkflowStepKind::ArtifactSave,
+                slipbox_core::WorkflowStepKind::ArtifactRun,
+            ]
+        );
+        match &result.steps[4].payload {
+            WorkflowStepReportPayload::ArtifactRun { artifact } => {
+                assert_eq!(artifact.metadata.artifact_id, "workflow-saved-comparison");
+                assert!(matches!(
+                    artifact.payload,
+                    ExecutedExplorationArtifactPayload::Comparison { .. }
+                ));
+            }
+            other => panic!("expected artifact-run report, got {:?}", other.kind()),
+        }
+    }
+
+    #[test]
+    fn workflow_rpc_lists_shows_and_runs_built_ins() {
+        let (_workspace, mut state, _target_key) = indexed_state();
+        let anchor_key = state
+            .database
+            .anchor_at_point("alpha.org", 31)
+            .expect("anchor lookup should succeed")
+            .expect("anonymous heading anchor should exist")
+            .node_key;
+
+        let listed: ListWorkflowsResult = serde_json::from_value(
+            list_workflows(&mut state, json!({})).expect("list workflows RPC should succeed"),
+        )
+        .expect("list workflows result should decode");
+        assert_eq!(listed.workflows.len(), 3);
+        assert_eq!(
+            listed.workflows[0].metadata.workflow_id,
+            BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID
+        );
+        assert_eq!(
+            listed.workflows[2].metadata.workflow_id,
+            BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID
+        );
+
+        let shown: WorkflowResult = serde_json::from_value(
+            workflow(
+                &mut state,
+                json!({ "workflow_id": BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID }),
+            )
+            .expect("workflow RPC should succeed"),
+        )
+        .expect("workflow result should decode");
+        assert_eq!(
+            shown.workflow.metadata.workflow_id,
+            BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID
+        );
+        assert_eq!(shown.workflow.inputs.len(), 1);
+
+        let executed_anchor_key = anchor_key.clone();
+        let executed: RunWorkflowResult = serde_json::from_value(
+            run_workflow(
+                &mut state,
+                json!({
+                    "workflow_id": BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
+                    "inputs": [
+                        {
+                            "input_id": "focus",
+                            "kind": "node-key",
+                            "node_key": anchor_key,
+                        }
+                    ]
+                }),
+            )
+            .expect("run workflow RPC should succeed"),
+        )
+        .expect("run workflow result should decode");
+        assert_eq!(
+            executed.result.workflow.metadata.workflow_id,
+            BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID
+        );
+        assert_eq!(executed.result.steps.len(), 4);
+        assert_eq!(executed.result.steps[0].kind().label(), "resolve");
+        match &executed.result.steps[1].payload {
+            WorkflowStepReportPayload::Explore { result, .. } => {
+                assert_eq!(result.lens, ExplorationLens::Unresolved);
+            }
+            other => panic!("expected unresolved explore report, got {:?}", other.kind()),
+        }
+        match &executed.result.steps[2].payload {
+            WorkflowStepReportPayload::Explore {
+                focus_node_key,
+                result,
+            } => {
+                assert_eq!(focus_node_key, &executed_anchor_key);
+                assert_eq!(result.lens, ExplorationLens::Tasks);
+            }
+            other => panic!("expected tasks explore report, got {:?}", other.kind()),
+        }
+    }
+
+    #[test]
+    fn workflow_rpc_reports_lookup_and_step_failures_with_context() {
+        let (_workspace, mut state, target_key) = indexed_state();
+        let anchor_key = state
+            .database
+            .anchor_at_point("alpha.org", 18)
+            .expect("anchor lookup should succeed")
+            .expect("anonymous heading anchor should exist")
+            .node_key;
+
+        let unknown_workflow = workflow(
+            &mut state,
+            json!({ "workflow_id": "workflow/builtin/missing" }),
+        )
+        .expect_err("unknown workflow should fail");
+        assert_eq!(
+            unknown_workflow.into_inner().message,
+            "unknown workflow: workflow/builtin/missing"
+        );
+
+        let step_failure = run_workflow(
+            &mut state,
+            json!({
+                "workflow_id": BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
+                "inputs": [
+                    {
+                        "input_id": "focus",
+                        "kind": "id",
+                        "id": "missing-id"
+                    }
+                ]
+            }),
+        )
+        .expect_err("missing workflow input target should fail");
+        assert_eq!(
+            step_failure.into_inner().message,
+            "workflow step resolve-focus failed: unknown workflow focus target: missing-id"
+        );
+
+        let note_target_anchor_failure = run_workflow(
+            &mut state,
+            json!({
+                "workflow_id": BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID,
+                "inputs": [
+                    {
+                        "input_id": "left",
+                        "kind": "node-key",
+                        "node_key": anchor_key,
+                    },
+                    {
+                        "input_id": "right",
+                        "kind": "node-key",
+                        "node_key": target_key,
+                    }
+                ]
+            }),
+        )
+        .expect_err("note-target workflow inputs should reject anchor node keys");
+        assert_eq!(
+            note_target_anchor_failure.into_inner().message,
+            format!(
+                "workflow step resolve-left failed: unknown workflow note target: {anchor_key}"
+            )
+        );
     }
 
     fn saved_lens_artifact(
