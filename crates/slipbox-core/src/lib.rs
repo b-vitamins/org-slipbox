@@ -1364,6 +1364,35 @@ pub struct WorkflowSummary {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+pub enum WorkflowInputKind {
+    NoteTarget,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowInputSpec {
+    pub input_id: String,
+    pub title: String,
+    #[serde(default)]
+    pub summary: Option<String>,
+    pub kind: WorkflowInputKind,
+}
+
+impl WorkflowInputSpec {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_workflow_input_id_field(&self.input_id)
+            .or_else(|| validate_required_text_field(&self.title, "title"))
+            .or_else(|| validate_optional_text_field(self.summary.as_deref(), "summary"))
+    }
+}
+
+pub const BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID: &str = "workflow/builtin/context-sweep";
+pub const BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID: &str = "workflow/builtin/unresolved-sweep";
+pub const BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID: &str =
+    "workflow/builtin/comparison-tension-review";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum WorkflowStepKind {
     Resolve,
     Explore,
@@ -1392,6 +1421,7 @@ pub enum WorkflowResolveTarget {
     Title { title: String },
     Reference { reference: String },
     NodeKey { node_key: String },
+    Input { input_id: String },
 }
 
 impl WorkflowResolveTarget {
@@ -1402,6 +1432,7 @@ impl WorkflowResolveTarget {
             Self::Title { title } => validate_required_text_field(title, "title"),
             Self::Reference { reference } => validate_required_text_field(reference, "reference"),
             Self::NodeKey { node_key } => validate_required_text_field(node_key, "node_key"),
+            Self::Input { input_id } => validate_workflow_input_id_field(input_id),
         }
     }
 }
@@ -1565,6 +1596,8 @@ impl WorkflowStepSpec {
 pub struct WorkflowSpec {
     #[serde(flatten)]
     pub metadata: WorkflowMetadata,
+    #[serde(default)]
+    pub inputs: Vec<WorkflowInputSpec>,
     pub steps: Vec<WorkflowStepSpec>,
 }
 
@@ -1572,6 +1605,23 @@ impl WorkflowSpec {
     #[must_use]
     pub fn validation_error(&self) -> Option<String> {
         self.metadata.validation_error().or_else(|| {
+            let mut seen_inputs: Vec<&str> = Vec::with_capacity(self.inputs.len());
+            for (index, input) in self.inputs.iter().enumerate() {
+                if let Some(error) = input.validation_error() {
+                    return Some(format!("workflow input {index} is invalid: {error}"));
+                }
+                if seen_inputs
+                    .iter()
+                    .any(|input_id| *input_id == input.input_id)
+                {
+                    return Some(format!(
+                        "workflow input {index} reuses duplicate input_id {}",
+                        input.input_id
+                    ));
+                }
+                seen_inputs.push(input.input_id.as_str());
+            }
+
             if self.steps.is_empty() {
                 return Some("workflows must contain at least one step".to_owned());
             }
@@ -1587,7 +1637,9 @@ impl WorkflowSpec {
                         step.step_id
                     ));
                 }
-                if let Some(error) = validate_workflow_step_references(&step.payload, &seen) {
+                if let Some(error) =
+                    validate_workflow_step_references(&step.payload, &seen, &seen_inputs)
+                {
                     return Some(format!("workflow step {index} is invalid: {error}"));
                 }
                 seen.push((step.step_id.as_str(), step.kind()));
@@ -1603,6 +1655,224 @@ impl From<&WorkflowSpec> for WorkflowSummary {
             metadata: workflow.metadata.clone(),
             step_count: workflow.steps.len(),
         }
+    }
+}
+
+#[must_use]
+pub fn built_in_workflows() -> Vec<WorkflowSpec> {
+    vec![
+        built_in_context_sweep_workflow(),
+        built_in_unresolved_sweep_workflow(),
+        built_in_comparison_tension_workflow(),
+    ]
+}
+
+#[must_use]
+pub fn built_in_workflow(workflow_id: &str) -> Option<WorkflowSpec> {
+    built_in_workflows()
+        .into_iter()
+        .find(|workflow| workflow.metadata.workflow_id == workflow_id)
+}
+
+#[must_use]
+pub fn built_in_workflow_summaries() -> Vec<WorkflowSummary> {
+    built_in_workflows()
+        .into_iter()
+        .map(|workflow| WorkflowSummary::from(&workflow))
+        .collect()
+}
+
+fn built_in_context_sweep_workflow() -> WorkflowSpec {
+    WorkflowSpec {
+        metadata: WorkflowMetadata {
+            workflow_id: BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID.to_owned(),
+            title: "Context Sweep".to_owned(),
+            summary: Some(
+                "Resolve a focus note and gather structural, reference, and dormant context."
+                    .to_owned(),
+            ),
+        },
+        inputs: vec![WorkflowInputSpec {
+            input_id: "focus".to_owned(),
+            title: "Focus note".to_owned(),
+            summary: Some("Exact note target to inspect".to_owned()),
+            kind: WorkflowInputKind::NoteTarget,
+        }],
+        steps: vec![
+            WorkflowStepSpec {
+                step_id: "resolve-focus".to_owned(),
+                payload: WorkflowStepPayload::Resolve {
+                    target: WorkflowResolveTarget::Input {
+                        input_id: "focus".to_owned(),
+                    },
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "explore-structure".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::ResolvedStep {
+                        step_id: "resolve-focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Structure,
+                    limit: 25,
+                    unique: false,
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "explore-refs".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::ResolvedStep {
+                        step_id: "resolve-focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Refs,
+                    limit: 25,
+                    unique: false,
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "explore-dormant".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::ResolvedStep {
+                        step_id: "resolve-focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Dormant,
+                    limit: 25,
+                    unique: false,
+                },
+            },
+        ],
+    }
+}
+
+fn built_in_unresolved_sweep_workflow() -> WorkflowSpec {
+    WorkflowSpec {
+        metadata: WorkflowMetadata {
+            workflow_id: BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID.to_owned(),
+            title: "Unresolved Sweep".to_owned(),
+            summary: Some(
+                "Resolve a focus note and sweep unresolved, task, and time context around it."
+                    .to_owned(),
+            ),
+        },
+        inputs: vec![WorkflowInputSpec {
+            input_id: "focus".to_owned(),
+            title: "Focus note".to_owned(),
+            summary: Some("Exact note target to audit for unresolved pressure".to_owned()),
+            kind: WorkflowInputKind::NoteTarget,
+        }],
+        steps: vec![
+            WorkflowStepSpec {
+                step_id: "resolve-focus".to_owned(),
+                payload: WorkflowStepPayload::Resolve {
+                    target: WorkflowResolveTarget::Input {
+                        input_id: "focus".to_owned(),
+                    },
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "explore-unresolved".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::ResolvedStep {
+                        step_id: "resolve-focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Unresolved,
+                    limit: 25,
+                    unique: false,
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "explore-tasks".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::ResolvedStep {
+                        step_id: "resolve-focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Tasks,
+                    limit: 25,
+                    unique: false,
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "explore-time".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::ResolvedStep {
+                        step_id: "resolve-focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Time,
+                    limit: 25,
+                    unique: false,
+                },
+            },
+        ],
+    }
+}
+
+fn built_in_comparison_tension_workflow() -> WorkflowSpec {
+    WorkflowSpec {
+        metadata: WorkflowMetadata {
+            workflow_id: BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID.to_owned(),
+            title: "Comparison Tension Review".to_owned(),
+            summary: Some(
+                "Resolve two notes and review both tension and overlap together.".to_owned(),
+            ),
+        },
+        inputs: vec![
+            WorkflowInputSpec {
+                input_id: "left".to_owned(),
+                title: "Left note".to_owned(),
+                summary: Some("First exact note target".to_owned()),
+                kind: WorkflowInputKind::NoteTarget,
+            },
+            WorkflowInputSpec {
+                input_id: "right".to_owned(),
+                title: "Right note".to_owned(),
+                summary: Some("Second exact note target".to_owned()),
+                kind: WorkflowInputKind::NoteTarget,
+            },
+        ],
+        steps: vec![
+            WorkflowStepSpec {
+                step_id: "resolve-left".to_owned(),
+                payload: WorkflowStepPayload::Resolve {
+                    target: WorkflowResolveTarget::Input {
+                        input_id: "left".to_owned(),
+                    },
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "resolve-right".to_owned(),
+                payload: WorkflowStepPayload::Resolve {
+                    target: WorkflowResolveTarget::Input {
+                        input_id: "right".to_owned(),
+                    },
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "compare-tension".to_owned(),
+                payload: WorkflowStepPayload::Compare {
+                    left: WorkflowStepRef {
+                        step_id: "resolve-left".to_owned(),
+                    },
+                    right: WorkflowStepRef {
+                        step_id: "resolve-right".to_owned(),
+                    },
+                    group: NoteComparisonGroup::Tension,
+                    limit: 25,
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "compare-overlap".to_owned(),
+                payload: WorkflowStepPayload::Compare {
+                    left: WorkflowStepRef {
+                        step_id: "resolve-left".to_owned(),
+                    },
+                    right: WorkflowStepRef {
+                        step_id: "resolve-right".to_owned(),
+                    },
+                    group: NoteComparisonGroup::Overlap,
+                    limit: 25,
+                },
+            },
+        ],
     }
 }
 
@@ -2149,6 +2419,13 @@ fn validate_workflow_id_field(value: &str) -> Option<String> {
     })
 }
 
+fn validate_workflow_input_id_field(value: &str) -> Option<String> {
+    validate_required_text_field(value, "input_id").or_else(|| {
+        (value.trim() != value)
+            .then(|| "input_id must not have leading or trailing whitespace".to_owned())
+    })
+}
+
 fn validate_workflow_step_id_field(value: &str) -> Option<String> {
     validate_required_text_field(value, "step_id").or_else(|| {
         (value.trim() != value)
@@ -2191,9 +2468,18 @@ fn validate_workflow_step_reference(
 fn validate_workflow_step_references(
     payload: &WorkflowStepPayload,
     seen: &[(&str, WorkflowStepKind)],
+    inputs: &[&str],
 ) -> Option<String> {
     match payload {
-        WorkflowStepPayload::Resolve { .. } | WorkflowStepPayload::ArtifactRun { .. } => None,
+        WorkflowStepPayload::Resolve { target } => match target {
+            WorkflowResolveTarget::Input { input_id } => (!inputs.contains(&input_id.as_str()))
+                .then(|| "target must reference a declared workflow input".to_owned()),
+            WorkflowResolveTarget::Id { .. }
+            | WorkflowResolveTarget::Title { .. }
+            | WorkflowResolveTarget::Reference { .. }
+            | WorkflowResolveTarget::NodeKey { .. } => None,
+        },
+        WorkflowStepPayload::ArtifactRun { .. } => None,
         WorkflowStepPayload::Explore { focus, .. } => match focus {
             WorkflowExploreFocus::NodeKey { .. } => None,
             WorkflowExploreFocus::ResolvedStep { step_id } => {
@@ -2225,9 +2511,11 @@ fn validate_workflow_step_references(
 #[cfg(test)]
 mod tests {
     use super::{
-        BacklinkRecord, BridgeEvidenceRecord, CaptureNodeParams, CaptureTemplatePreviewResult,
-        CompareNotesParams, ComparisonConnectorDirection, ComparisonPlanningRecord,
-        ComparisonReferenceRecord, ComparisonTaskStateRecord, DeleteExplorationArtifactResult,
+        BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
+        BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID, BacklinkRecord, BridgeEvidenceRecord,
+        CaptureNodeParams, CaptureTemplatePreviewResult, CompareNotesParams,
+        ComparisonConnectorDirection, ComparisonPlanningRecord, ComparisonReferenceRecord,
+        ComparisonTaskStateRecord, DeleteExplorationArtifactResult,
         ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
         ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactKind,
         ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
@@ -2241,9 +2529,10 @@ mod tests {
         SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, SearchNodesParams,
         SearchNodesSort, TrailReplayResult, TrailReplayStepResult, UnlinkedReferencesParams,
         UpdateNodeMetadataParams, WorkflowArtifactSaveSource, WorkflowExecutionResult,
-        WorkflowExploreFocus, WorkflowMetadata, WorkflowResolveTarget, WorkflowSpec,
-        WorkflowStepPayload, WorkflowStepRef, WorkflowStepReport, WorkflowStepReportPayload,
-        WorkflowStepSpec, WorkflowSummary, normalize_reference,
+        WorkflowExploreFocus, WorkflowInputKind, WorkflowInputSpec, WorkflowMetadata,
+        WorkflowResolveTarget, WorkflowSpec, WorkflowStepPayload, WorkflowStepRef,
+        WorkflowStepReport, WorkflowStepReportPayload, WorkflowStepSpec, WorkflowSummary,
+        built_in_workflow, built_in_workflow_summaries, built_in_workflows, normalize_reference,
     };
     use serde_json::json;
 
@@ -3550,6 +3839,7 @@ mod tests {
                 title: "Research Routine".to_owned(),
                 summary: Some("Resolve, explore, compare, and save".to_owned()),
             },
+            inputs: Vec::new(),
             steps: vec![
                 WorkflowStepSpec {
                     step_id: "resolve-focus".to_owned(),
@@ -3655,6 +3945,7 @@ mod tests {
                 title: "Round Trip".to_owned(),
                 summary: None,
             },
+            inputs: Vec::new(),
             steps: vec![
                 WorkflowStepSpec {
                     step_id: "resolve-focus".to_owned(),
@@ -3793,6 +4084,7 @@ mod tests {
                 title: "Workflow".to_owned(),
                 summary: None,
             },
+            inputs: Vec::new(),
             steps: vec![WorkflowStepSpec {
                 step_id: "resolve-focus".to_owned(),
                 payload: WorkflowStepPayload::Resolve {
@@ -3813,6 +4105,7 @@ mod tests {
                 title: "Empty".to_owned(),
                 summary: None,
             },
+            inputs: Vec::new(),
             steps: Vec::new(),
         };
         assert_eq!(
@@ -3826,6 +4119,7 @@ mod tests {
                 title: "Duplicate".to_owned(),
                 summary: None,
             },
+            inputs: Vec::new(),
             steps: vec![
                 WorkflowStepSpec {
                     step_id: "resolve-focus".to_owned(),
@@ -3856,6 +4150,7 @@ mod tests {
                 title: "Missing Ref".to_owned(),
                 summary: None,
             },
+            inputs: Vec::new(),
             steps: vec![WorkflowStepSpec {
                 step_id: "explore-focus".to_owned(),
                 payload: WorkflowStepPayload::Explore {
@@ -3879,6 +4174,7 @@ mod tests {
                 title: "Wrong Ref".to_owned(),
                 summary: None,
             },
+            inputs: Vec::new(),
             steps: vec![
                 WorkflowStepSpec {
                     step_id: "resolve-focus".to_owned(),
@@ -3915,6 +4211,7 @@ mod tests {
                 title: "Same Compare".to_owned(),
                 summary: None,
             },
+            inputs: Vec::new(),
             steps: vec![
                 WorkflowStepSpec {
                     step_id: "resolve-focus".to_owned(),
@@ -3952,6 +4249,7 @@ mod tests {
                 title: "Unique Refs".to_owned(),
                 summary: None,
             },
+            inputs: Vec::new(),
             steps: vec![WorkflowStepSpec {
                 step_id: "explore-focus".to_owned(),
                 payload: WorkflowStepPayload::Explore {
@@ -3969,6 +4267,123 @@ mod tests {
             Some(
                 "workflow step 0 is invalid: explore unique is only supported for the structure lens"
             )
+        );
+    }
+
+    #[test]
+    fn built_in_workflows_are_valid_named_specs() {
+        let workflows = built_in_workflows();
+        assert_eq!(workflows.len(), 3);
+
+        let ids: Vec<&str> = workflows
+            .iter()
+            .map(|workflow| workflow.metadata.workflow_id.as_str())
+            .collect();
+        assert_eq!(
+            ids,
+            vec![
+                BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
+                BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
+                BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID,
+            ]
+        );
+
+        for workflow in &workflows {
+            assert_eq!(workflow.validation_error(), None);
+            assert!(
+                !workflow.inputs.is_empty(),
+                "built-in workflow {} should declare inputs",
+                workflow.metadata.workflow_id
+            );
+        }
+
+        assert_eq!(
+            built_in_workflow(BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID),
+            Some(workflows[0].clone())
+        );
+        assert_eq!(built_in_workflow("workflow/builtin/missing"), None);
+
+        let summaries = built_in_workflow_summaries();
+        assert_eq!(summaries.len(), workflows.len());
+        assert_eq!(summaries[0].step_count, workflows[0].steps.len());
+        assert_eq!(
+            summaries[2].metadata.workflow_id,
+            BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID
+        );
+    }
+
+    #[test]
+    fn built_in_workflows_round_trip_with_input_backed_resolve_targets() {
+        let workflow = built_in_workflow(BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID)
+            .expect("built-in unresolved sweep should exist");
+        let serialized =
+            serde_json::to_value(&workflow).expect("built-in workflow should serialize");
+        assert_eq!(serialized["inputs"][0]["kind"], json!("note-target"));
+        assert_eq!(serialized["steps"][0]["kind"], json!("resolve"));
+        assert_eq!(serialized["steps"][0]["target"]["kind"], json!("input"));
+        assert_eq!(serialized["steps"][0]["target"]["input_id"], json!("focus"));
+        assert_eq!(serialized["steps"][1]["kind"], json!("explore"));
+
+        let round_trip: WorkflowSpec =
+            serde_json::from_value(serialized).expect("built-in workflow should deserialize");
+        assert_eq!(round_trip, workflow);
+    }
+
+    #[test]
+    fn workflow_specs_reject_invalid_inputs_and_missing_input_targets() {
+        let duplicate_inputs = WorkflowSpec {
+            metadata: WorkflowMetadata {
+                workflow_id: "workflow/duplicate-inputs".to_owned(),
+                title: "Duplicate Inputs".to_owned(),
+                summary: None,
+            },
+            inputs: vec![
+                WorkflowInputSpec {
+                    input_id: "focus".to_owned(),
+                    title: "Focus".to_owned(),
+                    summary: None,
+                    kind: WorkflowInputKind::NoteTarget,
+                },
+                WorkflowInputSpec {
+                    input_id: "focus".to_owned(),
+                    title: "Focus Again".to_owned(),
+                    summary: None,
+                    kind: WorkflowInputKind::NoteTarget,
+                },
+            ],
+            steps: vec![WorkflowStepSpec {
+                step_id: "resolve-focus".to_owned(),
+                payload: WorkflowStepPayload::Resolve {
+                    target: WorkflowResolveTarget::Input {
+                        input_id: "focus".to_owned(),
+                    },
+                },
+            }],
+        };
+        assert_eq!(
+            duplicate_inputs.validation_error().as_deref(),
+            Some("workflow input 1 reuses duplicate input_id focus")
+        );
+
+        let missing_input_target = WorkflowSpec {
+            metadata: WorkflowMetadata {
+                workflow_id: "workflow/missing-input".to_owned(),
+                title: "Missing Input".to_owned(),
+                summary: None,
+            },
+            inputs: Vec::new(),
+            steps: vec![WorkflowStepSpec {
+                step_id: "resolve-focus".to_owned(),
+                payload: WorkflowStepPayload::Resolve {
+                    target: WorkflowResolveTarget::Input {
+                        input_id: "focus".to_owned(),
+                    },
+                },
+            }],
+        };
+        assert_eq!(
+            missing_input_target.validation_error().as_deref(),
+            Some("workflow step 0 is invalid: target must reference a declared workflow input")
         );
     }
 
