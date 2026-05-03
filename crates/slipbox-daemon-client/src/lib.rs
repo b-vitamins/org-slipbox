@@ -7,16 +7,16 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use slipbox_core::{
-    CompareNotesParams, ExecuteExplorationArtifactResult, ExplorationArtifactIdParams,
-    ExplorationArtifactResult, ExploreParams, ExploreResult, ListExplorationArtifactsParams,
-    ListExplorationArtifactsResult, ListWorkflowsParams, ListWorkflowsResult, NodeAtPointParams,
-    NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
-    NoteComparisonResult, PingInfo, RunWorkflowParams, RunWorkflowResult,
-    SaveExplorationArtifactParams, SaveExplorationArtifactResult, SearchNodesParams,
-    SearchNodesResult, StatusInfo, WorkflowIdParams, WorkflowResult,
+    CompareNotesParams, CorpusAuditParams, CorpusAuditResult, ExecuteExplorationArtifactResult,
+    ExplorationArtifactIdParams, ExplorationArtifactResult, ExploreParams, ExploreResult,
+    ListExplorationArtifactsParams, ListExplorationArtifactsResult, ListWorkflowsParams,
+    ListWorkflowsResult, NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
+    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, PingInfo, RunWorkflowParams,
+    RunWorkflowResult, SaveExplorationArtifactParams, SaveExplorationArtifactResult,
+    SearchNodesParams, SearchNodesResult, StatusInfo, WorkflowIdParams, WorkflowResult,
 };
 use slipbox_rpc::{
-    JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_COMPARE_NOTES,
+    JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_COMPARE_NOTES, METHOD_CORPUS_AUDIT,
     METHOD_DELETE_EXPLORATION_ARTIFACT, METHOD_EXECUTE_EXPLORATION_ARTIFACT,
     METHOD_EXPLORATION_ARTIFACT, METHOD_EXPLORE, METHOD_LIST_EXPLORATION_ARTIFACTS,
     METHOD_LIST_WORKFLOWS, METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY,
@@ -263,6 +263,13 @@ where
         params: &RunWorkflowParams,
     ) -> Result<RunWorkflowResult, DaemonClientError> {
         self.request(METHOD_RUN_WORKFLOW, params)
+    }
+
+    fn corpus_audit(
+        &mut self,
+        params: &CorpusAuditParams,
+    ) -> Result<CorpusAuditResult, DaemonClientError> {
+        self.request(METHOD_CORPUS_AUDIT, params)
     }
 
     fn save_exploration_artifact(
@@ -514,6 +521,13 @@ impl DaemonClient {
         params: &RunWorkflowParams,
     ) -> Result<RunWorkflowResult, DaemonClientError> {
         self.rpc.run_workflow(params)
+    }
+
+    pub fn corpus_audit(
+        &mut self,
+        params: &CorpusAuditParams,
+    ) -> Result<CorpusAuditResult, DaemonClientError> {
+        self.rpc.corpus_audit(params)
     }
 
     pub fn save_exploration_artifact(

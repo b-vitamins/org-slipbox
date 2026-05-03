@@ -2056,6 +2056,87 @@ pub struct RunWorkflowResult {
     pub result: WorkflowExecutionResult,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CorpusAuditKind {
+    DanglingLinks,
+    DuplicateTitles,
+    OrphanNotes,
+    WeaklyIntegratedNotes,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CorpusAuditParams {
+    pub audit: CorpusAuditKind,
+    #[serde(default = "default_audit_limit")]
+    pub limit: usize,
+}
+
+impl CorpusAuditParams {
+    #[must_use]
+    pub fn normalized_limit(&self) -> usize {
+        self.limit.clamp(1, 500)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DanglingLinkAuditRecord {
+    pub source: AnchorRecord,
+    pub missing_explicit_id: String,
+    pub line: u32,
+    pub column: u32,
+    pub preview: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DuplicateTitleAuditRecord {
+    pub title: String,
+    pub notes: Vec<NodeRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NoteConnectivityAuditRecord {
+    pub note: NodeRecord,
+    pub reference_count: usize,
+    pub backlink_count: usize,
+    pub forward_link_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum CorpusAuditEntry {
+    DanglingLink {
+        record: Box<DanglingLinkAuditRecord>,
+    },
+    DuplicateTitle {
+        record: Box<DuplicateTitleAuditRecord>,
+    },
+    OrphanNote {
+        record: Box<NoteConnectivityAuditRecord>,
+    },
+    WeaklyIntegratedNote {
+        record: Box<NoteConnectivityAuditRecord>,
+    },
+}
+
+impl CorpusAuditEntry {
+    #[must_use]
+    pub const fn kind(&self) -> CorpusAuditKind {
+        match self {
+            Self::DanglingLink { .. } => CorpusAuditKind::DanglingLinks,
+            Self::DuplicateTitle { .. } => CorpusAuditKind::DuplicateTitles,
+            Self::OrphanNote { .. } => CorpusAuditKind::OrphanNotes,
+            Self::WeaklyIntegratedNote { .. } => CorpusAuditKind::WeaklyIntegratedNotes,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CorpusAuditResult {
+    pub audit: CorpusAuditKind,
+    pub entries: Vec<CorpusAuditEntry>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgendaParams {
     pub start: String,
@@ -2390,6 +2471,10 @@ const fn default_artifact_overwrite() -> bool {
     true
 }
 
+const fn default_audit_limit() -> usize {
+    200
+}
+
 const fn default_tag_limit() -> usize {
     200
 }
@@ -2671,33 +2756,58 @@ fn validate_workflow_step_references(
 #[cfg(test)]
 mod tests {
     use super::{
-        BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
+        AnchorRecord, BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
         BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID, BacklinkRecord, BridgeEvidenceRecord,
         CaptureNodeParams, CaptureTemplatePreviewResult, CompareNotesParams,
         ComparisonConnectorDirection, ComparisonPlanningRecord, ComparisonReferenceRecord,
-        ComparisonTaskStateRecord, DeleteExplorationArtifactResult,
-        ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
+        ComparisonTaskStateRecord, CorpusAuditEntry, CorpusAuditKind, CorpusAuditParams,
+        CorpusAuditResult, DanglingLinkAuditRecord, DeleteExplorationArtifactResult,
+        DuplicateTitleAuditRecord, ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
         ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactKind,
         ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
         ExplorationArtifactSummary, ExplorationEntry, ExplorationExplanation, ExplorationLens,
         ExplorationSection, ExplorationSectionKind, ExploreParams, ExploreResult,
         ListExplorationArtifactsResult, NodeFromKeyParams, NodeFromTitleOrAliasParams, NodeKind,
         NodeRecord, NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonGroup,
-        NoteComparisonResult, NoteComparisonSection, NoteComparisonSectionKind, PlanningField,
-        PlanningRelationRecord, PreviewNodeRecord, SaveExplorationArtifactParams,
-        SaveExplorationArtifactResult, SavedComparisonArtifact, SavedExplorationArtifact,
-        SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, SearchNodesParams,
-        SearchNodesSort, TrailReplayResult, TrailReplayStepResult, UnlinkedReferencesParams,
-        UpdateNodeMetadataParams, WorkflowArtifactSaveSource, WorkflowExecutionResult,
-        WorkflowExploreFocus, WorkflowInputKind, WorkflowInputSpec, WorkflowMetadata,
-        WorkflowResolveTarget, WorkflowSpec, WorkflowStepPayload, WorkflowStepRef,
-        WorkflowStepReport, WorkflowStepReportPayload, WorkflowStepSpec, WorkflowSummary,
-        built_in_workflow, built_in_workflow_summaries, built_in_workflows, normalize_reference,
+        NoteComparisonResult, NoteComparisonSection, NoteComparisonSectionKind,
+        NoteConnectivityAuditRecord, PlanningField, PlanningRelationRecord, PreviewNodeRecord,
+        SaveExplorationArtifactParams, SaveExplorationArtifactResult, SavedComparisonArtifact,
+        SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep,
+        SearchNodesParams, SearchNodesSort, TrailReplayResult, TrailReplayStepResult,
+        UnlinkedReferencesParams, UpdateNodeMetadataParams, WorkflowArtifactSaveSource,
+        WorkflowExecutionResult, WorkflowExploreFocus, WorkflowInputKind, WorkflowInputSpec,
+        WorkflowMetadata, WorkflowResolveTarget, WorkflowSpec, WorkflowStepPayload,
+        WorkflowStepRef, WorkflowStepReport, WorkflowStepReportPayload, WorkflowStepSpec,
+        WorkflowSummary, built_in_workflow, built_in_workflow_summaries, built_in_workflows,
+        normalize_reference,
     };
     use serde_json::json;
 
     fn sample_node(node_key: &str, title: &str) -> NodeRecord {
         NodeRecord {
+            node_key: node_key.to_owned(),
+            explicit_id: None,
+            file_path: "sample.org".to_owned(),
+            title: title.to_owned(),
+            outline_path: title.to_owned(),
+            aliases: Vec::new(),
+            tags: Vec::new(),
+            refs: Vec::new(),
+            todo_keyword: None,
+            scheduled_for: None,
+            deadline_for: None,
+            closed_at: None,
+            level: 1,
+            line: 1,
+            kind: NodeKind::Heading,
+            file_mtime_ns: 0,
+            backlink_count: 0,
+            forward_link_count: 0,
+        }
+    }
+
+    fn sample_anchor(node_key: &str, title: &str) -> AnchorRecord {
+        AnchorRecord {
             node_key: node_key.to_owned(),
             explicit_id: None,
             file_path: "sample.org".to_owned(),
@@ -4234,6 +4344,81 @@ mod tests {
         let round_trip: WorkflowExecutionResult = serde_json::from_value(serialized)
             .expect("workflow execution result should deserialize");
         assert_eq!(round_trip, result);
+    }
+
+    #[test]
+    fn corpus_audit_results_round_trip_with_typed_entries() {
+        let result = CorpusAuditResult {
+            audit: CorpusAuditKind::DanglingLinks,
+            entries: vec![
+                CorpusAuditEntry::DanglingLink {
+                    record: Box::new(DanglingLinkAuditRecord {
+                        source: sample_anchor("heading:source.org:3", "Source Heading"),
+                        missing_explicit_id: "missing-id".to_owned(),
+                        line: 12,
+                        column: 7,
+                        preview: "[[id:missing-id][Missing]]".to_owned(),
+                    }),
+                },
+                CorpusAuditEntry::DuplicateTitle {
+                    record: Box::new(DuplicateTitleAuditRecord {
+                        title: "Shared Title".to_owned(),
+                        notes: vec![
+                            sample_node("file:left.org", "Shared Title"),
+                            sample_node("file:right.org", "Shared Title"),
+                        ],
+                    }),
+                },
+                CorpusAuditEntry::OrphanNote {
+                    record: Box::new(NoteConnectivityAuditRecord {
+                        note: sample_node("file:orphan.org", "Orphan"),
+                        reference_count: 0,
+                        backlink_count: 0,
+                        forward_link_count: 0,
+                    }),
+                },
+                CorpusAuditEntry::WeaklyIntegratedNote {
+                    record: Box::new(NoteConnectivityAuditRecord {
+                        note: sample_node("file:weak.org", "Weak"),
+                        reference_count: 2,
+                        backlink_count: 0,
+                        forward_link_count: 1,
+                    }),
+                },
+            ],
+        };
+
+        let serialized = serde_json::to_value(&result).expect("audit result should serialize");
+        assert_eq!(serialized["audit"], json!("dangling-links"));
+        assert_eq!(serialized["entries"][0]["kind"], json!("dangling-link"));
+        assert_eq!(serialized["entries"][1]["kind"], json!("duplicate-title"));
+        assert_eq!(serialized["entries"][2]["kind"], json!("orphan-note"));
+        assert_eq!(
+            serialized["entries"][3]["kind"],
+            json!("weakly-integrated-note")
+        );
+
+        let round_trip: CorpusAuditResult =
+            serde_json::from_value(serialized).expect("audit result should deserialize");
+        assert_eq!(round_trip, result);
+    }
+
+    #[test]
+    fn corpus_audit_params_normalize_limit() {
+        let params: CorpusAuditParams = serde_json::from_value(json!({
+            "audit": "weakly-integrated-notes",
+            "limit": 800
+        }))
+        .expect("audit params should deserialize");
+        assert_eq!(params.audit, CorpusAuditKind::WeaklyIntegratedNotes);
+        assert_eq!(params.normalized_limit(), 500);
+        assert_eq!(
+            serde_json::to_value(&params).expect("audit params should serialize"),
+            json!({
+                "audit": "weakly-integrated-notes",
+                "limit": 800
+            })
+        );
     }
 
     #[test]

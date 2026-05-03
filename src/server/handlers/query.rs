@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use slipbox_core::{
     AgendaParams, AgendaResult, BacklinksParams, BacklinksResult, CompareNotesParams,
+    CorpusAuditEntry, CorpusAuditKind, CorpusAuditParams, CorpusAuditResult,
     DeleteExplorationArtifactResult, ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
     ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactPayload,
     ExplorationArtifactResult, ExplorationArtifactSummary, ExplorationEntry, ExplorationLens,
@@ -1232,6 +1233,59 @@ pub(crate) fn run_workflow(
     to_value(RunWorkflowResult { result })
 }
 
+pub(crate) fn corpus_audit(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: CorpusAuditParams = parse_params(params)?;
+    let entries = match params.audit {
+        CorpusAuditKind::DanglingLinks => state
+            .database
+            .audit_dangling_links(params.normalized_limit())
+            .map_err(|error| internal_error(error.context("failed to query dangling link audit")))?
+            .into_iter()
+            .map(|record| CorpusAuditEntry::DanglingLink {
+                record: Box::new(record),
+            })
+            .collect(),
+        CorpusAuditKind::DuplicateTitles => state
+            .database
+            .audit_duplicate_titles(params.normalized_limit())
+            .map_err(|error| {
+                internal_error(error.context("failed to query duplicate title audit"))
+            })?
+            .into_iter()
+            .map(|record| CorpusAuditEntry::DuplicateTitle {
+                record: Box::new(record),
+            })
+            .collect(),
+        CorpusAuditKind::OrphanNotes => state
+            .database
+            .audit_orphan_notes(params.normalized_limit())
+            .map_err(|error| internal_error(error.context("failed to query orphan note audit")))?
+            .into_iter()
+            .map(|record| CorpusAuditEntry::OrphanNote {
+                record: Box::new(record),
+            })
+            .collect(),
+        CorpusAuditKind::WeaklyIntegratedNotes => state
+            .database
+            .audit_weakly_integrated_notes(params.normalized_limit())
+            .map_err(|error| {
+                internal_error(error.context("failed to query weakly integrated note audit"))
+            })?
+            .into_iter()
+            .map(|record| CorpusAuditEntry::WeaklyIntegratedNote {
+                record: Box::new(record),
+            })
+            .collect(),
+    };
+    to_value(CorpusAuditResult {
+        audit: params.audit,
+        entries,
+    })
+}
+
 pub(crate) fn explore(
     state: &mut ServerState,
     params: serde_json::Value,
@@ -1315,12 +1369,12 @@ mod tests {
     use slipbox_core::{
         BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
         BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID, CompareNotesParams, ComparisonConnectorDirection,
-        DeleteExplorationArtifactResult, ExecuteExplorationArtifactResult,
-        ExecutedExplorationArtifactPayload, ExplorationArtifactMetadata,
-        ExplorationArtifactPayload, ExplorationArtifactResult, ExplorationEntry,
-        ExplorationExplanation, ExplorationLens, ExplorationSectionKind, ExploreParams,
-        ExploreResult, ListExplorationArtifactsResult, ListWorkflowsResult, NoteComparisonEntry,
-        NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
+        CorpusAuditEntry, CorpusAuditKind, CorpusAuditResult, DeleteExplorationArtifactResult,
+        ExecuteExplorationArtifactResult, ExecutedExplorationArtifactPayload,
+        ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
+        ExplorationEntry, ExplorationExplanation, ExplorationLens, ExplorationSectionKind,
+        ExploreParams, ExploreResult, ListExplorationArtifactsResult, ListWorkflowsResult,
+        NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
         NoteComparisonSectionKind, RunWorkflowResult, SaveExplorationArtifactResult,
         SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact,
         SavedTrailArtifact, SavedTrailStep, TrailReplayStepResult, WorkflowInputAssignment,
@@ -1331,7 +1385,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{
-        compare_notes, delete_exploration_artifact, execute_compare_notes_query,
+        compare_notes, corpus_audit, delete_exploration_artifact, execute_compare_notes_query,
         execute_exploration_artifact, execute_explore_query, execute_saved_exploration_artifact,
         execute_saved_exploration_artifact_by_id, execute_workflow_spec, exploration_artifact,
         explore, list_exploration_artifacts, list_workflows, run_workflow,
@@ -2713,6 +2767,90 @@ mod tests {
         );
     }
 
+    #[test]
+    fn corpus_audit_rpc_dispatches_index_backed_audit_kinds() {
+        let (_workspace, mut state) = audit_state();
+
+        let dangling: CorpusAuditResult = serde_json::from_value(
+            corpus_audit(
+                &mut state,
+                json!({ "audit": "dangling-links", "limit": 20 }),
+            )
+            .expect("dangling link audit should succeed"),
+        )
+        .expect("dangling audit result should decode");
+        assert_eq!(dangling.audit, CorpusAuditKind::DanglingLinks);
+        assert_eq!(dangling.entries.len(), 1);
+        match &dangling.entries[0] {
+            CorpusAuditEntry::DanglingLink { record } => {
+                assert_eq!(record.source.title, "Dangling Source");
+                assert_eq!(record.missing_explicit_id, "missing-id");
+            }
+            other => panic!("expected dangling link audit entry, got {:?}", other.kind()),
+        }
+
+        let duplicates: CorpusAuditResult = serde_json::from_value(
+            corpus_audit(
+                &mut state,
+                json!({ "audit": "duplicate-titles", "limit": 20 }),
+            )
+            .expect("duplicate title audit should succeed"),
+        )
+        .expect("duplicate audit result should decode");
+        assert_eq!(duplicates.audit, CorpusAuditKind::DuplicateTitles);
+        assert_eq!(duplicates.entries.len(), 1);
+        match &duplicates.entries[0] {
+            CorpusAuditEntry::DuplicateTitle { record } => {
+                assert_eq!(record.title, "Shared Title");
+                assert_eq!(record.notes.len(), 2);
+            }
+            other => panic!(
+                "expected duplicate title audit entry, got {:?}",
+                other.kind()
+            ),
+        }
+
+        let orphans: CorpusAuditResult = serde_json::from_value(
+            corpus_audit(&mut state, json!({ "audit": "orphan-notes", "limit": 20 }))
+                .expect("orphan note audit should succeed"),
+        )
+        .expect("orphan audit result should decode");
+        assert_eq!(orphans.audit, CorpusAuditKind::OrphanNotes);
+        assert_eq!(orphans.entries.len(), 1);
+        match &orphans.entries[0] {
+            CorpusAuditEntry::OrphanNote { record } => {
+                assert_eq!(record.note.title, "Orphan");
+                assert_eq!(record.reference_count, 0);
+                assert_eq!(record.backlink_count, 0);
+                assert_eq!(record.forward_link_count, 0);
+            }
+            other => panic!("expected orphan note audit entry, got {:?}", other.kind()),
+        }
+
+        let weak: CorpusAuditResult = serde_json::from_value(
+            corpus_audit(
+                &mut state,
+                json!({ "audit": "weakly-integrated-notes", "limit": 20 }),
+            )
+            .expect("weakly integrated note audit should succeed"),
+        )
+        .expect("weak audit result should decode");
+        assert_eq!(weak.audit, CorpusAuditKind::WeaklyIntegratedNotes);
+        assert_eq!(weak.entries.len(), 1);
+        match &weak.entries[0] {
+            CorpusAuditEntry::WeaklyIntegratedNote { record } => {
+                assert_eq!(record.note.title, "Weak");
+                assert_eq!(record.reference_count, 1);
+                assert_eq!(record.backlink_count, 0);
+                assert_eq!(record.forward_link_count, 0);
+            }
+            other => panic!(
+                "expected weakly integrated note audit entry, got {:?}",
+                other.kind()
+            ),
+        }
+    }
+
     fn saved_lens_artifact(
         artifact_id: &str,
         title: &str,
@@ -2907,6 +3045,81 @@ Links to [[id:left-id]] and [[id:right-id]].
             .node_key;
 
         (workspace, state, left_key, right_key)
+    }
+
+    fn audit_state() -> (TempDir, ServerState) {
+        let workspace = tempfile::tempdir().expect("workspace should be created");
+        let root = workspace.path().join("notes");
+        fs::create_dir_all(&root).expect("notes root should be created");
+        fs::write(
+            root.join("duplicate-a.org"),
+            r#":PROPERTIES:
+:ID: dup-a-id
+:END:
+#+title: Shared Title
+
+Links to [[id:dup-b-id][Other duplicate]].
+"#,
+        )
+        .expect("fixture should be written");
+        fs::write(
+            root.join("duplicate-b.org"),
+            r#":PROPERTIES:
+:ID: dup-b-id
+:END:
+#+title: shared title
+
+Links to [[id:dup-a-id][Other duplicate]].
+"#,
+        )
+        .expect("fixture should be written");
+        fs::write(
+            root.join("dangling-source.org"),
+            r#":PROPERTIES:
+:ID: dangling-source-id
+:END:
+#+title: Dangling Source
+
+Points to [[id:missing-id][Missing]].
+"#,
+        )
+        .expect("fixture should be written");
+        fs::write(
+            root.join("orphan.org"),
+            r#":PROPERTIES:
+:ID: orphan-id
+:END:
+#+title: Orphan
+
+Just an orphan note.
+"#,
+        )
+        .expect("fixture should be written");
+        fs::write(
+            root.join("weak.org"),
+            r#":PROPERTIES:
+:ID: weak-id
+:ROAM_REFS: cite:weak2024
+:END:
+#+title: Weak
+
+Has refs but no structural links.
+"#,
+        )
+        .expect("fixture should be written");
+
+        let db_path = workspace.path().join("index.sqlite3");
+        let discovery = DiscoveryPolicy::default();
+        let mut state = ServerState::new(root.clone(), db_path, Vec::new(), discovery)
+            .expect("state should be created");
+        let files =
+            scan_root_with_policy(&root, &state.discovery).expect("fixture should be indexed");
+        state
+            .database
+            .sync_index(&files)
+            .expect("fixture index should sync");
+
+        (workspace, state)
     }
 
     fn non_obvious_state() -> (TempDir, ServerState, String) {

@@ -1,6 +1,7 @@
 mod admin;
 mod agenda;
 mod artifacts;
+mod audits;
 mod backlinks;
 mod comparison;
 mod exploration;
