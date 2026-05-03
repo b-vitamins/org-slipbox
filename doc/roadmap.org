@@ -115,24 +115,27 @@ Watchpoints:
 
 * 0.8.x
 
-Theme: broader research workbench and platform maturity.
+Theme: broader research workbench.
 
 Focus:
 
-- richer programmable exploration built on the first usable headless
+- named workflows for common research routines over the first usable headless
   workbench and the durable artifacts from the settled cockpit model
-- broader headless composition and named workbench workflows
-- extension points for advanced users
-- larger benchmark corpora and stricter scale guarantees
-- extract the already-proven exploratory model into task-shaped public
-  surfaces
+- corpus-health audit surfaces over the canonical daemon boundary
+- bounded workflow discovery from configured directories
+- broader headless composition without widening into transport-shaped CLI
+  sprawl
+- larger benchmark corpora and stricter scale guarantees for the larger
+  workbench surface
 
 Watchpoints:
 
-- avoid turning extension support into architecture leakage
+- do not mirror raw RPCs when the real unit of value is a named workflow or
+  audit operation
+- treat workflow discovery as declarative extension, not as a plugin runtime
+- keep MCP, agent-adapter, and broader extension ambitions out of this band
 - keep the store, write engine, and protocol growth modular
-- do not mirror raw RPCs when the real unit of value is a higher-level
-  exploratory operation
+- do not let “broader workbench” turn into a fuzzy platform bucket
 
 * 1.0.x
 

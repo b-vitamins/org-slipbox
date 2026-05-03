@@ -79,9 +79,15 @@ Outcomes:
   such as save, inspect, list, execute, and delete
 - a first usable headless workbench around resolve, live explore, compare, and
   artifact lifecycle over the canonical daemon boundary
+- named workflows for common research routines over that settled headless
+  model
+- corpus-health audit surfaces that expose maintenance pressure and weak
+  integration as first-class workbench operations
+- bounded workflow discovery from configured directories as declarative
+  extension rather than a plugin runtime
 - stronger CLI and headless workflows built from that same exploratory model
 - stable hooks and extension points around exploration only after the first
-  usable headless workbench has proven its shape
+  composed workbench has proven its shape
 - richer task, ref, and citation-driven navigation
 
 Exit criteria:
@@ -92,6 +98,12 @@ Exit criteria:
   broad CLI or extension platform story
 - JSON-first machine use is real and documented without claiming broader
   platform maturity
+- common research routines can be executed as named workflows rather than only
+  as isolated commands
+- corpus-health audits are first-class query surfaces over the canonical
+  daemon boundary
+- workflow discovery remains bounded and declarative rather than becoming a
+  plugin runtime
 - users can script and automate meaningful exploratory workflows
 - buffer and query surfaces compose without reaching into unstable internals
 - headless surfaces reuse the exploratory model already proven in the cockpit

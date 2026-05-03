@@ -17,10 +17,11 @@ Current development starts from the released `0.7.0` foundation.
 
 The documented workflow surface is intended to remain complete enough for
 day-to-day replacement use while the project deepens its exploratory model.
-The next planned release band is `0.8.x`: broader research workbench and
-platform maturity built on the shipped headless workbench surface, while
-keeping extension, MCP, and agent-adapter claims deferred until that broader
-surface is genuinely proven.
+The next planned release band is `0.8.x`: broader research workbench
+composition built on the shipped headless surface, with named workflows,
+corpus-health audits, bounded workflow discovery, and stricter scale
+guarantees. Raw-RPC sprawl, plugin-runtime ambitions, MCP, and
+agent-adapter claims remain deferred.
 
 ## Requirements
 
@@ -635,8 +636,9 @@ that the whole programmable platform is done.
 - `0.7.x` is the shipped step: first usable headless workbench commands over
   the canonical daemon boundary for live explore, compare, resolve, and
   artifact lifecycle.
-- `0.8.x` is the next step: broader research workbench composition and named
-  headless workflows built on that same settled exploratory model.
+- `0.8.x` is the next step: named workflows, corpus-health audits, bounded
+  workflow discovery from configured directories, and stricter scale
+  guarantees built on that same settled exploratory model.
 - Broad CLI families, extension APIs, MCP surfaces, and agent adapters are
   still deferred.
 
@@ -760,6 +762,17 @@ The JSON contracts are intentionally different where the semantics differ:
 This is the first usable headless workbench surface, not the whole platform.
 There is still no broad CLI for every RPC, no extension API, and no MCP or
 agent-adapter layer in this release band.
+
+`0.8.x` should compose this headless house rather than broaden it
+indiscriminately:
+
+- named workflows for common research routines over the settled live
+  explore/compare/artifact model
+- corpus-health audit surfaces for things like weak integration and structural
+  maintenance pressure
+- bounded workflow discovery from configured directories as declarative
+  extension, not as a plugin runtime
+- stricter benchmark corpora and scale gates for the larger workbench surface
 
 ## FAQ
 
