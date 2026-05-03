@@ -14,12 +14,16 @@ use slipbox_core::{
     ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
     ExplorationArtifactSummary, ExplorationEntry, ExplorationExplanation, ExplorationLens,
     ExplorationSectionKind, ExploreParams, ExploreResult, ListExplorationArtifactsResult,
-    NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
-    NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
-    NoteComparisonSectionKind, PlanningField, PlanningRelationRecord,
-    SaveExplorationArtifactParams, SavedComparisonArtifact, SavedExplorationArtifact,
-    SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, StatusInfo, TrailReplayResult,
-    TrailReplayStepResult,
+    ListWorkflowsResult, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
+    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonEntry, NoteComparisonExplanation,
+    NoteComparisonGroup, NoteComparisonResult, NoteComparisonSectionKind, PlanningField,
+    PlanningRelationRecord, RunWorkflowParams, RunWorkflowResult, SaveExplorationArtifactParams,
+    SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact,
+    SavedTrailStep, StatusInfo, TrailReplayResult, TrailReplayStepResult,
+    WorkflowArtifactSaveSource, WorkflowExecutionResult, WorkflowExploreFocus, WorkflowIdParams,
+    WorkflowInputAssignment, WorkflowInputKind, WorkflowInputSpec, WorkflowResolveTarget,
+    WorkflowSpec, WorkflowStepPayload, WorkflowStepReport, WorkflowStepReportPayload,
+    WorkflowStepSpec,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonClientError, DaemonServeConfig};
 use slipbox_index::DiscoveryPolicy;
@@ -326,6 +330,105 @@ pub(crate) struct CompareArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+pub(crate) struct WorkflowArgs {
+    #[command(subcommand)]
+    pub(crate) command: WorkflowCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum WorkflowCommand {
+    /// List available named workflows.
+    List(WorkflowListArgs),
+    /// Show a built-in workflow or inspect a workflow spec JSON file/stdin.
+    Show(WorkflowShowArgs),
+    /// Run a built-in workflow over the canonical daemon boundary.
+    Run(WorkflowRunArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct WorkflowListArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+}
+
+#[derive(Debug, Clone, Args)]
+#[command(group(
+    ArgGroup::new("workflow-source")
+        .args(["workflow_id", "spec"])
+        .required(true)
+        .multiple(false)
+))]
+pub(crate) struct WorkflowShowArgs {
+    /// Root directory containing Org files when showing a built-in workflow through the daemon.
+    #[arg(long)]
+    pub(crate) root: Option<PathBuf>,
+    /// SQLite database path when showing a built-in workflow through the daemon.
+    #[arg(long)]
+    pub(crate) db: Option<PathBuf>,
+    /// File extensions eligible for discovery and indexing.
+    #[arg(long = "file-extension")]
+    pub(crate) file_extensions: Vec<String>,
+    /// Relative-path regular expressions to exclude from discovery.
+    #[arg(long = "exclude-regexp")]
+    pub(crate) exclude_regexps: Vec<String>,
+    /// Path to the slipbox executable used to spawn `slipbox serve`.
+    #[arg(long)]
+    pub(crate) server_program: Option<PathBuf>,
+    /// Emit structured JSON to stdout and structured errors to stderr.
+    #[arg(long)]
+    pub(crate) json: bool,
+    /// Built-in workflow identifier to inspect through the daemon.
+    #[arg(group = "workflow-source")]
+    pub(crate) workflow_id: Option<String>,
+    /// Read workflow spec JSON from this path, or `-` for stdin.
+    #[arg(long, group = "workflow-source")]
+    pub(crate) spec: Option<String>,
+}
+
+impl WorkflowShowArgs {
+    #[must_use]
+    fn output_mode(&self) -> OutputMode {
+        if self.json {
+            OutputMode::Json
+        } else {
+            OutputMode::Human
+        }
+    }
+
+    fn headless_args(&self) -> Result<HeadlessArgs> {
+        let root = self
+            .root
+            .clone()
+            .context("workflow show for built-in workflows requires --root and --db")?;
+        let db = self
+            .db
+            .clone()
+            .context("workflow show for built-in workflows requires --root and --db")?;
+        Ok(HeadlessArgs {
+            scope: ScopeArgs {
+                root,
+                db,
+                file_extensions: self.file_extensions.clone(),
+                exclude_regexps: self.exclude_regexps.clone(),
+            },
+            server_program: self.server_program.clone(),
+            json: self.json,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct WorkflowRunArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// Built-in workflow identifier to run.
+    pub(crate) workflow_id: String,
+    /// Workflow input assignment as `input-id=kind:value` where kind is `id`, `title`, `ref`, or `key`.
+    #[arg(long = "input")]
+    pub(crate) inputs: Vec<String>,
+}
+
+#[derive(Debug, Clone, Args)]
 pub(crate) struct SaveArtifactArgs {
     /// Persist the live command as a durable exploration artifact.
     #[arg(long)]
@@ -539,6 +642,14 @@ pub(crate) fn run_compare(args: &CompareArgs) -> Result<(), CliCommandError> {
     .map_err(|error| CliCommandError::new(output_mode, error))
 }
 
+pub(crate) fn run_workflow(args: &WorkflowArgs) -> Result<(), CliCommandError> {
+    match &args.command {
+        WorkflowCommand::List(command) => run_headless_command(command),
+        WorkflowCommand::Show(command) => run_workflow_show(command),
+        WorkflowCommand::Run(command) => run_headless_command(command),
+    }
+}
+
 pub(crate) fn run_artifact(args: &ArtifactArgs) -> Result<(), CliCommandError> {
     match &args.command {
         ArtifactCommand::List(command) => run_headless_command(command),
@@ -573,6 +684,11 @@ struct SavedExploreCommandResult {
 struct SavedCompareCommandResult {
     result: NoteComparisonResult,
     artifact: ExplorationArtifactSummary,
+}
+
+#[derive(Debug, Serialize)]
+struct WorkflowShowFileResult {
+    workflow: WorkflowSpec,
 }
 
 #[derive(Debug, Clone)]
@@ -805,6 +921,55 @@ fn run_artifact_import(command: &ArtifactImportArgs) -> Result<(), CliCommandErr
     .map_err(|error| CliCommandError::new(output_mode, error))
 }
 
+fn run_workflow_show(command: &WorkflowShowArgs) -> Result<(), CliCommandError> {
+    let output_mode = command.output_mode();
+    let workflow = if let Some(spec_input) = &command.spec {
+        let bytes = read_workflow_json_input(spec_input)
+            .map_err(|error| CliCommandError::new(output_mode, error))?;
+        let workflow: WorkflowSpec = serde_json::from_slice(&bytes)
+            .with_context(|| {
+                if spec_input == "-" {
+                    "failed to parse workflow spec JSON from stdin".to_owned()
+                } else {
+                    format!("failed to parse workflow spec JSON from {spec_input}")
+                }
+            })
+            .map_err(|error| CliCommandError::new(output_mode, error))?;
+        if let Some(message) = workflow.validation_error() {
+            return Err(CliCommandError::new(
+                output_mode,
+                anyhow::anyhow!("invalid workflow spec: {message}"),
+            ));
+        }
+        WorkflowShowFileResult { workflow }
+    } else {
+        let workflow_id = command
+            .workflow_id
+            .clone()
+            .expect("clap enforces workflow source selection");
+        let headless = command
+            .headless_args()
+            .map_err(|error| CliCommandError::new(output_mode, error))?;
+        let mut client = headless.connect()?;
+        let workflow = client
+            .workflow(&WorkflowIdParams { workflow_id })
+            .map_err(|error| CliCommandError::new(output_mode, error))?;
+        client
+            .shutdown()
+            .map_err(|error| CliCommandError::new(output_mode, error))?;
+        WorkflowShowFileResult {
+            workflow: workflow.workflow,
+        }
+    };
+
+    let stdout = io::stdout();
+    let mut writer = stdout.lock();
+    write_output(&mut writer, output_mode, &workflow, |value| {
+        render_workflow_spec(&value.workflow)
+    })
+    .map_err(|error| CliCommandError::new(output_mode, error))
+}
+
 fn read_artifact_json_input(input: &str) -> Result<Vec<u8>> {
     if input == "-" {
         let mut bytes = Vec::new();
@@ -816,6 +981,18 @@ fn read_artifact_json_input(input: &str) -> Result<Vec<u8>> {
 
     fs::read(input)
         .with_context(|| format!("failed to read saved exploration artifact JSON from {input}"))
+}
+
+fn read_workflow_json_input(input: &str) -> Result<Vec<u8>> {
+    if input == "-" {
+        let mut bytes = Vec::new();
+        io::stdin()
+            .read_to_end(&mut bytes)
+            .context("failed to read workflow spec JSON from stdin")?;
+        return Ok(bytes);
+    }
+
+    fs::read(input).with_context(|| format!("failed to read workflow spec JSON from {input}"))
 }
 
 fn write_output<T>(
@@ -912,6 +1089,41 @@ impl HeadlessCommand for CompareArgs {
     }
 }
 
+impl HeadlessCommand for WorkflowListArgs {
+    type Output = ListWorkflowsResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.list_workflows()
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_workflow_list(output)
+    }
+}
+
+impl HeadlessCommand for WorkflowRunArgs {
+    type Output = RunWorkflowResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.run_workflow(&RunWorkflowParams {
+            workflow_id: self.workflow_id.clone(),
+            inputs: parse_workflow_input_assignments(&self.inputs)?,
+        })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_workflow_execution_result(&output.result)
+    }
+}
+
 impl HeadlessCommand for ArtifactListArgs {
     type Output = ListExplorationArtifactsResult;
 
@@ -980,6 +1192,62 @@ impl HeadlessCommand for ArtifactDeleteArgs {
     fn render_human(&self, output: &Self::Output) -> String {
         format!("deleted artifact: {}\n", output.artifact_id)
     }
+}
+
+fn parse_workflow_input_assignments(
+    values: &[String],
+) -> Result<Vec<WorkflowInputAssignment>, DaemonClientError> {
+    values
+        .iter()
+        .map(|value| parse_workflow_input_assignment(value))
+        .collect()
+}
+
+fn parse_workflow_input_assignment(
+    value: &str,
+) -> Result<WorkflowInputAssignment, DaemonClientError> {
+    let (input_id, encoded_target) = value.split_once('=').ok_or_else(|| {
+        DaemonClientError::Rpc(JsonRpcErrorObject::invalid_request(format!(
+            "invalid workflow input assignment {value}: expected input-id=kind:value"
+        )))
+    })?;
+    let (kind, target_value) = encoded_target.split_once(':').ok_or_else(|| {
+        DaemonClientError::Rpc(JsonRpcErrorObject::invalid_request(format!(
+            "invalid workflow input assignment {value}: expected input-id=kind:value"
+        )))
+    })?;
+    if input_id.trim().is_empty() || target_value.trim().is_empty() {
+        return Err(DaemonClientError::Rpc(JsonRpcErrorObject::invalid_request(
+            format!(
+                "invalid workflow input assignment {value}: expected non-empty input id and target value"
+            ),
+        )));
+    }
+
+    let target = match kind {
+        "id" => WorkflowResolveTarget::Id {
+            id: target_value.to_owned(),
+        },
+        "title" => WorkflowResolveTarget::Title {
+            title: target_value.to_owned(),
+        },
+        "ref" => WorkflowResolveTarget::Reference {
+            reference: target_value.to_owned(),
+        },
+        "key" => WorkflowResolveTarget::NodeKey {
+            node_key: target_value.to_owned(),
+        },
+        _ => {
+            return Err(DaemonClientError::Rpc(JsonRpcErrorObject::invalid_request(
+                format!("invalid workflow input assignment {value}: unknown target kind {kind}"),
+            )));
+        }
+    };
+
+    Ok(WorkflowInputAssignment {
+        input_id: input_id.to_owned(),
+        target,
+    })
 }
 
 pub(crate) fn resolve_note_target(
@@ -1070,6 +1338,204 @@ fn render_flag_list(flags: &[&str]) -> String {
             output.push_str(", and ");
             output.push_str(flags[flags.len() - 1]);
             output
+        }
+    }
+}
+
+fn render_workflow_list(result: &ListWorkflowsResult) -> String {
+    let mut output = String::new();
+    if result.workflows.is_empty() {
+        output.push_str("(none)\n");
+        return output;
+    }
+
+    for workflow in &result.workflows {
+        output.push_str(&format!(
+            "- {} [{}]\n",
+            workflow.metadata.title, workflow.metadata.workflow_id
+        ));
+        output.push_str(&format!("  steps: {}\n", workflow.step_count));
+        if let Some(summary) = &workflow.metadata.summary {
+            output.push_str(&format!("  summary: {summary}\n"));
+        }
+    }
+
+    output
+}
+
+fn render_workflow_spec(workflow: &WorkflowSpec) -> String {
+    let mut output = String::new();
+    output.push_str(&format!("workflow id: {}\n", workflow.metadata.workflow_id));
+    output.push_str(&format!("title: {}\n", workflow.metadata.title));
+    if let Some(summary) = &workflow.metadata.summary {
+        output.push_str(&format!("summary: {summary}\n"));
+    }
+    output.push_str(&format!("steps: {}\n", workflow.steps.len()));
+    if !workflow.inputs.is_empty() {
+        output.push_str("\n[inputs]\n");
+        for input in &workflow.inputs {
+            render_workflow_input_spec(&mut output, input);
+        }
+    }
+    output.push_str("\n[steps]\n");
+    for step in &workflow.steps {
+        render_workflow_step_spec(&mut output, step);
+    }
+    output
+}
+
+fn render_workflow_input_spec(output: &mut String, input: &WorkflowInputSpec) {
+    output.push_str(&format!(
+        "- {} [{}]\n",
+        input.input_id,
+        render_workflow_input_kind(input.kind)
+    ));
+    output.push_str(&format!("  title: {}\n", input.title));
+    if let Some(summary) = &input.summary {
+        output.push_str(&format!("  summary: {summary}\n"));
+    }
+}
+
+fn render_workflow_step_spec(output: &mut String, step: &WorkflowStepSpec) {
+    output.push_str(&format!("- {} [{}]\n", step.step_id, step.kind().label()));
+    match &step.payload {
+        WorkflowStepPayload::Resolve { target } => {
+            output.push_str(&format!(
+                "  target: {}\n",
+                render_workflow_resolve_target(target)
+            ));
+        }
+        WorkflowStepPayload::Explore {
+            focus,
+            lens,
+            limit,
+            unique,
+        } => {
+            output.push_str(&format!(
+                "  focus: {}\n",
+                render_workflow_explore_focus(focus)
+            ));
+            output.push_str(&format!("  lens: {}\n", render_exploration_lens(*lens)));
+            output.push_str(&format!("  limit: {limit}\n"));
+            output.push_str(&format!("  unique: {unique}\n"));
+        }
+        WorkflowStepPayload::Compare {
+            left,
+            right,
+            group,
+            limit,
+        } => {
+            output.push_str(&format!("  left: {}\n", left.step_id));
+            output.push_str(&format!("  right: {}\n", right.step_id));
+            output.push_str(&format!("  group: {}\n", render_comparison_group(*group)));
+            output.push_str(&format!("  limit: {limit}\n"));
+        }
+        WorkflowStepPayload::ArtifactRun { artifact_id } => {
+            output.push_str(&format!("  artifact id: {artifact_id}\n"));
+        }
+        WorkflowStepPayload::ArtifactSave {
+            source,
+            metadata,
+            overwrite,
+        } => {
+            output.push_str(&format!(
+                "  source: {}\n",
+                render_workflow_artifact_save_source(source)
+            ));
+            output.push_str(&format!("  artifact id: {}\n", metadata.artifact_id));
+            output.push_str(&format!("  title: {}\n", metadata.title));
+            if let Some(summary) = &metadata.summary {
+                output.push_str(&format!("  summary: {summary}\n"));
+            }
+            output.push_str(&format!("  overwrite: {overwrite}\n"));
+        }
+    }
+}
+
+fn render_workflow_execution_result(result: &WorkflowExecutionResult) -> String {
+    let mut output = String::new();
+    output.push_str(&format!(
+        "workflow: {} [{}]\n",
+        result.workflow.metadata.title, result.workflow.metadata.workflow_id
+    ));
+    output.push_str(&format!("steps: {}\n", result.workflow.step_count));
+    if let Some(summary) = &result.workflow.metadata.summary {
+        output.push_str(&format!("summary: {summary}\n"));
+    }
+    for step in &result.steps {
+        output.push('\n');
+        render_workflow_step_report(&mut output, step);
+    }
+    output
+}
+
+fn render_workflow_step_report(output: &mut String, step: &WorkflowStepReport) {
+    output.push_str(&format!("[step {}]\n", step.step_id));
+    output.push_str(&format!("kind: {}\n", step.kind().label()));
+    match &step.payload {
+        WorkflowStepReportPayload::Resolve { node } => {
+            output.push_str(&render_node_summary(node));
+        }
+        WorkflowStepReportPayload::Explore {
+            focus_node_key,
+            result,
+        } => {
+            output.push_str(&format!("focus node key: {focus_node_key}\n"));
+            output.push_str(&render_explore_result(result));
+        }
+        WorkflowStepReportPayload::Compare {
+            left_node,
+            right_node,
+            result,
+        } => {
+            output.push_str(&format!("left node: {}\n", render_node_identity(left_node)));
+            output.push_str(&format!(
+                "right node: {}\n",
+                render_node_identity(right_node)
+            ));
+            output.push_str(&render_compare_result(result, NoteComparisonGroup::All));
+        }
+        WorkflowStepReportPayload::ArtifactRun { artifact } => {
+            output.push_str(&render_executed_exploration_artifact(artifact));
+        }
+        WorkflowStepReportPayload::ArtifactSave { artifact } => {
+            output.push_str(&render_saved_artifact_summary(artifact));
+        }
+    }
+}
+
+fn render_workflow_input_kind(kind: WorkflowInputKind) -> &'static str {
+    match kind {
+        WorkflowInputKind::NoteTarget => "note-target",
+        WorkflowInputKind::FocusTarget => "focus-target",
+    }
+}
+
+fn render_workflow_resolve_target(target: &WorkflowResolveTarget) -> String {
+    match target {
+        WorkflowResolveTarget::Id { id } => format!("id:{id}"),
+        WorkflowResolveTarget::Title { title } => format!("title:{title}"),
+        WorkflowResolveTarget::Reference { reference } => format!("ref:{reference}"),
+        WorkflowResolveTarget::NodeKey { node_key } => format!("key:{node_key}"),
+        WorkflowResolveTarget::Input { input_id } => format!("input:{input_id}"),
+    }
+}
+
+fn render_workflow_explore_focus(focus: &WorkflowExploreFocus) -> String {
+    match focus {
+        WorkflowExploreFocus::NodeKey { node_key } => format!("key:{node_key}"),
+        WorkflowExploreFocus::Input { input_id } => format!("input:{input_id}"),
+        WorkflowExploreFocus::ResolvedStep { step_id } => format!("resolved-step:{step_id}"),
+    }
+}
+
+fn render_workflow_artifact_save_source(source: &WorkflowArtifactSaveSource) -> String {
+    match source {
+        WorkflowArtifactSaveSource::ExploreStep { step_id } => {
+            format!("explore-step:{step_id}")
+        }
+        WorkflowArtifactSaveSource::CompareStep { step_id } => {
+            format!("compare-step:{step_id}")
         }
     }
 }
