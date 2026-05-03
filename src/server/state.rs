@@ -12,16 +12,23 @@ use crate::server::rpc::internal_error;
 pub(super) struct ServerState {
     pub(super) root: PathBuf,
     pub(super) db_path: PathBuf,
+    pub(super) workflow_dirs: Vec<PathBuf>,
     pub(super) discovery: DiscoveryPolicy,
     pub(super) database: Database,
 }
 
 impl ServerState {
-    pub(super) fn new(root: PathBuf, db_path: PathBuf, discovery: DiscoveryPolicy) -> Result<Self> {
+    pub(super) fn new(
+        root: PathBuf,
+        db_path: PathBuf,
+        workflow_dirs: Vec<PathBuf>,
+        discovery: DiscoveryPolicy,
+    ) -> Result<Self> {
         let database = Database::open(&db_path)?;
         Ok(Self {
             root,
             db_path,
+            workflow_dirs,
             discovery,
             database,
         })

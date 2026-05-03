@@ -18,8 +18,7 @@ use slipbox_core::{
     SearchTagsResult, StatusInfo, TrailReplayResult, TrailReplayStepResult,
     UnlinkedReferencesParams, UnlinkedReferencesResult, WorkflowExecutionResult, WorkflowIdParams,
     WorkflowInputAssignment, WorkflowResolveTarget, WorkflowResult, WorkflowSpec,
-    WorkflowStepPayload, WorkflowStepReport, WorkflowStepReportPayload, built_in_workflow,
-    built_in_workflow_summaries,
+    WorkflowStepPayload, WorkflowStepReport, WorkflowStepReportPayload,
 };
 use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
 
@@ -27,6 +26,7 @@ use crate::occurrences_query::query_occurrences;
 use crate::reflinks_query::query_reflinks;
 use crate::server::rpc::{internal_error, parse_params, to_value};
 use crate::server::state::ServerState;
+use crate::server::workflows::discover_workflow_catalog;
 use crate::unlinked_references_query::query_unlinked_references;
 
 pub(crate) fn ping(state: &ServerState) -> Result<serde_json::Value, JsonRpcError> {
@@ -1194,22 +1194,25 @@ pub(crate) fn execute_exploration_artifact(
 }
 
 pub(crate) fn list_workflows(
-    _state: &mut ServerState,
+    state: &mut ServerState,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let _params: ListWorkflowsParams = parse_params(params)?;
+    let catalog = discover_workflow_catalog(&state.root, &state.workflow_dirs);
     to_value(ListWorkflowsResult {
-        workflows: built_in_workflow_summaries(),
+        workflows: catalog.summaries(),
+        issues: catalog.issues().to_vec(),
     })
 }
 
 pub(crate) fn workflow(
-    _state: &mut ServerState,
+    state: &mut ServerState,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let params: WorkflowIdParams = parse_params(params)?;
     validate_workflow_id_params(&params)?;
-    let workflow = built_in_workflow(&params.workflow_id)
+    let workflow = discover_workflow_catalog(&state.root, &state.workflow_dirs)
+        .workflow(&params.workflow_id)
         .ok_or_else(|| invalid_request(format!("unknown workflow: {}", params.workflow_id)))?;
     to_value(WorkflowResult { workflow })
 }
@@ -1222,7 +1225,8 @@ pub(crate) fn run_workflow(
     if let Some(message) = params.validation_error() {
         return Err(invalid_request(message));
     }
-    let workflow = built_in_workflow(&params.workflow_id)
+    let workflow = discover_workflow_catalog(&state.root, &state.workflow_dirs)
+        .workflow(&params.workflow_id)
         .ok_or_else(|| invalid_request(format!("unknown workflow: {}", params.workflow_id)))?;
     let result = execute_workflow_spec(state, &workflow, &params.inputs)?;
     to_value(RunWorkflowResult { result })
@@ -2184,8 +2188,8 @@ mod tests {
         let discovery = state.discovery.clone();
         drop(state);
 
-        let mut reopened =
-            ServerState::new(root, db_path, discovery).expect("state should reopen cleanly");
+        let mut reopened = ServerState::new(root, db_path, Vec::new(), discovery)
+            .expect("state should reopen cleanly");
 
         let listed: ListExplorationArtifactsResult = serde_json::from_value(
             list_exploration_artifacts(&mut reopened, json!({}))
@@ -2809,8 +2813,8 @@ Shares only the target deadline.
 
         let db_path = workspace.path().join("index.sqlite3");
         let discovery = DiscoveryPolicy::default();
-        let mut state =
-            ServerState::new(root.clone(), db_path, discovery).expect("state should be created");
+        let mut state = ServerState::new(root.clone(), db_path, Vec::new(), discovery)
+            .expect("state should be created");
         let files =
             scan_root_with_policy(&root, &state.discovery).expect("fixture should be indexed");
         state
@@ -2881,8 +2885,8 @@ Links to [[id:left-id]] and [[id:right-id]].
 
         let db_path = workspace.path().join("index.sqlite3");
         let discovery = DiscoveryPolicy::default();
-        let mut state =
-            ServerState::new(root.clone(), db_path, discovery).expect("state should be created");
+        let mut state = ServerState::new(root.clone(), db_path, Vec::new(), discovery)
+            .expect("state should be created");
         let files =
             scan_root_with_policy(&root, &state.discovery).expect("fixture should be indexed");
         state
@@ -2972,8 +2976,8 @@ Weakly integrated body.
 
         let db_path = workspace.path().join("index.sqlite3");
         let discovery = DiscoveryPolicy::default();
-        let mut state =
-            ServerState::new(root.clone(), db_path, discovery).expect("state should be created");
+        let mut state = ServerState::new(root.clone(), db_path, Vec::new(), discovery)
+            .expect("state should be created");
         let files =
             scan_root_with_policy(&root, &state.discovery).expect("fixture should be indexed");
         state

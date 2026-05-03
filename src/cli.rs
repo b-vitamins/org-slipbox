@@ -37,6 +37,9 @@ pub(crate) struct ScopeArgs {
     /// SQLite database path.
     #[arg(long)]
     pub(crate) db: PathBuf,
+    /// Directories containing declarative workflow spec JSON files.
+    #[arg(long = "workflow-dir")]
+    pub(crate) workflow_dirs: Vec<PathBuf>,
     /// File extensions eligible for discovery and indexing.
     #[arg(long = "file-extension")]
     pub(crate) file_extensions: Vec<String>,
@@ -59,6 +62,7 @@ impl ScopeArgs {
         DaemonServeConfig {
             root: self.root.clone(),
             db: self.db.clone(),
+            workflow_dirs: self.workflow_dirs.clone(),
             file_extensions: self.file_extensions.clone(),
             exclude_regexps: self.exclude_regexps.clone(),
         }
@@ -365,6 +369,9 @@ pub(crate) struct WorkflowShowArgs {
     /// SQLite database path when showing a built-in workflow through the daemon.
     #[arg(long)]
     pub(crate) db: Option<PathBuf>,
+    /// Directories containing declarative workflow spec JSON files.
+    #[arg(long = "workflow-dir")]
+    pub(crate) workflow_dirs: Vec<PathBuf>,
     /// File extensions eligible for discovery and indexing.
     #[arg(long = "file-extension")]
     pub(crate) file_extensions: Vec<String>,
@@ -408,6 +415,7 @@ impl WorkflowShowArgs {
             scope: ScopeArgs {
                 root,
                 db,
+                workflow_dirs: self.workflow_dirs.clone(),
                 file_extensions: self.file_extensions.clone(),
                 exclude_regexps: self.exclude_regexps.clone(),
             },
@@ -1346,17 +1354,30 @@ fn render_workflow_list(result: &ListWorkflowsResult) -> String {
     let mut output = String::new();
     if result.workflows.is_empty() {
         output.push_str("(none)\n");
-        return output;
+    } else {
+        for workflow in &result.workflows {
+            output.push_str(&format!(
+                "- {} [{}]\n",
+                workflow.metadata.title, workflow.metadata.workflow_id
+            ));
+            output.push_str(&format!("  steps: {}\n", workflow.step_count));
+            if let Some(summary) = &workflow.metadata.summary {
+                output.push_str(&format!("  summary: {summary}\n"));
+            }
+        }
     }
 
-    for workflow in &result.workflows {
-        output.push_str(&format!(
-            "- {} [{}]\n",
-            workflow.metadata.title, workflow.metadata.workflow_id
-        ));
-        output.push_str(&format!("  steps: {}\n", workflow.step_count));
-        if let Some(summary) = &workflow.metadata.summary {
-            output.push_str(&format!("  summary: {summary}\n"));
+    if !result.issues.is_empty() {
+        if !output.is_empty() {
+            output.push('\n');
+        }
+        output.push_str("[issues]\n");
+        for issue in &result.issues {
+            output.push_str(&format!("- path: {}\n", issue.path));
+            if let Some(workflow_id) = &issue.workflow_id {
+                output.push_str(&format!("  workflow id: {workflow_id}\n"));
+            }
+            output.push_str(&format!("  message: {}\n", issue.message));
         }
     }
 

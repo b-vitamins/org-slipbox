@@ -6,6 +6,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+### Added
+- Added named workflow execution over the canonical daemon boundary, including
+  built-in workflow list/show/run commands, configured workflow-directory
+  discovery, and deterministic catalog issues for invalid or colliding
+  discovered workflow specs.
+
 ## [0.7.0] - 2026-05-03
 
 ### Added

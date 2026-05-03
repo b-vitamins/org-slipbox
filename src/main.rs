@@ -64,5 +64,10 @@ fn run() -> Result<(), cli::CliCommandError> {
 
 fn run_serve(args: ServeArgs) -> Result<()> {
     let discovery = args.scope.discovery_policy()?;
-    server::serve(args.scope.root, args.scope.db, discovery)
+    server::serve(
+        args.scope.root,
+        args.scope.db,
+        args.scope.workflow_dirs,
+        discovery,
+    )
 }

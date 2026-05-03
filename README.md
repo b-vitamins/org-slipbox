@@ -660,6 +660,9 @@ The shipped headless commands are:
 - `slipbox resolve-node`
 - `slipbox explore`
 - `slipbox compare`
+- `slipbox workflow list`
+- `slipbox workflow show`
+- `slipbox workflow run`
 - `slipbox artifact list`
 - `slipbox artifact show`
 - `slipbox artifact run`
@@ -675,6 +678,15 @@ slipbox <command> \
   --db ~/.cache/org-slipbox.sqlite \
   --json
 ```
+
+Workflow commands also accept repeatable `--workflow-dir` arguments. Discovery is
+deliberately narrow:
+
+- only top-level JSON workflow spec files are considered
+- built-in workflows win over discovered ones
+- earlier configured workflow directories win over later ones
+- invalid or colliding discovered workflows are reported as workflow catalog
+  issues without hiding the valid workflows that remain runnable
 
 Examples:
 
@@ -709,6 +721,29 @@ slipbox compare \
   --left-id left-id \
   --right-id right-id \
   --group tension \
+  --json
+```
+
+List, inspect, and run named workflows discovered from configured directories:
+
+```bash
+slipbox workflow list \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --workflow-dir ~/.config/org-slipbox/workflows \
+  --json
+
+slipbox workflow show workflow/research/unresolved-sweep \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --workflow-dir ~/.config/org-slipbox/workflows \
+  --json
+
+slipbox workflow run workflow/research/unresolved-sweep \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --workflow-dir ~/.config/org-slipbox/workflows \
+  --input focus=key:file:notes.org::42 \
   --json
 ```
 

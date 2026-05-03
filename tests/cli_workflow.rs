@@ -1,5 +1,6 @@
 use std::fs;
 use std::io::Write;
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result};
@@ -7,7 +8,7 @@ use serde::Deserialize;
 use slipbox_core::{
     BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
     BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID, ExplorationLens, ListWorkflowsResult, RunWorkflowResult,
-    WorkflowResult, built_in_workflow,
+    WorkflowResult, WorkflowSpec, built_in_workflow,
 };
 use slipbox_index::scan_root;
 use slipbox_store::Database;
@@ -80,9 +81,26 @@ SCHEDULED: <2026-05-04 Mon>
 }
 
 fn workflow_command(root: &str, db: &str, args: &[&str]) -> Result<std::process::Output> {
+    workflow_command_with_dirs(root, db, &[], args)
+}
+
+fn workflow_command_with_dirs(
+    root: &str,
+    db: &str,
+    workflow_dirs: &[&Path],
+    args: &[&str],
+) -> Result<std::process::Output> {
     let mut command = Command::new(slipbox_binary());
     command.args(["workflow"]);
     command.args(args);
+    for workflow_dir in workflow_dirs {
+        command.args([
+            "--workflow-dir",
+            workflow_dir
+                .to_str()
+                .context("workflow dir path should be valid utf-8")?,
+        ]);
+    }
     command.args([
         "--root",
         root,
@@ -92,6 +110,15 @@ fn workflow_command(root: &str, db: &str, args: &[&str]) -> Result<std::process:
         slipbox_binary(),
     ]);
     Ok(command.output()?)
+}
+
+fn discovered_workflow(workflow_id: &str, title: &str, summary: &str) -> WorkflowSpec {
+    let mut workflow = built_in_workflow(BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID)
+        .expect("built-in workflow should exist");
+    workflow.metadata.workflow_id = workflow_id.to_owned();
+    workflow.metadata.title = title.to_owned();
+    workflow.metadata.summary = Some(summary.to_owned());
+    workflow
 }
 
 fn workflow_show_stdin(json: bool, payload: &[u8]) -> Result<std::process::Output> {
@@ -313,6 +340,189 @@ fn workflow_run_command_rejects_invalid_input_assignment_syntax() -> Result<()> 
             .message
             .contains("invalid workflow input assignment focus=badkind:value")
     );
+
+    Ok(())
+}
+
+#[test]
+fn workflow_discovery_lists_shows_and_runs_valid_specs_while_reporting_invalid_ones() -> Result<()>
+{
+    let (workspace, root, db, anchor_key) = build_indexed_fixture()?;
+    let workflow_dir = workspace.path().join("workflows");
+    fs::create_dir_all(&workflow_dir)?;
+
+    let valid = discovered_workflow(
+        "workflow/test/discovered-unresolved",
+        "Discovered Unresolved Sweep",
+        "Run unresolved and task-oriented exploration from a configured directory.",
+    );
+    fs::write(
+        workflow_dir.join("valid.json"),
+        serde_json::to_vec_pretty(&valid)?,
+    )?;
+
+    let mut invalid = discovered_workflow(
+        "workflow/test/invalid-workflow",
+        "Invalid Workflow",
+        "Intentionally invalid workflow fixture.",
+    );
+    invalid.steps.clear();
+    fs::write(
+        workflow_dir.join("invalid.json"),
+        serde_json::to_vec_pretty(&invalid)?,
+    )?;
+
+    let listed =
+        workflow_command_with_dirs(&root, &db, &[workflow_dir.as_path()], &["list", "--json"])?;
+    assert!(listed.status.success(), "{listed:?}");
+    let listed: ListWorkflowsResult = serde_json::from_slice(&listed.stdout)?;
+    assert!(
+        listed
+            .workflows
+            .iter()
+            .any(|workflow| workflow.metadata.workflow_id == valid.metadata.workflow_id)
+    );
+    assert_eq!(listed.issues.len(), 1);
+    assert_eq!(
+        listed.issues[0].workflow_id.as_deref(),
+        Some("workflow/test/invalid-workflow")
+    );
+    assert!(
+        listed.issues[0]
+            .message
+            .contains("workflows must contain at least one step")
+    );
+
+    let listed_human =
+        workflow_command_with_dirs(&root, &db, &[workflow_dir.as_path()], &["list"])?;
+    assert!(listed_human.status.success(), "{listed_human:?}");
+    let listed_human = String::from_utf8(listed_human.stdout)?;
+    assert!(
+        listed_human.contains("Discovered Unresolved Sweep [workflow/test/discovered-unresolved]")
+    );
+    assert!(listed_human.contains("[issues]"));
+    assert!(listed_human.contains("workflow id: workflow/test/invalid-workflow"));
+
+    let shown = workflow_command_with_dirs(
+        &root,
+        &db,
+        &[workflow_dir.as_path()],
+        &["show", "workflow/test/discovered-unresolved", "--json"],
+    )?;
+    assert!(shown.status.success(), "{shown:?}");
+    let shown: WorkflowResult = serde_json::from_slice(&shown.stdout)?;
+    assert_eq!(shown.workflow, valid);
+
+    let executed = workflow_command_with_dirs(
+        &root,
+        &db,
+        &[workflow_dir.as_path()],
+        &[
+            "run",
+            "workflow/test/discovered-unresolved",
+            "--input",
+            &format!("focus=key:{anchor_key}"),
+            "--json",
+        ],
+    )?;
+    assert!(executed.status.success(), "{executed:?}");
+    let executed: RunWorkflowResult = serde_json::from_slice(&executed.stdout)?;
+    assert_eq!(
+        executed.result.workflow.metadata.workflow_id,
+        "workflow/test/discovered-unresolved"
+    );
+    match &executed.result.steps[2].payload {
+        slipbox_core::WorkflowStepReportPayload::Explore {
+            focus_node_key,
+            result,
+        } => {
+            assert_eq!(focus_node_key, &anchor_key);
+            assert_eq!(result.lens, ExplorationLens::Tasks);
+        }
+        other => panic!("expected tasks explore report, got {:?}", other.kind()),
+    }
+
+    Ok(())
+}
+
+#[test]
+fn workflow_discovery_uses_deterministic_collision_precedence() -> Result<()> {
+    let (workspace, root, db, _anchor_key) = build_indexed_fixture()?;
+    let first_dir = workspace.path().join("workflows-a");
+    let second_dir = workspace.path().join("workflows-b");
+    fs::create_dir_all(&first_dir)?;
+    fs::create_dir_all(&second_dir)?;
+
+    let earlier = discovered_workflow(
+        "workflow/test/discovered-collision",
+        "Earlier Winner",
+        "The earlier configured workflow directory should win.",
+    );
+    let mut later = earlier.clone();
+    later.metadata.title = "Later Loser".to_owned();
+    later.metadata.summary = Some("This one should lose the collision.".to_owned());
+    let mut shadow_builtin = discovered_workflow(
+        BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
+        "Shadow Built-in",
+        "This should lose to the built-in workflow.",
+    );
+    shadow_builtin.metadata.summary = Some("Built-ins must win collisions.".to_owned());
+
+    fs::write(
+        first_dir.join("earlier.json"),
+        serde_json::to_vec_pretty(&earlier)?,
+    )?;
+    fs::write(
+        second_dir.join("later.json"),
+        serde_json::to_vec_pretty(&later)?,
+    )?;
+    fs::write(
+        second_dir.join("builtin-shadow.json"),
+        serde_json::to_vec_pretty(&shadow_builtin)?,
+    )?;
+
+    let listed = workflow_command_with_dirs(
+        &root,
+        &db,
+        &[first_dir.as_path(), second_dir.as_path()],
+        &["list", "--json"],
+    )?;
+    assert!(listed.status.success(), "{listed:?}");
+    let listed: ListWorkflowsResult = serde_json::from_slice(&listed.stdout)?;
+    let discovered: Vec<_> = listed
+        .workflows
+        .iter()
+        .filter(|workflow| workflow.metadata.workflow_id == "workflow/test/discovered-collision")
+        .collect();
+    assert_eq!(discovered.len(), 1);
+    assert_eq!(discovered[0].metadata.title, "Earlier Winner");
+    assert!(
+        listed
+            .issues
+            .iter()
+            .any(|issue| issue.workflow_id.as_deref()
+                == Some("workflow/test/discovered-collision")
+                && issue.message.contains("collides with discovered workflow"))
+    );
+    assert!(
+        listed
+            .issues
+            .iter()
+            .any(
+                |issue| issue.workflow_id.as_deref() == Some(BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID)
+                    && issue.message.contains("collides with built-in workflow")
+            )
+    );
+
+    let shown = workflow_command_with_dirs(
+        &root,
+        &db,
+        &[first_dir.as_path(), second_dir.as_path()],
+        &["show", "workflow/test/discovered-collision", "--json"],
+    )?;
+    assert!(shown.status.success(), "{shown:?}");
+    let shown: WorkflowResult = serde_json::from_slice(&shown.stdout)?;
+    assert_eq!(shown.workflow.metadata.title, "Earlier Winner");
 
     Ok(())
 }

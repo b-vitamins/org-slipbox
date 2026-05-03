@@ -2,6 +2,7 @@ mod dispatch;
 mod handlers;
 mod rpc;
 mod state;
+mod workflows;
 
 use std::io::{self, BufReader};
 use std::path::PathBuf;
@@ -13,11 +14,16 @@ use slipbox_rpc::{JsonRpcErrorObject, JsonRpcResponse, read_framed_message, writ
 use self::dispatch::handle_request;
 use self::state::ServerState;
 
-pub(crate) fn serve(root: PathBuf, db: PathBuf, discovery: DiscoveryPolicy) -> Result<()> {
+pub(crate) fn serve(
+    root: PathBuf,
+    db: PathBuf,
+    workflow_dirs: Vec<PathBuf>,
+    discovery: DiscoveryPolicy,
+) -> Result<()> {
     let root = root
         .canonicalize()
         .with_context(|| format!("failed to canonicalize root {}", root.display()))?;
-    let mut state = ServerState::new(root, db, discovery)?;
+    let mut state = ServerState::new(root, db, workflow_dirs, discovery)?;
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut reader = BufReader::new(stdin.lock());

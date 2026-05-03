@@ -30,6 +30,7 @@ use thiserror::Error;
 pub struct DaemonServeConfig {
     pub root: PathBuf,
     pub db: PathBuf,
+    pub workflow_dirs: Vec<PathBuf>,
     pub file_extensions: Vec<String>,
     pub exclude_regexps: Vec<String>,
 }
@@ -40,6 +41,7 @@ impl DaemonServeConfig {
         Self {
             root: root.into(),
             db: db.into(),
+            workflow_dirs: Vec::new(),
             file_extensions: Vec::new(),
             exclude_regexps: Vec::new(),
         }
@@ -53,6 +55,10 @@ impl DaemonServeConfig {
             OsString::from("--db"),
             self.db.as_os_str().to_owned(),
         ];
+        for workflow_dir in &self.workflow_dirs {
+            args.push(OsString::from("--workflow-dir"));
+            args.push(workflow_dir.as_os_str().to_owned());
+        }
         for extension in &self.file_extensions {
             args.push(OsString::from("--file-extension"));
             args.push(OsString::from(extension));

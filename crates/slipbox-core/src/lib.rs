@@ -2018,8 +2018,18 @@ impl WorkflowIdParams {
 pub struct ListWorkflowsParams {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowCatalogIssue {
+    pub path: String,
+    #[serde(default)]
+    pub workflow_id: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListWorkflowsResult {
     pub workflows: Vec<WorkflowSummary>,
+    #[serde(default)]
+    pub issues: Vec<WorkflowCatalogIssue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
