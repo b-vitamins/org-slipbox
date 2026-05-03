@@ -2002,6 +2002,30 @@ pub struct WorkflowExecutionResult {
     pub steps: Vec<WorkflowStepReport>,
 }
 
+impl WorkflowExecutionResult {
+    #[must_use]
+    pub fn report_lines(&self) -> Vec<WorkflowReportLine> {
+        let mut lines = Vec::with_capacity(self.steps.len() + 1);
+        lines.push(WorkflowReportLine::Workflow {
+            workflow: self.workflow.clone(),
+        });
+        lines.extend(
+            self.steps
+                .iter()
+                .cloned()
+                .map(|step| WorkflowReportLine::Step { step }),
+        );
+        lines
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum WorkflowReportLine {
+    Workflow { workflow: WorkflowSummary },
+    Step { step: WorkflowStepReport },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowIdParams {
     pub workflow_id: String,
@@ -2135,6 +2159,28 @@ impl CorpusAuditEntry {
 pub struct CorpusAuditResult {
     pub audit: CorpusAuditKind,
     pub entries: Vec<CorpusAuditEntry>,
+}
+
+impl CorpusAuditResult {
+    #[must_use]
+    pub fn report_lines(&self) -> Vec<CorpusAuditReportLine> {
+        let mut lines = Vec::with_capacity(self.entries.len() + 1);
+        lines.push(CorpusAuditReportLine::Audit { audit: self.audit });
+        lines.extend(
+            self.entries
+                .iter()
+                .cloned()
+                .map(|entry| CorpusAuditReportLine::Entry { entry }),
+        );
+        lines
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum CorpusAuditReportLine {
+    Audit { audit: CorpusAuditKind },
+    Entry { entry: CorpusAuditEntry },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2761,8 +2807,9 @@ mod tests {
         CaptureNodeParams, CaptureTemplatePreviewResult, CompareNotesParams,
         ComparisonConnectorDirection, ComparisonPlanningRecord, ComparisonReferenceRecord,
         ComparisonTaskStateRecord, CorpusAuditEntry, CorpusAuditKind, CorpusAuditParams,
-        CorpusAuditResult, DanglingLinkAuditRecord, DeleteExplorationArtifactResult,
-        DuplicateTitleAuditRecord, ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
+        CorpusAuditReportLine, CorpusAuditResult, DanglingLinkAuditRecord,
+        DeleteExplorationArtifactResult, DuplicateTitleAuditRecord,
+        ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
         ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactKind,
         ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
         ExplorationArtifactSummary, ExplorationEntry, ExplorationExplanation, ExplorationLens,
@@ -2776,10 +2823,10 @@ mod tests {
         SearchNodesParams, SearchNodesSort, TrailReplayResult, TrailReplayStepResult,
         UnlinkedReferencesParams, UpdateNodeMetadataParams, WorkflowArtifactSaveSource,
         WorkflowExecutionResult, WorkflowExploreFocus, WorkflowInputKind, WorkflowInputSpec,
-        WorkflowMetadata, WorkflowResolveTarget, WorkflowSpec, WorkflowStepPayload,
-        WorkflowStepRef, WorkflowStepReport, WorkflowStepReportPayload, WorkflowStepSpec,
-        WorkflowSummary, built_in_workflow, built_in_workflow_summaries, built_in_workflows,
-        normalize_reference,
+        WorkflowMetadata, WorkflowReportLine, WorkflowResolveTarget, WorkflowSpec,
+        WorkflowStepPayload, WorkflowStepRef, WorkflowStepReport, WorkflowStepReportPayload,
+        WorkflowStepSpec, WorkflowSummary, built_in_workflow, built_in_workflow_summaries,
+        built_in_workflows, normalize_reference,
     };
     use serde_json::json;
 
@@ -4344,6 +4391,26 @@ mod tests {
         let round_trip: WorkflowExecutionResult = serde_json::from_value(serialized)
             .expect("workflow execution result should deserialize");
         assert_eq!(round_trip, result);
+
+        let lines = result.report_lines();
+        assert_eq!(lines.len(), 6);
+        assert_eq!(
+            serde_json::to_value(&lines[0]).expect("workflow report line should serialize"),
+            json!({
+                "kind": "workflow",
+                "workflow": result.workflow
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(&lines[1]).expect("workflow report line should serialize")["kind"],
+            json!("step")
+        );
+
+        let round_trip_lines: Vec<WorkflowReportLine> = serde_json::from_value(
+            serde_json::to_value(&lines).expect("workflow report lines should serialize"),
+        )
+        .expect("workflow report lines should deserialize");
+        assert_eq!(round_trip_lines, lines);
     }
 
     #[test]
@@ -4401,6 +4468,26 @@ mod tests {
         let round_trip: CorpusAuditResult =
             serde_json::from_value(serialized).expect("audit result should deserialize");
         assert_eq!(round_trip, result);
+
+        let lines = result.report_lines();
+        assert_eq!(lines.len(), 5);
+        assert_eq!(
+            serde_json::to_value(&lines[0]).expect("audit report line should serialize"),
+            json!({
+                "kind": "audit",
+                "audit": "dangling-links"
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(&lines[1]).expect("audit report line should serialize")["kind"],
+            json!("entry")
+        );
+
+        let round_trip_lines: Vec<CorpusAuditReportLine> = serde_json::from_value(
+            serde_json::to_value(&lines).expect("audit report lines should serialize"),
+        )
+        .expect("audit report lines should deserialize");
+        assert_eq!(round_trip_lines, lines);
     }
 
     #[test]
