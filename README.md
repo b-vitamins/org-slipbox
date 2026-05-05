@@ -13,15 +13,15 @@ side owns commands, session state, and presentation.
 
 ## Status
 
-Current development starts from the released `0.7.0` foundation.
+Current development starts from the released `0.8.0` foundation.
 
 The documented workflow surface is intended to remain complete enough for
 day-to-day replacement use while the project deepens its exploratory model.
-The current unreleased line is `0.8.x`: broader research workbench composition
-built on the shipped headless surface, with named workflows, corpus-health
-audits, bounded workflow discovery, report outputs, and stricter scale
-guarantees. Raw-RPC sprawl, plugin-runtime ambitions, MCP, and
-agent-adapter claims remain deferred.
+The released `0.8.x` line broadened the research workbench by composition:
+named workflows, corpus-health audits, bounded workflow discovery, report
+outputs, and stricter scale guarantees over the shipped headless surface.
+Raw-RPC sprawl, plugin-runtime ambitions, MCP, and agent-adapter claims remain
+deferred.
 
 ## Requirements
 
@@ -639,7 +639,8 @@ that the whole programmable platform is done.
 - `0.7.x` is the shipped step: first usable headless workbench commands over
   the canonical daemon boundary for live explore, compare, resolve, and
   artifact lifecycle.
-- `0.8.x` broadens that house through named workflows, corpus-health audits,
+- `0.8.x` is the shipped broader workbench step: named workflows,
+  corpus-health audits,
   bounded workflow discovery from configured directories, report output
   surfaces, and stricter scale guarantees built on that same settled
   exploratory model.
