@@ -12,6 +12,7 @@ mod links;
 mod nodes;
 mod occurrences;
 mod refs;
+mod reviews;
 mod schema;
 mod sync;
 
@@ -24,6 +25,7 @@ use rusqlite::Connection;
 pub struct Database {
     connection: Connection,
     artifact_store: artifacts::ExplorationArtifactStore,
+    review_store: reviews::ReviewRunStore,
 }
 
 impl Database {
@@ -38,9 +40,12 @@ impl Database {
             .with_context(|| format!("failed to open database {}", path.display()))?;
         let artifact_store = artifacts::ExplorationArtifactStore::for_database_path(path);
         artifact_store.migrate()?;
+        let review_store = reviews::ReviewRunStore::for_database_path(path);
+        review_store.migrate()?;
         let database = Self {
             connection,
             artifact_store,
+            review_store,
         };
         database.migrate()?;
         Ok(database)
