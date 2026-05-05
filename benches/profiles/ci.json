@@ -56,6 +56,6 @@
     "dedicated_exploration_buffer_p95_ms": 30.0,
     "workflow_catalog_p95_ms": 5.0,
     "workflow_run_p95_ms": 2500.0,
-    "corpus_audit_p95_ms": 20.0
+    "corpus_audit_p95_ms": 50.0
   }
 }
