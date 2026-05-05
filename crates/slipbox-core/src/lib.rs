@@ -1994,6 +1994,31 @@ impl WorkflowStepReport {
     pub fn kind(&self) -> WorkflowStepKind {
         self.payload.kind()
     }
+
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_workflow_step_id_field(&self.step_id).or_else(|| match &self.payload {
+            WorkflowStepReportPayload::Resolve { node } => {
+                validate_required_text_field(&node.node_key, "node_key")
+            }
+            WorkflowStepReportPayload::Explore {
+                focus_node_key,
+                result: _,
+            } => validate_required_text_field(focus_node_key, "focus_node_key"),
+            WorkflowStepReportPayload::Compare {
+                left_node,
+                right_node,
+                result: _,
+            } => validate_required_text_field(&left_node.node_key, "left_node_key")
+                .or_else(|| validate_required_text_field(&right_node.node_key, "right_node_key")),
+            WorkflowStepReportPayload::ArtifactRun { artifact } => {
+                artifact.metadata.validation_error()
+            }
+            WorkflowStepReportPayload::ArtifactSave { artifact } => {
+                artifact.metadata.validation_error()
+            }
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2153,6 +2178,31 @@ impl CorpusAuditEntry {
             Self::WeaklyIntegratedNote { .. } => CorpusAuditKind::WeaklyIntegratedNotes,
         }
     }
+
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        match self {
+            Self::DanglingLink { record } => {
+                validate_required_text_field(&record.source.node_key, "source.node_key")
+                    .or_else(|| {
+                        validate_required_text_field(
+                            &record.missing_explicit_id,
+                            "missing_explicit_id",
+                        )
+                    })
+                    .or_else(|| validate_required_text_field(&record.preview, "preview"))
+            }
+            Self::DuplicateTitle { record } => validate_required_text_field(&record.title, "title")
+                .or_else(|| {
+                    (record.notes.len() < 2).then(|| {
+                        "duplicate-title findings must include at least two notes".to_owned()
+                    })
+                }),
+            Self::OrphanNote { record } | Self::WeaklyIntegratedNote { record } => {
+                validate_required_text_field(&record.note.node_key, "note.node_key")
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2181,6 +2231,296 @@ impl CorpusAuditResult {
 pub enum CorpusAuditReportLine {
     Audit { audit: CorpusAuditKind },
     Entry { entry: CorpusAuditEntry },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReviewRunKind {
+    Audit,
+    Workflow,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewRunMetadata {
+    pub review_id: String,
+    pub title: String,
+    #[serde(default)]
+    pub summary: Option<String>,
+}
+
+impl ReviewRunMetadata {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_review_id_field(&self.review_id)
+            .or_else(|| validate_required_text_field(&self.title, "title"))
+            .or_else(|| validate_optional_text_field(self.summary.as_deref(), "summary"))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum ReviewRunPayload {
+    Audit {
+        audit: CorpusAuditKind,
+    },
+    Workflow {
+        workflow: WorkflowSummary,
+        step_ids: Vec<String>,
+    },
+}
+
+impl ReviewRunPayload {
+    #[must_use]
+    pub const fn kind(&self) -> ReviewRunKind {
+        match self {
+            Self::Audit { .. } => ReviewRunKind::Audit,
+            Self::Workflow { .. } => ReviewRunKind::Workflow,
+        }
+    }
+
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        match self {
+            Self::Audit { .. } => None,
+            Self::Workflow { workflow, step_ids } => workflow
+                .metadata
+                .validation_error()
+                .or_else(|| validate_workflow_review_source(workflow, step_ids)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReviewFindingKind {
+    Audit,
+    WorkflowStep,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReviewFindingStatus {
+    Open,
+    Reviewed,
+    Dismissed,
+    Accepted,
+}
+
+impl ReviewFindingStatus {
+    #[must_use]
+    pub fn can_transition_to(self, next: Self) -> bool {
+        self != next
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ReviewFindingStatusCounts {
+    pub open: usize,
+    pub reviewed: usize,
+    pub dismissed: usize,
+    pub accepted: usize,
+}
+
+impl ReviewFindingStatusCounts {
+    #[must_use]
+    pub fn from_findings(findings: &[ReviewFinding]) -> Self {
+        let mut counts = Self::default();
+        for finding in findings {
+            match finding.status {
+                ReviewFindingStatus::Open => counts.open += 1,
+                ReviewFindingStatus::Reviewed => counts.reviewed += 1,
+                ReviewFindingStatus::Dismissed => counts.dismissed += 1,
+                ReviewFindingStatus::Accepted => counts.accepted += 1,
+            }
+        }
+        counts
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum ReviewFindingPayload {
+    Audit { entry: Box<CorpusAuditEntry> },
+    WorkflowStep { step: Box<WorkflowStepReport> },
+}
+
+impl ReviewFindingPayload {
+    #[must_use]
+    pub const fn kind(&self) -> ReviewFindingKind {
+        match self {
+            Self::Audit { .. } => ReviewFindingKind::Audit,
+            Self::WorkflowStep { .. } => ReviewFindingKind::WorkflowStep,
+        }
+    }
+
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        match self {
+            Self::Audit { entry } => entry.validation_error(),
+            Self::WorkflowStep { step } => step.validation_error(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewFinding {
+    pub finding_id: String,
+    pub status: ReviewFindingStatus,
+    #[serde(flatten)]
+    pub payload: ReviewFindingPayload,
+}
+
+impl ReviewFinding {
+    #[must_use]
+    pub fn kind(&self) -> ReviewFindingKind {
+        self.payload.kind()
+    }
+
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_review_finding_id_field(&self.finding_id)
+            .or_else(|| self.payload.validation_error())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewFindingStatusTransition {
+    pub review_id: String,
+    pub finding_id: String,
+    pub from_status: ReviewFindingStatus,
+    pub to_status: ReviewFindingStatus,
+}
+
+impl ReviewFindingStatusTransition {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_review_id_field(&self.review_id)
+            .or_else(|| validate_review_finding_id_field(&self.finding_id))
+            .or_else(|| {
+                (!self.from_status.can_transition_to(self.to_status))
+                    .then(|| "review finding status transition must change status".to_owned())
+            })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewRun {
+    #[serde(flatten)]
+    pub metadata: ReviewRunMetadata,
+    #[serde(flatten)]
+    pub payload: ReviewRunPayload,
+    #[serde(default)]
+    pub findings: Vec<ReviewFinding>,
+}
+
+impl ReviewRun {
+    #[must_use]
+    pub fn kind(&self) -> ReviewRunKind {
+        self.payload.kind()
+    }
+
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        self.metadata
+            .validation_error()
+            .or_else(|| self.payload.validation_error())
+            .or_else(|| {
+                let mut seen: Vec<&str> = Vec::with_capacity(self.findings.len());
+                let mut seen_workflow_steps: Vec<&str> = Vec::with_capacity(self.findings.len());
+                for (index, finding) in self.findings.iter().enumerate() {
+                    if let Some(error) = finding.validation_error() {
+                        return Some(format!("review finding {index} is invalid: {error}"));
+                    }
+                    if seen
+                        .iter()
+                        .any(|finding_id| *finding_id == finding.finding_id)
+                    {
+                        return Some(format!(
+                            "review finding {index} reuses duplicate finding_id {}",
+                            finding.finding_id
+                        ));
+                    }
+                    if let Some(error) = validate_review_finding_matches_run(&self.payload, finding)
+                    {
+                        return Some(format!("review finding {index} is invalid: {error}"));
+                    }
+                    if let ReviewFindingPayload::WorkflowStep { step } = &finding.payload {
+                        if seen_workflow_steps
+                            .iter()
+                            .any(|step_id| *step_id == step.step_id)
+                        {
+                            return Some(format!(
+                                "review finding {index} reuses duplicate workflow step_id {}",
+                                step.step_id
+                            ));
+                        }
+                        seen_workflow_steps.push(step.step_id.as_str());
+                    }
+                    seen.push(finding.finding_id.as_str());
+                }
+                None
+            })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewRunSummary {
+    #[serde(flatten)]
+    pub metadata: ReviewRunMetadata,
+    pub kind: ReviewRunKind,
+    pub finding_count: usize,
+    pub status_counts: ReviewFindingStatusCounts,
+}
+
+impl From<&ReviewRun> for ReviewRunSummary {
+    fn from(review: &ReviewRun) -> Self {
+        Self {
+            metadata: review.metadata.clone(),
+            kind: review.kind(),
+            finding_count: review.findings.len(),
+            status_counts: ReviewFindingStatusCounts::from_findings(&review.findings),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewRunIdParams {
+    pub review_id: String,
+}
+
+impl ReviewRunIdParams {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_review_id_field(&self.review_id)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ListReviewRunsParams {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SaveReviewRunResult {
+    pub review: ReviewRunSummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewRunResult {
+    pub review: ReviewRun,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListReviewRunsResult {
+    pub reviews: Vec<ReviewRunSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeleteReviewRunResult {
+    pub review_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MarkReviewFindingResult {
+    pub transition: ReviewFindingStatusTransition,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2688,6 +3028,20 @@ fn validate_workflow_step_id_field(value: &str) -> Option<String> {
     })
 }
 
+fn validate_review_id_field(value: &str) -> Option<String> {
+    validate_required_text_field(value, "review_id").or_else(|| {
+        (value.trim() != value)
+            .then(|| "review_id must not have leading or trailing whitespace".to_owned())
+    })
+}
+
+fn validate_review_finding_id_field(value: &str) -> Option<String> {
+    validate_required_text_field(value, "finding_id").or_else(|| {
+        (value.trim() != value)
+            .then(|| "finding_id must not have leading or trailing whitespace".to_owned())
+    })
+}
+
 fn validate_optional_text_field(value: Option<&str>, field: &str) -> Option<String> {
     value.and_then(|text| validate_required_text_field(text, field))
 }
@@ -2799,6 +3153,58 @@ fn validate_workflow_step_references(
     }
 }
 
+fn validate_workflow_review_source(
+    workflow: &WorkflowSummary,
+    step_ids: &[String],
+) -> Option<String> {
+    if workflow.step_count == 0 {
+        return Some("workflow review source must contain at least one step".to_owned());
+    }
+    if step_ids.len() != workflow.step_count {
+        return Some("workflow review source step_ids must match workflow step_count".to_owned());
+    }
+
+    let mut seen: Vec<&str> = Vec::with_capacity(step_ids.len());
+    for (index, step_id) in step_ids.iter().enumerate() {
+        if let Some(error) = validate_workflow_step_id_field(step_id) {
+            return Some(format!(
+                "workflow review source step_id {index} is invalid: {error}"
+            ));
+        }
+        if seen.iter().any(|existing| *existing == step_id) {
+            return Some(format!(
+                "workflow review source step_id {index} reuses duplicate step_id {step_id}"
+            ));
+        }
+        seen.push(step_id.as_str());
+    }
+
+    None
+}
+
+fn validate_review_finding_matches_run(
+    payload: &ReviewRunPayload,
+    finding: &ReviewFinding,
+) -> Option<String> {
+    match (payload, &finding.payload) {
+        (ReviewRunPayload::Audit { audit }, ReviewFindingPayload::Audit { entry }) => {
+            (entry.kind() != *audit)
+                .then(|| "audit review findings must match review audit kind".to_owned())
+        }
+        (
+            ReviewRunPayload::Workflow { step_ids, .. },
+            ReviewFindingPayload::WorkflowStep { step },
+        ) => (!step_ids.iter().any(|step_id| step_id == &step.step_id))
+            .then(|| "workflow-step findings must reference a source workflow step".to_owned()),
+        (ReviewRunPayload::Audit { .. }, ReviewFindingPayload::WorkflowStep { .. }) => {
+            Some("audit review runs cannot contain workflow-step findings".to_owned())
+        }
+        (ReviewRunPayload::Workflow { .. }, ReviewFindingPayload::Audit { .. }) => {
+            Some("workflow review runs cannot contain audit findings".to_owned())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -2818,15 +3224,18 @@ mod tests {
         NodeRecord, NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonGroup,
         NoteComparisonResult, NoteComparisonSection, NoteComparisonSectionKind,
         NoteConnectivityAuditRecord, PlanningField, PlanningRelationRecord, PreviewNodeRecord,
-        SaveExplorationArtifactParams, SaveExplorationArtifactResult, SavedComparisonArtifact,
-        SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep,
-        SearchNodesParams, SearchNodesSort, TrailReplayResult, TrailReplayStepResult,
-        UnlinkedReferencesParams, UpdateNodeMetadataParams, WorkflowArtifactSaveSource,
-        WorkflowExecutionResult, WorkflowExploreFocus, WorkflowInputKind, WorkflowInputSpec,
-        WorkflowMetadata, WorkflowReportLine, WorkflowResolveTarget, WorkflowSpec,
-        WorkflowStepPayload, WorkflowStepRef, WorkflowStepReport, WorkflowStepReportPayload,
-        WorkflowStepSpec, WorkflowSummary, built_in_workflow, built_in_workflow_summaries,
-        built_in_workflows, normalize_reference,
+        ReviewFinding, ReviewFindingPayload, ReviewFindingStatus, ReviewFindingStatusTransition,
+        ReviewRun, ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload, ReviewRunResult,
+        ReviewRunSummary, SaveExplorationArtifactParams, SaveExplorationArtifactResult,
+        SaveReviewRunResult, SavedComparisonArtifact, SavedExplorationArtifact,
+        SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, SearchNodesParams,
+        SearchNodesSort, TrailReplayResult, TrailReplayStepResult, UnlinkedReferencesParams,
+        UpdateNodeMetadataParams, WorkflowArtifactSaveSource, WorkflowExecutionResult,
+        WorkflowExploreFocus, WorkflowInputKind, WorkflowInputSpec, WorkflowMetadata,
+        WorkflowReportLine, WorkflowResolveTarget, WorkflowSpec, WorkflowStepPayload,
+        WorkflowStepRef, WorkflowStepReport, WorkflowStepReportPayload, WorkflowStepSpec,
+        WorkflowSummary, built_in_workflow, built_in_workflow_summaries, built_in_workflows,
+        normalize_reference,
     };
     use serde_json::json;
 
@@ -4505,6 +4914,481 @@ mod tests {
                 "audit": "weakly-integrated-notes",
                 "limit": 800
             })
+        );
+    }
+
+    #[test]
+    fn review_runs_round_trip_with_audit_and_workflow_findings() {
+        let audit_entry = CorpusAuditEntry::DanglingLink {
+            record: Box::new(DanglingLinkAuditRecord {
+                source: sample_anchor("heading:source.org:3", "Source Heading"),
+                missing_explicit_id: "missing-id".to_owned(),
+                line: 12,
+                column: 7,
+                preview: "[[id:missing-id][Missing]]".to_owned(),
+            }),
+        };
+        let audit_review = ReviewRun {
+            metadata: ReviewRunMetadata {
+                review_id: "review/audit/dangling-links/2026-05-05".to_owned(),
+                title: "Dangling Link Review".to_owned(),
+                summary: Some("Review missing id links".to_owned()),
+            },
+            payload: ReviewRunPayload::Audit {
+                audit: CorpusAuditKind::DanglingLinks,
+            },
+            findings: vec![
+                ReviewFinding {
+                    finding_id: "audit/dangling-links/source/missing-id".to_owned(),
+                    status: ReviewFindingStatus::Open,
+                    payload: ReviewFindingPayload::Audit {
+                        entry: Box::new(audit_entry.clone()),
+                    },
+                },
+                ReviewFinding {
+                    finding_id: "audit/dangling-links/source/other-missing-id".to_owned(),
+                    status: ReviewFindingStatus::Dismissed,
+                    payload: ReviewFindingPayload::Audit {
+                        entry: Box::new(CorpusAuditEntry::DanglingLink {
+                            record: Box::new(DanglingLinkAuditRecord {
+                                source: sample_anchor("heading:source.org:3", "Source Heading"),
+                                missing_explicit_id: "other-missing-id".to_owned(),
+                                line: 18,
+                                column: 3,
+                                preview: "[[id:other-missing-id][Missing]]".to_owned(),
+                            }),
+                        }),
+                    },
+                },
+            ],
+        };
+
+        assert_eq!(audit_review.validation_error(), None);
+        assert_eq!(audit_review.kind(), super::ReviewRunKind::Audit);
+        assert_eq!(
+            audit_review.findings[0].kind(),
+            super::ReviewFindingKind::Audit
+        );
+
+        let audit_summary = ReviewRunSummary::from(&audit_review);
+        assert_eq!(audit_summary.finding_count, 2);
+        assert_eq!(audit_summary.status_counts.open, 1);
+        assert_eq!(audit_summary.status_counts.dismissed, 1);
+
+        let serialized =
+            serde_json::to_value(&audit_review).expect("audit review should serialize");
+        assert_eq!(
+            serialized["review_id"],
+            json!("review/audit/dangling-links/2026-05-05")
+        );
+        assert_eq!(serialized["kind"], json!("audit"));
+        assert_eq!(serialized["audit"], json!("dangling-links"));
+        assert_eq!(serialized["findings"][0]["kind"], json!("audit"));
+        assert_eq!(serialized["findings"][0]["status"], json!("open"));
+        assert_eq!(
+            serialized["findings"][0]["entry"]["kind"],
+            json!("dangling-link")
+        );
+
+        let round_trip: ReviewRun =
+            serde_json::from_value(serialized).expect("audit review should deserialize");
+        assert_eq!(round_trip, audit_review);
+
+        let workflow = WorkflowSummary {
+            metadata: WorkflowMetadata {
+                workflow_id: "workflow/research/context".to_owned(),
+                title: "Research Context".to_owned(),
+                summary: Some("Collect review context".to_owned()),
+            },
+            step_count: 2,
+        };
+        let workflow_review = ReviewRun {
+            metadata: ReviewRunMetadata {
+                review_id: "review/workflow/context/2026-05-05".to_owned(),
+                title: "Workflow Review".to_owned(),
+                summary: None,
+            },
+            payload: ReviewRunPayload::Workflow {
+                workflow: workflow.clone(),
+                step_ids: vec!["resolve-focus".to_owned(), "explore-focus".to_owned()],
+            },
+            findings: vec![ReviewFinding {
+                finding_id: "workflow-step/explore-focus".to_owned(),
+                status: ReviewFindingStatus::Reviewed,
+                payload: ReviewFindingPayload::WorkflowStep {
+                    step: Box::new(WorkflowStepReport {
+                        step_id: "explore-focus".to_owned(),
+                        payload: WorkflowStepReportPayload::Explore {
+                            focus_node_key: "heading:focus.org:3".to_owned(),
+                            result: Box::new(ExploreResult {
+                                lens: ExplorationLens::Unresolved,
+                                sections: Vec::new(),
+                            }),
+                        },
+                    }),
+                },
+            }],
+        };
+
+        assert_eq!(workflow_review.validation_error(), None);
+        let workflow_json =
+            serde_json::to_value(&workflow_review).expect("workflow review should serialize");
+        assert_eq!(workflow_json["kind"], json!("workflow"));
+        assert_eq!(
+            workflow_json["workflow"]["workflow_id"],
+            json!("workflow/research/context")
+        );
+        assert_eq!(
+            workflow_json["step_ids"],
+            json!(["resolve-focus", "explore-focus"])
+        );
+        assert_eq!(workflow_json["findings"][0]["kind"], json!("workflow-step"));
+        assert_eq!(workflow_json["findings"][0]["status"], json!("reviewed"));
+
+        let save_result = SaveReviewRunResult {
+            review: ReviewRunSummary::from(&audit_review),
+        };
+        let review_result = ReviewRunResult {
+            review: workflow_review.clone(),
+        };
+        let list_result = super::ListReviewRunsResult {
+            reviews: vec![
+                ReviewRunSummary::from(&audit_review),
+                ReviewRunSummary::from(&workflow_review),
+            ],
+        };
+        let delete_result = super::DeleteReviewRunResult {
+            review_id: "review/workflow/context/2026-05-05".to_owned(),
+        };
+        let mark_result = super::MarkReviewFindingResult {
+            transition: ReviewFindingStatusTransition {
+                review_id: "review/workflow/context/2026-05-05".to_owned(),
+                finding_id: "workflow-step/explore-focus".to_owned(),
+                from_status: ReviewFindingStatus::Open,
+                to_status: ReviewFindingStatus::Reviewed,
+            },
+        };
+
+        assert_eq!(
+            serde_json::from_value::<SaveReviewRunResult>(
+                serde_json::to_value(&save_result).expect("save result should serialize"),
+            )
+            .expect("save result should deserialize"),
+            save_result
+        );
+        assert_eq!(
+            serde_json::from_value::<ReviewRunResult>(
+                serde_json::to_value(&review_result).expect("review result should serialize"),
+            )
+            .expect("review result should deserialize"),
+            review_result
+        );
+        assert_eq!(
+            serde_json::from_value::<super::ListReviewRunsResult>(
+                serde_json::to_value(&list_result).expect("list result should serialize"),
+            )
+            .expect("list result should deserialize"),
+            list_result
+        );
+        assert_eq!(
+            serde_json::from_value::<super::DeleteReviewRunResult>(
+                serde_json::to_value(&delete_result).expect("delete result should serialize"),
+            )
+            .expect("delete result should deserialize"),
+            delete_result
+        );
+        assert_eq!(
+            serde_json::from_value::<super::MarkReviewFindingResult>(
+                serde_json::to_value(&mark_result).expect("mark result should serialize"),
+            )
+            .expect("mark result should deserialize"),
+            mark_result
+        );
+    }
+
+    #[test]
+    fn review_runs_reject_malformed_records_and_invalid_status_transitions() {
+        let valid_finding = ReviewFinding {
+            finding_id: "audit/dangling-links/source/missing-id".to_owned(),
+            status: ReviewFindingStatus::Open,
+            payload: ReviewFindingPayload::Audit {
+                entry: Box::new(CorpusAuditEntry::DanglingLink {
+                    record: Box::new(DanglingLinkAuditRecord {
+                        source: sample_anchor("heading:source.org:3", "Source Heading"),
+                        missing_explicit_id: "missing-id".to_owned(),
+                        line: 12,
+                        column: 7,
+                        preview: "[[id:missing-id][Missing]]".to_owned(),
+                    }),
+                }),
+            },
+        };
+
+        let blank_metadata = ReviewRun {
+            metadata: ReviewRunMetadata {
+                review_id: " ".to_owned(),
+                title: "Dangling Link Review".to_owned(),
+                summary: None,
+            },
+            payload: ReviewRunPayload::Audit {
+                audit: CorpusAuditKind::DanglingLinks,
+            },
+            findings: vec![valid_finding.clone()],
+        };
+        assert_eq!(
+            blank_metadata.validation_error().as_deref(),
+            Some("review_id must not be empty")
+        );
+
+        let padded_id = ReviewRunIdParams {
+            review_id: " review/audit ".to_owned(),
+        };
+        assert_eq!(
+            padded_id.validation_error().as_deref(),
+            Some("review_id must not have leading or trailing whitespace")
+        );
+
+        let duplicate_findings = ReviewRun {
+            metadata: ReviewRunMetadata {
+                review_id: "review/audit/dangling-links".to_owned(),
+                title: "Dangling Link Review".to_owned(),
+                summary: None,
+            },
+            payload: ReviewRunPayload::Audit {
+                audit: CorpusAuditKind::DanglingLinks,
+            },
+            findings: vec![valid_finding.clone(), valid_finding.clone()],
+        };
+        assert_eq!(
+            duplicate_findings.validation_error().as_deref(),
+            Some(
+                "review finding 1 reuses duplicate finding_id audit/dangling-links/source/missing-id"
+            )
+        );
+
+        let padded_finding = ReviewRun {
+            metadata: ReviewRunMetadata {
+                review_id: "review/audit/dangling-links".to_owned(),
+                title: "Dangling Link Review".to_owned(),
+                summary: None,
+            },
+            payload: ReviewRunPayload::Audit {
+                audit: CorpusAuditKind::DanglingLinks,
+            },
+            findings: vec![ReviewFinding {
+                finding_id: " audit/finding ".to_owned(),
+                ..valid_finding.clone()
+            }],
+        };
+        assert_eq!(
+            padded_finding.validation_error().as_deref(),
+            Some(
+                "review finding 0 is invalid: finding_id must not have leading or trailing whitespace"
+            )
+        );
+
+        let wrong_audit_kind = ReviewRun {
+            metadata: ReviewRunMetadata {
+                review_id: "review/audit/orphans".to_owned(),
+                title: "Orphan Review".to_owned(),
+                summary: None,
+            },
+            payload: ReviewRunPayload::Audit {
+                audit: CorpusAuditKind::OrphanNotes,
+            },
+            findings: vec![valid_finding.clone()],
+        };
+        assert_eq!(
+            wrong_audit_kind.validation_error().as_deref(),
+            Some("review finding 0 is invalid: audit review findings must match review audit kind")
+        );
+
+        let workflow_step_in_audit = ReviewRun {
+            metadata: ReviewRunMetadata {
+                review_id: "review/audit/dangling-links".to_owned(),
+                title: "Dangling Link Review".to_owned(),
+                summary: None,
+            },
+            payload: ReviewRunPayload::Audit {
+                audit: CorpusAuditKind::DanglingLinks,
+            },
+            findings: vec![ReviewFinding {
+                finding_id: "workflow-step/explore-focus".to_owned(),
+                status: ReviewFindingStatus::Reviewed,
+                payload: ReviewFindingPayload::WorkflowStep {
+                    step: Box::new(WorkflowStepReport {
+                        step_id: "explore-focus".to_owned(),
+                        payload: WorkflowStepReportPayload::Explore {
+                            focus_node_key: "heading:focus.org:3".to_owned(),
+                            result: Box::new(ExploreResult {
+                                lens: ExplorationLens::Unresolved,
+                                sections: Vec::new(),
+                            }),
+                        },
+                    }),
+                },
+            }],
+        };
+        assert_eq!(
+            workflow_step_in_audit.validation_error().as_deref(),
+            Some(
+                "review finding 0 is invalid: audit review runs cannot contain workflow-step findings"
+            )
+        );
+
+        let malformed_audit_entry = ReviewRun {
+            metadata: ReviewRunMetadata {
+                review_id: "review/audit/dangling-links".to_owned(),
+                title: "Dangling Link Review".to_owned(),
+                summary: None,
+            },
+            payload: ReviewRunPayload::Audit {
+                audit: CorpusAuditKind::DanglingLinks,
+            },
+            findings: vec![ReviewFinding {
+                payload: ReviewFindingPayload::Audit {
+                    entry: Box::new(CorpusAuditEntry::DanglingLink {
+                        record: Box::new(DanglingLinkAuditRecord {
+                            source: sample_anchor("", "Source Heading"),
+                            missing_explicit_id: "missing-id".to_owned(),
+                            line: 12,
+                            column: 7,
+                            preview: "[[id:missing-id][Missing]]".to_owned(),
+                        }),
+                    }),
+                },
+                ..valid_finding
+            }],
+        };
+        assert_eq!(
+            malformed_audit_entry.validation_error().as_deref(),
+            Some("review finding 0 is invalid: source.node_key must not be empty")
+        );
+
+        let workflow = WorkflowSummary {
+            metadata: WorkflowMetadata {
+                workflow_id: "workflow/research/context".to_owned(),
+                title: "Research Context".to_owned(),
+                summary: None,
+            },
+            step_count: 2,
+        };
+        let workflow_step = WorkflowStepReport {
+            step_id: "explore-focus".to_owned(),
+            payload: WorkflowStepReportPayload::Explore {
+                focus_node_key: "heading:focus.org:3".to_owned(),
+                result: Box::new(ExploreResult {
+                    lens: ExplorationLens::Unresolved,
+                    sections: Vec::new(),
+                }),
+            },
+        };
+
+        let mismatched_workflow_source = ReviewRun {
+            metadata: ReviewRunMetadata {
+                review_id: "review/workflow/context".to_owned(),
+                title: "Workflow Review".to_owned(),
+                summary: None,
+            },
+            payload: ReviewRunPayload::Workflow {
+                workflow: workflow.clone(),
+                step_ids: vec!["explore-focus".to_owned()],
+            },
+            findings: Vec::new(),
+        };
+        assert_eq!(
+            mismatched_workflow_source.validation_error().as_deref(),
+            Some("workflow review source step_ids must match workflow step_count")
+        );
+
+        let duplicate_source_step_ids = ReviewRun {
+            metadata: ReviewRunMetadata {
+                review_id: "review/workflow/context".to_owned(),
+                title: "Workflow Review".to_owned(),
+                summary: None,
+            },
+            payload: ReviewRunPayload::Workflow {
+                workflow: workflow.clone(),
+                step_ids: vec!["explore-focus".to_owned(), "explore-focus".to_owned()],
+            },
+            findings: Vec::new(),
+        };
+        assert_eq!(
+            duplicate_source_step_ids.validation_error().as_deref(),
+            Some("workflow review source step_id 1 reuses duplicate step_id explore-focus")
+        );
+
+        let unknown_workflow_step = ReviewRun {
+            metadata: ReviewRunMetadata {
+                review_id: "review/workflow/context".to_owned(),
+                title: "Workflow Review".to_owned(),
+                summary: None,
+            },
+            payload: ReviewRunPayload::Workflow {
+                workflow: workflow.clone(),
+                step_ids: vec!["resolve-focus".to_owned(), "explore-focus".to_owned()],
+            },
+            findings: vec![ReviewFinding {
+                finding_id: "workflow-step/compare-focus".to_owned(),
+                status: ReviewFindingStatus::Open,
+                payload: ReviewFindingPayload::WorkflowStep {
+                    step: Box::new(WorkflowStepReport {
+                        step_id: "compare-focus".to_owned(),
+                        ..workflow_step.clone()
+                    }),
+                },
+            }],
+        };
+        assert_eq!(
+            unknown_workflow_step.validation_error().as_deref(),
+            Some(
+                "review finding 0 is invalid: workflow-step findings must reference a source workflow step"
+            )
+        );
+
+        let duplicate_workflow_step_finding = ReviewRun {
+            metadata: ReviewRunMetadata {
+                review_id: "review/workflow/context".to_owned(),
+                title: "Workflow Review".to_owned(),
+                summary: None,
+            },
+            payload: ReviewRunPayload::Workflow {
+                workflow,
+                step_ids: vec!["resolve-focus".to_owned(), "explore-focus".to_owned()],
+            },
+            findings: vec![
+                ReviewFinding {
+                    finding_id: "workflow-step/explore-focus".to_owned(),
+                    status: ReviewFindingStatus::Open,
+                    payload: ReviewFindingPayload::WorkflowStep {
+                        step: Box::new(workflow_step.clone()),
+                    },
+                },
+                ReviewFinding {
+                    finding_id: "workflow-step/explore-focus-copy".to_owned(),
+                    status: ReviewFindingStatus::Reviewed,
+                    payload: ReviewFindingPayload::WorkflowStep {
+                        step: Box::new(workflow_step),
+                    },
+                },
+            ],
+        };
+        assert_eq!(
+            duplicate_workflow_step_finding
+                .validation_error()
+                .as_deref(),
+            Some("review finding 1 reuses duplicate workflow step_id explore-focus")
+        );
+
+        let no_op_transition = ReviewFindingStatusTransition {
+            review_id: "review/audit/dangling-links".to_owned(),
+            finding_id: "audit/dangling-links/source/missing-id".to_owned(),
+            from_status: ReviewFindingStatus::Open,
+            to_status: ReviewFindingStatus::Open,
+        };
+        assert_eq!(
+            no_op_transition.validation_error().as_deref(),
+            Some("review finding status transition must change status")
         );
     }
 
