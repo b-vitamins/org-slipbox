@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use serde::Serialize;
 use slipbox_core::{
     AgendaParams, AgendaResult, BacklinksParams, BacklinksResult, CompareNotesParams,
     CorpusAuditEntry, CorpusAuditKind, CorpusAuditParams, CorpusAuditResult,
@@ -13,11 +14,14 @@ use slipbox_core::{
     ListWorkflowsParams, ListWorkflowsResult, MarkReviewFindingParams, MarkReviewFindingResult,
     NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
     NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonGroup, NoteComparisonResult, PingInfo,
-    RandomNodeResult, ReflinksParams, ReflinksResult, ReviewFindingStatusTransition, ReviewRun,
-    ReviewRunIdParams, ReviewRunResult, ReviewRunSummary, RunWorkflowParams, RunWorkflowResult,
+    RandomNodeResult, ReflinksParams, ReflinksResult, ReviewFinding, ReviewFindingPayload,
+    ReviewFindingStatus, ReviewFindingStatusTransition, ReviewRun, ReviewRunIdParams,
+    ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, ReviewRunSummary, RunWorkflowParams,
+    RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
     SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
-    SaveReviewRunResult, SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact,
-    SavedTrailStep, SearchFilesParams, SearchFilesResult, SearchNodesParams, SearchNodesResult,
+    SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
+    SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailStep,
+    SearchFilesParams, SearchFilesResult, SearchNodesParams, SearchNodesResult,
     SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams, SearchRefsResult,
     SearchTagsParams, SearchTagsResult, StatusInfo, TrailReplayResult, TrailReplayStepResult,
     UnlinkedReferencesParams, UnlinkedReferencesResult, WorkflowExecutionResult, WorkflowIdParams,
@@ -812,6 +816,202 @@ fn save_review_run_with_policy(
     Ok(ReviewRunSummary::from(review))
 }
 
+fn render_audit_kind(kind: CorpusAuditKind) -> &'static str {
+    match kind {
+        CorpusAuditKind::DanglingLinks => "dangling-links",
+        CorpusAuditKind::DuplicateTitles => "duplicate-titles",
+        CorpusAuditKind::OrphanNotes => "orphan-notes",
+        CorpusAuditKind::WeaklyIntegratedNotes => "weakly-integrated-notes",
+    }
+}
+
+fn title_for_audit_kind(kind: CorpusAuditKind) -> &'static str {
+    match kind {
+        CorpusAuditKind::DanglingLinks => "Dangling Links",
+        CorpusAuditKind::DuplicateTitles => "Duplicate Titles",
+        CorpusAuditKind::OrphanNotes => "Orphan Notes",
+        CorpusAuditKind::WeaklyIntegratedNotes => "Weakly Integrated Notes",
+    }
+}
+
+fn stable_json_fingerprint<T: Serialize>(value: &T) -> Result<String, JsonRpcError> {
+    let bytes = serde_json::to_vec(value).map_err(|error| {
+        internal_error(anyhow::anyhow!(
+            "failed to serialize review source: {error}"
+        ))
+    })?;
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in bytes {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    Ok(format!("{hash:016x}"))
+}
+
+fn generated_audit_review_id(params: &CorpusAuditParams) -> String {
+    format!(
+        "review/audit/{}/limit-{}",
+        render_audit_kind(params.audit),
+        params.normalized_limit()
+    )
+}
+
+fn generated_workflow_review_id(params: &SaveWorkflowReviewParams) -> Result<String, JsonRpcError> {
+    if params.inputs.is_empty() {
+        return Ok(format!("review/{}", params.workflow_id));
+    }
+
+    let mut inputs = params.inputs.clone();
+    inputs.sort_by(|left, right| left.input_id.cmp(&right.input_id));
+    let fingerprint = stable_json_fingerprint(&inputs)?;
+    Ok(format!(
+        "review/{}/inputs-{fingerprint}",
+        params.workflow_id
+    ))
+}
+
+fn intended_workflow_review_id(params: &SaveWorkflowReviewParams) -> Result<String, JsonRpcError> {
+    params
+        .review_id
+        .clone()
+        .map(Ok)
+        .unwrap_or_else(|| generated_workflow_review_id(params))
+}
+
+fn reject_existing_review_run(state: &ServerState, review_id: &str) -> Result<(), JsonRpcError> {
+    if state
+        .database
+        .review_run(review_id)
+        .map_err(|error| internal_error(error.context("failed to load review run")))?
+        .is_some()
+    {
+        return Err(invalid_request(format!(
+            "review run already exists: {review_id}"
+        )));
+    }
+
+    Ok(())
+}
+
+fn audit_finding_id(entry: &CorpusAuditEntry) -> String {
+    match entry {
+        CorpusAuditEntry::DanglingLink { record } => format!(
+            "audit/dangling-links/{}/{}/{}/{}",
+            record.source.node_key, record.missing_explicit_id, record.line, record.column
+        ),
+        CorpusAuditEntry::DuplicateTitle { record } => {
+            let mut node_keys = record
+                .notes
+                .iter()
+                .map(|note| note.node_key.as_str())
+                .collect::<Vec<_>>();
+            node_keys.sort_unstable();
+            format!("audit/duplicate-titles/{}", node_keys.join(","))
+        }
+        CorpusAuditEntry::OrphanNote { record } => {
+            format!("audit/orphan-notes/{}", record.note.node_key)
+        }
+        CorpusAuditEntry::WeaklyIntegratedNote { record } => {
+            format!("audit/weakly-integrated-notes/{}", record.note.node_key)
+        }
+    }
+}
+
+fn review_from_audit_result(
+    params: &SaveCorpusAuditReviewParams,
+    result: &CorpusAuditResult,
+) -> Result<ReviewRun, JsonRpcError> {
+    let audit_params = params.audit_params();
+    let metadata = ReviewRunMetadata {
+        review_id: params
+            .review_id
+            .clone()
+            .unwrap_or_else(|| generated_audit_review_id(&audit_params)),
+        title: params
+            .title
+            .clone()
+            .unwrap_or_else(|| format!("{} Review", title_for_audit_kind(result.audit))),
+        summary: params.summary.clone().or_else(|| {
+            Some(format!(
+                "{} findings from {} audit with limit {}",
+                result.entries.len(),
+                render_audit_kind(result.audit),
+                audit_params.normalized_limit()
+            ))
+        }),
+    };
+    let review = ReviewRun {
+        metadata,
+        payload: ReviewRunPayload::Audit {
+            audit: result.audit,
+            limit: audit_params.normalized_limit(),
+        },
+        findings: result
+            .entries
+            .iter()
+            .map(|entry| ReviewFinding {
+                finding_id: audit_finding_id(entry),
+                status: ReviewFindingStatus::Open,
+                payload: ReviewFindingPayload::Audit {
+                    entry: Box::new(entry.clone()),
+                },
+            })
+            .collect(),
+    };
+    if let Some(message) = review.validation_error() {
+        return Err(invalid_request(message));
+    }
+    Ok(review)
+}
+
+fn review_from_workflow_result(
+    params: &SaveWorkflowReviewParams,
+    result: &WorkflowExecutionResult,
+    review_id: String,
+) -> Result<ReviewRun, JsonRpcError> {
+    let metadata = ReviewRunMetadata {
+        review_id,
+        title: params
+            .title
+            .clone()
+            .unwrap_or_else(|| format!("{} Review", result.workflow.metadata.title)),
+        summary: params.summary.clone().or_else(|| {
+            Some(format!(
+                "{} step findings from workflow {}",
+                result.steps.len(),
+                result.workflow.metadata.workflow_id
+            ))
+        }),
+    };
+    let review = ReviewRun {
+        metadata,
+        payload: ReviewRunPayload::Workflow {
+            workflow: result.workflow.clone(),
+            inputs: params.inputs.clone(),
+            step_ids: result
+                .steps
+                .iter()
+                .map(|step| step.step_id.clone())
+                .collect(),
+        },
+        findings: result
+            .steps
+            .iter()
+            .map(|step| ReviewFinding {
+                finding_id: format!("workflow-step/{}", step.step_id),
+                status: ReviewFindingStatus::Open,
+                payload: ReviewFindingPayload::WorkflowStep {
+                    step: Box::new(step.clone()),
+                },
+            })
+            .collect(),
+    };
+    if let Some(message) = review.validation_error() {
+        return Err(invalid_request(message));
+    }
+    Ok(review)
+}
+
 #[derive(Debug, Clone)]
 enum WorkflowStepState {
     Resolve {
@@ -1377,6 +1577,13 @@ pub(crate) fn corpus_audit(
     params: serde_json::Value,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let params: CorpusAuditParams = parse_params(params)?;
+    to_value(execute_corpus_audit_query(state, &params)?)
+}
+
+fn execute_corpus_audit_query(
+    state: &mut ServerState,
+    params: &CorpusAuditParams,
+) -> Result<CorpusAuditResult, JsonRpcError> {
     let entries = match params.audit {
         CorpusAuditKind::DanglingLinks => state
             .database
@@ -1419,10 +1626,45 @@ pub(crate) fn corpus_audit(
             })
             .collect(),
     };
-    to_value(CorpusAuditResult {
+    Ok(CorpusAuditResult {
         audit: params.audit,
         entries,
     })
+}
+
+pub(crate) fn save_corpus_audit_review(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: SaveCorpusAuditReviewParams = parse_params(params)?;
+    if let Some(message) = params.validation_error() {
+        return Err(invalid_request(message));
+    }
+    let result = execute_corpus_audit_query(state, &params.audit_params())?;
+    let review_run = review_from_audit_result(&params, &result)?;
+    let review = save_review_run_with_policy(state, &review_run, params.overwrite)?;
+    to_value(SaveCorpusAuditReviewResult { result, review })
+}
+
+pub(crate) fn save_workflow_review(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: SaveWorkflowReviewParams = parse_params(params)?;
+    if let Some(message) = params.validation_error() {
+        return Err(invalid_request(message));
+    }
+    let review_id = intended_workflow_review_id(&params)?;
+    let workflow = discover_workflow_catalog(&state.root, &state.workflow_dirs)
+        .workflow(&params.workflow_id)
+        .ok_or_else(|| invalid_request(format!("unknown workflow: {}", params.workflow_id)))?;
+    if !params.overwrite {
+        reject_existing_review_run(state, &review_id)?;
+    }
+    let result = execute_workflow_spec(state, &workflow, &params.inputs)?;
+    let review_run = review_from_workflow_result(&params, &result, review_id)?;
+    let review = save_review_run_with_policy(state, &review_run, params.overwrite)?;
+    to_value(SaveWorkflowReviewResult { result, review })
 }
 
 pub(crate) fn explore(
@@ -1517,7 +1759,8 @@ mod tests {
         MarkReviewFindingResult, NodeKind, NoteComparisonEntry, NoteComparisonExplanation,
         NoteComparisonGroup, NoteComparisonResult, NoteComparisonSectionKind, ReviewFinding,
         ReviewFindingPayload, ReviewFindingStatus, ReviewRun, ReviewRunMetadata, ReviewRunPayload,
-        ReviewRunResult, RunWorkflowResult, SaveExplorationArtifactResult, SaveReviewRunResult,
+        ReviewRunResult, RunWorkflowResult, SaveCorpusAuditReviewResult,
+        SaveExplorationArtifactResult, SaveReviewRunResult, SaveWorkflowReviewResult,
         SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact,
         SavedTrailArtifact, SavedTrailStep, TrailReplayStepResult, WorkflowInputAssignment,
         WorkflowResolveTarget, WorkflowResult, WorkflowSpec, WorkflowStepReport,
@@ -1532,7 +1775,8 @@ mod tests {
         execute_saved_exploration_artifact, execute_saved_exploration_artifact_by_id,
         execute_workflow_spec, exploration_artifact, explore, list_exploration_artifacts,
         list_review_runs, list_workflows, mark_review_finding, review_run, run_workflow,
-        save_exploration_artifact, save_review_run, workflow,
+        save_corpus_audit_review, save_exploration_artifact, save_review_run, save_workflow_review,
+        workflow,
     };
     use crate::server::state::ServerState;
 
@@ -2858,6 +3102,311 @@ mod tests {
     }
 
     #[test]
+    fn save_corpus_audit_review_rpc_persists_typed_audit_evidence() {
+        let (_workspace, mut state) = audit_state();
+
+        let saved: SaveCorpusAuditReviewResult = serde_json::from_value(
+            save_corpus_audit_review(
+                &mut state,
+                json!({
+                    "audit": "dangling-links",
+                    "limit": 20,
+                    "review_id": "review/audit/dangling-links/custom",
+                    "title": "Custom Dangling Review",
+                    "overwrite": true
+                }),
+            )
+            .expect("save audit review RPC should succeed"),
+        )
+        .expect("save audit review result should decode");
+        assert_eq!(saved.result.audit, CorpusAuditKind::DanglingLinks);
+        assert_eq!(saved.result.entries.len(), 1);
+        assert_eq!(
+            saved.review.metadata.review_id,
+            "review/audit/dangling-links/custom"
+        );
+        assert_eq!(saved.review.finding_count, saved.result.entries.len());
+        assert_eq!(saved.review.status_counts.open, saved.result.entries.len());
+
+        let root = state.root.clone();
+        let db_path = state.db_path.clone();
+        let discovery = state.discovery.clone();
+        drop(state);
+
+        let mut reopened =
+            ServerState::new(root, db_path, Vec::new(), discovery).expect("state should reopen");
+        let inspected: ReviewRunResult = serde_json::from_value(
+            review_run(
+                &mut reopened,
+                json!({ "review_id": "review/audit/dangling-links/custom" }),
+            )
+            .expect("saved audit review should load after reopen"),
+        )
+        .expect("review result should decode");
+        assert_eq!(inspected.review.metadata.title, "Custom Dangling Review");
+        match inspected.review.payload {
+            ReviewRunPayload::Audit { audit, limit } => {
+                assert_eq!(audit, CorpusAuditKind::DanglingLinks);
+                assert_eq!(limit, 20);
+            }
+            other => panic!("expected audit review payload, got {:?}", other.kind()),
+        }
+        assert_eq!(inspected.review.findings.len(), saved.result.entries.len());
+        match &saved.result.entries[0] {
+            CorpusAuditEntry::DanglingLink { record } => {
+                assert_eq!(
+                    inspected.review.findings[0].finding_id,
+                    format!(
+                        "audit/dangling-links/{}/{}/{}/{}",
+                        record.source.node_key,
+                        record.missing_explicit_id,
+                        record.line,
+                        record.column
+                    )
+                );
+            }
+            other => panic!("expected dangling-link result, got {:?}", other.kind()),
+        }
+        assert_eq!(
+            inspected.review.findings[0].status,
+            ReviewFindingStatus::Open
+        );
+        match &inspected.review.findings[0].payload {
+            ReviewFindingPayload::Audit { entry } => {
+                assert_eq!(entry.as_ref(), &saved.result.entries[0]);
+            }
+            other => panic!("expected audit finding payload, got {:?}", other.kind()),
+        }
+
+        let conflict = save_corpus_audit_review(
+            &mut reopened,
+            json!({
+                "audit": "dangling-links",
+                "limit": 20,
+                "review_id": "review/audit/dangling-links/custom",
+                "overwrite": false
+            }),
+        )
+        .expect_err("non-overwrite audit review save should reject replacement");
+        assert_eq!(
+            conflict.into_inner().message,
+            "review run already exists: review/audit/dangling-links/custom"
+        );
+    }
+
+    #[test]
+    fn save_workflow_review_rpc_persists_typed_workflow_evidence() {
+        let (_workspace, mut state, focus_key) = indexed_state();
+
+        let saved: SaveWorkflowReviewResult = serde_json::from_value(
+            save_workflow_review(
+                &mut state,
+                json!({
+                    "workflow_id": BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
+                    "inputs": [{
+                        "input_id": "focus",
+                        "kind": "node-key",
+                        "node_key": focus_key
+                    }],
+                    "title": "Unresolved Sweep Review",
+                    "overwrite": true
+                }),
+            )
+            .expect("save workflow review RPC should succeed"),
+        )
+        .expect("save workflow review result should decode");
+        assert_eq!(
+            saved.result.workflow.metadata.workflow_id,
+            BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID
+        );
+        assert_eq!(saved.result.steps.len(), 4);
+        assert_eq!(saved.review.finding_count, saved.result.steps.len());
+        assert_eq!(saved.review.status_counts.open, saved.result.steps.len());
+        assert!(
+            saved
+                .review
+                .metadata
+                .review_id
+                .starts_with("review/workflow/builtin/unresolved-sweep/inputs-")
+        );
+
+        let root = state.root.clone();
+        let db_path = state.db_path.clone();
+        let discovery = state.discovery.clone();
+        drop(state);
+
+        let mut reopened =
+            ServerState::new(root, db_path, Vec::new(), discovery).expect("state should reopen");
+        let inspected: ReviewRunResult = serde_json::from_value(
+            review_run(
+                &mut reopened,
+                json!({ "review_id": saved.review.metadata.review_id }),
+            )
+            .expect("saved workflow review should load after reopen"),
+        )
+        .expect("review result should decode");
+        assert_eq!(inspected.review.metadata.title, "Unresolved Sweep Review");
+        match &inspected.review.payload {
+            ReviewRunPayload::Workflow {
+                workflow,
+                inputs,
+                step_ids,
+            } => {
+                assert_eq!(
+                    workflow.metadata.workflow_id,
+                    BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID
+                );
+                assert_eq!(inputs.len(), 1);
+                assert_eq!(inputs[0].input_id, "focus");
+                assert_eq!(
+                    step_ids,
+                    &saved
+                        .result
+                        .steps
+                        .iter()
+                        .map(|step| step.step_id.clone())
+                        .collect::<Vec<_>>()
+                );
+            }
+            other => panic!("expected workflow review payload, got {:?}", other.kind()),
+        }
+        assert_eq!(inspected.review.findings.len(), saved.result.steps.len());
+        assert_eq!(
+            inspected.review.findings[0].finding_id,
+            format!("workflow-step/{}", saved.result.steps[0].step_id)
+        );
+        match &inspected.review.findings[0].payload {
+            ReviewFindingPayload::WorkflowStep { step } => {
+                assert_eq!(step.as_ref(), &saved.result.steps[0]);
+            }
+            other => panic!(
+                "expected workflow-step finding payload, got {:?}",
+                other.kind()
+            ),
+        }
+
+        let unknown = save_workflow_review(
+            &mut reopened,
+            json!({
+                "workflow_id": "workflow/builtin/missing",
+                "overwrite": true
+            }),
+        )
+        .expect_err("unknown workflow should be rejected");
+        assert_eq!(
+            unknown.into_inner().message,
+            "unknown workflow: workflow/builtin/missing"
+        );
+    }
+
+    #[test]
+    fn save_workflow_review_rejects_existing_review_before_artifact_save_side_effects() {
+        let (_workspace, mut state, left_key, right_key) = comparison_state();
+        let workflow_dir = state.root.join("workflows");
+        fs::create_dir_all(&workflow_dir).expect("workflow dir should be created");
+        state.workflow_dirs = vec![workflow_dir.clone()];
+
+        let workflow_id = "workflow/test/review-save-side-effect";
+        let artifact_id = "workflow-review-side-effect";
+        let workflow = WorkflowSpec {
+            metadata: slipbox_core::WorkflowMetadata {
+                workflow_id: workflow_id.to_owned(),
+                title: "Review Save Side Effect".to_owned(),
+                summary: Some("Would save an artifact if it reaches execution".to_owned()),
+            },
+            inputs: Vec::new(),
+            steps: vec![
+                slipbox_core::WorkflowStepSpec {
+                    step_id: "resolve-left".to_owned(),
+                    payload: slipbox_core::WorkflowStepPayload::Resolve {
+                        target: WorkflowResolveTarget::NodeKey {
+                            node_key: left_key.clone(),
+                        },
+                    },
+                },
+                slipbox_core::WorkflowStepSpec {
+                    step_id: "resolve-right".to_owned(),
+                    payload: slipbox_core::WorkflowStepPayload::Resolve {
+                        target: WorkflowResolveTarget::NodeKey {
+                            node_key: right_key.clone(),
+                        },
+                    },
+                },
+                slipbox_core::WorkflowStepSpec {
+                    step_id: "compare".to_owned(),
+                    payload: slipbox_core::WorkflowStepPayload::Compare {
+                        left: slipbox_core::WorkflowStepRef {
+                            step_id: "resolve-left".to_owned(),
+                        },
+                        right: slipbox_core::WorkflowStepRef {
+                            step_id: "resolve-right".to_owned(),
+                        },
+                        group: NoteComparisonGroup::Overlap,
+                        limit: 10,
+                    },
+                },
+                slipbox_core::WorkflowStepSpec {
+                    step_id: "save-artifact".to_owned(),
+                    payload: slipbox_core::WorkflowStepPayload::ArtifactSave {
+                        source: slipbox_core::WorkflowArtifactSaveSource::CompareStep {
+                            step_id: "compare".to_owned(),
+                        },
+                        metadata: ExplorationArtifactMetadata {
+                            artifact_id: artifact_id.to_owned(),
+                            title: "Workflow Review Side Effect".to_owned(),
+                            summary: None,
+                        },
+                        overwrite: true,
+                    },
+                },
+            ],
+        };
+        fs::write(
+            workflow_dir.join("side-effect.json"),
+            serde_json::to_vec_pretty(&workflow).expect("workflow should serialize"),
+        )
+        .expect("workflow spec should be written");
+
+        let existing_review_id = "review/workflow/side-effect";
+        state
+            .database
+            .save_review_run(&sample_audit_review_run(
+                existing_review_id,
+                "Existing Review",
+                ReviewFindingStatus::Open,
+            ))
+            .expect("existing review should be saved");
+        assert!(
+            state
+                .database
+                .exploration_artifact(artifact_id)
+                .expect("artifact lookup should succeed")
+                .is_none()
+        );
+
+        let conflict = save_workflow_review(
+            &mut state,
+            json!({
+                "workflow_id": workflow_id,
+                "review_id": existing_review_id,
+                "overwrite": false
+            }),
+        )
+        .expect_err("existing review should be rejected before workflow execution");
+        assert_eq!(
+            conflict.into_inner().message,
+            format!("review run already exists: {existing_review_id}")
+        );
+        assert!(
+            state
+                .database
+                .exploration_artifact(artifact_id)
+                .expect("artifact lookup should still succeed")
+                .is_none()
+        );
+    }
+
+    #[test]
     fn execute_workflow_spec_runs_all_supported_step_kinds() {
         let (_workspace, mut state, left_key, right_key) = comparison_state();
         let workflow = WorkflowSpec {
@@ -3278,6 +3827,7 @@ mod tests {
             },
             payload: ReviewRunPayload::Audit {
                 audit: CorpusAuditKind::DanglingLinks,
+                limit: 200,
             },
             findings: vec![ReviewFinding {
                 finding_id: "audit/dangling-links/source/missing-id".to_owned(),

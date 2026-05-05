@@ -555,6 +555,7 @@ mod tests {
             },
             payload: ReviewRunPayload::Audit {
                 audit: CorpusAuditKind::DanglingLinks,
+                limit: 200,
             },
             findings: vec![ReviewFinding {
                 finding_id: "audit/dangling-links/source/missing-id".to_owned(),

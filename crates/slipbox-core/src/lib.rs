@@ -2262,9 +2262,13 @@ impl ReviewRunMetadata {
 pub enum ReviewRunPayload {
     Audit {
         audit: CorpusAuditKind,
+        #[serde(default)]
+        limit: usize,
     },
     Workflow {
         workflow: WorkflowSummary,
+        #[serde(default)]
+        inputs: Vec<WorkflowInputAssignment>,
         step_ids: Vec<String>,
     },
 }
@@ -2282,9 +2286,14 @@ impl ReviewRunPayload {
     pub fn validation_error(&self) -> Option<String> {
         match self {
             Self::Audit { .. } => None,
-            Self::Workflow { workflow, step_ids } => workflow
+            Self::Workflow {
+                workflow,
+                inputs,
+                step_ids,
+            } => workflow
                 .metadata
                 .validation_error()
+                .or_else(|| validate_workflow_review_inputs(inputs))
                 .or_else(|| validate_workflow_review_source(workflow, step_ids)),
         }
     }
@@ -2528,7 +2537,104 @@ impl MarkReviewFindingParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SaveCorpusAuditReviewParams {
+    pub audit: CorpusAuditKind,
+    #[serde(default = "default_audit_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub review_id: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default = "default_review_overwrite")]
+    pub overwrite: bool,
+}
+
+impl SaveCorpusAuditReviewParams {
+    #[must_use]
+    pub fn audit_params(&self) -> CorpusAuditParams {
+        CorpusAuditParams {
+            audit: self.audit,
+            limit: self.limit,
+        }
+    }
+
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        self.review_id
+            .as_deref()
+            .and_then(validate_review_id_field)
+            .or_else(|| validate_optional_text_field(self.title.as_deref(), "title"))
+            .or_else(|| validate_optional_text_field(self.summary.as_deref(), "summary"))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SaveWorkflowReviewParams {
+    pub workflow_id: String,
+    #[serde(default)]
+    pub inputs: Vec<WorkflowInputAssignment>,
+    #[serde(default)]
+    pub review_id: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default = "default_review_overwrite")]
+    pub overwrite: bool,
+}
+
+impl SaveWorkflowReviewParams {
+    #[must_use]
+    pub fn run_workflow_params(&self) -> RunWorkflowParams {
+        RunWorkflowParams {
+            workflow_id: self.workflow_id.clone(),
+            inputs: self.inputs.clone(),
+        }
+    }
+
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_workflow_id_field(&self.workflow_id)
+            .or_else(|| {
+                let mut seen: Vec<&str> = Vec::with_capacity(self.inputs.len());
+                for (index, input) in self.inputs.iter().enumerate() {
+                    if let Some(error) = input.validation_error() {
+                        return Some(format!(
+                            "workflow input assignment {index} is invalid: {error}"
+                        ));
+                    }
+                    if seen.contains(&input.input_id.as_str()) {
+                        return Some(format!(
+                            "workflow input assignment {index} reuses duplicate input_id {}",
+                            input.input_id
+                        ));
+                    }
+                    seen.push(input.input_id.as_str());
+                }
+                None
+            })
+            .or_else(|| self.review_id.as_deref().and_then(validate_review_id_field))
+            .or_else(|| validate_optional_text_field(self.title.as_deref(), "title"))
+            .or_else(|| validate_optional_text_field(self.summary.as_deref(), "summary"))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SaveReviewRunResult {
+    pub review: ReviewRunSummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SaveCorpusAuditReviewResult {
+    pub result: CorpusAuditResult,
+    pub review: ReviewRunSummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SaveWorkflowReviewResult {
+    pub result: WorkflowExecutionResult,
     pub review: ReviewRunSummary,
 }
 
@@ -3215,12 +3321,29 @@ fn validate_workflow_review_source(
     None
 }
 
+fn validate_workflow_review_inputs(inputs: &[WorkflowInputAssignment]) -> Option<String> {
+    let mut seen: Vec<&str> = Vec::with_capacity(inputs.len());
+    for (index, input) in inputs.iter().enumerate() {
+        if let Some(error) = input.validation_error() {
+            return Some(format!("workflow review input {index} is invalid: {error}"));
+        }
+        if seen.contains(&input.input_id.as_str()) {
+            return Some(format!(
+                "workflow review input {index} reuses duplicate input_id {}",
+                input.input_id
+            ));
+        }
+        seen.push(input.input_id.as_str());
+    }
+    None
+}
+
 fn validate_review_finding_matches_run(
     payload: &ReviewRunPayload,
     finding: &ReviewFinding,
 ) -> Option<String> {
     match (payload, &finding.payload) {
-        (ReviewRunPayload::Audit { audit }, ReviewFindingPayload::Audit { entry }) => {
+        (ReviewRunPayload::Audit { audit, .. }, ReviewFindingPayload::Audit { entry }) => {
             (entry.kind() != *audit)
                 .then(|| "audit review findings must match review audit kind".to_owned())
         }
@@ -3260,16 +3383,17 @@ mod tests {
         PlanningField, PlanningRelationRecord, PreviewNodeRecord, ReviewFinding,
         ReviewFindingPayload, ReviewFindingStatus, ReviewFindingStatusTransition, ReviewRun,
         ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, ReviewRunSummary,
-        SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
-        SaveReviewRunResult, SavedComparisonArtifact, SavedExplorationArtifact,
-        SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, SearchNodesParams,
-        SearchNodesSort, TrailReplayResult, TrailReplayStepResult, UnlinkedReferencesParams,
-        UpdateNodeMetadataParams, WorkflowArtifactSaveSource, WorkflowExecutionResult,
-        WorkflowExploreFocus, WorkflowInputKind, WorkflowInputSpec, WorkflowMetadata,
-        WorkflowReportLine, WorkflowResolveTarget, WorkflowSpec, WorkflowStepPayload,
-        WorkflowStepRef, WorkflowStepReport, WorkflowStepReportPayload, WorkflowStepSpec,
-        WorkflowSummary, built_in_workflow, built_in_workflow_summaries, built_in_workflows,
-        normalize_reference,
+        SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult, SaveExplorationArtifactParams,
+        SaveExplorationArtifactResult, SaveReviewRunParams, SaveReviewRunResult,
+        SaveWorkflowReviewParams, SaveWorkflowReviewResult, SavedComparisonArtifact,
+        SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep,
+        SearchNodesParams, SearchNodesSort, TrailReplayResult, TrailReplayStepResult,
+        UnlinkedReferencesParams, UpdateNodeMetadataParams, WorkflowArtifactSaveSource,
+        WorkflowExecutionResult, WorkflowExploreFocus, WorkflowInputAssignment, WorkflowInputKind,
+        WorkflowInputSpec, WorkflowMetadata, WorkflowReportLine, WorkflowResolveTarget,
+        WorkflowSpec, WorkflowStepPayload, WorkflowStepRef, WorkflowStepReport,
+        WorkflowStepReportPayload, WorkflowStepSpec, WorkflowSummary, built_in_workflow,
+        built_in_workflow_summaries, built_in_workflows, normalize_reference,
     };
     use serde_json::json;
 
@@ -4970,6 +5094,7 @@ mod tests {
             },
             payload: ReviewRunPayload::Audit {
                 audit: CorpusAuditKind::DanglingLinks,
+                limit: 200,
             },
             findings: vec![
                 ReviewFinding {
@@ -5017,6 +5142,7 @@ mod tests {
         );
         assert_eq!(serialized["kind"], json!("audit"));
         assert_eq!(serialized["audit"], json!("dangling-links"));
+        assert_eq!(serialized["limit"], json!(200));
         assert_eq!(serialized["findings"][0]["kind"], json!("audit"));
         assert_eq!(serialized["findings"][0]["status"], json!("open"));
         assert_eq!(
@@ -5044,6 +5170,12 @@ mod tests {
             },
             payload: ReviewRunPayload::Workflow {
                 workflow: workflow.clone(),
+                inputs: vec![WorkflowInputAssignment {
+                    input_id: "focus".to_owned(),
+                    target: WorkflowResolveTarget::NodeKey {
+                        node_key: "heading:focus.org:3".to_owned(),
+                    },
+                }],
                 step_ids: vec!["resolve-focus".to_owned(), "explore-focus".to_owned()],
             },
             findings: vec![ReviewFinding {
@@ -5076,9 +5208,35 @@ mod tests {
             workflow_json["step_ids"],
             json!(["resolve-focus", "explore-focus"])
         );
+        assert_eq!(workflow_json["inputs"][0]["input_id"], json!("focus"));
+        assert_eq!(
+            workflow_json["inputs"][0]["node_key"],
+            json!("heading:focus.org:3")
+        );
         assert_eq!(workflow_json["findings"][0]["kind"], json!("workflow-step"));
         assert_eq!(workflow_json["findings"][0]["status"], json!("reviewed"));
 
+        let audit_review_params = SaveCorpusAuditReviewParams {
+            audit: CorpusAuditKind::DanglingLinks,
+            limit: 50,
+            review_id: Some("review/audit/dangling-links/custom".to_owned()),
+            title: Some("Custom Dangling Review".to_owned()),
+            summary: None,
+            overwrite: false,
+        };
+        let workflow_review_params = SaveWorkflowReviewParams {
+            workflow_id: "workflow/research/context".to_owned(),
+            inputs: vec![WorkflowInputAssignment {
+                input_id: "focus".to_owned(),
+                target: WorkflowResolveTarget::NodeKey {
+                    node_key: "heading:focus.org:3".to_owned(),
+                },
+            }],
+            review_id: None,
+            title: Some("Custom Workflow Review".to_owned()),
+            summary: None,
+            overwrite: false,
+        };
         let save_params = SaveReviewRunParams {
             review: audit_review.clone(),
             overwrite: false,
@@ -5110,6 +5268,23 @@ mod tests {
                 from_status: ReviewFindingStatus::Open,
                 to_status: ReviewFindingStatus::Reviewed,
             },
+        };
+        let audit_review_result = SaveCorpusAuditReviewResult {
+            result: CorpusAuditResult {
+                audit: CorpusAuditKind::DanglingLinks,
+                entries: vec![audit_entry],
+            },
+            review: ReviewRunSummary::from(&audit_review),
+        };
+        let workflow_review_result = SaveWorkflowReviewResult {
+            result: WorkflowExecutionResult {
+                workflow,
+                steps: vec![match &workflow_review.findings[0].payload {
+                    ReviewFindingPayload::WorkflowStep { step } => step.as_ref().clone(),
+                    _ => panic!("expected workflow-step finding"),
+                }],
+            },
+            review: ReviewRunSummary::from(&workflow_review),
         };
 
         assert_eq!(
@@ -5161,6 +5336,38 @@ mod tests {
             .expect("mark params should deserialize"),
             mark_params
         );
+        assert_eq!(
+            serde_json::from_value::<SaveCorpusAuditReviewParams>(
+                serde_json::to_value(&audit_review_params)
+                    .expect("audit review params should serialize"),
+            )
+            .expect("audit review params should deserialize"),
+            audit_review_params
+        );
+        assert_eq!(
+            serde_json::from_value::<SaveWorkflowReviewParams>(
+                serde_json::to_value(&workflow_review_params)
+                    .expect("workflow review params should serialize"),
+            )
+            .expect("workflow review params should deserialize"),
+            workflow_review_params
+        );
+        assert_eq!(
+            serde_json::from_value::<SaveCorpusAuditReviewResult>(
+                serde_json::to_value(&audit_review_result)
+                    .expect("audit review result should serialize"),
+            )
+            .expect("audit review result should deserialize"),
+            audit_review_result
+        );
+        assert_eq!(
+            serde_json::from_value::<SaveWorkflowReviewResult>(
+                serde_json::to_value(&workflow_review_result)
+                    .expect("workflow review result should serialize"),
+            )
+            .expect("workflow review result should deserialize"),
+            workflow_review_result
+        );
 
         let default_save_params: SaveReviewRunParams = serde_json::from_value(json!({
             "review": audit_review
@@ -5195,6 +5402,7 @@ mod tests {
             },
             payload: ReviewRunPayload::Audit {
                 audit: CorpusAuditKind::DanglingLinks,
+                limit: 200,
             },
             findings: vec![valid_finding.clone()],
         };
@@ -5219,6 +5427,7 @@ mod tests {
             },
             payload: ReviewRunPayload::Audit {
                 audit: CorpusAuditKind::DanglingLinks,
+                limit: 200,
             },
             findings: vec![valid_finding.clone(), valid_finding.clone()],
         };
@@ -5237,6 +5446,7 @@ mod tests {
             },
             payload: ReviewRunPayload::Audit {
                 audit: CorpusAuditKind::DanglingLinks,
+                limit: 200,
             },
             findings: vec![ReviewFinding {
                 finding_id: " audit/finding ".to_owned(),
@@ -5258,6 +5468,7 @@ mod tests {
             },
             payload: ReviewRunPayload::Audit {
                 audit: CorpusAuditKind::OrphanNotes,
+                limit: 200,
             },
             findings: vec![valid_finding.clone()],
         };
@@ -5274,6 +5485,7 @@ mod tests {
             },
             payload: ReviewRunPayload::Audit {
                 audit: CorpusAuditKind::DanglingLinks,
+                limit: 200,
             },
             findings: vec![ReviewFinding {
                 finding_id: "workflow-step/explore-focus".to_owned(),
@@ -5307,6 +5519,7 @@ mod tests {
             },
             payload: ReviewRunPayload::Audit {
                 audit: CorpusAuditKind::DanglingLinks,
+                limit: 200,
             },
             findings: vec![ReviewFinding {
                 payload: ReviewFindingPayload::Audit {
@@ -5355,6 +5568,7 @@ mod tests {
             },
             payload: ReviewRunPayload::Workflow {
                 workflow: workflow.clone(),
+                inputs: Vec::new(),
                 step_ids: vec!["explore-focus".to_owned()],
             },
             findings: Vec::new(),
@@ -5372,6 +5586,7 @@ mod tests {
             },
             payload: ReviewRunPayload::Workflow {
                 workflow: workflow.clone(),
+                inputs: Vec::new(),
                 step_ids: vec!["explore-focus".to_owned(), "explore-focus".to_owned()],
             },
             findings: Vec::new(),
@@ -5389,6 +5604,7 @@ mod tests {
             },
             payload: ReviewRunPayload::Workflow {
                 workflow: workflow.clone(),
+                inputs: Vec::new(),
                 step_ids: vec!["resolve-focus".to_owned(), "explore-focus".to_owned()],
             },
             findings: vec![ReviewFinding {
@@ -5417,6 +5633,7 @@ mod tests {
             },
             payload: ReviewRunPayload::Workflow {
                 workflow,
+                inputs: Vec::new(),
                 step_ids: vec!["resolve-focus".to_owned(), "explore-focus".to_owned()],
             },
             findings: vec![

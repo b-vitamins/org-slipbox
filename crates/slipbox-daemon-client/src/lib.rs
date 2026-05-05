@@ -14,9 +14,10 @@ use slipbox_core::{
     MarkReviewFindingResult, NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams,
     NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, PingInfo,
     ReviewRunIdParams, ReviewRunResult, RunWorkflowParams, RunWorkflowResult,
-    SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
-    SaveReviewRunResult, SearchNodesParams, SearchNodesResult, StatusInfo, WorkflowIdParams,
-    WorkflowResult,
+    SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult, SaveExplorationArtifactParams,
+    SaveExplorationArtifactResult, SaveReviewRunParams, SaveReviewRunResult,
+    SaveWorkflowReviewParams, SaveWorkflowReviewResult, SearchNodesParams, SearchNodesResult,
+    StatusInfo, WorkflowIdParams, WorkflowResult,
 };
 use slipbox_rpc::{
     JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_COMPARE_NOTES, METHOD_CORPUS_AUDIT,
@@ -25,8 +26,9 @@ use slipbox_rpc::{
     METHOD_LIST_EXPLORATION_ARTIFACTS, METHOD_LIST_REVIEW_RUNS, METHOD_LIST_WORKFLOWS,
     METHOD_MARK_REVIEW_FINDING, METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY,
     METHOD_NODE_FROM_REF, METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_REVIEW_RUN,
-    METHOD_RUN_WORKFLOW, METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SAVE_REVIEW_RUN,
-    METHOD_SEARCH_NODES, METHOD_STATUS, METHOD_WORKFLOW, read_framed_message, write_framed_message,
+    METHOD_RUN_WORKFLOW, METHOD_SAVE_CORPUS_AUDIT_REVIEW, METHOD_SAVE_EXPLORATION_ARTIFACT,
+    METHOD_SAVE_REVIEW_RUN, METHOD_SAVE_WORKFLOW_REVIEW, METHOD_SEARCH_NODES, METHOD_STATUS,
+    METHOD_WORKFLOW, read_framed_message, write_framed_message,
 };
 use thiserror::Error;
 
@@ -345,6 +347,20 @@ where
         self.request(METHOD_MARK_REVIEW_FINDING, params)
     }
 
+    fn save_corpus_audit_review(
+        &mut self,
+        params: &SaveCorpusAuditReviewParams,
+    ) -> Result<SaveCorpusAuditReviewResult, DaemonClientError> {
+        self.request(METHOD_SAVE_CORPUS_AUDIT_REVIEW, params)
+    }
+
+    fn save_workflow_review(
+        &mut self,
+        params: &SaveWorkflowReviewParams,
+    ) -> Result<SaveWorkflowReviewResult, DaemonClientError> {
+        self.request(METHOD_SAVE_WORKFLOW_REVIEW, params)
+    }
+
     fn shutdown(&mut self) -> Result<(), DaemonClientError> {
         self.transport.shutdown()
     }
@@ -630,6 +646,20 @@ impl DaemonClient {
         params: &MarkReviewFindingParams,
     ) -> Result<MarkReviewFindingResult, DaemonClientError> {
         self.rpc.mark_review_finding(params)
+    }
+
+    pub fn save_corpus_audit_review(
+        &mut self,
+        params: &SaveCorpusAuditReviewParams,
+    ) -> Result<SaveCorpusAuditReviewResult, DaemonClientError> {
+        self.rpc.save_corpus_audit_review(params)
+    }
+
+    pub fn save_workflow_review(
+        &mut self,
+        params: &SaveWorkflowReviewParams,
+    ) -> Result<SaveWorkflowReviewResult, DaemonClientError> {
+        self.rpc.save_workflow_review(params)
     }
 
     pub fn shutdown(mut self) -> Result<(), DaemonClientError> {

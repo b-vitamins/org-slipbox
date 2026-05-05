@@ -10,9 +10,9 @@ use slipbox_core::{
     ExplorationLens, ExploreParams, NodeFromIdParams, NodeFromRefParams,
     NodeFromTitleOrAliasParams, NodeKind, ReviewFinding, ReviewFindingPayload, ReviewFindingStatus,
     ReviewRun, ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload, RunWorkflowParams,
-    SaveExplorationArtifactParams, SaveReviewRunParams, SavedExplorationArtifact,
-    SavedLensViewArtifact, SearchNodesParams, WorkflowIdParams, WorkflowInputAssignment,
-    WorkflowResult,
+    SaveCorpusAuditReviewParams, SaveExplorationArtifactParams, SaveReviewRunParams,
+    SaveWorkflowReviewParams, SavedExplorationArtifact, SavedLensViewArtifact, SearchNodesParams,
+    WorkflowIdParams, WorkflowInputAssignment, WorkflowResult,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonServeConfig};
 use slipbox_index::scan_root;
@@ -79,6 +79,7 @@ fn sample_review_run() -> ReviewRun {
         },
         payload: ReviewRunPayload::Audit {
             audit: CorpusAuditKind::DanglingLinks,
+            limit: 200,
         },
         findings: vec![ReviewFinding {
             finding_id: "audit/dangling-links/source/missing-id".to_owned(),
@@ -348,6 +349,64 @@ fn daemon_client_queries_spawned_daemon_and_round_trips_artifacts() -> Result<()
     })?;
     assert_eq!(deleted_review.review_id, "review/audit/dangling-links");
     assert!(client.list_review_runs()?.reviews.is_empty());
+
+    let audit_review = client.save_corpus_audit_review(&SaveCorpusAuditReviewParams {
+        audit: CorpusAuditKind::WeaklyIntegratedNotes,
+        limit: 20,
+        review_id: Some("review/audit/weakly-integrated-notes".to_owned()),
+        title: Some("Weak Integration Review".to_owned()),
+        summary: None,
+        overwrite: true,
+    })?;
+    assert_eq!(
+        audit_review.result.audit,
+        CorpusAuditKind::WeaklyIntegratedNotes
+    );
+    assert_eq!(
+        audit_review.review.metadata.review_id,
+        "review/audit/weakly-integrated-notes"
+    );
+
+    let workflow_review = client.save_workflow_review(&SaveWorkflowReviewParams {
+        workflow_id: slipbox_core::BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID.to_owned(),
+        inputs: vec![WorkflowInputAssignment {
+            input_id: "focus".to_owned(),
+            target: slipbox_core::WorkflowResolveTarget::NodeKey {
+                node_key: anonymous_anchor_key,
+            },
+        }],
+        review_id: Some("review/workflow/unresolved-sweep".to_owned()),
+        title: Some("Unresolved Sweep Review".to_owned()),
+        summary: None,
+        overwrite: true,
+    })?;
+    assert_eq!(
+        workflow_review.result.workflow.metadata.workflow_id,
+        slipbox_core::BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID
+    );
+    assert_eq!(
+        workflow_review.review.finding_count,
+        workflow_review.result.steps.len()
+    );
+
+    let loaded_workflow_review = client.review_run(&ReviewRunIdParams {
+        review_id: "review/workflow/unresolved-sweep".to_owned(),
+    })?;
+    match loaded_workflow_review.review.payload {
+        ReviewRunPayload::Workflow {
+            workflow,
+            inputs,
+            step_ids,
+        } => {
+            assert_eq!(
+                workflow.metadata.workflow_id,
+                slipbox_core::BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID
+            );
+            assert_eq!(inputs.len(), 1);
+            assert_eq!(step_ids.len(), workflow_review.result.steps.len());
+        }
+        other => panic!("expected workflow review payload, got {:?}", other.kind()),
+    }
 
     client.shutdown()?;
     Ok(())
