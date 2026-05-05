@@ -17,9 +17,9 @@ Current development starts from the released `0.7.0` foundation.
 
 The documented workflow surface is intended to remain complete enough for
 day-to-day replacement use while the project deepens its exploratory model.
-The next planned release band is `0.8.x`: broader research workbench
-composition built on the shipped headless surface, with named workflows,
-corpus-health audits, bounded workflow discovery, and stricter scale
+The current unreleased line is `0.8.x`: broader research workbench composition
+built on the shipped headless surface, with named workflows, corpus-health
+audits, bounded workflow discovery, report outputs, and stricter scale
 guarantees. Raw-RPC sprawl, plugin-runtime ambitions, MCP, and
 agent-adapter claims remain deferred.
 
@@ -614,9 +614,12 @@ These stay opt-in and isolated from startup:
 `org-slipbox` ships with an explicit corpus benchmark harness instead of
 relying on anecdotal scale claims.
 
-- `cargo run --bin slipbox-bench -- check --profile ci` generates a deterministic corpus, measures full indexing, single-file incremental indexing, indexed search, backlinks, node-at-point lookup, agenda queries, and batch Emacs benchmarks for the persistent tracking buffer, the dedicated comparison render path, and a guaranteed non-structure dedicated exploration render path rooted in the unresolved lens with trail state.
+- `cargo run --bin slipbox-bench -- check --profile ci` generates a deterministic corpus, measures full indexing, single-file incremental indexing, indexed search, backlinks, node-at-point lookup, agenda queries, workflow catalog discovery, discovered workflow execution, corpus-health audits, and batch Emacs benchmarks for the persistent tracking buffer, the dedicated comparison render path, and a guaranteed non-structure dedicated exploration render path rooted in the unresolved lens with trail state.
 - `cargo run --bin slipbox-bench -- run --profile release --keep-corpus` runs the larger local profile and keeps the generated corpus under `target/bench/` for inspection.
 - Benchmark profiles live in [`benches/profiles/ci.json`](/home/b/projects/org-slipbox/benches/profiles/ci.json) and [`benches/profiles/release.json`](/home/b/projects/org-slipbox/benches/profiles/release.json). Reports are written to `target/bench/`.
+- The benchmark corpus includes discovered workflow specs plus explicit audit
+  fixtures, so the workflow and audit gates measure real workbench behavior
+  rather than empty catalog scans or cheap fallback paths.
 
 This is an intentional divergence from the `org-roam` manual's performance
 guidance. `org-slipbox` does not expose GC-tuning knobs for cache builds,
@@ -636,17 +639,19 @@ that the whole programmable platform is done.
 - `0.7.x` is the shipped step: first usable headless workbench commands over
   the canonical daemon boundary for live explore, compare, resolve, and
   artifact lifecycle.
-- `0.8.x` is the next step: named workflows, corpus-health audits, bounded
-  workflow discovery from configured directories, and stricter scale
-  guarantees built on that same settled exploratory model.
+- `0.8.x` broadens that house through named workflows, corpus-health audits,
+  bounded workflow discovery from configured directories, report output
+  surfaces, and stricter scale guarantees built on that same settled
+  exploratory model.
 - Broad CLI families, extension APIs, MCP surfaces, and agent adapters are
   still deferred.
 
 ## Headless Workbench
 
-`0.7.x` is the first release band where the workbench becomes genuinely usable
-outside Emacs. The CLI stays on the same architectural line as the rest of the
-project:
+`0.7.x` made the workbench genuinely usable outside Emacs. The current
+`0.8.x` line composes that surface into named workflows, corpus-health audits,
+bounded workflow discovery, and report outputs. The CLI stays on the same
+architectural line as the rest of the project:
 
 - every headless command talks to the daemon over canonical JSON-RPC stdio
 - the CLI auto-spawns `slipbox serve` from the current executable unless you
@@ -660,6 +665,10 @@ The shipped headless commands are:
 - `slipbox resolve-node`
 - `slipbox explore`
 - `slipbox compare`
+- `slipbox audit dangling-links`
+- `slipbox audit duplicate-titles`
+- `slipbox audit orphan-notes`
+- `slipbox audit weakly-integrated-notes`
 - `slipbox workflow list`
 - `slipbox workflow show`
 - `slipbox workflow run`
@@ -687,6 +696,12 @@ deliberately narrow:
 - earlier configured workflow directories win over later ones
 - invalid or colliding discovered workflows are reported as workflow catalog
   issues without hiding the valid workflows that remain runnable
+
+The built-in workflow IDs are:
+
+- `workflow/builtin/context-sweep`
+- `workflow/builtin/unresolved-sweep`
+- `workflow/builtin/comparison-tension-review`
 
 Examples:
 
@@ -747,6 +762,50 @@ slipbox workflow run workflow/research/unresolved-sweep \
   --json
 ```
 
+Inspect a workflow spec JSON file locally without connecting to the daemon:
+
+```bash
+slipbox workflow show --spec ~/.config/org-slipbox/workflows/review.json --json
+```
+
+Write a workflow report as line-oriented JSON:
+
+```bash
+slipbox workflow run workflow/builtin/unresolved-sweep \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --input focus=key:file:notes.org::42 \
+  --jsonl \
+  --output unresolved-report.jsonl
+```
+
+Run corpus-health audits through the daemon:
+
+```bash
+slipbox audit dangling-links \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --limit 200 \
+  --json
+
+slipbox audit duplicate-titles \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --json
+
+slipbox audit orphan-notes \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --jsonl \
+  --output orphan-notes.jsonl
+
+slipbox audit weakly-integrated-notes \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --limit 100 \
+  --json
+```
+
 Save a live exploration or comparison as a durable artifact:
 
 ```bash
@@ -794,20 +853,12 @@ The JSON contracts are intentionally different where the semantics differ:
 - `slipbox artifact export --json` emits raw saved-artifact JSON, and
   `slipbox artifact import --json` consumes that same raw saved-artifact JSON
 
-This is the first usable headless workbench surface, not the whole platform.
-There is still no broad CLI for every RPC, no extension API, and no MCP or
-agent-adapter layer in this release band.
-
-`0.8.x` should compose this headless house rather than broaden it
-indiscriminately:
-
-- named workflows for common research routines over the settled live
-  explore/compare/artifact model
-- corpus-health audit surfaces for things like weak integration and structural
-  maintenance pressure
-- bounded workflow discovery from configured directories as declarative
-  extension, not as a plugin runtime
-- stricter benchmark corpora and scale gates for the larger workbench surface
+This is now a broader composed research workbench surface, not the whole
+platform. Named workflows and audits compose the settled live
+explore/compare/artifact model; they do not introduce a broad CLI for every
+RPC, an extension API, MCP, or an agent-adapter layer. Workflow discovery is a
+bounded declarative mechanism for JSON specs in configured directories, not a
+plugin runtime.
 
 ## FAQ
 

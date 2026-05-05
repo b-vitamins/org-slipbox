@@ -55,8 +55,9 @@ explanations, factual comparison, and explicit trails. It should support:
 - explicit trails, comparisons, backtracking, and detached branching now, with
   durable saved artifacts extracted from that settled model and `0.7.x`
   turning them into the first usable headless workbench, and `0.8.x`
-  composing named workflows, audits, and bounded discovery over that same
-  model, while broader extension and platform surfaces remain later work
+  composing named workflows, corpus-health audits, bounded discovery, report
+  outputs, and stricter scale gates over that same model, while broader
+  extension and platform surfaces remain later work
 - clear explanations for why a node or section is being shown
 - controlled discovery of non-obvious but relevant material through indexed
   evidence over refs, tasks, time, and local graph structure
@@ -80,10 +81,10 @@ workbench through task-shaped resolve, live explore, compare, and
 artifact-lifecycle operations over the canonical daemon boundary, with
 JSON-first machine use but without pretending the whole programmable platform
 is complete.
-`0.8.x` should broaden that workbench by composition rather than by transport
+`0.8.x` broadens that workbench by composition rather than by transport
 sprawl: named workflows, corpus-health audits, bounded workflow discovery from
-configured directories, and stricter scale guarantees over the same settled
-exploratory model.
+configured directories, report output surfaces, and stricter scale guarantees
+over the same settled exploratory model.
 Broader extension, plugin-runtime, MCP, and platform surfaces still come
 later.
 

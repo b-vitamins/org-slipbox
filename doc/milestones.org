@@ -85,6 +85,10 @@ Outcomes:
   integration as first-class workbench operations
 - bounded workflow discovery from configured directories as declarative
   extension rather than a plugin runtime
+- workflow and audit report outputs for machine-readable review and archival
+  flows
+- stricter benchmark corpora and gates for workflow discovery, workflow
+  execution, and audit query paths
 - stronger CLI and headless workflows built from that same exploratory model
 - stable hooks and extension points around exploration only after the first
   composed workbench has proven its shape
@@ -104,6 +108,9 @@ Exit criteria:
   daemon boundary
 - workflow discovery remains bounded and declarative rather than becoming a
   plugin runtime
+- workflow and audit output surfaces are documented as CLI contracts rather
+  than raw transport guidance
+- scale gates cover the composed workbench paths directly
 - users can script and automate meaningful exploratory workflows
 - buffer and query surfaces compose without reaching into unstable internals
 - headless surfaces reuse the exploratory model already proven in the cockpit

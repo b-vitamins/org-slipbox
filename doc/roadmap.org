@@ -123,6 +123,7 @@ Focus:
   workbench and the durable artifacts from the settled cockpit model
 - corpus-health audit surfaces over the canonical daemon boundary
 - bounded workflow discovery from configured directories
+- workflow and audit report outputs for JSON and line-oriented machine use
 - broader headless composition without widening into transport-shaped CLI
   sprawl
 - larger benchmark corpora and stricter scale guarantees for the larger
@@ -133,6 +134,8 @@ Watchpoints:
 - do not mirror raw RPCs when the real unit of value is a named workflow or
   audit operation
 - treat workflow discovery as declarative extension, not as a plugin runtime
+- document JSON and JSONL workflow/audit output through the actual CLI
+  contract rather than through raw RPC examples
 - keep MCP, agent-adapter, and broader extension ambitions out of this band
 - keep the store, write engine, and protocol growth modular
 - do not let “broader workbench” turn into a fuzzy platform bucket

@@ -11,6 +11,23 @@ The format follows Keep a Changelog, and this project follows SemVer.
   built-in workflow list/show/run commands, configured workflow-directory
   discovery, and deterministic catalog issues for invalid or colliding
   discovered workflow specs.
+- Added corpus-health audit query and CLI surfaces for dangling links,
+  duplicate titles, orphan notes, and weakly integrated notes.
+- Added workflow and audit report outputs, including JSONL streams and
+  file-output acknowledgements for machine-readable review flows.
+
+### Changed
+- Broadened benchmark corpora and regression gates so workflow discovery,
+  discovered workflow execution, and corpus-health audit paths are measured as
+  part of the larger workbench surface.
+- Documented `0.8.x` as a composed research workbench line built from named
+  workflows, audits, bounded discovery, report outputs, and stricter scale
+  guarantees without claiming plugin-runtime, MCP, or agent-adapter maturity.
+
+### Fixed
+- Hardened workflow and audit CLI JSON contracts so wrapper shapes, report
+  outputs, discovery issues, cross-command workflow spec round-trips, and
+  structured failure behavior are covered at the binary surface.
 
 ## [0.7.0] - 2026-05-03
 
