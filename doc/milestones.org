@@ -89,6 +89,9 @@ Outcomes:
   flows
 - stricter benchmark corpora and gates for workflow discovery, workflow
   execution, and audit query paths
+- durable review runs for recurring workflow and audit loops
+- review status, review diffs, and safe remediation previews over the composed
+  workbench surface
 - stronger CLI and headless workflows built from that same exploratory model
 - stable hooks and extension points around exploration only after the first
   composed workbench has proven its shape
@@ -111,6 +114,12 @@ Exit criteria:
 - workflow and audit output surfaces are documented as CLI contracts rather
   than raw transport guidance
 - scale gates cover the composed workbench paths directly
+- review state is explicit, durable, and separate from ordinary notes and saved
+  exploration artifacts
+- users can compare repeated workflow and audit runs before deciding whether
+  any remediation is appropriate
+- remediation surfaces preview safe changes without implying broad automated
+  mutation
 - users can script and automate meaningful exploratory workflows
 - buffer and query surfaces compose without reaching into unstable internals
 - headless surfaces reuse the exploratory model already proven in the cockpit

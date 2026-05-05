@@ -140,6 +140,36 @@ Watchpoints:
 - keep the store, write engine, and protocol growth modular
 - do not let “broader workbench” turn into a fuzzy platform bucket
 
+* 0.9.x
+
+Theme: operational research workbench.
+
+Focus:
+
+- durable review runs for recurring named-workflow and corpus-audit loops
+- explicit review status so repeated runs can be triaged without becoming a
+  task-manager clone
+- review diffs that show what changed since an earlier run
+- safe remediation previews for audit findings and workflow outcomes before
+  any write occurs
+- a clear boundary between review records, ordinary notes, and saved
+  exploration artifacts
+- operational loops over the composed `0.8.x` workbench without widening into
+  raw-RPC sprawl or broad automation
+
+Watchpoints:
+
+- do not make review records part of note identity, search identity, ref
+  identity, or saved exploration-artifact identity
+- do not imply that review status is a general task-management system
+- do not execute broad structural writes when the right product surface is a
+  preview and an explicit later decision
+- do not let remediation previews bypass the Rust-owned write path
+- keep extension APIs, plugin-runtime work, MCP, and agent-adapter ambitions
+  out of this band
+- keep the one exploratory model intact across cockpit, daemon, CLI,
+  workflows, audits, and reviews
+
 * 1.0.x
 
 Theme: dependable system.

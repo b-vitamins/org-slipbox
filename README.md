@@ -20,8 +20,10 @@ day-to-day replacement use while the project deepens its exploratory model.
 The released `0.8.x` line broadened the research workbench by composition:
 named workflows, corpus-health audits, bounded workflow discovery, report
 outputs, and stricter scale guarantees over the shipped headless surface.
-Raw-RPC sprawl, plugin-runtime ambitions, MCP, and agent-adapter claims remain
-deferred.
+The next `0.9.x` line is operational workbench work: durable review runs,
+review status, review diffs, and safe remediation previews for recurring
+workflow and audit loops. Raw-RPC sprawl, plugin-runtime ambitions, MCP,
+agent-adapter claims, and broad automated mutation remain deferred.
 
 ## Requirements
 
@@ -259,8 +261,13 @@ the interactive exploratory house, while `0.6.x` adds durable exploration
 artifacts and a first narrow machine-facing surface around them. `0.7.x`
 builds the first usable headless workbench on top of that same model through
 task-shaped `slipbox` commands for node resolution, live exploration,
-comparison, and artifact lifecycle over `slipbox serve`. Broader platform
-maturity, extension APIs, and agent-adapter work remain later work.
+comparison, and artifact lifecycle over `slipbox serve`. `0.8.x` broadens the
+same house through named workflows, corpus-health audits, bounded workflow
+discovery, report outputs, and scale gates. `0.9.x` should make those recurring
+workbench loops reviewable and operational through durable review records,
+status, diffs, and remediation previews, while keeping review state distinct
+from notes and saved exploration artifacts. Broader platform maturity,
+extension APIs, and agent-adapter work remain later work.
 
 When the current node record includes indexed metadata, the node summary also
 renders file modification time plus backlink and forward-link counts without
@@ -644,6 +651,10 @@ that the whole programmable platform is done.
   bounded workflow discovery from configured directories, report output
   surfaces, and stricter scale guarantees built on that same settled
   exploratory model.
+- `0.9.x` is the next operational workbench step: durable review runs for
+  repeated workflow and audit loops, explicit review status, review diffs, and
+  safe remediation previews. Review records are not notes, and they are not
+  saved exploration artifacts.
 - Broad CLI families, extension APIs, MCP surfaces, and agent adapters are
   still deferred.
 
@@ -860,6 +871,14 @@ explore/compare/artifact model; they do not introduce a broad CLI for every
 RPC, an extension API, MCP, or an agent-adapter layer. Workflow discovery is a
 bounded declarative mechanism for JSON specs in configured directories, not a
 plugin runtime.
+
+The next workbench line is operational rather than expansive. `0.9.x` should
+make recurring workflow and audit runs durable, comparable, and reviewable:
+what ran, what changed since the last run, what still needs attention, and
+what remediation could be previewed safely before any write occurs. That
+review state should live beside the composed workbench model without becoming
+note identity, saved exploration-artifact identity, a task-manager clone, or a
+general automation platform.
 
 ## FAQ
 
