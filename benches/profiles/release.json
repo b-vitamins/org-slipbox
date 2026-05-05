@@ -2,6 +2,7 @@
   "corpus": {
     "files": 768,
     "headings_per_file": 128,
+    "workflow_specs": 128,
     "hot_link_stride": 2,
     "ref_stride": 4,
     "scheduled_stride": 5,
@@ -27,11 +28,15 @@
     "dedicated_buffer_iterations": 30,
     "dedicated_exploration_buffer_samples": 7,
     "dedicated_exploration_buffer_iterations": 30,
+    "workflow_catalog": 60,
+    "workflow_run": 60,
+    "corpus_audit": 60,
     "search_limit": 25,
     "backlinks_limit": 200,
     "reflinks_limit": 200,
     "unlinked_references_limit": 200,
-    "agenda_limit": 200
+    "agenda_limit": 200,
+    "audit_limit": 100
   },
   "thresholds": {
     "full_index_p95_ms": 60000.0,
@@ -48,6 +53,9 @@
     "agenda_p95_ms": 220.0,
     "persistent_buffer_p95_ms": 20.0,
     "dedicated_buffer_p95_ms": 30.0,
-    "dedicated_exploration_buffer_p95_ms": 30.0
+    "dedicated_exploration_buffer_p95_ms": 30.0,
+    "workflow_catalog_p95_ms": 25.0,
+    "workflow_run_p95_ms": 25000.0,
+    "corpus_audit_p95_ms": 200.0
   }
 }

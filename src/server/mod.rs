@@ -8,11 +8,55 @@ use std::io::{self, BufReader};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use slipbox_core::{
+    CorpusAuditParams, CorpusAuditResult, ListWorkflowsResult, RunWorkflowParams, RunWorkflowResult,
+};
 use slipbox_index::DiscoveryPolicy;
 use slipbox_rpc::{JsonRpcErrorObject, JsonRpcResponse, read_framed_message, write_framed_message};
 
 use self::dispatch::handle_request;
 use self::state::ServerState;
+
+#[allow(dead_code)]
+pub(crate) struct WorkbenchBench {
+    state: ServerState,
+}
+
+#[allow(dead_code)]
+impl WorkbenchBench {
+    pub(crate) fn new(
+        root: PathBuf,
+        db: PathBuf,
+        workflow_dirs: Vec<PathBuf>,
+        discovery: DiscoveryPolicy,
+    ) -> Result<Self> {
+        let root = root
+            .canonicalize()
+            .with_context(|| format!("failed to canonicalize root {}", root.display()))?;
+        Ok(Self {
+            state: ServerState::new(root, db, workflow_dirs, discovery)?,
+        })
+    }
+
+    pub(crate) fn list_workflows(&mut self) -> Result<ListWorkflowsResult> {
+        let value = handlers::query::list_workflows(&mut self.state, serde_json::json!({}))
+            .context("workflow discovery benchmark request failed")?;
+        serde_json::from_value(value)
+            .context("failed to decode workflow discovery benchmark result")
+    }
+
+    pub(crate) fn run_workflow(&mut self, params: &RunWorkflowParams) -> Result<RunWorkflowResult> {
+        let value = handlers::query::run_workflow(&mut self.state, serde_json::to_value(params)?)
+            .context("workflow benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode workflow benchmark result")
+    }
+
+    pub(crate) fn corpus_audit(&mut self, params: &CorpusAuditParams) -> Result<CorpusAuditResult> {
+        let value = handlers::query::corpus_audit(&mut self.state, serde_json::to_value(params)?)
+            .context("corpus audit benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode corpus audit benchmark result")
+    }
+}
 
 pub(crate) fn serve(
     root: PathBuf,

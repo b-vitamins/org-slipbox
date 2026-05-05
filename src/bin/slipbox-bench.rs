@@ -2,6 +2,9 @@
 mod occurrences_query;
 #[path = "../reflinks_query.rs"]
 mod reflinks_query;
+#[allow(dead_code)]
+#[path = "../server/mod.rs"]
+mod server;
 #[path = "../text_query.rs"]
 mod text_query;
 #[path = "../unlinked_references_query.rs"]
@@ -19,9 +22,12 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use slipbox_core::{
-    BacklinkRecord, CompareNotesParams, ExplorationEntry, ExplorationLens, ExplorationSection,
-    ExplorationSectionKind, ExploreResult, ForwardLinkRecord, NodeRecord, NoteComparisonResult,
-    SearchNodesSort,
+    BacklinkRecord, CompareNotesParams, CorpusAuditKind, CorpusAuditParams, ExplorationEntry,
+    ExplorationLens, ExplorationSection, ExplorationSectionKind, ExploreResult, ForwardLinkRecord,
+    NodeRecord, NoteComparisonResult, RunWorkflowParams, SearchNodesSort, WorkflowExploreFocus,
+    WorkflowInputAssignment, WorkflowInputKind, WorkflowInputSpec, WorkflowMetadata,
+    WorkflowResolveTarget, WorkflowResolveTarget as WorkflowSpecResolveTarget, WorkflowSpec,
+    WorkflowStepPayload, WorkflowStepReportPayload, WorkflowStepSpec,
 };
 use slipbox_index::{DiscoveryPolicy, scan_path_with_policy, scan_root_with_policy};
 use slipbox_store::Database;
@@ -35,6 +41,8 @@ const HOT_NODE_ID: &str = "node-000000";
 const EXPLORATION_FOCUS_INDEX: usize = 2;
 const EXPLORATION_SHARED_REF: &str = "cite:bench-explore2026";
 const EXPLORATION_FOCUS_REF: &str = "cite:bench-explore-focus2026";
+const WORKFLOW_DISCOVERY_DIR: &str = "workflows";
+const WORKFLOW_BENCHMARK_ID: &str = "workflow/discovered/benchmark-research-sweep";
 const AGENDA_START: &str = "2026-03-01";
 const AGENDA_END: &str = "2026-03-31";
 const DEDICATED_COMPARE_CANDIDATE_LIMIT: usize = 12;
@@ -85,6 +93,7 @@ struct BenchmarkProfile {
 struct CorpusConfig {
     files: usize,
     headings_per_file: usize,
+    workflow_specs: usize,
     hot_link_stride: usize,
     ref_stride: usize,
     scheduled_stride: usize,
@@ -112,11 +121,15 @@ struct IterationConfig {
     dedicated_buffer_iterations: usize,
     dedicated_exploration_buffer_samples: usize,
     dedicated_exploration_buffer_iterations: usize,
+    workflow_catalog: usize,
+    workflow_run: usize,
+    corpus_audit: usize,
     search_limit: usize,
     backlinks_limit: usize,
     reflinks_limit: usize,
     unlinked_references_limit: usize,
     agenda_limit: usize,
+    audit_limit: usize,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -136,6 +149,9 @@ struct ThresholdConfig {
     persistent_buffer_p95_ms: Option<f64>,
     dedicated_buffer_p95_ms: Option<f64>,
     dedicated_exploration_buffer_p95_ms: Option<f64>,
+    workflow_catalog_p95_ms: f64,
+    workflow_run_p95_ms: f64,
+    corpus_audit_p95_ms: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -157,6 +173,9 @@ struct BenchmarkReport {
     persistent_buffer: Option<TimingReport>,
     dedicated_buffer: Option<TimingReport>,
     dedicated_exploration_buffer: Option<TimingReport>,
+    workflow_catalog: TimingReport,
+    workflow_run: TimingReport,
+    corpus_audit: TimingReport,
 }
 
 #[derive(Debug, Serialize)]
@@ -182,12 +201,15 @@ struct TimingReport {
 #[derive(Debug)]
 struct CorpusFixture {
     root: PathBuf,
+    workflow_dirs: Vec<PathBuf>,
     mutable_file: PathBuf,
     mutable_relative_path: String,
     mutable_template: String,
     hot_node_id: String,
     exploration_node_id: String,
     forward_node_id: String,
+    workflow_focus_point: PointQuery,
+    workflow_specs: usize,
     search_queries: Vec<String>,
     file_queries: Vec<String>,
     point_queries: Vec<PointQuery>,
@@ -341,6 +363,12 @@ fn run_profile(
 
     let full_index = benchmark_full_index(profile, fixture, &policy)?;
     let mut database = prepare_database(fixture, &policy)?;
+    let mut workbench = server::WorkbenchBench::new(
+        fixture.root.clone(),
+        baseline_db_path(fixture),
+        fixture.workflow_dirs.clone(),
+        policy.clone(),
+    )?;
     let hot_node = database
         .node_from_id(&fixture.hot_node_id)?
         .context("failed to resolve hot benchmark node")?;
@@ -362,6 +390,20 @@ fn run_profile(
         benchmark_unlinked_references(&mut database, profile, &fixture.root, &hot_node)?;
     let node_at_point = benchmark_node_at_point(&mut database, profile, fixture)?;
     let agenda = benchmark_agenda(&mut database, profile)?;
+    let workflow_focus_anchor = database
+        .anchor_at_point(
+            &fixture.workflow_focus_point.file_path,
+            fixture.workflow_focus_point.line,
+        )?
+        .context("failed to resolve workflow benchmark focus anchor")?;
+    let workflow_catalog = benchmark_workflow_catalog(&mut workbench, profile, fixture)?;
+    let workflow_run = benchmark_workflow_run(
+        &mut workbench,
+        profile,
+        fixture,
+        &workflow_focus_anchor.node_key,
+    )?;
+    let corpus_audit = benchmark_corpus_audit(&mut workbench, profile)?;
     let (persistent_buffer, dedicated_buffer, dedicated_exploration_buffer) = if skip_elisp {
         (None, None, None)
     } else {
@@ -442,6 +484,9 @@ fn run_profile(
         persistent_buffer,
         dedicated_buffer,
         dedicated_exploration_buffer,
+        workflow_catalog,
+        workflow_run,
+        corpus_audit,
     })
 }
 
@@ -470,11 +515,7 @@ fn benchmark_full_index(
 }
 
 fn prepare_database(fixture: &CorpusFixture, policy: &DiscoveryPolicy) -> Result<Database> {
-    let db_path = fixture
-        .root
-        .parent()
-        .unwrap_or(fixture.root.as_path())
-        .join("baseline.sqlite3");
+    let db_path = baseline_db_path(fixture);
     remove_sqlite_artifacts(&db_path)?;
     let files =
         scan_root_with_policy(&fixture.root, policy).context("failed to scan benchmark corpus")?;
@@ -485,6 +526,14 @@ fn prepare_database(fixture: &CorpusFixture, policy: &DiscoveryPolicy) -> Result
         .context("failed to index baseline benchmark corpus")?;
     assert_expected_counts(&database, fixture)?;
     Ok(database)
+}
+
+fn baseline_db_path(fixture: &CorpusFixture) -> PathBuf {
+    fixture
+        .root
+        .parent()
+        .unwrap_or(fixture.root.as_path())
+        .join("baseline.sqlite3")
 }
 
 fn benchmark_search_nodes(
@@ -1086,6 +1135,224 @@ fn benchmark_dedicated_exploration_buffer(
     Ok(TimingReport::from_samples(report.samples_ms))
 }
 
+fn benchmark_workflow_catalog(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &CorpusFixture,
+) -> Result<TimingReport> {
+    let sample = workbench.list_workflows()?;
+    assert_workflow_catalog_fixture(&sample, fixture)?;
+    measure_iterations(profile.iterations.workflow_catalog, |_| {
+        let workflows = workbench.list_workflows()?;
+        assert_workflow_catalog_fixture(&workflows, fixture)?;
+        black_box(workflows.workflows.len());
+        Ok(())
+    })
+}
+
+fn benchmark_workflow_run(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &CorpusFixture,
+    focus_node_key: &str,
+) -> Result<TimingReport> {
+    let params = benchmark_workflow_params(focus_node_key);
+    let sample = workbench.run_workflow(&params)?;
+    assert_benchmark_workflow_result(&sample, fixture, focus_node_key)?;
+    measure_iterations(profile.iterations.workflow_run, |_| {
+        let result = workbench.run_workflow(&params)?;
+        assert_benchmark_workflow_result(&result, fixture, focus_node_key)?;
+        black_box(result.result.steps.len());
+        Ok(())
+    })
+}
+
+fn benchmark_corpus_audit(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+) -> Result<TimingReport> {
+    const AUDITS: [CorpusAuditKind; 4] = [
+        CorpusAuditKind::DanglingLinks,
+        CorpusAuditKind::DuplicateTitles,
+        CorpusAuditKind::OrphanNotes,
+        CorpusAuditKind::WeaklyIntegratedNotes,
+    ];
+
+    for audit in AUDITS {
+        let sample = workbench.corpus_audit(&CorpusAuditParams {
+            audit,
+            limit: profile.iterations.audit_limit,
+        })?;
+        if sample.entries.is_empty() {
+            bail!("benchmark audit {audit:?} returned no entries");
+        }
+    }
+
+    measure_iterations(profile.iterations.corpus_audit, |iteration| {
+        let audit = AUDITS[iteration % AUDITS.len()];
+        let result = workbench.corpus_audit(&CorpusAuditParams {
+            audit,
+            limit: profile.iterations.audit_limit,
+        })?;
+        if result.audit != audit {
+            bail!(
+                "benchmark audit returned mismatched kind: expected {audit:?}, got {:?}",
+                result.audit
+            );
+        }
+        if result.entries.is_empty() {
+            bail!("benchmark audit {audit:?} returned no entries");
+        }
+        black_box(result.entries.len());
+        Ok(())
+    })
+}
+
+fn benchmark_workflow_params(focus_node_key: &str) -> RunWorkflowParams {
+    RunWorkflowParams {
+        workflow_id: WORKFLOW_BENCHMARK_ID.to_owned(),
+        inputs: vec![WorkflowInputAssignment {
+            input_id: "focus".to_owned(),
+            target: WorkflowResolveTarget::NodeKey {
+                node_key: focus_node_key.to_owned(),
+            },
+        }],
+    }
+}
+
+fn assert_workflow_catalog_fixture(
+    catalog: &slipbox_core::ListWorkflowsResult,
+    fixture: &CorpusFixture,
+) -> Result<()> {
+    let benchmark_workflow = catalog
+        .workflows
+        .iter()
+        .find(|workflow| workflow.metadata.workflow_id == WORKFLOW_BENCHMARK_ID)
+        .context(
+            "benchmark workflow discovery catalog omitted the discovered benchmark workflow",
+        )?;
+    if benchmark_workflow.step_count != 5 {
+        bail!(
+            "benchmark workflow discovery catalog reported unexpected step count {}",
+            benchmark_workflow.step_count
+        );
+    }
+    let expected_workflow_count = 3 + fixture.workflow_specs;
+    if catalog.workflows.len() != expected_workflow_count {
+        bail!(
+            "benchmark workflow discovery catalog expected {expected_workflow_count} workflows, found {}",
+            catalog.workflows.len()
+        );
+    }
+    if !catalog.issues.is_empty() {
+        bail!(
+            "benchmark workflow discovery catalog expected no issues, found {}",
+            catalog.issues.len()
+        );
+    }
+    Ok(())
+}
+
+fn assert_benchmark_workflow_result(
+    workflow: &slipbox_core::RunWorkflowResult,
+    fixture: &CorpusFixture,
+    focus_node_key: &str,
+) -> Result<()> {
+    if workflow.result.workflow.metadata.workflow_id != WORKFLOW_BENCHMARK_ID {
+        bail!(
+            "workflow benchmark returned unexpected workflow id {}",
+            workflow.result.workflow.metadata.workflow_id
+        );
+    }
+    if workflow.result.steps.len() != 5 {
+        bail!(
+            "workflow benchmark expected 5 steps, found {}",
+            workflow.result.steps.len()
+        );
+    }
+
+    let refs_step = workflow
+        .result
+        .steps
+        .iter()
+        .find(|step| step.step_id == "explore-refs")
+        .context("workflow benchmark result omitted explore-refs step")?;
+    match &refs_step.payload {
+        WorkflowStepReportPayload::Explore {
+            focus_node_key: observed_focus,
+            result,
+        } => {
+            if observed_focus != focus_node_key {
+                bail!(
+                    "workflow benchmark refs step lost anchor focus: expected {focus_node_key}, got {observed_focus}"
+                );
+            }
+            if result.lens != ExplorationLens::Refs
+                || result
+                    .sections
+                    .iter()
+                    .all(|section| section.entries.is_empty())
+            {
+                bail!("workflow benchmark refs step did not return a populated refs result");
+            }
+        }
+        other => {
+            bail!(
+                "workflow benchmark explore-refs step returned wrong payload kind {:?}",
+                other.kind()
+            );
+        }
+    }
+
+    for (step_id, expected_lens) in [
+        ("explore-unresolved", ExplorationLens::Unresolved),
+        ("explore-tasks", ExplorationLens::Tasks),
+        ("explore-time", ExplorationLens::Time),
+    ] {
+        let step = workflow
+            .result
+            .steps
+            .iter()
+            .find(|report| report.step_id == step_id)
+            .with_context(|| format!("workflow benchmark result omitted {step_id}"))?;
+        match &step.payload {
+            WorkflowStepReportPayload::Explore {
+                focus_node_key: observed_focus,
+                result,
+            } => {
+                if step_id != "explore-unresolved" && observed_focus != focus_node_key {
+                    bail!(
+                        "workflow benchmark {step_id} lost anchor focus: expected {focus_node_key}, got {observed_focus}"
+                    );
+                }
+                if result.lens != expected_lens
+                    || result
+                        .sections
+                        .iter()
+                        .all(|section| section.entries.is_empty())
+                {
+                    bail!(
+                        "workflow benchmark {step_id} did not return a populated {:?} result",
+                        expected_lens
+                    );
+                }
+            }
+            other => {
+                bail!(
+                    "workflow benchmark {step_id} returned wrong payload kind {:?}",
+                    other.kind()
+                );
+            }
+        }
+    }
+
+    if fixture.workflow_focus_point.file_path.is_empty() {
+        bail!("workflow benchmark fixture did not record a focus point");
+    }
+
+    Ok(())
+}
+
 fn measure_iterations(
     iterations: usize,
     mut f: impl FnMut(usize) -> Result<()>,
@@ -1104,11 +1371,17 @@ fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result<CorpusFixt
         .files
         .checked_mul(config.headings_per_file)
         .context("benchmark corpus heading count overflowed")?;
-    if total_headings < 5 {
+    if total_headings < 8 {
         bail!(
-            "benchmark corpus requires at least 5 headings to reserve hot, forward-link, and dedicated exploration fixtures"
+            "benchmark corpus requires at least 8 headings to reserve workflow, audit, and exploration fixtures"
         );
     }
+    let duplicate_title_upper_index = total_headings - 8;
+    let duplicate_title_lower_index = total_headings - 7;
+    let dangling_one_index = total_headings - 6;
+    let dangling_two_index = total_headings - 5;
+    let orphan_index = total_headings - 4;
+    let audit_weak_index = total_headings - 3;
     let exploration_unresolved_index = total_headings - 2;
     let exploration_weak_index = total_headings - 1;
     let exploration_node_id = format!("node-{EXPLORATION_FOCUS_INDEX:06}");
@@ -1124,10 +1397,18 @@ fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result<CorpusFixt
     let notes_dir = root.join("notes");
     fs::create_dir_all(&notes_dir)
         .with_context(|| format!("failed to create notes directory {}", notes_dir.display()))?;
+    let workflow_dir = root.join(WORKFLOW_DISCOVERY_DIR);
+    fs::create_dir_all(&workflow_dir).with_context(|| {
+        format!(
+            "failed to create workflow directory {}",
+            workflow_dir.display()
+        )
+    })?;
 
     let mut search_queries = BTreeSet::new();
     let mut file_queries = BTreeSet::new();
     let mut point_queries = Vec::new();
+    let mut workflow_focus_point = None;
     let mut mutable_file = PathBuf::new();
     let mut mutable_relative_path = String::new();
     let mut mutable_template = String::new();
@@ -1163,13 +1444,38 @@ fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result<CorpusFixt
             }
 
             let is_exploration_focus = global_index == EXPLORATION_FOCUS_INDEX;
+            let is_duplicate_title_upper = global_index == duplicate_title_upper_index;
+            let is_duplicate_title_lower = global_index == duplicate_title_lower_index;
+            let is_dangling_one = global_index == dangling_one_index;
+            let is_dangling_two = global_index == dangling_two_index;
+            let is_orphan = global_index == orphan_index;
+            let is_audit_weak = global_index == audit_weak_index;
             let is_exploration_unresolved = global_index == exploration_unresolved_index;
             let is_exploration_weak = global_index == exploration_weak_index;
-            let is_exploration_fixture =
-                is_exploration_focus || is_exploration_unresolved || is_exploration_weak;
+            let is_special_fixture = is_exploration_focus
+                || is_duplicate_title_upper
+                || is_duplicate_title_lower
+                || is_dangling_one
+                || is_dangling_two
+                || is_orphan
+                || is_audit_weak
+                || is_exploration_unresolved
+                || is_exploration_weak;
 
             let title = if is_exploration_focus {
                 "Exploration Focus".to_owned()
+            } else if is_duplicate_title_upper {
+                "Shared Audit Title".to_owned()
+            } else if is_duplicate_title_lower {
+                "shared audit title".to_owned()
+            } else if is_dangling_one {
+                "Dangling Audit One".to_owned()
+            } else if is_dangling_two {
+                "Dangling Audit Two".to_owned()
+            } else if is_orphan {
+                "Orphan Audit".to_owned()
+            } else if is_audit_weak {
+                "Weak Audit".to_owned()
             } else if is_exploration_unresolved {
                 "Exploration Unresolved".to_owned()
             } else if is_exploration_weak {
@@ -1179,6 +1485,18 @@ fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result<CorpusFixt
             };
             let alias = if is_exploration_focus {
                 "Exploration Focus Alias".to_owned()
+            } else if is_duplicate_title_upper {
+                "Shared Audit Title Alias".to_owned()
+            } else if is_duplicate_title_lower {
+                "shared audit title alias".to_owned()
+            } else if is_dangling_one {
+                "Dangling Audit One Alias".to_owned()
+            } else if is_dangling_two {
+                "Dangling Audit Two Alias".to_owned()
+            } else if is_orphan {
+                "Orphan Audit Alias".to_owned()
+            } else if is_audit_weak {
+                "Weak Audit Alias".to_owned()
             } else if is_exploration_unresolved {
                 "Exploration Unresolved Alias".to_owned()
             } else if is_exploration_weak {
@@ -1187,7 +1505,11 @@ fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result<CorpusFixt
                 format!("Alias {global_index:06}")
             };
             let tag = format!("tag{}", global_index % 17);
-            let todo = if is_exploration_unresolved || global_index % 4 == 0 {
+            let todo = if is_exploration_focus
+                || is_audit_weak
+                || is_exploration_unresolved
+                || (!is_special_fixture && global_index % 4 == 0)
+            {
                 "TODO "
             } else {
                 ""
@@ -1202,39 +1524,86 @@ fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result<CorpusFixt
                 lines.push(format!(
                     ":ROAM_REFS: {EXPLORATION_SHARED_REF} {EXPLORATION_FOCUS_REF}"
                 ));
-            } else if is_exploration_unresolved || is_exploration_weak {
+            } else if is_audit_weak || is_exploration_unresolved || is_exploration_weak {
                 lines.push(format!(":ROAM_REFS: {EXPLORATION_SHARED_REF}"));
-            } else if global_index % config.ref_stride == 0 {
+            } else if !is_special_fixture && global_index % config.ref_stride == 0 {
                 lines.push(format!(":ROAM_REFS: @cite{global_index:06}"));
             }
             lines.push(String::from(":END:"));
-            if !is_exploration_fixture && global_index % config.scheduled_stride == 0 {
+            if is_exploration_focus || is_audit_weak || is_exploration_unresolved {
+                lines.push(String::from("SCHEDULED: <2026-03-05 Thu>"));
+            } else if !is_special_fixture && global_index % config.scheduled_stride == 0 {
                 lines.push(format!("SCHEDULED: <2026-03-{day:02} Tue>"));
-            } else if !is_exploration_fixture && global_index % config.deadline_stride == 0 {
+            }
+            if is_exploration_focus || is_exploration_weak {
+                lines.push(String::from("DEADLINE: <2026-03-09 Mon>"));
+            } else if !is_special_fixture && global_index % config.deadline_stride == 0 {
                 lines.push(format!("DEADLINE: <2026-03-{day:02} Tue>"));
             }
             lines.push(format!("Bench body for {title}."));
-            if !is_exploration_fixture && global_index > 0 {
+            if is_duplicate_title_upper {
+                lines.push(format!(
+                    "Links to [[id:node-{:06}][matching duplicate]].",
+                    duplicate_title_lower_index
+                ));
+                expected_links += 1;
+            } else if is_duplicate_title_lower {
+                lines.push(format!(
+                    "Links to [[id:node-{:06}][matching duplicate]].",
+                    duplicate_title_upper_index
+                ));
+                expected_links += 1;
+            } else if is_dangling_one {
+                lines.push(String::from(
+                    "Broken [[id:missing-bench-audit-one][missing]].",
+                ));
+                expected_links += 1;
+            } else if is_dangling_two {
+                lines.push(String::from(
+                    "Broken [[id:missing-bench-audit-two][missing]].",
+                ));
+                expected_links += 1;
+            } else if !is_special_fixture && global_index > 0 {
                 lines.push(format!("Prev [[id:node-{:06}][prev]].", global_index - 1));
                 expected_links += 1;
                 if forward_node_id.is_none() {
                     forward_node_id = Some(format!("node-{global_index:06}"));
                 }
             }
-            if !is_exploration_fixture
+            if !is_special_fixture
                 && global_index != 0
                 && global_index % config.hot_link_stride == 0
             {
                 lines.push(format!("Hub [[id:{HOT_NODE_ID}][hub]]."));
                 expected_links += 1;
             }
-            if !is_exploration_fixture && global_index % config.hot_link_stride == 0 {
+            if !is_special_fixture && global_index % config.hot_link_stride == 0 {
                 lines.push(String::from("Reference cite:cite000000."));
                 lines.push(String::from("Mention Bench Topic 000000."));
                 lines.push(String::from("[[id:node-000000][Bench Topic 000000]]."));
                 expected_links += 1;
             }
             lines.push(String::new());
+
+            if is_exploration_focus {
+                let workflow_anchor_line = (lines.len() + 1) as u32;
+                lines.push(String::from("** TODO Workflow Focus Anchor"));
+                lines.push(String::from(":PROPERTIES:"));
+                lines.push(format!(
+                    ":ROAM_REFS: {EXPLORATION_SHARED_REF} {EXPLORATION_FOCUS_REF}"
+                ));
+                lines.push(String::from(":END:"));
+                lines.push(String::from("SCHEDULED: <2026-03-05 Thu>"));
+                lines.push(String::from("DEADLINE: <2026-03-09 Mon>"));
+                lines.push(String::from(
+                    "Anchor-only focus for workflow benchmark paths.",
+                ));
+                lines.push(String::new());
+                workflow_focus_point = Some(PointQuery {
+                    file_path: relative_path.clone(),
+                    line: workflow_anchor_line,
+                });
+            }
 
             if search_queries.len() < config.query_count {
                 search_queries.insert(title);
@@ -1259,13 +1628,27 @@ fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result<CorpusFixt
         }
     }
 
+    for workflow_index in 0..config.workflow_specs {
+        let path = workflow_dir.join(format!("workflow-{workflow_index:04}.json"));
+        let workflow = if workflow_index == 0 {
+            benchmark_workflow_spec()
+        } else {
+            catalog_workflow_spec(workflow_index)
+        };
+        write_json(&path, &workflow)?;
+    }
+
     Ok(CorpusFixture {
         root,
+        workflow_dirs: vec![PathBuf::from(WORKFLOW_DISCOVERY_DIR)],
         mutable_file,
         mutable_relative_path,
         mutable_template,
         hot_node_id: HOT_NODE_ID.to_owned(),
         exploration_node_id,
+        workflow_focus_point: workflow_focus_point
+            .context("benchmark corpus did not produce a workflow focus anchor")?,
+        workflow_specs: config.workflow_specs,
         forward_node_id: forward_node_id
             .context("benchmark corpus did not produce a forward-link source node")?,
         search_queries: search_queries
@@ -1275,9 +1658,130 @@ fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result<CorpusFixt
         file_queries: file_queries.into_iter().take(config.query_count).collect(),
         point_queries,
         expected_files: config.files,
-        expected_nodes: config.files * (config.headings_per_file + 1),
+        expected_nodes: config.files * (config.headings_per_file + 1) + 1,
         expected_links,
     })
+}
+
+fn benchmark_workflow_spec() -> WorkflowSpec {
+    WorkflowSpec {
+        metadata: WorkflowMetadata {
+            workflow_id: WORKFLOW_BENCHMARK_ID.to_owned(),
+            title: "Benchmark Research Sweep".to_owned(),
+            summary: Some(
+                "Exercise discovery plus rich refs, unresolved, task, and time workflow paths."
+                    .to_owned(),
+            ),
+        },
+        inputs: vec![WorkflowInputSpec {
+            input_id: "focus".to_owned(),
+            title: "Focus target".to_owned(),
+            summary: Some("Note or anchor target to sweep".to_owned()),
+            kind: WorkflowInputKind::FocusTarget,
+        }],
+        steps: vec![
+            WorkflowStepSpec {
+                step_id: "resolve-focus".to_owned(),
+                payload: WorkflowStepPayload::Resolve {
+                    target: WorkflowSpecResolveTarget::Input {
+                        input_id: "focus".to_owned(),
+                    },
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "explore-refs".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::Input {
+                        input_id: "focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Refs,
+                    limit: 25,
+                    unique: false,
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "explore-unresolved".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::ResolvedStep {
+                        step_id: "resolve-focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Unresolved,
+                    limit: 25,
+                    unique: false,
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "explore-tasks".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::Input {
+                        input_id: "focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Tasks,
+                    limit: 25,
+                    unique: false,
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "explore-time".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::Input {
+                        input_id: "focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Time,
+                    limit: 25,
+                    unique: false,
+                },
+            },
+        ],
+    }
+}
+
+fn catalog_workflow_spec(workflow_index: usize) -> WorkflowSpec {
+    WorkflowSpec {
+        metadata: WorkflowMetadata {
+            workflow_id: format!("workflow/discovered/catalog-{workflow_index:04}"),
+            title: format!("Catalog Workflow {workflow_index:04}"),
+            summary: Some("Discovery-only catalog workflow for benchmark scale.".to_owned()),
+        },
+        inputs: vec![WorkflowInputSpec {
+            input_id: "focus".to_owned(),
+            title: "Focus note".to_owned(),
+            summary: Some("Exact note target".to_owned()),
+            kind: WorkflowInputKind::NoteTarget,
+        }],
+        steps: vec![
+            WorkflowStepSpec {
+                step_id: "resolve-focus".to_owned(),
+                payload: WorkflowStepPayload::Resolve {
+                    target: WorkflowSpecResolveTarget::Input {
+                        input_id: "focus".to_owned(),
+                    },
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "explore-structure".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::ResolvedStep {
+                        step_id: "resolve-focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Structure,
+                    limit: 15,
+                    unique: false,
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "explore-dormant".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::ResolvedStep {
+                        step_id: "resolve-focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Dormant,
+                    limit: 15,
+                    unique: false,
+                },
+            },
+        ],
+    }
 }
 
 fn assert_expected_counts(database: &Database, fixture: &CorpusFixture) -> Result<()> {
@@ -1382,6 +1886,21 @@ fn enforce_thresholds(report: &BenchmarkReport, thresholds: &ThresholdConfig) ->
     ) {
         check_threshold("dedicated_exploration_buffer", observed.p95_ms, limit)?;
     }
+    check_threshold(
+        "workflow_catalog",
+        report.workflow_catalog.p95_ms,
+        thresholds.workflow_catalog_p95_ms,
+    )?;
+    check_threshold(
+        "workflow_run",
+        report.workflow_run.p95_ms,
+        thresholds.workflow_run_p95_ms,
+    )?;
+    check_threshold(
+        "corpus_audit",
+        report.corpus_audit.p95_ms,
+        thresholds.corpus_audit_p95_ms,
+    )?;
     Ok(())
 }
 
@@ -1426,6 +1945,9 @@ fn print_summary(report: &BenchmarkReport, check: bool, output_path: &Path) {
     if let Some(dedicated_exploration_buffer) = &report.dedicated_exploration_buffer {
         print_metric("dedicatedExplorationBuffer", dedicated_exploration_buffer);
     }
+    print_metric("workflowCatalog", &report.workflow_catalog);
+    print_metric("workflowRun", &report.workflow_run);
+    print_metric("corpusAudit", &report.corpus_audit);
 }
 
 fn print_metric(name: &str, report: &TimingReport) {
@@ -1539,6 +2061,7 @@ impl BenchmarkProfile {
         for (name, value) in [
             ("files", self.corpus.files),
             ("headings_per_file", self.corpus.headings_per_file),
+            ("workflow_specs", self.corpus.workflow_specs),
             ("hot_link_stride", self.corpus.hot_link_stride),
             ("ref_stride", self.corpus.ref_stride),
             ("scheduled_stride", self.corpus.scheduled_stride),
@@ -1580,6 +2103,9 @@ impl BenchmarkProfile {
                 "dedicated_exploration_buffer_iterations",
                 self.iterations.dedicated_exploration_buffer_iterations,
             ),
+            ("workflow_catalog", self.iterations.workflow_catalog),
+            ("workflow_run", self.iterations.workflow_run),
+            ("corpus_audit", self.iterations.corpus_audit),
             ("search_limit", self.iterations.search_limit),
             ("backlinks_limit", self.iterations.backlinks_limit),
             ("reflinks_limit", self.iterations.reflinks_limit),
@@ -1588,6 +2114,7 @@ impl BenchmarkProfile {
                 self.iterations.unlinked_references_limit,
             ),
             ("agenda_limit", self.iterations.agenda_limit),
+            ("audit_limit", self.iterations.audit_limit),
         ] {
             if value == 0 {
                 bail!("benchmark profile field {name} must be greater than zero");
@@ -1627,6 +2154,7 @@ mod tests {
         let config = CorpusConfig {
             files: 3,
             headings_per_file: 4,
+            workflow_specs: 4,
             hot_link_stride: 2,
             ref_stride: 2,
             scheduled_stride: 2,
@@ -1649,6 +2177,7 @@ mod tests {
         let config = CorpusConfig {
             files: 3,
             headings_per_file: 4,
+            workflow_specs: 4,
             hot_link_stride: 2,
             ref_stride: 2,
             scheduled_stride: 2,
@@ -1677,6 +2206,62 @@ mod tests {
         );
         assert!(!result.sections[0].entries.is_empty());
         assert!(!result.sections[1].entries.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn generated_corpus_guarantees_workflow_and_audit_benchmark_fixtures() -> Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let config = CorpusConfig {
+            files: 3,
+            headings_per_file: 4,
+            workflow_specs: 4,
+            hot_link_stride: 2,
+            ref_stride: 2,
+            scheduled_stride: 2,
+            deadline_stride: 3,
+            query_count: 4,
+        };
+        let fixture = generate_corpus(tempdir.path(), &config)?;
+        let files = scan_root_with_policy(&fixture.root, &DiscoveryPolicy::default())?;
+        let mut database = Database::open(&baseline_db_path(&fixture))?;
+        database.sync_index(&files)?;
+
+        let workflow_focus_anchor = database
+            .anchor_at_point(
+                &fixture.workflow_focus_point.file_path,
+                fixture.workflow_focus_point.line,
+            )?
+            .context("workflow focus anchor should exist")?;
+
+        let mut workbench = server::WorkbenchBench::new(
+            fixture.root.clone(),
+            baseline_db_path(&fixture),
+            fixture.workflow_dirs.clone(),
+            DiscoveryPolicy::default(),
+        )?;
+        let catalog = workbench.list_workflows()?;
+        assert_workflow_catalog_fixture(&catalog, &fixture)?;
+
+        let workflow =
+            workbench.run_workflow(&benchmark_workflow_params(&workflow_focus_anchor.node_key))?;
+        assert_benchmark_workflow_result(&workflow, &fixture, &workflow_focus_anchor.node_key)?;
+
+        for audit in [
+            CorpusAuditKind::DanglingLinks,
+            CorpusAuditKind::DuplicateTitles,
+            CorpusAuditKind::OrphanNotes,
+            CorpusAuditKind::WeaklyIntegratedNotes,
+        ] {
+            let result = workbench.corpus_audit(&CorpusAuditParams { audit, limit: 20 })?;
+            assert_eq!(result.audit, audit);
+            assert!(
+                !result.entries.is_empty(),
+                "audit fixture for {:?} should not be empty",
+                audit
+            );
+        }
+
         Ok(())
     }
 
