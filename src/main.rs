@@ -35,6 +35,8 @@ enum Command {
     Workflow(cli::WorkflowArgs),
     /// Manage durable exploration artifacts over the canonical headless connection path.
     Artifact(cli::ArtifactArgs),
+    /// Inspect and manage durable operational review runs over the canonical headless connection path.
+    Review(cli::ReviewArgs),
 }
 
 #[derive(Debug, Args)]
@@ -62,6 +64,7 @@ fn run() -> Result<(), cli::CliCommandError> {
         Command::Audit(args) => cli::run_audit(&args),
         Command::Workflow(args) => cli::run_workflow(&args),
         Command::Artifact(args) => cli::run_artifact(&args),
+        Command::Review(args) => cli::run_review(&args),
     }
 }
 

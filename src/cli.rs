@@ -10,21 +10,23 @@ use serde::{Deserialize, Serialize};
 use slipbox_core::{
     AnchorRecord, CompareNotesParams, ComparisonConnectorDirection, CorpusAuditEntry,
     CorpusAuditKind, CorpusAuditParams, CorpusAuditResult, DeleteExplorationArtifactResult,
-    ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
+    DeleteReviewRunResult, ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
     ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactKind,
     ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
     ExplorationArtifactSummary, ExplorationEntry, ExplorationExplanation, ExplorationLens,
     ExplorationSectionKind, ExploreParams, ExploreResult, ListExplorationArtifactsResult,
-    ListWorkflowsResult, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
-    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonEntry, NoteComparisonExplanation,
-    NoteComparisonGroup, NoteComparisonResult, NoteComparisonSectionKind, PlanningField,
-    PlanningRelationRecord, RunWorkflowParams, RunWorkflowResult, SaveExplorationArtifactParams,
-    SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact,
-    SavedTrailStep, StatusInfo, TrailReplayResult, TrailReplayStepResult,
-    WorkflowArtifactSaveSource, WorkflowExecutionResult, WorkflowExploreFocus, WorkflowIdParams,
-    WorkflowInputAssignment, WorkflowInputKind, WorkflowInputSpec, WorkflowResolveTarget,
-    WorkflowSpec, WorkflowStepPayload, WorkflowStepReport, WorkflowStepReportPayload,
-    WorkflowStepSpec, WorkflowSummary,
+    ListReviewRunsResult, ListWorkflowsResult, NodeFromIdParams, NodeFromKeyParams,
+    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonEntry,
+    NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
+    NoteComparisonSectionKind, PlanningField, PlanningRelationRecord, ReviewFindingKind,
+    ReviewFindingPayload, ReviewFindingStatus, ReviewRun, ReviewRunIdParams, ReviewRunKind,
+    ReviewRunPayload, ReviewRunResult, ReviewRunSummary, RunWorkflowParams, RunWorkflowResult,
+    SaveExplorationArtifactParams, SavedComparisonArtifact, SavedExplorationArtifact,
+    SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, StatusInfo, TrailReplayResult,
+    TrailReplayStepResult, WorkflowArtifactSaveSource, WorkflowExecutionResult,
+    WorkflowExploreFocus, WorkflowIdParams, WorkflowInputAssignment, WorkflowInputKind,
+    WorkflowInputSpec, WorkflowResolveTarget, WorkflowSpec, WorkflowStepPayload,
+    WorkflowStepReport, WorkflowStepReportPayload, WorkflowStepSpec, WorkflowSummary,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonClientError, DaemonServeConfig};
 use slipbox_index::DiscoveryPolicy;
@@ -633,6 +635,48 @@ pub(crate) struct ArtifactImportArgs {
     pub(crate) overwrite: bool,
 }
 
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ReviewArgs {
+    #[command(subcommand)]
+    pub(crate) command: ReviewCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum ReviewCommand {
+    /// List durable operational review runs.
+    List(ReviewListArgs),
+    /// Show a durable review run.
+    Show(ReviewShowArgs),
+    /// Delete a durable review run by identifier.
+    Delete(ReviewDeleteArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ReviewListArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ReviewIdArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// Durable review run identifier.
+    pub(crate) review_id: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ReviewShowArgs {
+    #[command(flatten)]
+    pub(crate) review: ReviewIdArgs,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ReviewDeleteArgs {
+    #[command(flatten)]
+    pub(crate) review: ReviewIdArgs,
+}
+
 pub(crate) trait HeadlessCommand {
     type Output: Serialize;
 
@@ -786,6 +830,14 @@ pub(crate) fn run_artifact(args: &ArtifactArgs) -> Result<(), CliCommandError> {
         ArtifactCommand::Export(command) => run_artifact_export(command),
         ArtifactCommand::Import(command) => run_artifact_import(command),
         ArtifactCommand::Delete(command) => run_headless_command(command),
+    }
+}
+
+pub(crate) fn run_review(args: &ReviewArgs) -> Result<(), CliCommandError> {
+    match &args.command {
+        ReviewCommand::List(command) => run_headless_command(command),
+        ReviewCommand::Show(command) => run_headless_command(command),
+        ReviewCommand::Delete(command) => run_headless_command(command),
     }
 }
 
@@ -1378,6 +1430,58 @@ impl HeadlessCommand for ArtifactDeleteArgs {
     }
 }
 
+impl HeadlessCommand for ReviewListArgs {
+    type Output = ListReviewRunsResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.list_review_runs()
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_review_list(output)
+    }
+}
+
+impl HeadlessCommand for ReviewShowArgs {
+    type Output = ReviewRunResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.review.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.review_run(&ReviewRunIdParams {
+            review_id: self.review.review_id.clone(),
+        })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_review_run(&output.review)
+    }
+}
+
+impl HeadlessCommand for ReviewDeleteArgs {
+    type Output = DeleteReviewRunResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.review.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.delete_review_run(&ReviewRunIdParams {
+            review_id: self.review.review_id.clone(),
+        })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        format!("deleted review: {}\n", output.review_id)
+    }
+}
+
 fn parse_workflow_input_assignments(
     values: &[String],
 ) -> Result<Vec<WorkflowInputAssignment>, DaemonClientError> {
@@ -1916,6 +2020,187 @@ fn render_saved_artifact_summary(artifact: &ExplorationArtifactSummary) -> Strin
         "saved artifact: {} [{}]\n",
         artifact.metadata.artifact_id,
         render_artifact_kind(artifact.kind)
+    )
+}
+
+fn render_review_list(result: &ListReviewRunsResult) -> String {
+    let mut output = String::new();
+    if result.reviews.is_empty() {
+        output.push_str("(none)\n");
+        return output;
+    }
+
+    for review in &result.reviews {
+        output.push_str(&format!(
+            "- {} [{}]\n",
+            review.metadata.title,
+            render_review_kind(review.kind)
+        ));
+        output.push_str(&format!("  review id: {}\n", review.metadata.review_id));
+        output.push_str(&format!("  findings: {}\n", review.finding_count));
+        output.push_str(&format!(
+            "  status: {}\n",
+            render_review_status_counts(review)
+        ));
+        if let Some(summary) = &review.metadata.summary {
+            output.push_str(&format!("  summary: {summary}\n"));
+        }
+    }
+    output
+}
+
+fn render_review_run(review: &ReviewRun) -> String {
+    let summary = ReviewRunSummary::from(review);
+    let mut output = String::new();
+    output.push_str(&format!("review id: {}\n", review.metadata.review_id));
+    output.push_str(&format!("title: {}\n", review.metadata.title));
+    output.push_str(&format!("kind: {}\n", render_review_kind(review.kind())));
+    if let Some(summary_text) = &review.metadata.summary {
+        output.push_str(&format!("summary: {summary_text}\n"));
+    }
+    output.push_str(&format!("findings: {}\n", summary.finding_count));
+    output.push_str(&format!(
+        "status: {}\n",
+        render_review_status_counts(&summary)
+    ));
+    render_review_payload(&mut output, &review.payload);
+
+    if review.findings.is_empty() {
+        output.push_str("\n[findings]\n(none)\n");
+        return output;
+    }
+
+    output.push_str("\n[findings]\n");
+    for finding in &review.findings {
+        output.push_str(&format!(
+            "- {} [{}]\n",
+            finding.finding_id,
+            render_review_finding_kind(finding.kind())
+        ));
+        output.push_str(&format!(
+            "  status: {}\n",
+            render_review_finding_status(finding.status)
+        ));
+        render_review_finding_payload(&mut output, &finding.payload);
+    }
+    output
+}
+
+fn render_review_payload(output: &mut String, payload: &ReviewRunPayload) {
+    match payload {
+        ReviewRunPayload::Audit { audit, limit } => {
+            output.push_str(&format!("audit: {}\n", render_corpus_audit_kind(*audit)));
+            output.push_str(&format!("limit: {limit}\n"));
+        }
+        ReviewRunPayload::Workflow {
+            workflow,
+            inputs,
+            step_ids,
+        } => {
+            output.push_str(&format!(
+                "workflow: {} [{}]\n",
+                workflow.metadata.title, workflow.metadata.workflow_id
+            ));
+            output.push_str(&format!("steps: {}\n", workflow.step_count));
+            output.push_str(&format!("source step ids: {}\n", step_ids.join(", ")));
+            if inputs.is_empty() {
+                output.push_str("inputs: 0\n");
+            } else {
+                output.push_str(&format!("inputs: {}\n", inputs.len()));
+                for input in inputs {
+                    output.push_str(&format!(
+                        "  {}: {}\n",
+                        input.input_id,
+                        render_workflow_resolve_target(&input.target)
+                    ));
+                }
+            }
+        }
+    }
+}
+
+fn render_review_finding_payload(output: &mut String, payload: &ReviewFindingPayload) {
+    match payload {
+        ReviewFindingPayload::Audit { entry } => {
+            render_review_audit_entry(output, entry);
+        }
+        ReviewFindingPayload::WorkflowStep { step } => {
+            render_workflow_step_report(output, step);
+        }
+    }
+}
+
+fn render_review_audit_entry(output: &mut String, entry: &CorpusAuditEntry) {
+    match entry {
+        CorpusAuditEntry::DanglingLink { record } => {
+            output.push_str(&format!(
+                "  dangling link: {} -> missing id {}\n",
+                render_anchor_identity(&record.source),
+                record.missing_explicit_id
+            ));
+            output.push_str(&format!(
+                "  location: {}:{}:{}\n",
+                record.source.file_path, record.line, record.column
+            ));
+            output.push_str(&format!("  preview: {}\n", record.preview));
+        }
+        CorpusAuditEntry::DuplicateTitle { record } => {
+            output.push_str(&format!("  duplicate title: {}\n", record.title));
+            output.push_str(&format!("  notes: {}\n", record.notes.len()));
+        }
+        CorpusAuditEntry::OrphanNote { record } => {
+            output.push_str(&format!(
+                "  orphan note: {} [{}]\n",
+                record.note.title, record.note.node_key
+            ));
+            output.push_str(&format!(
+                "  refs/backlinks/forward-links: {}/{}/{}\n",
+                record.reference_count, record.backlink_count, record.forward_link_count
+            ));
+        }
+        CorpusAuditEntry::WeaklyIntegratedNote { record } => {
+            output.push_str(&format!(
+                "  weakly integrated note: {} [{}]\n",
+                record.note.title, record.note.node_key
+            ));
+            output.push_str(&format!(
+                "  refs/backlinks/forward-links: {}/{}/{}\n",
+                record.reference_count, record.backlink_count, record.forward_link_count
+            ));
+        }
+    }
+}
+
+fn render_review_kind(kind: ReviewRunKind) -> &'static str {
+    match kind {
+        ReviewRunKind::Audit => "audit",
+        ReviewRunKind::Workflow => "workflow",
+    }
+}
+
+fn render_review_finding_kind(kind: ReviewFindingKind) -> &'static str {
+    match kind {
+        ReviewFindingKind::Audit => "audit",
+        ReviewFindingKind::WorkflowStep => "workflow-step",
+    }
+}
+
+fn render_review_finding_status(status: ReviewFindingStatus) -> &'static str {
+    match status {
+        ReviewFindingStatus::Open => "open",
+        ReviewFindingStatus::Reviewed => "reviewed",
+        ReviewFindingStatus::Dismissed => "dismissed",
+        ReviewFindingStatus::Accepted => "accepted",
+    }
+}
+
+fn render_review_status_counts(summary: &ReviewRunSummary) -> String {
+    format!(
+        "open/reviewed/dismissed/accepted: {}/{}/{}/{}",
+        summary.status_counts.open,
+        summary.status_counts.reviewed,
+        summary.status_counts.dismissed,
+        summary.status_counts.accepted
     )
 }
 
