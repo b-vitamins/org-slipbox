@@ -15,17 +15,18 @@ use slipbox_core::{
     ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
     ExplorationArtifactSummary, ExplorationEntry, ExplorationExplanation, ExplorationLens,
     ExplorationSectionKind, ExploreParams, ExploreResult, ListExplorationArtifactsResult,
-    ListReviewRunsResult, ListWorkflowsResult, NodeFromIdParams, NodeFromKeyParams,
-    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonEntry,
-    NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
-    NoteComparisonSectionKind, PlanningField, PlanningRelationRecord, ReviewFindingKind,
-    ReviewFindingPayload, ReviewFindingStatus, ReviewRun, ReviewRunIdParams, ReviewRunKind,
-    ReviewRunPayload, ReviewRunResult, ReviewRunSummary, RunWorkflowParams, RunWorkflowResult,
-    SaveExplorationArtifactParams, SavedComparisonArtifact, SavedExplorationArtifact,
-    SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, StatusInfo, TrailReplayResult,
-    TrailReplayStepResult, WorkflowArtifactSaveSource, WorkflowExecutionResult,
-    WorkflowExploreFocus, WorkflowIdParams, WorkflowInputAssignment, WorkflowInputKind,
-    WorkflowInputSpec, WorkflowResolveTarget, WorkflowSpec, WorkflowStepPayload,
+    ListReviewRunsResult, ListWorkflowsResult, MarkReviewFindingParams, MarkReviewFindingResult,
+    NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
+    NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
+    NoteComparisonSectionKind, PlanningField, PlanningRelationRecord, ReviewFinding,
+    ReviewFindingKind, ReviewFindingPair, ReviewFindingPayload, ReviewFindingStatus,
+    ReviewFindingStatusDiff, ReviewRun, ReviewRunDiff, ReviewRunDiffParams, ReviewRunDiffResult,
+    ReviewRunIdParams, ReviewRunKind, ReviewRunPayload, ReviewRunResult, ReviewRunSummary,
+    RunWorkflowParams, RunWorkflowResult, SaveExplorationArtifactParams, SavedComparisonArtifact,
+    SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep,
+    StatusInfo, TrailReplayResult, TrailReplayStepResult, WorkflowArtifactSaveSource,
+    WorkflowExecutionResult, WorkflowExploreFocus, WorkflowIdParams, WorkflowInputAssignment,
+    WorkflowInputKind, WorkflowInputSpec, WorkflowResolveTarget, WorkflowSpec, WorkflowStepPayload,
     WorkflowStepReport, WorkflowStepReportPayload, WorkflowStepSpec, WorkflowSummary,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonClientError, DaemonServeConfig};
@@ -647,6 +648,10 @@ pub(crate) enum ReviewCommand {
     List(ReviewListArgs),
     /// Show a durable review run.
     Show(ReviewShowArgs),
+    /// Compare two compatible durable review runs.
+    Diff(ReviewDiffArgs),
+    /// Update one durable review finding status.
+    Mark(ReviewMarkArgs),
     /// Delete a durable review run by identifier.
     Delete(ReviewDeleteArgs),
 }
@@ -669,6 +674,28 @@ pub(crate) struct ReviewIdArgs {
 pub(crate) struct ReviewShowArgs {
     #[command(flatten)]
     pub(crate) review: ReviewIdArgs,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ReviewDiffArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// Baseline durable review run identifier.
+    pub(crate) base_review_id: String,
+    /// Target durable review run identifier.
+    pub(crate) target_review_id: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ReviewMarkArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// Durable review run identifier.
+    pub(crate) review_id: String,
+    /// Typed durable finding identifier within the review run.
+    pub(crate) finding_id: String,
+    /// New finding status: open, reviewed, dismissed, or accepted.
+    pub(crate) status: String,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -837,6 +864,8 @@ pub(crate) fn run_review(args: &ReviewArgs) -> Result<(), CliCommandError> {
     match &args.command {
         ReviewCommand::List(command) => run_headless_command(command),
         ReviewCommand::Show(command) => run_headless_command(command),
+        ReviewCommand::Diff(command) => run_headless_command(command),
+        ReviewCommand::Mark(command) => run_review_mark(command),
         ReviewCommand::Delete(command) => run_headless_command(command),
     }
 }
@@ -1464,6 +1493,25 @@ impl HeadlessCommand for ReviewShowArgs {
     }
 }
 
+impl HeadlessCommand for ReviewDiffArgs {
+    type Output = ReviewRunDiffResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.diff_review_runs(&ReviewRunDiffParams {
+            base_review_id: self.base_review_id.clone(),
+            target_review_id: self.target_review_id.clone(),
+        })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_review_diff(&output.diff)
+    }
+}
+
 impl HeadlessCommand for ReviewDeleteArgs {
     type Output = DeleteReviewRunResult;
 
@@ -1479,6 +1527,42 @@ impl HeadlessCommand for ReviewDeleteArgs {
 
     fn render_human(&self, output: &Self::Output) -> String {
         format!("deleted review: {}\n", output.review_id)
+    }
+}
+
+fn run_review_mark(command: &ReviewMarkArgs) -> Result<(), CliCommandError> {
+    let output_mode = command.headless.output_mode();
+    let status = parse_review_finding_status(&command.status)
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    let mut client = command.headless.connect()?;
+    let output = client
+        .mark_review_finding(&MarkReviewFindingParams {
+            review_id: command.review_id.clone(),
+            finding_id: command.finding_id.clone(),
+            status,
+        })
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    client
+        .shutdown()
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+
+    let stdout = io::stdout();
+    let mut writer = stdout.lock();
+    write_output(&mut writer, output_mode, &output, |value| {
+        render_mark_review_finding_result(value)
+    })
+    .map_err(|error| CliCommandError::new(output_mode, error))
+}
+
+fn parse_review_finding_status(value: &str) -> Result<ReviewFindingStatus> {
+    match value {
+        "open" => Ok(ReviewFindingStatus::Open),
+        "reviewed" => Ok(ReviewFindingStatus::Reviewed),
+        "dismissed" => Ok(ReviewFindingStatus::Dismissed),
+        "accepted" => Ok(ReviewFindingStatus::Accepted),
+        _ => anyhow::bail!(
+            "invalid review finding status `{value}`; expected one of: open, reviewed, dismissed, accepted"
+        ),
     }
 }
 
@@ -2072,18 +2156,89 @@ fn render_review_run(review: &ReviewRun) -> String {
 
     output.push_str("\n[findings]\n");
     for finding in &review.findings {
-        output.push_str(&format!(
-            "- {} [{}]\n",
-            finding.finding_id,
-            render_review_finding_kind(finding.kind())
-        ));
-        output.push_str(&format!(
-            "  status: {}\n",
-            render_review_finding_status(finding.status)
-        ));
-        render_review_finding_payload(&mut output, &finding.payload);
+        render_review_finding(&mut output, finding, "");
     }
     output
+}
+
+fn render_review_diff(diff: &ReviewRunDiff) -> String {
+    let mut output = String::new();
+    output.push_str(&format!(
+        "base review: {} [{}]\n",
+        diff.base_review.metadata.review_id,
+        render_review_kind(diff.base_review.kind)
+    ));
+    output.push_str(&format!(
+        "target review: {} [{}]\n",
+        diff.target_review.metadata.review_id,
+        render_review_kind(diff.target_review.kind)
+    ));
+    output.push_str(&format!("added: {}\n", diff.added.len()));
+    output.push_str(&format!("removed: {}\n", diff.removed.len()));
+    output.push_str(&format!("unchanged: {}\n", diff.unchanged.len()));
+    output.push_str(&format!(
+        "content changed: {}\n",
+        diff.content_changed.len()
+    ));
+    output.push_str(&format!("status changed: {}\n", diff.status_changed.len()));
+
+    render_review_diff_findings(&mut output, "added", &diff.added);
+    render_review_diff_findings(&mut output, "removed", &diff.removed);
+    render_review_diff_pairs(&mut output, "unchanged", &diff.unchanged);
+    render_review_diff_pairs(&mut output, "content-changed", &diff.content_changed);
+    render_review_diff_status_changes(&mut output, &diff.status_changed);
+    output
+}
+
+fn render_review_diff_findings(output: &mut String, section: &str, findings: &[ReviewFinding]) {
+    if findings.is_empty() {
+        return;
+    }
+    output.push_str(&format!("\n[{section}]\n"));
+    for finding in findings {
+        render_review_finding(output, finding, "");
+    }
+}
+
+fn render_review_diff_pairs(output: &mut String, section: &str, pairs: &[ReviewFindingPair]) {
+    if pairs.is_empty() {
+        return;
+    }
+    output.push_str(&format!("\n[{section}]\n"));
+    for pair in pairs {
+        output.push_str(&format!("- {}\n", pair.finding_id));
+        output.push_str("  base:\n");
+        render_review_finding(output, &pair.base, "    ");
+        output.push_str("  target:\n");
+        render_review_finding(output, &pair.target, "    ");
+    }
+}
+
+fn render_review_diff_status_changes(output: &mut String, changes: &[ReviewFindingStatusDiff]) {
+    if changes.is_empty() {
+        return;
+    }
+    output.push_str("\n[status-changed]\n");
+    for change in changes {
+        output.push_str(&format!("- {}\n", change.finding_id));
+        output.push_str(&format!(
+            "  status: {} -> {}\n",
+            render_review_finding_status(change.from_status),
+            render_review_finding_status(change.to_status)
+        ));
+        output.push_str("  target:\n");
+        render_review_finding(output, &change.target, "    ");
+    }
+}
+
+fn render_mark_review_finding_result(result: &MarkReviewFindingResult) -> String {
+    format!(
+        "marked review finding: {} {} {} -> {}\n",
+        result.transition.review_id,
+        result.transition.finding_id,
+        render_review_finding_status(result.transition.from_status),
+        render_review_finding_status(result.transition.to_status)
+    )
 }
 
 fn render_review_payload(output: &mut String, payload: &ReviewRunPayload) {
@@ -2119,6 +2274,20 @@ fn render_review_payload(output: &mut String, payload: &ReviewRunPayload) {
     }
 }
 
+fn render_review_finding(output: &mut String, finding: &ReviewFinding, indent: &str) {
+    output.push_str(&format!(
+        "{indent}- {} [{}]\n",
+        finding.finding_id,
+        render_review_finding_kind(finding.kind())
+    ));
+    output.push_str(&format!(
+        "{indent}  status: {}\n",
+        render_review_finding_status(finding.status)
+    ));
+    let payload = render_review_finding_payload_block(&finding.payload);
+    push_indented(output, &payload, indent);
+}
+
 fn render_review_finding_payload(output: &mut String, payload: &ReviewFindingPayload) {
     match payload {
         ReviewFindingPayload::Audit { entry } => {
@@ -2127,6 +2296,20 @@ fn render_review_finding_payload(output: &mut String, payload: &ReviewFindingPay
         ReviewFindingPayload::WorkflowStep { step } => {
             render_workflow_step_report(output, step);
         }
+    }
+}
+
+fn render_review_finding_payload_block(payload: &ReviewFindingPayload) -> String {
+    let mut output = String::new();
+    render_review_finding_payload(&mut output, payload);
+    output
+}
+
+fn push_indented(output: &mut String, text: &str, indent: &str) {
+    for line in text.lines() {
+        output.push_str(indent);
+        output.push_str(line);
+        output.push('\n');
     }
 }
 

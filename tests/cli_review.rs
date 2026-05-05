@@ -5,10 +5,10 @@ use anyhow::Result;
 use serde::Deserialize;
 use slipbox_core::{
     AnchorRecord, CorpusAuditEntry, CorpusAuditKind, DanglingLinkAuditRecord,
-    DeleteReviewRunResult, ListReviewRunsResult, NodeKind, NodeRecord, ReviewFinding,
-    ReviewFindingPayload, ReviewFindingStatus, ReviewRun, ReviewRunKind, ReviewRunMetadata,
-    ReviewRunPayload, ReviewRunResult, WorkflowMetadata, WorkflowStepReport,
-    WorkflowStepReportPayload, WorkflowSummary,
+    DeleteReviewRunResult, ListReviewRunsResult, MarkReviewFindingResult, NodeKind, NodeRecord,
+    ReviewFinding, ReviewFindingPayload, ReviewFindingStatus, ReviewRun, ReviewRunDiffResult,
+    ReviewRunKind, ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, WorkflowMetadata,
+    WorkflowStepReport, WorkflowStepReportPayload, WorkflowSummary,
 };
 use slipbox_store::Database;
 use tempfile::tempdir;
@@ -35,6 +35,22 @@ fn build_review_fixture() -> Result<(tempfile::TempDir, String, String)> {
     let database = Database::open(&db)?;
     database.save_review_run(&audit_review_run())?;
     database.save_review_run(&workflow_review_run())?;
+
+    Ok((
+        workspace,
+        root.display().to_string(),
+        db.display().to_string(),
+    ))
+}
+
+fn build_review_diff_fixture() -> Result<(tempfile::TempDir, String, String)> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let db = workspace.path().join("slipbox.sqlite");
+    let database = Database::open(&db)?;
+    database.save_review_run(&audit_diff_base_review_run())?;
+    database.save_review_run(&audit_diff_target_review_run())?;
 
     Ok((
         workspace,
@@ -88,6 +104,128 @@ fn audit_review_run() -> ReviewRun {
                 }),
             },
         }],
+    }
+}
+
+fn audit_diff_base_review_run() -> ReviewRun {
+    ReviewRun {
+        metadata: ReviewRunMetadata {
+            review_id: "review/audit/base".to_owned(),
+            title: "Dangling Link Review Base".to_owned(),
+            summary: Some("Base dangling-link review".to_owned()),
+        },
+        payload: ReviewRunPayload::Audit {
+            audit: CorpusAuditKind::DanglingLinks,
+            limit: 20,
+        },
+        findings: vec![
+            dangling_finding(
+                "audit/dangling-links/source/missing-content",
+                "missing-content",
+                "Old Source",
+                ReviewFindingStatus::Reviewed,
+            ),
+            dangling_finding(
+                "audit/dangling-links/source/missing-removed",
+                "missing-removed",
+                "Removed Source",
+                ReviewFindingStatus::Open,
+            ),
+            dangling_finding(
+                "audit/dangling-links/source/missing-status",
+                "missing-status",
+                "Status Source",
+                ReviewFindingStatus::Open,
+            ),
+            dangling_finding(
+                "audit/dangling-links/source/missing-unchanged",
+                "missing-unchanged",
+                "Unchanged Source",
+                ReviewFindingStatus::Open,
+            ),
+        ],
+    }
+}
+
+fn audit_diff_target_review_run() -> ReviewRun {
+    ReviewRun {
+        metadata: ReviewRunMetadata {
+            review_id: "review/audit/target".to_owned(),
+            title: "Dangling Link Review Target".to_owned(),
+            summary: Some("Target dangling-link review".to_owned()),
+        },
+        payload: ReviewRunPayload::Audit {
+            audit: CorpusAuditKind::DanglingLinks,
+            limit: 20,
+        },
+        findings: vec![
+            dangling_finding(
+                "audit/dangling-links/source/missing-added",
+                "missing-added",
+                "Added Source",
+                ReviewFindingStatus::Open,
+            ),
+            dangling_finding(
+                "audit/dangling-links/source/missing-content",
+                "missing-content-updated",
+                "New Source",
+                ReviewFindingStatus::Reviewed,
+            ),
+            dangling_finding(
+                "audit/dangling-links/source/missing-status",
+                "missing-status",
+                "Status Source",
+                ReviewFindingStatus::Accepted,
+            ),
+            dangling_finding(
+                "audit/dangling-links/source/missing-unchanged",
+                "missing-unchanged",
+                "Unchanged Source",
+                ReviewFindingStatus::Open,
+            ),
+        ],
+    }
+}
+
+fn dangling_finding(
+    finding_id: &str,
+    missing_explicit_id: &str,
+    title: &str,
+    status: ReviewFindingStatus,
+) -> ReviewFinding {
+    ReviewFinding {
+        finding_id: finding_id.to_owned(),
+        status,
+        payload: ReviewFindingPayload::Audit {
+            entry: Box::new(CorpusAuditEntry::DanglingLink {
+                record: Box::new(DanglingLinkAuditRecord {
+                    source: AnchorRecord {
+                        node_key: format!("file:{}.org", title.to_lowercase().replace(' ', "-")),
+                        explicit_id: Some(format!("{}-id", title.to_lowercase().replace(' ', "-"))),
+                        file_path: format!("{}.org", title.to_lowercase().replace(' ', "-")),
+                        title: title.to_owned(),
+                        outline_path: title.to_owned(),
+                        aliases: Vec::new(),
+                        tags: Vec::new(),
+                        refs: Vec::new(),
+                        todo_keyword: None,
+                        scheduled_for: None,
+                        deadline_for: None,
+                        closed_at: None,
+                        level: 0,
+                        line: 1,
+                        kind: NodeKind::File,
+                        file_mtime_ns: 0,
+                        backlink_count: 0,
+                        forward_link_count: 0,
+                    },
+                    missing_explicit_id: missing_explicit_id.to_owned(),
+                    line: 12,
+                    column: 7,
+                    preview: format!("[[id:{missing_explicit_id}][Missing]]"),
+                }),
+            }),
+        },
     }
 }
 
@@ -188,6 +326,57 @@ fn review_id_command(
         command.arg("--json");
     }
     command.arg(review_id);
+    Ok(command.output()?)
+}
+
+fn review_diff_command(
+    root: &str,
+    db: &str,
+    base_review_id: &str,
+    target_review_id: &str,
+    json: bool,
+) -> Result<std::process::Output> {
+    let mut command = Command::new(slipbox_binary());
+    command.args([
+        "review",
+        "diff",
+        "--root",
+        root,
+        "--db",
+        db,
+        "--server-program",
+        slipbox_binary(),
+    ]);
+    if json {
+        command.arg("--json");
+    }
+    command.args([base_review_id, target_review_id]);
+    Ok(command.output()?)
+}
+
+fn review_mark_command(
+    root: &str,
+    db: &str,
+    review_id: &str,
+    finding_id: &str,
+    status: &str,
+    json: bool,
+) -> Result<std::process::Output> {
+    let mut command = Command::new(slipbox_binary());
+    command.args([
+        "review",
+        "mark",
+        "--root",
+        root,
+        "--db",
+        db,
+        "--server-program",
+        slipbox_binary(),
+    ]);
+    if json {
+        command.arg("--json");
+    }
+    command.args([review_id, finding_id, status]);
     Ok(command.output()?)
 }
 
@@ -308,6 +497,140 @@ fn review_show_command_prints_workflow_finding_payloads() -> Result<()> {
 }
 
 #[test]
+fn review_diff_command_returns_json_sections() -> Result<()> {
+    let (_workspace, root, db) = build_review_diff_fixture()?;
+
+    let output = review_diff_command(&root, &db, "review/audit/base", "review/audit/target", true)?;
+
+    assert!(output.status.success(), "{output:?}");
+    let parsed: ReviewRunDiffResult = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(
+        parsed.diff.base_review.metadata.review_id,
+        "review/audit/base"
+    );
+    assert_eq!(
+        parsed.diff.target_review.metadata.review_id,
+        "review/audit/target"
+    );
+    assert_eq!(parsed.diff.added.len(), 1);
+    assert_eq!(
+        parsed.diff.added[0].finding_id,
+        "audit/dangling-links/source/missing-added"
+    );
+    assert_eq!(parsed.diff.removed.len(), 1);
+    assert_eq!(parsed.diff.unchanged.len(), 1);
+    assert_eq!(parsed.diff.content_changed.len(), 1);
+    assert_eq!(
+        parsed.diff.content_changed[0].finding_id,
+        "audit/dangling-links/source/missing-content"
+    );
+    assert_eq!(parsed.diff.status_changed.len(), 1);
+    assert_eq!(
+        parsed.diff.status_changed[0].finding_id,
+        "audit/dangling-links/source/missing-status"
+    );
+    assert_eq!(
+        parsed.diff.status_changed[0].from_status,
+        ReviewFindingStatus::Open
+    );
+    assert_eq!(
+        parsed.diff.status_changed[0].to_status,
+        ReviewFindingStatus::Accepted
+    );
+    assert!(output.stderr.is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn review_diff_command_prints_human_sections() -> Result<()> {
+    let (_workspace, root, db) = build_review_diff_fixture()?;
+
+    let output = review_diff_command(
+        &root,
+        &db,
+        "review/audit/base",
+        "review/audit/target",
+        false,
+    )?;
+
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout)?;
+    assert!(stdout.contains("base review: review/audit/base [audit]"));
+    assert!(stdout.contains("target review: review/audit/target [audit]"));
+    assert!(stdout.contains("added: 1"));
+    assert!(stdout.contains("removed: 1"));
+    assert!(stdout.contains("unchanged: 1"));
+    assert!(stdout.contains("content changed: 1"));
+    assert!(stdout.contains("status changed: 1"));
+    assert!(stdout.contains("[content-changed]"));
+    assert!(stdout.contains("missing-content-updated"));
+    assert!(stdout.contains("[status-changed]"));
+    assert!(stdout.contains("status: open -> accepted"));
+    assert!(output.stderr.is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn review_mark_command_updates_status_and_persists_across_reopen() -> Result<()> {
+    let (_workspace, root, db) = build_review_fixture()?;
+
+    let mark = review_mark_command(
+        &root,
+        &db,
+        "review/audit/dangling",
+        "audit/dangling-links/source/missing-id",
+        "dismissed",
+        true,
+    )?;
+
+    assert!(mark.status.success(), "{mark:?}");
+    let parsed: MarkReviewFindingResult = serde_json::from_slice(&mark.stdout)?;
+    assert_eq!(parsed.transition.review_id, "review/audit/dangling");
+    assert_eq!(
+        parsed.transition.finding_id,
+        "audit/dangling-links/source/missing-id"
+    );
+    assert_eq!(parsed.transition.from_status, ReviewFindingStatus::Open);
+    assert_eq!(parsed.transition.to_status, ReviewFindingStatus::Dismissed);
+
+    let shown = review_id_command(&root, &db, "show", "review/audit/dangling", true)?;
+    assert!(shown.status.success(), "{shown:?}");
+    let shown: ReviewRunResult = serde_json::from_slice(&shown.stdout)?;
+    assert_eq!(
+        shown.review.findings[0].status,
+        ReviewFindingStatus::Dismissed
+    );
+
+    Ok(())
+}
+
+#[test]
+fn review_mark_command_prints_human_acknowledgement() -> Result<()> {
+    let (_workspace, root, db) = build_review_fixture()?;
+
+    let output = review_mark_command(
+        &root,
+        &db,
+        "review/workflow/context",
+        "workflow-step/resolve-focus",
+        "accepted",
+        false,
+    )?;
+
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout)?;
+    assert_eq!(
+        stdout,
+        "marked review finding: review/workflow/context workflow-step/resolve-focus reviewed -> accepted\n"
+    );
+    assert!(output.stderr.is_empty());
+
+    Ok(())
+}
+
+#[test]
 fn review_delete_command_acknowledges_and_removes_reviews() -> Result<()> {
     let (_workspace, root, db) = build_review_fixture()?;
 
@@ -357,6 +680,134 @@ fn review_show_command_reports_missing_reviews() -> Result<()> {
             .error
             .message
             .contains("unknown review run: review/missing")
+    );
+
+    Ok(())
+}
+
+#[test]
+fn review_diff_command_reports_missing_reviews() -> Result<()> {
+    let (_workspace, root, db) = build_review_diff_fixture()?;
+
+    let output = review_diff_command(
+        &root,
+        &db,
+        "review/audit/base",
+        "review/audit/missing",
+        true,
+    )?;
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let parsed: ErrorPayload = serde_json::from_slice(&output.stderr)?;
+    assert!(
+        parsed
+            .error
+            .message
+            .contains("unknown review run: review/audit/missing")
+    );
+
+    Ok(())
+}
+
+#[test]
+fn review_diff_command_reports_incompatible_reviews() -> Result<()> {
+    let (_workspace, root, db) = build_review_fixture()?;
+
+    let output = review_diff_command(
+        &root,
+        &db,
+        "review/audit/dangling",
+        "review/workflow/context",
+        true,
+    )?;
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let parsed: ErrorPayload = serde_json::from_slice(&output.stderr)?;
+    assert!(
+        parsed
+            .error
+            .message
+            .contains("cannot diff review runs with different kinds")
+    );
+
+    Ok(())
+}
+
+#[test]
+fn review_mark_command_reports_unknown_reviews() -> Result<()> {
+    let (_workspace, root, db) = build_review_fixture()?;
+
+    let output = review_mark_command(
+        &root,
+        &db,
+        "review/missing",
+        "audit/dangling-links/source/missing-id",
+        "dismissed",
+        true,
+    )?;
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let parsed: ErrorPayload = serde_json::from_slice(&output.stderr)?;
+    assert!(
+        parsed
+            .error
+            .message
+            .contains("unknown review run: review/missing")
+    );
+
+    Ok(())
+}
+
+#[test]
+fn review_mark_command_reports_unknown_finding_ids() -> Result<()> {
+    let (_workspace, root, db) = build_review_fixture()?;
+
+    let output = review_mark_command(
+        &root,
+        &db,
+        "review/audit/dangling",
+        "audit/dangling-links/source/unknown",
+        "dismissed",
+        true,
+    )?;
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let parsed: ErrorPayload = serde_json::from_slice(&output.stderr)?;
+    assert!(
+        parsed
+            .error
+            .message
+            .contains("unknown review finding audit/dangling-links/source/unknown")
+    );
+
+    Ok(())
+}
+
+#[test]
+fn review_mark_command_reports_invalid_statuses_as_structured_errors() -> Result<()> {
+    let (_workspace, root, db) = build_review_fixture()?;
+
+    let output = review_mark_command(
+        &root,
+        &db,
+        "review/audit/dangling",
+        "audit/dangling-links/source/missing-id",
+        "done",
+        true,
+    )?;
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let parsed: ErrorPayload = serde_json::from_slice(&output.stderr)?;
+    assert!(
+        parsed
+            .error
+            .message
+            .contains("invalid review finding status `done`")
     );
 
     Ok(())

@@ -7,8 +7,10 @@ use anyhow::Result;
 use serde_json::Value;
 use slipbox_core::{
     BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID, BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
-    ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationLens,
-    SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, WorkflowSpec,
+    ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationLens, NodeKind, NodeRecord,
+    ReviewFinding, ReviewFindingPayload, ReviewFindingStatus, ReviewRun, ReviewRunMetadata,
+    ReviewRunPayload, SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact,
+    WorkflowMetadata, WorkflowSpec, WorkflowStepReport, WorkflowStepReportPayload, WorkflowSummary,
     built_in_workflow,
 };
 use slipbox_index::scan_root;
@@ -151,6 +153,18 @@ Anonymous anchor body.
     };
     database.save_exploration_artifact(&structure)?;
     database.save_exploration_artifact(&comparison)?;
+    database.save_review_run(&contract_review_run(
+        "review/workflow/base",
+        "Review Base",
+        ReviewFindingStatus::Open,
+        "Focus",
+    ))?;
+    database.save_review_run(&contract_review_run(
+        "review/workflow/target",
+        "Review Target",
+        ReviewFindingStatus::Reviewed,
+        "Focus",
+    ))?;
 
     Ok((
         workspace,
@@ -158,6 +172,68 @@ Anonymous anchor body.
         db.display().to_string(),
         anonymous_anchor_key,
     ))
+}
+
+fn contract_review_run(
+    review_id: &str,
+    title: &str,
+    status: ReviewFindingStatus,
+    node_title: &str,
+) -> ReviewRun {
+    ReviewRun {
+        metadata: ReviewRunMetadata {
+            review_id: review_id.to_owned(),
+            title: title.to_owned(),
+            summary: Some("Contract review fixture".to_owned()),
+        },
+        payload: ReviewRunPayload::Workflow {
+            workflow: WorkflowSummary {
+                metadata: WorkflowMetadata {
+                    workflow_id: "workflow/contract/review".to_owned(),
+                    title: "Contract Review Workflow".to_owned(),
+                    summary: Some("Review contract workflow".to_owned()),
+                },
+                step_count: 1,
+            },
+            inputs: Vec::new(),
+            step_ids: vec!["resolve-focus".to_owned()],
+        },
+        findings: vec![ReviewFinding {
+            finding_id: "workflow-step/resolve-focus".to_owned(),
+            status,
+            payload: ReviewFindingPayload::WorkflowStep {
+                step: Box::new(WorkflowStepReport {
+                    step_id: "resolve-focus".to_owned(),
+                    payload: WorkflowStepReportPayload::Resolve {
+                        node: Box::new(contract_review_node(node_title)),
+                    },
+                }),
+            },
+        }],
+    }
+}
+
+fn contract_review_node(title: &str) -> NodeRecord {
+    NodeRecord {
+        node_key: "heading:contract.org:1".to_owned(),
+        explicit_id: Some("contract-focus".to_owned()),
+        file_path: "contract.org".to_owned(),
+        title: title.to_owned(),
+        outline_path: title.to_owned(),
+        aliases: Vec::new(),
+        tags: Vec::new(),
+        refs: Vec::new(),
+        todo_keyword: None,
+        scheduled_for: None,
+        deadline_for: None,
+        closed_at: None,
+        level: 1,
+        line: 1,
+        kind: NodeKind::Heading,
+        file_mtime_ns: 0,
+        backlink_count: 0,
+        forward_link_count: 0,
+    }
 }
 
 fn run_command(args: &[String]) -> Result<std::process::Output> {
@@ -228,6 +304,19 @@ fn artifact_json_command_with_stdin(
     args.push("--json".to_owned());
     args.extend(extra.iter().map(|value| (*value).to_owned()));
     run_command_with_stdin(&args, stdin)
+}
+
+fn review_json_command(
+    subcommand: &str,
+    root: &str,
+    db: &str,
+    extra: &[&str],
+) -> Result<std::process::Output> {
+    let mut args = vec!["review".to_owned(), subcommand.to_owned()];
+    args.extend(base_args(root, db));
+    args.push("--json".to_owned());
+    args.extend(extra.iter().map(|value| (*value).to_owned()));
+    run_command(&args)
 }
 
 fn workflow_json_command(
@@ -572,6 +661,88 @@ fn headless_commands_expose_stable_json_shapes() -> Result<()> {
     let compare_save_json: Value = serde_json::from_slice(&compare_save.stdout)?;
     assert_exact_object_keys(&compare_save_json, &["result", "artifact"]);
     assert_saved_artifact_summary_keys(&compare_save_json["artifact"]);
+
+    let review_list = review_json_command("list", &root, &db, &[])?;
+    assert!(review_list.status.success(), "{review_list:?}");
+    let review_list_json: Value = serde_json::from_slice(&review_list.stdout)?;
+    assert_exact_object_keys(&review_list_json, &["reviews"]);
+    assert_exact_object_keys(
+        &review_list_json["reviews"][0],
+        &[
+            "review_id",
+            "title",
+            "summary",
+            "kind",
+            "finding_count",
+            "status_counts",
+        ],
+    );
+
+    let review_show = review_json_command("show", &root, &db, &["review/workflow/base"])?;
+    assert!(review_show.status.success(), "{review_show:?}");
+    let review_show_json: Value = serde_json::from_slice(&review_show.stdout)?;
+    assert_exact_object_keys(&review_show_json, &["review"]);
+    assert_exact_object_keys(
+        &review_show_json["review"],
+        &[
+            "review_id",
+            "title",
+            "summary",
+            "kind",
+            "workflow",
+            "inputs",
+            "step_ids",
+            "findings",
+        ],
+    );
+    assert_exact_object_keys(
+        &review_show_json["review"]["findings"][0],
+        &["finding_id", "status", "kind", "step"],
+    );
+
+    let review_diff = review_json_command(
+        "diff",
+        &root,
+        &db,
+        &["review/workflow/base", "review/workflow/target"],
+    )?;
+    assert!(review_diff.status.success(), "{review_diff:?}");
+    let review_diff_json: Value = serde_json::from_slice(&review_diff.stdout)?;
+    assert_exact_object_keys(&review_diff_json, &["diff"]);
+    assert_exact_object_keys(
+        &review_diff_json["diff"],
+        &[
+            "base_review",
+            "target_review",
+            "added",
+            "removed",
+            "unchanged",
+            "content_changed",
+            "status_changed",
+        ],
+    );
+    assert_exact_object_keys(
+        &review_diff_json["diff"]["status_changed"][0],
+        &["finding_id", "from_status", "to_status", "base", "target"],
+    );
+
+    let review_mark = review_json_command(
+        "mark",
+        &root,
+        &db,
+        &[
+            "review/workflow/base",
+            "workflow-step/resolve-focus",
+            "dismissed",
+        ],
+    )?;
+    assert!(review_mark.status.success(), "{review_mark:?}");
+    let review_mark_json: Value = serde_json::from_slice(&review_mark.stdout)?;
+    assert_exact_object_keys(&review_mark_json, &["transition"]);
+    assert_exact_object_keys(
+        &review_mark_json["transition"],
+        &["review_id", "finding_id", "from_status", "to_status"],
+    );
 
     Ok(())
 }
@@ -953,6 +1124,50 @@ fn headless_commands_report_structured_daemon_failures() -> Result<()> {
                 "artifact".to_owned(),
                 "import".to_owned(),
                 import_file.to_str().expect("utf-8 path").to_owned(),
+            ],
+            &root,
+            &db,
+            2,
+        ),
+        with_bad_server_program(vec!["review".to_owned(), "list".to_owned()], &root, &db, 2),
+        with_bad_server_program(
+            vec![
+                "review".to_owned(),
+                "show".to_owned(),
+                "review/workflow/base".to_owned(),
+            ],
+            &root,
+            &db,
+            2,
+        ),
+        with_bad_server_program(
+            vec![
+                "review".to_owned(),
+                "diff".to_owned(),
+                "review/workflow/base".to_owned(),
+                "review/workflow/target".to_owned(),
+            ],
+            &root,
+            &db,
+            2,
+        ),
+        with_bad_server_program(
+            vec![
+                "review".to_owned(),
+                "mark".to_owned(),
+                "review/workflow/base".to_owned(),
+                "workflow-step/resolve-focus".to_owned(),
+                "dismissed".to_owned(),
+            ],
+            &root,
+            &db,
+            2,
+        ),
+        with_bad_server_program(
+            vec![
+                "review".to_owned(),
+                "delete".to_owned(),
+                "review/workflow/base".to_owned(),
             ],
             &root,
             &db,
