@@ -3,20 +3,23 @@ use std::collections::HashMap;
 use slipbox_core::{
     AgendaParams, AgendaResult, BacklinksParams, BacklinksResult, CompareNotesParams,
     CorpusAuditEntry, CorpusAuditKind, CorpusAuditParams, CorpusAuditResult,
-    DeleteExplorationArtifactResult, ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
-    ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactPayload,
-    ExplorationArtifactResult, ExplorationArtifactSummary, ExplorationEntry, ExplorationLens,
-    ExplorationSection, ExplorationSectionKind, ExploreParams, ExploreResult, ForwardLinksParams,
-    ForwardLinksResult, GraphParams, GraphResult, IndexFileParams, IndexedFilesResult,
-    ListExplorationArtifactsParams, ListExplorationArtifactsResult, ListWorkflowsParams,
-    ListWorkflowsResult, NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
+    DeleteExplorationArtifactResult, DeleteReviewRunResult, ExecuteExplorationArtifactResult,
+    ExecutedExplorationArtifact, ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams,
+    ExplorationArtifactPayload, ExplorationArtifactResult, ExplorationArtifactSummary,
+    ExplorationEntry, ExplorationLens, ExplorationSection, ExplorationSectionKind, ExploreParams,
+    ExploreResult, ForwardLinksParams, ForwardLinksResult, GraphParams, GraphResult,
+    IndexFileParams, IndexedFilesResult, ListExplorationArtifactsParams,
+    ListExplorationArtifactsResult, ListReviewRunsParams, ListReviewRunsResult,
+    ListWorkflowsParams, ListWorkflowsResult, MarkReviewFindingParams, MarkReviewFindingResult,
+    NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
     NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonGroup, NoteComparisonResult, PingInfo,
-    RandomNodeResult, ReflinksParams, ReflinksResult, RunWorkflowParams, RunWorkflowResult,
-    SaveExplorationArtifactParams, SaveExplorationArtifactResult, SavedComparisonArtifact,
-    SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailStep, SearchFilesParams,
-    SearchFilesResult, SearchNodesParams, SearchNodesResult, SearchOccurrencesParams,
-    SearchOccurrencesResult, SearchRefsParams, SearchRefsResult, SearchTagsParams,
-    SearchTagsResult, StatusInfo, TrailReplayResult, TrailReplayStepResult,
+    RandomNodeResult, ReflinksParams, ReflinksResult, ReviewFindingStatusTransition, ReviewRun,
+    ReviewRunIdParams, ReviewRunResult, ReviewRunSummary, RunWorkflowParams, RunWorkflowResult,
+    SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
+    SaveReviewRunResult, SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact,
+    SavedTrailStep, SearchFilesParams, SearchFilesResult, SearchNodesParams, SearchNodesResult,
+    SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams, SearchRefsResult,
+    SearchTagsParams, SearchTagsResult, StatusInfo, TrailReplayResult, TrailReplayStepResult,
     UnlinkedReferencesParams, UnlinkedReferencesResult, WorkflowExecutionResult, WorkflowIdParams,
     WorkflowInputAssignment, WorkflowResolveTarget, WorkflowResult, WorkflowSpec,
     WorkflowStepPayload, WorkflowStepReport, WorkflowStepReportPayload,
@@ -635,6 +638,13 @@ fn validate_artifact_id_params(params: &ExplorationArtifactIdParams) -> Result<(
     Ok(())
 }
 
+fn validate_review_id_params(params: &ReviewRunIdParams) -> Result<(), JsonRpcError> {
+    if let Some(message) = params.validation_error() {
+        return Err(invalid_request(message));
+    }
+    Ok(())
+}
+
 fn validate_workflow_id_params(params: &WorkflowIdParams) -> Result<(), JsonRpcError> {
     if let Some(message) = params.validation_error() {
         return Err(invalid_request(message));
@@ -774,6 +784,32 @@ fn save_exploration_artifact_with_policy(
     }
 
     Ok(ExplorationArtifactSummary::from(artifact))
+}
+
+fn save_review_run_with_policy(
+    state: &mut ServerState,
+    review: &ReviewRun,
+    overwrite: bool,
+) -> Result<ReviewRunSummary, JsonRpcError> {
+    if overwrite {
+        state
+            .database
+            .save_review_run(review)
+            .map_err(|error| internal_error(error.context("failed to save review run")))?;
+    } else if !state
+        .database
+        .save_review_run_if_absent(review)
+        .map_err(|error| {
+            internal_error(error.context("failed to save review run without overwrite"))
+        })?
+    {
+        return Err(invalid_request(format!(
+            "review run already exists: {}",
+            review.metadata.review_id
+        )));
+    }
+
+    Ok(ReviewRunSummary::from(review))
 }
 
 #[derive(Debug, Clone)]
@@ -1116,6 +1152,14 @@ fn known_exploration_artifact(
     artifact.ok_or_else(|| invalid_request(format!("unknown exploration artifact: {artifact_id}")))
 }
 
+fn known_review_run(state: &ServerState, review_id: &str) -> Result<ReviewRun, JsonRpcError> {
+    let review = state
+        .database
+        .review_run(review_id)
+        .map_err(|error| internal_error(error.context("failed to load review run")))?;
+    review.ok_or_else(|| invalid_request(format!("unknown review run: {review_id}")))
+}
+
 pub(crate) fn save_exploration_artifact(
     state: &mut ServerState,
     params: serde_json::Value,
@@ -1192,6 +1236,101 @@ pub(crate) fn execute_exploration_artifact(
             ))
         })?;
     to_value(ExecuteExplorationArtifactResult { artifact })
+}
+
+pub(crate) fn save_review_run(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: SaveReviewRunParams = parse_params(params)?;
+    if let Some(message) = params.validation_error() {
+        return Err(invalid_request(message));
+    }
+    let review = save_review_run_with_policy(state, &params.review, params.overwrite)?;
+    to_value(SaveReviewRunResult { review })
+}
+
+pub(crate) fn review_run(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: ReviewRunIdParams = parse_params(params)?;
+    validate_review_id_params(&params)?;
+    to_value(ReviewRunResult {
+        review: known_review_run(state, &params.review_id)?,
+    })
+}
+
+pub(crate) fn list_review_runs(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let _params: ListReviewRunsParams = parse_params(params)?;
+    let reviews = state
+        .database
+        .list_review_runs()
+        .map_err(|error| internal_error(error.context("failed to list review runs")))?;
+    to_value(ListReviewRunsResult {
+        reviews: reviews.iter().map(ReviewRunSummary::from).collect(),
+    })
+}
+
+pub(crate) fn delete_review_run(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: ReviewRunIdParams = parse_params(params)?;
+    validate_review_id_params(&params)?;
+    if !state
+        .database
+        .delete_review_run(&params.review_id)
+        .map_err(|error| internal_error(error.context("failed to delete review run")))?
+    {
+        return Err(invalid_request(format!(
+            "unknown review run: {}",
+            params.review_id
+        )));
+    }
+    to_value(DeleteReviewRunResult {
+        review_id: params.review_id,
+    })
+}
+
+pub(crate) fn mark_review_finding(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: MarkReviewFindingParams = parse_params(params)?;
+    if let Some(message) = params.validation_error() {
+        return Err(invalid_request(message));
+    }
+    let mut review = known_review_run(state, &params.review_id)?;
+    let finding = review
+        .findings
+        .iter_mut()
+        .find(|finding| finding.finding_id == params.finding_id)
+        .ok_or_else(|| {
+            invalid_request(format!(
+                "unknown review finding {} in review run {}",
+                params.finding_id, params.review_id
+            ))
+        })?;
+    let from_status = finding.status;
+    let transition = ReviewFindingStatusTransition {
+        review_id: params.review_id.clone(),
+        finding_id: params.finding_id.clone(),
+        from_status,
+        to_status: params.status,
+    };
+    if let Some(message) = transition.validation_error() {
+        return Err(invalid_request(message));
+    }
+    finding.status = params.status;
+    state
+        .database
+        .save_review_run(&review)
+        .map_err(|error| internal_error(error.context("failed to save review run")))?;
+    to_value(MarkReviewFindingResult { transition })
 }
 
 pub(crate) fn list_workflows(
@@ -1367,15 +1506,18 @@ mod tests {
 
     use serde_json::json;
     use slipbox_core::{
-        BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
+        AnchorRecord, BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
         BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID, CompareNotesParams, ComparisonConnectorDirection,
-        CorpusAuditEntry, CorpusAuditKind, CorpusAuditResult, DeleteExplorationArtifactResult,
-        ExecuteExplorationArtifactResult, ExecutedExplorationArtifactPayload,
-        ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
-        ExplorationEntry, ExplorationExplanation, ExplorationLens, ExplorationSectionKind,
-        ExploreParams, ExploreResult, ListExplorationArtifactsResult, ListWorkflowsResult,
-        NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
-        NoteComparisonSectionKind, RunWorkflowResult, SaveExplorationArtifactResult,
+        CorpusAuditEntry, CorpusAuditKind, CorpusAuditResult, DanglingLinkAuditRecord,
+        DeleteExplorationArtifactResult, DeleteReviewRunResult, ExecuteExplorationArtifactResult,
+        ExecutedExplorationArtifactPayload, ExplorationArtifactMetadata,
+        ExplorationArtifactPayload, ExplorationArtifactResult, ExplorationEntry,
+        ExplorationExplanation, ExplorationLens, ExplorationSectionKind, ExploreParams,
+        ExploreResult, ListExplorationArtifactsResult, ListReviewRunsResult, ListWorkflowsResult,
+        MarkReviewFindingResult, NodeKind, NoteComparisonEntry, NoteComparisonExplanation,
+        NoteComparisonGroup, NoteComparisonResult, NoteComparisonSectionKind, ReviewFinding,
+        ReviewFindingPayload, ReviewFindingStatus, ReviewRun, ReviewRunMetadata, ReviewRunPayload,
+        ReviewRunResult, RunWorkflowResult, SaveExplorationArtifactResult, SaveReviewRunResult,
         SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact,
         SavedTrailArtifact, SavedTrailStep, TrailReplayStepResult, WorkflowInputAssignment,
         WorkflowResolveTarget, WorkflowResult, WorkflowSpec, WorkflowStepReport,
@@ -1385,11 +1527,12 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{
-        compare_notes, corpus_audit, delete_exploration_artifact, execute_compare_notes_query,
-        execute_exploration_artifact, execute_explore_query, execute_saved_exploration_artifact,
-        execute_saved_exploration_artifact_by_id, execute_workflow_spec, exploration_artifact,
-        explore, list_exploration_artifacts, list_workflows, run_workflow,
-        save_exploration_artifact, workflow,
+        compare_notes, corpus_audit, delete_exploration_artifact, delete_review_run,
+        execute_compare_notes_query, execute_exploration_artifact, execute_explore_query,
+        execute_saved_exploration_artifact, execute_saved_exploration_artifact_by_id,
+        execute_workflow_spec, exploration_artifact, explore, list_exploration_artifacts,
+        list_review_runs, list_workflows, mark_review_finding, review_run, run_workflow,
+        save_exploration_artifact, save_review_run, workflow,
     };
     use crate::server::state::ServerState;
 
@@ -2496,6 +2639,225 @@ mod tests {
     }
 
     #[test]
+    fn review_run_rpc_operations_round_trip_and_mark_review_runs() {
+        let (_workspace, mut state) = audit_state();
+        let review = sample_audit_review_run(
+            "review/audit/dangling-links",
+            "Dangling Link Review",
+            ReviewFindingStatus::Open,
+        );
+
+        let saved: SaveReviewRunResult = serde_json::from_value(
+            save_review_run(
+                &mut state,
+                json!({ "review": review.clone(), "overwrite": true }),
+            )
+            .expect("save review RPC should succeed"),
+        )
+        .expect("save review result should decode");
+        assert_eq!(saved.review.metadata, review.metadata);
+        assert_eq!(saved.review.finding_count, 1);
+        assert_eq!(saved.review.status_counts.open, 1);
+
+        let listed: ListReviewRunsResult = serde_json::from_value(
+            list_review_runs(&mut state, json!({})).expect("list reviews RPC should succeed"),
+        )
+        .expect("list reviews result should decode");
+        assert_eq!(listed.reviews, vec![saved.review.clone()]);
+
+        let inspected: ReviewRunResult = serde_json::from_value(
+            review_run(
+                &mut state,
+                json!({ "review_id": "review/audit/dangling-links" }),
+            )
+            .expect("inspect review RPC should succeed"),
+        )
+        .expect("inspect review result should decode");
+        assert_eq!(inspected.review, review);
+
+        let marked: MarkReviewFindingResult = serde_json::from_value(
+            mark_review_finding(
+                &mut state,
+                json!({
+                    "review_id": "review/audit/dangling-links",
+                    "finding_id": "audit/dangling-links/source/missing-id",
+                    "status": "reviewed"
+                }),
+            )
+            .expect("mark review finding RPC should succeed"),
+        )
+        .expect("mark result should decode");
+        assert_eq!(marked.transition.from_status, ReviewFindingStatus::Open);
+        assert_eq!(marked.transition.to_status, ReviewFindingStatus::Reviewed);
+
+        let root = state.root.clone();
+        let db_path = state.db_path.clone();
+        let discovery = state.discovery.clone();
+        drop(state);
+
+        let mut reopened =
+            ServerState::new(root, db_path, Vec::new(), discovery).expect("state should reopen");
+        let updated: ReviewRunResult = serde_json::from_value(
+            review_run(
+                &mut reopened,
+                json!({ "review_id": "review/audit/dangling-links" }),
+            )
+            .expect("marked review should load after reopen"),
+        )
+        .expect("marked review result should decode");
+        assert_eq!(
+            updated.review.findings[0].status,
+            ReviewFindingStatus::Reviewed
+        );
+
+        let deleted: DeleteReviewRunResult = serde_json::from_value(
+            delete_review_run(
+                &mut reopened,
+                json!({ "review_id": "review/audit/dangling-links" }),
+            )
+            .expect("delete review RPC should succeed"),
+        )
+        .expect("delete review result should decode");
+        assert_eq!(deleted.review_id, "review/audit/dangling-links");
+
+        let listed_after_delete: ListReviewRunsResult = serde_json::from_value(
+            list_review_runs(&mut reopened, json!({}))
+                .expect("list reviews after delete should succeed"),
+        )
+        .expect("list reviews after delete should decode");
+        assert!(listed_after_delete.reviews.is_empty());
+    }
+
+    #[test]
+    fn review_run_rpc_reports_missing_invalid_and_malformed_reviews() {
+        let (_workspace, mut state) = audit_state();
+        let review = sample_audit_review_run(
+            "review/audit/dangling-links",
+            "Dangling Link Review",
+            ReviewFindingStatus::Open,
+        );
+
+        let padded_error = review_run(&mut state, json!({ "review_id": " missing " }))
+            .expect_err("padded review id should be rejected");
+        assert_eq!(
+            padded_error.into_inner().message,
+            "review_id must not have leading or trailing whitespace"
+        );
+
+        for operation in [
+            review_run(&mut state, json!({ "review_id": "missing" })),
+            delete_review_run(&mut state, json!({ "review_id": "missing" })),
+            mark_review_finding(
+                &mut state,
+                json!({
+                    "review_id": "missing",
+                    "finding_id": "finding",
+                    "status": "reviewed"
+                }),
+            ),
+        ] {
+            let error = operation.expect_err("missing review should be rejected");
+            assert_eq!(error.into_inner().message, "unknown review run: missing");
+        }
+
+        let invalid_review = ReviewRun {
+            metadata: ReviewRunMetadata {
+                review_id: "review/audit/invalid".to_owned(),
+                title: String::new(),
+                summary: None,
+            },
+            ..review.clone()
+        };
+        let invalid_save = save_review_run(&mut state, json!({ "review": invalid_review }))
+            .expect_err("invalid review should be rejected");
+        assert_eq!(invalid_save.into_inner().message, "title must not be empty");
+
+        let _: SaveReviewRunResult = serde_json::from_value(
+            save_review_run(
+                &mut state,
+                json!({ "review": review.clone(), "overwrite": true }),
+            )
+            .expect("initial review save should succeed"),
+        )
+        .expect("save result should decode");
+
+        let replacement = sample_audit_review_run(
+            "review/audit/dangling-links",
+            "Replacement",
+            ReviewFindingStatus::Dismissed,
+        );
+        let overwrite_error = save_review_run(
+            &mut state,
+            json!({ "review": replacement, "overwrite": false }),
+        )
+        .expect_err("non-overwrite review save should reject replacement");
+        assert_eq!(
+            overwrite_error.into_inner().message,
+            "review run already exists: review/audit/dangling-links"
+        );
+
+        let unknown_finding = mark_review_finding(
+            &mut state,
+            json!({
+                "review_id": "review/audit/dangling-links",
+                "finding_id": "missing-finding",
+                "status": "reviewed"
+            }),
+        )
+        .expect_err("unknown finding should be rejected");
+        assert_eq!(
+            unknown_finding.into_inner().message,
+            "unknown review finding missing-finding in review run review/audit/dangling-links"
+        );
+
+        let no_op = mark_review_finding(
+            &mut state,
+            json!({
+                "review_id": "review/audit/dangling-links",
+                "finding_id": "audit/dangling-links/source/missing-id",
+                "status": "open"
+            }),
+        )
+        .expect_err("no-op mark should be rejected");
+        assert_eq!(
+            no_op.into_inner().message,
+            "review finding status transition must change status"
+        );
+
+        let db_file_name = state
+            .db_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("db path should have UTF-8 file name");
+        let malformed_path = state
+            .db_path
+            .with_file_name(format!("{db_file_name}.review-runs"))
+            .join("v1")
+            .join("malformed.json");
+        fs::write(
+            &malformed_path,
+            serde_json::to_string_pretty(&json!({
+                "review_id": "",
+                "title": "Malformed",
+                "kind": "audit",
+                "audit": "dangling-links",
+                "findings": []
+            }))
+            .expect("malformed review fixture should serialize"),
+        )
+        .expect("malformed review fixture should be written");
+
+        let malformed = review_run(&mut state, json!({ "review_id": "malformed" }))
+            .expect_err("malformed stored review should be rejected");
+        assert!(
+            malformed
+                .into_inner()
+                .message
+                .contains("failed to load review run")
+        );
+    }
+
+    #[test]
     fn execute_workflow_spec_runs_all_supported_step_kinds() {
         let (_workspace, mut state, left_key, right_key) = comparison_state();
         let workflow = WorkflowSpec {
@@ -2900,6 +3262,57 @@ mod tests {
                     frozen_context: false,
                 }),
             },
+        }
+    }
+
+    fn sample_audit_review_run(
+        review_id: &str,
+        title: &str,
+        status: ReviewFindingStatus,
+    ) -> ReviewRun {
+        ReviewRun {
+            metadata: ReviewRunMetadata {
+                review_id: review_id.to_owned(),
+                title: title.to_owned(),
+                summary: Some("Review dangling links".to_owned()),
+            },
+            payload: ReviewRunPayload::Audit {
+                audit: CorpusAuditKind::DanglingLinks,
+            },
+            findings: vec![ReviewFinding {
+                finding_id: "audit/dangling-links/source/missing-id".to_owned(),
+                status,
+                payload: ReviewFindingPayload::Audit {
+                    entry: Box::new(CorpusAuditEntry::DanglingLink {
+                        record: Box::new(DanglingLinkAuditRecord {
+                            source: AnchorRecord {
+                                node_key: "file:source.org".to_owned(),
+                                explicit_id: Some("source-id".to_owned()),
+                                file_path: "source.org".to_owned(),
+                                title: "Source".to_owned(),
+                                outline_path: "Source".to_owned(),
+                                aliases: Vec::new(),
+                                tags: Vec::new(),
+                                refs: Vec::new(),
+                                todo_keyword: None,
+                                scheduled_for: None,
+                                deadline_for: None,
+                                closed_at: None,
+                                level: 0,
+                                line: 1,
+                                kind: NodeKind::File,
+                                file_mtime_ns: 0,
+                                backlink_count: 0,
+                                forward_link_count: 0,
+                            },
+                            missing_explicit_id: "missing-id".to_owned(),
+                            line: 12,
+                            column: 7,
+                            preview: "[[id:missing-id][Missing]]".to_owned(),
+                        }),
+                    }),
+                },
+            }],
         }
     }
 

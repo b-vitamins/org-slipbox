@@ -9,20 +9,24 @@ use serde_json::Value;
 use slipbox_core::{
     CompareNotesParams, CorpusAuditParams, CorpusAuditResult, ExecuteExplorationArtifactResult,
     ExplorationArtifactIdParams, ExplorationArtifactResult, ExploreParams, ExploreResult,
-    ListExplorationArtifactsParams, ListExplorationArtifactsResult, ListWorkflowsParams,
-    ListWorkflowsResult, NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
-    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, PingInfo, RunWorkflowParams,
-    RunWorkflowResult, SaveExplorationArtifactParams, SaveExplorationArtifactResult,
-    SearchNodesParams, SearchNodesResult, StatusInfo, WorkflowIdParams, WorkflowResult,
+    ListExplorationArtifactsParams, ListExplorationArtifactsResult, ListReviewRunsParams,
+    ListReviewRunsResult, ListWorkflowsParams, ListWorkflowsResult, MarkReviewFindingParams,
+    MarkReviewFindingResult, NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams,
+    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, PingInfo,
+    ReviewRunIdParams, ReviewRunResult, RunWorkflowParams, RunWorkflowResult,
+    SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
+    SaveReviewRunResult, SearchNodesParams, SearchNodesResult, StatusInfo, WorkflowIdParams,
+    WorkflowResult,
 };
 use slipbox_rpc::{
     JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_COMPARE_NOTES, METHOD_CORPUS_AUDIT,
-    METHOD_DELETE_EXPLORATION_ARTIFACT, METHOD_EXECUTE_EXPLORATION_ARTIFACT,
-    METHOD_EXPLORATION_ARTIFACT, METHOD_EXPLORE, METHOD_LIST_EXPLORATION_ARTIFACTS,
-    METHOD_LIST_WORKFLOWS, METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY,
-    METHOD_NODE_FROM_REF, METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_RUN_WORKFLOW,
-    METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SEARCH_NODES, METHOD_STATUS, METHOD_WORKFLOW,
-    read_framed_message, write_framed_message,
+    METHOD_DELETE_EXPLORATION_ARTIFACT, METHOD_DELETE_REVIEW_RUN,
+    METHOD_EXECUTE_EXPLORATION_ARTIFACT, METHOD_EXPLORATION_ARTIFACT, METHOD_EXPLORE,
+    METHOD_LIST_EXPLORATION_ARTIFACTS, METHOD_LIST_REVIEW_RUNS, METHOD_LIST_WORKFLOWS,
+    METHOD_MARK_REVIEW_FINDING, METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY,
+    METHOD_NODE_FROM_REF, METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_REVIEW_RUN,
+    METHOD_RUN_WORKFLOW, METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SAVE_REVIEW_RUN,
+    METHOD_SEARCH_NODES, METHOD_STATUS, METHOD_WORKFLOW, read_framed_message, write_framed_message,
 };
 use thiserror::Error;
 
@@ -309,6 +313,38 @@ where
         self.request(METHOD_EXECUTE_EXPLORATION_ARTIFACT, params)
     }
 
+    fn save_review_run(
+        &mut self,
+        params: &SaveReviewRunParams,
+    ) -> Result<SaveReviewRunResult, DaemonClientError> {
+        self.request(METHOD_SAVE_REVIEW_RUN, params)
+    }
+
+    fn review_run(
+        &mut self,
+        params: &ReviewRunIdParams,
+    ) -> Result<ReviewRunResult, DaemonClientError> {
+        self.request(METHOD_REVIEW_RUN, params)
+    }
+
+    fn list_review_runs(&mut self) -> Result<ListReviewRunsResult, DaemonClientError> {
+        self.request(METHOD_LIST_REVIEW_RUNS, &ListReviewRunsParams::default())
+    }
+
+    fn delete_review_run(
+        &mut self,
+        params: &ReviewRunIdParams,
+    ) -> Result<slipbox_core::DeleteReviewRunResult, DaemonClientError> {
+        self.request(METHOD_DELETE_REVIEW_RUN, params)
+    }
+
+    fn mark_review_finding(
+        &mut self,
+        params: &MarkReviewFindingParams,
+    ) -> Result<MarkReviewFindingResult, DaemonClientError> {
+        self.request(METHOD_MARK_REVIEW_FINDING, params)
+    }
+
     fn shutdown(&mut self) -> Result<(), DaemonClientError> {
         self.transport.shutdown()
     }
@@ -562,6 +598,38 @@ impl DaemonClient {
         params: &ExplorationArtifactIdParams,
     ) -> Result<ExecuteExplorationArtifactResult, DaemonClientError> {
         self.rpc.execute_exploration_artifact(params)
+    }
+
+    pub fn save_review_run(
+        &mut self,
+        params: &SaveReviewRunParams,
+    ) -> Result<SaveReviewRunResult, DaemonClientError> {
+        self.rpc.save_review_run(params)
+    }
+
+    pub fn review_run(
+        &mut self,
+        params: &ReviewRunIdParams,
+    ) -> Result<ReviewRunResult, DaemonClientError> {
+        self.rpc.review_run(params)
+    }
+
+    pub fn list_review_runs(&mut self) -> Result<ListReviewRunsResult, DaemonClientError> {
+        self.rpc.list_review_runs()
+    }
+
+    pub fn delete_review_run(
+        &mut self,
+        params: &ReviewRunIdParams,
+    ) -> Result<slipbox_core::DeleteReviewRunResult, DaemonClientError> {
+        self.rpc.delete_review_run(params)
+    }
+
+    pub fn mark_review_finding(
+        &mut self,
+        params: &MarkReviewFindingParams,
+    ) -> Result<MarkReviewFindingResult, DaemonClientError> {
+        self.rpc.mark_review_finding(params)
     }
 
     pub fn shutdown(mut self) -> Result<(), DaemonClientError> {

@@ -2499,6 +2499,35 @@ impl ReviewRunIdParams {
 pub struct ListReviewRunsParams {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SaveReviewRunParams {
+    pub review: ReviewRun,
+    #[serde(default = "default_review_overwrite")]
+    pub overwrite: bool,
+}
+
+impl SaveReviewRunParams {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        self.review.validation_error()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MarkReviewFindingParams {
+    pub review_id: String,
+    pub finding_id: String,
+    pub status: ReviewFindingStatus,
+}
+
+impl MarkReviewFindingParams {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_review_id_field(&self.review_id)
+            .or_else(|| validate_review_finding_id_field(&self.finding_id))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SaveReviewRunResult {
     pub review: ReviewRunSummary,
 }
@@ -2854,6 +2883,10 @@ const fn default_backlink_limit() -> usize {
 }
 
 const fn default_artifact_overwrite() -> bool {
+    true
+}
+
+const fn default_review_overwrite() -> bool {
     true
 }
 
@@ -3220,13 +3253,14 @@ mod tests {
         ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
         ExplorationArtifactSummary, ExplorationEntry, ExplorationExplanation, ExplorationLens,
         ExplorationSection, ExplorationSectionKind, ExploreParams, ExploreResult,
-        ListExplorationArtifactsResult, NodeFromKeyParams, NodeFromTitleOrAliasParams, NodeKind,
-        NodeRecord, NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonGroup,
-        NoteComparisonResult, NoteComparisonSection, NoteComparisonSectionKind,
-        NoteConnectivityAuditRecord, PlanningField, PlanningRelationRecord, PreviewNodeRecord,
-        ReviewFinding, ReviewFindingPayload, ReviewFindingStatus, ReviewFindingStatusTransition,
-        ReviewRun, ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload, ReviewRunResult,
-        ReviewRunSummary, SaveExplorationArtifactParams, SaveExplorationArtifactResult,
+        ListExplorationArtifactsResult, MarkReviewFindingParams, NodeFromKeyParams,
+        NodeFromTitleOrAliasParams, NodeKind, NodeRecord, NoteComparisonEntry,
+        NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
+        NoteComparisonSection, NoteComparisonSectionKind, NoteConnectivityAuditRecord,
+        PlanningField, PlanningRelationRecord, PreviewNodeRecord, ReviewFinding,
+        ReviewFindingPayload, ReviewFindingStatus, ReviewFindingStatusTransition, ReviewRun,
+        ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, ReviewRunSummary,
+        SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
         SaveReviewRunResult, SavedComparisonArtifact, SavedExplorationArtifact,
         SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, SearchNodesParams,
         SearchNodesSort, TrailReplayResult, TrailReplayStepResult, UnlinkedReferencesParams,
@@ -5045,6 +5079,15 @@ mod tests {
         assert_eq!(workflow_json["findings"][0]["kind"], json!("workflow-step"));
         assert_eq!(workflow_json["findings"][0]["status"], json!("reviewed"));
 
+        let save_params = SaveReviewRunParams {
+            review: audit_review.clone(),
+            overwrite: false,
+        };
+        let mark_params = MarkReviewFindingParams {
+            review_id: "review/workflow/context/2026-05-05".to_owned(),
+            finding_id: "workflow-step/explore-focus".to_owned(),
+            status: ReviewFindingStatus::Accepted,
+        };
         let save_result = SaveReviewRunResult {
             review: ReviewRunSummary::from(&audit_review),
         };
@@ -5104,6 +5147,26 @@ mod tests {
             .expect("mark result should deserialize"),
             mark_result
         );
+        assert_eq!(
+            serde_json::from_value::<SaveReviewRunParams>(
+                serde_json::to_value(&save_params).expect("save params should serialize"),
+            )
+            .expect("save params should deserialize"),
+            save_params
+        );
+        assert_eq!(
+            serde_json::from_value::<MarkReviewFindingParams>(
+                serde_json::to_value(&mark_params).expect("mark params should serialize"),
+            )
+            .expect("mark params should deserialize"),
+            mark_params
+        );
+
+        let default_save_params: SaveReviewRunParams = serde_json::from_value(json!({
+            "review": audit_review
+        }))
+        .expect("save params should default overwrite");
+        assert!(default_save_params.overwrite);
     }
 
     #[test]

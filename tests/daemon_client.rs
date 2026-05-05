@@ -4,12 +4,15 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result};
 use slipbox_core::{
-    BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, CompareNotesParams, ExecuteExplorationArtifactResult,
+    AnchorRecord, BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, CompareNotesParams, CorpusAuditEntry,
+    CorpusAuditKind, DanglingLinkAuditRecord, ExecuteExplorationArtifactResult,
     ExplorationArtifactIdParams, ExplorationArtifactMetadata, ExplorationArtifactPayload,
     ExplorationLens, ExploreParams, NodeFromIdParams, NodeFromRefParams,
-    NodeFromTitleOrAliasParams, RunWorkflowParams, SaveExplorationArtifactParams,
-    SavedExplorationArtifact, SavedLensViewArtifact, SearchNodesParams, WorkflowIdParams,
-    WorkflowInputAssignment, WorkflowResult,
+    NodeFromTitleOrAliasParams, NodeKind, ReviewFinding, ReviewFindingPayload, ReviewFindingStatus,
+    ReviewRun, ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload, RunWorkflowParams,
+    SaveExplorationArtifactParams, SaveReviewRunParams, SavedExplorationArtifact,
+    SavedLensViewArtifact, SearchNodesParams, WorkflowIdParams, WorkflowInputAssignment,
+    WorkflowResult,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonServeConfig};
 use slipbox_index::scan_root;
@@ -65,6 +68,53 @@ SCHEDULED: <2026-05-04 Mon>
         .node_key;
 
     Ok((workspace, root, db, anonymous_anchor_key))
+}
+
+fn sample_review_run() -> ReviewRun {
+    ReviewRun {
+        metadata: ReviewRunMetadata {
+            review_id: "review/audit/dangling-links".to_owned(),
+            title: "Dangling Link Review".to_owned(),
+            summary: Some("Review dangling links".to_owned()),
+        },
+        payload: ReviewRunPayload::Audit {
+            audit: CorpusAuditKind::DanglingLinks,
+        },
+        findings: vec![ReviewFinding {
+            finding_id: "audit/dangling-links/source/missing-id".to_owned(),
+            status: ReviewFindingStatus::Open,
+            payload: ReviewFindingPayload::Audit {
+                entry: Box::new(CorpusAuditEntry::DanglingLink {
+                    record: Box::new(DanglingLinkAuditRecord {
+                        source: AnchorRecord {
+                            node_key: "file:source.org".to_owned(),
+                            explicit_id: Some("source-id".to_owned()),
+                            file_path: "source.org".to_owned(),
+                            title: "Source".to_owned(),
+                            outline_path: "Source".to_owned(),
+                            aliases: Vec::new(),
+                            tags: Vec::new(),
+                            refs: Vec::new(),
+                            todo_keyword: None,
+                            scheduled_for: None,
+                            deadline_for: None,
+                            closed_at: None,
+                            level: 0,
+                            line: 1,
+                            kind: NodeKind::File,
+                            file_mtime_ns: 0,
+                            backlink_count: 0,
+                            forward_link_count: 0,
+                        },
+                        missing_explicit_id: "missing-id".to_owned(),
+                        line: 12,
+                        column: 7,
+                        preview: "[[id:missing-id][Missing]]".to_owned(),
+                    }),
+                }),
+            },
+        }],
+    }
 }
 
 #[test]
@@ -257,6 +307,47 @@ fn daemon_client_queries_spawned_daemon_and_round_trips_artifacts() -> Result<()
     })?;
     assert_eq!(deleted.artifact_id, "alpha-structure");
     assert!(client.list_exploration_artifacts()?.artifacts.is_empty());
+
+    let review = sample_review_run();
+    let saved_review = client.save_review_run(&SaveReviewRunParams {
+        review: review.clone(),
+        overwrite: true,
+    })?;
+    assert_eq!(
+        saved_review.review.metadata.review_id,
+        "review/audit/dangling-links"
+    );
+    assert_eq!(saved_review.review.status_counts.open, 1);
+
+    let listed_reviews = client.list_review_runs()?;
+    assert_eq!(listed_reviews.reviews, vec![saved_review.review.clone()]);
+
+    let loaded_review = client.review_run(&ReviewRunIdParams {
+        review_id: "review/audit/dangling-links".to_owned(),
+    })?;
+    assert_eq!(loaded_review.review, review);
+
+    let marked = client.mark_review_finding(&slipbox_core::MarkReviewFindingParams {
+        review_id: "review/audit/dangling-links".to_owned(),
+        finding_id: "audit/dangling-links/source/missing-id".to_owned(),
+        status: ReviewFindingStatus::Reviewed,
+    })?;
+    assert_eq!(marked.transition.from_status, ReviewFindingStatus::Open);
+    assert_eq!(marked.transition.to_status, ReviewFindingStatus::Reviewed);
+
+    let marked_review = client.review_run(&ReviewRunIdParams {
+        review_id: "review/audit/dangling-links".to_owned(),
+    })?;
+    assert_eq!(
+        marked_review.review.findings[0].status,
+        ReviewFindingStatus::Reviewed
+    );
+
+    let deleted_review = client.delete_review_run(&ReviewRunIdParams {
+        review_id: "review/audit/dangling-links".to_owned(),
+    })?;
+    assert_eq!(deleted_review.review_id, "review/audit/dangling-links");
+    assert!(client.list_review_runs()?.reviews.is_empty());
 
     client.shutdown()?;
     Ok(())
