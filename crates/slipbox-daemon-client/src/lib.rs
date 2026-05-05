@@ -13,15 +13,15 @@ use slipbox_core::{
     ListReviewRunsResult, ListWorkflowsParams, ListWorkflowsResult, MarkReviewFindingParams,
     MarkReviewFindingResult, NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams,
     NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, PingInfo,
-    ReviewRunIdParams, ReviewRunResult, RunWorkflowParams, RunWorkflowResult,
-    SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult, SaveExplorationArtifactParams,
-    SaveExplorationArtifactResult, SaveReviewRunParams, SaveReviewRunResult,
-    SaveWorkflowReviewParams, SaveWorkflowReviewResult, SearchNodesParams, SearchNodesResult,
-    StatusInfo, WorkflowIdParams, WorkflowResult,
+    ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunResult,
+    RunWorkflowParams, RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
+    SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
+    SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult, SearchNodesParams,
+    SearchNodesResult, StatusInfo, WorkflowIdParams, WorkflowResult,
 };
 use slipbox_rpc::{
     JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_COMPARE_NOTES, METHOD_CORPUS_AUDIT,
-    METHOD_DELETE_EXPLORATION_ARTIFACT, METHOD_DELETE_REVIEW_RUN,
+    METHOD_DELETE_EXPLORATION_ARTIFACT, METHOD_DELETE_REVIEW_RUN, METHOD_DIFF_REVIEW_RUNS,
     METHOD_EXECUTE_EXPLORATION_ARTIFACT, METHOD_EXPLORATION_ARTIFACT, METHOD_EXPLORE,
     METHOD_LIST_EXPLORATION_ARTIFACTS, METHOD_LIST_REVIEW_RUNS, METHOD_LIST_WORKFLOWS,
     METHOD_MARK_REVIEW_FINDING, METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY,
@@ -329,6 +329,13 @@ where
         self.request(METHOD_REVIEW_RUN, params)
     }
 
+    fn diff_review_runs(
+        &mut self,
+        params: &ReviewRunDiffParams,
+    ) -> Result<ReviewRunDiffResult, DaemonClientError> {
+        self.request(METHOD_DIFF_REVIEW_RUNS, params)
+    }
+
     fn list_review_runs(&mut self) -> Result<ListReviewRunsResult, DaemonClientError> {
         self.request(METHOD_LIST_REVIEW_RUNS, &ListReviewRunsParams::default())
     }
@@ -628,6 +635,13 @@ impl DaemonClient {
         params: &ReviewRunIdParams,
     ) -> Result<ReviewRunResult, DaemonClientError> {
         self.rpc.review_run(params)
+    }
+
+    pub fn diff_review_runs(
+        &mut self,
+        params: &ReviewRunDiffParams,
+    ) -> Result<ReviewRunDiffResult, DaemonClientError> {
+        self.rpc.diff_review_runs(params)
     }
 
     pub fn list_review_runs(&mut self) -> Result<ListReviewRunsResult, DaemonClientError> {

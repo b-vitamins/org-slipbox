@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
@@ -2493,6 +2494,173 @@ impl From<&ReviewRun> for ReviewRunSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewFindingPair {
+    pub finding_id: String,
+    pub base: ReviewFinding,
+    pub target: ReviewFinding,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewFindingStatusDiff {
+    pub finding_id: String,
+    pub from_status: ReviewFindingStatus,
+    pub to_status: ReviewFindingStatus,
+    pub base: ReviewFinding,
+    pub target: ReviewFinding,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewRunDiff {
+    pub base_review: ReviewRunSummary,
+    pub target_review: ReviewRunSummary,
+    pub added: Vec<ReviewFinding>,
+    pub removed: Vec<ReviewFinding>,
+    pub unchanged: Vec<ReviewFindingPair>,
+    pub content_changed: Vec<ReviewFindingPair>,
+    pub status_changed: Vec<ReviewFindingStatusDiff>,
+}
+
+impl ReviewRunDiff {
+    pub fn between(base: &ReviewRun, target: &ReviewRun) -> Result<Self, String> {
+        if let Some(error) = base.validation_error() {
+            return Err(format!("base review run is invalid: {error}"));
+        }
+        if let Some(error) = target.validation_error() {
+            return Err(format!("target review run is invalid: {error}"));
+        }
+        validate_review_diff_compatibility(&base.payload, &target.payload)?;
+
+        let base_findings = base
+            .findings
+            .iter()
+            .map(|finding| (finding.finding_id.as_str(), finding))
+            .collect::<BTreeMap<_, _>>();
+        let target_findings = target
+            .findings
+            .iter()
+            .map(|finding| (finding.finding_id.as_str(), finding))
+            .collect::<BTreeMap<_, _>>();
+
+        let mut added = Vec::new();
+        let mut unchanged = Vec::new();
+        let mut content_changed = Vec::new();
+        let mut status_changed = Vec::new();
+        for (finding_id, target_finding) in &target_findings {
+            if let Some(base_finding) = base_findings.get(finding_id) {
+                if *base_finding == *target_finding {
+                    unchanged.push(ReviewFindingPair {
+                        finding_id: (*finding_id).to_owned(),
+                        base: (*base_finding).clone(),
+                        target: (*target_finding).clone(),
+                    });
+                } else if base_finding.status != target_finding.status {
+                    status_changed.push(ReviewFindingStatusDiff {
+                        finding_id: (*finding_id).to_owned(),
+                        from_status: base_finding.status,
+                        to_status: target_finding.status,
+                        base: (*base_finding).clone(),
+                        target: (*target_finding).clone(),
+                    });
+                } else {
+                    content_changed.push(ReviewFindingPair {
+                        finding_id: (*finding_id).to_owned(),
+                        base: (*base_finding).clone(),
+                        target: (*target_finding).clone(),
+                    });
+                }
+            } else {
+                added.push((*target_finding).clone());
+            }
+        }
+
+        let removed = base_findings
+            .iter()
+            .filter(|(finding_id, _)| !target_findings.contains_key(**finding_id))
+            .map(|(_, finding)| (*finding).clone())
+            .collect();
+
+        Ok(Self {
+            base_review: ReviewRunSummary::from(base),
+            target_review: ReviewRunSummary::from(target),
+            added,
+            removed,
+            unchanged,
+            content_changed,
+            status_changed,
+        })
+    }
+}
+
+fn validate_review_diff_compatibility(
+    base: &ReviewRunPayload,
+    target: &ReviewRunPayload,
+) -> Result<(), String> {
+    match (base, target) {
+        (
+            ReviewRunPayload::Audit {
+                audit: base_audit,
+                limit: base_limit,
+            },
+            ReviewRunPayload::Audit {
+                audit: target_audit,
+                limit: target_limit,
+            },
+        ) => {
+            if base_audit != target_audit {
+                return Err(format!(
+                    "cannot diff audit reviews with different audit kinds: {:?} vs {:?}",
+                    base_audit, target_audit
+                ));
+            }
+            if base_limit != target_limit {
+                return Err(format!(
+                    "cannot diff audit reviews with different limits: {base_limit} vs {target_limit}"
+                ));
+            }
+            Ok(())
+        }
+        (
+            ReviewRunPayload::Workflow {
+                workflow: base_workflow,
+                inputs: base_inputs,
+                step_ids: base_step_ids,
+            },
+            ReviewRunPayload::Workflow {
+                workflow: target_workflow,
+                inputs: target_inputs,
+                step_ids: target_step_ids,
+            },
+        ) => {
+            if base_workflow.metadata.workflow_id != target_workflow.metadata.workflow_id {
+                return Err(format!(
+                    "cannot diff workflow reviews with different workflow IDs: {} vs {}",
+                    base_workflow.metadata.workflow_id, target_workflow.metadata.workflow_id
+                ));
+            }
+            if base_workflow.step_count != target_workflow.step_count {
+                return Err(format!(
+                    "cannot diff workflow reviews with different step counts: {} vs {}",
+                    base_workflow.step_count, target_workflow.step_count
+                ));
+            }
+            if base_inputs != target_inputs {
+                return Err("cannot diff workflow reviews with different inputs".to_owned());
+            }
+            if base_step_ids != target_step_ids {
+                return Err(
+                    "cannot diff workflow reviews with different source step IDs".to_owned(),
+                );
+            }
+            Ok(())
+        }
+        (ReviewRunPayload::Audit { .. }, ReviewRunPayload::Workflow { .. })
+        | (ReviewRunPayload::Workflow { .. }, ReviewRunPayload::Audit { .. }) => {
+            Err("cannot diff review runs with different kinds".to_owned())
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReviewRunIdParams {
     pub review_id: String,
 }
@@ -2501,6 +2669,20 @@ impl ReviewRunIdParams {
     #[must_use]
     pub fn validation_error(&self) -> Option<String> {
         validate_review_id_field(&self.review_id)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewRunDiffParams {
+    pub base_review_id: String,
+    pub target_review_id: String,
+}
+
+impl ReviewRunDiffParams {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_review_id_field(&self.base_review_id)
+            .or_else(|| validate_review_id_field(&self.target_review_id))
     }
 }
 
@@ -2641,6 +2823,11 @@ pub struct SaveWorkflowReviewResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReviewRunResult {
     pub review: ReviewRun,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewRunDiffResult {
+    pub diff: ReviewRunDiff,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -3382,7 +3569,8 @@ mod tests {
         NoteComparisonSection, NoteComparisonSectionKind, NoteConnectivityAuditRecord,
         PlanningField, PlanningRelationRecord, PreviewNodeRecord, ReviewFinding,
         ReviewFindingPayload, ReviewFindingStatus, ReviewFindingStatusTransition, ReviewRun,
-        ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, ReviewRunSummary,
+        ReviewRunDiff, ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams,
+        ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, ReviewRunSummary,
         SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult, SaveExplorationArtifactParams,
         SaveExplorationArtifactResult, SaveReviewRunParams, SaveReviewRunResult,
         SaveWorkflowReviewParams, SaveWorkflowReviewResult, SavedComparisonArtifact,
@@ -3440,6 +3628,43 @@ mod tests {
             file_mtime_ns: 0,
             backlink_count: 0,
             forward_link_count: 0,
+        }
+    }
+
+    fn sample_dangling_finding(
+        finding_id: &str,
+        missing_explicit_id: &str,
+        status: ReviewFindingStatus,
+    ) -> ReviewFinding {
+        ReviewFinding {
+            finding_id: finding_id.to_owned(),
+            status,
+            payload: ReviewFindingPayload::Audit {
+                entry: Box::new(CorpusAuditEntry::DanglingLink {
+                    record: Box::new(DanglingLinkAuditRecord {
+                        source: sample_anchor("heading:source.org:3", "Source Heading"),
+                        missing_explicit_id: missing_explicit_id.to_owned(),
+                        line: 12,
+                        column: 7,
+                        preview: format!("[[id:{missing_explicit_id}][Missing]]"),
+                    }),
+                }),
+            },
+        }
+    }
+
+    fn sample_dangling_review(review_id: &str, findings: Vec<ReviewFinding>) -> ReviewRun {
+        ReviewRun {
+            metadata: ReviewRunMetadata {
+                review_id: review_id.to_owned(),
+                title: "Dangling Link Review".to_owned(),
+                summary: Some("Review missing id links".to_owned()),
+            },
+            payload: ReviewRunPayload::Audit {
+                audit: CorpusAuditKind::DanglingLinks,
+                limit: 200,
+            },
+            findings,
         }
     }
 
@@ -5246,6 +5471,10 @@ mod tests {
             finding_id: "workflow-step/explore-focus".to_owned(),
             status: ReviewFindingStatus::Accepted,
         };
+        let diff_params = ReviewRunDiffParams {
+            base_review_id: "review/audit/dangling-links/2026-05-04".to_owned(),
+            target_review_id: "review/audit/dangling-links/2026-05-05".to_owned(),
+        };
         let save_result = SaveReviewRunResult {
             review: ReviewRunSummary::from(&audit_review),
         };
@@ -5285,6 +5514,10 @@ mod tests {
                 }],
             },
             review: ReviewRunSummary::from(&workflow_review),
+        };
+        let diff_result = ReviewRunDiffResult {
+            diff: ReviewRunDiff::between(&audit_review, &audit_review)
+                .expect("same audit review should diff"),
         };
 
         assert_eq!(
@@ -5337,6 +5570,13 @@ mod tests {
             mark_params
         );
         assert_eq!(
+            serde_json::from_value::<ReviewRunDiffParams>(
+                serde_json::to_value(&diff_params).expect("diff params should serialize"),
+            )
+            .expect("diff params should deserialize"),
+            diff_params
+        );
+        assert_eq!(
             serde_json::from_value::<SaveCorpusAuditReviewParams>(
                 serde_json::to_value(&audit_review_params)
                     .expect("audit review params should serialize"),
@@ -5368,12 +5608,264 @@ mod tests {
             .expect("workflow review result should deserialize"),
             workflow_review_result
         );
+        assert_eq!(
+            serde_json::from_value::<ReviewRunDiffResult>(
+                serde_json::to_value(&diff_result).expect("diff result should serialize"),
+            )
+            .expect("diff result should deserialize"),
+            diff_result
+        );
 
         let default_save_params: SaveReviewRunParams = serde_json::from_value(json!({
             "review": audit_review
         }))
         .expect("save params should default overwrite");
         assert!(default_save_params.overwrite);
+    }
+
+    #[test]
+    fn review_run_diffs_classify_findings_deterministically() {
+        let base = sample_dangling_review(
+            "review/audit/dangling-links/base",
+            vec![
+                sample_dangling_finding(
+                    "audit/dangling-links/added-order/status-changed",
+                    "status-changed",
+                    ReviewFindingStatus::Open,
+                ),
+                sample_dangling_finding(
+                    "audit/dangling-links/added-order/removed",
+                    "removed",
+                    ReviewFindingStatus::Dismissed,
+                ),
+                sample_dangling_finding(
+                    "audit/dangling-links/added-order/unchanged",
+                    "unchanged",
+                    ReviewFindingStatus::Reviewed,
+                ),
+            ],
+        );
+        let target = sample_dangling_review(
+            "review/audit/dangling-links/target",
+            vec![
+                sample_dangling_finding(
+                    "audit/dangling-links/added-order/unchanged",
+                    "unchanged",
+                    ReviewFindingStatus::Reviewed,
+                ),
+                sample_dangling_finding(
+                    "audit/dangling-links/added-order/added",
+                    "added",
+                    ReviewFindingStatus::Open,
+                ),
+                sample_dangling_finding(
+                    "audit/dangling-links/added-order/status-changed",
+                    "status-changed",
+                    ReviewFindingStatus::Accepted,
+                ),
+            ],
+        );
+
+        let diff = ReviewRunDiff::between(&base, &target).expect("compatible reviews should diff");
+
+        assert_eq!(diff.base_review.metadata.review_id, base.metadata.review_id);
+        assert_eq!(
+            diff.target_review.metadata.review_id,
+            target.metadata.review_id
+        );
+        assert_eq!(
+            diff.added
+                .iter()
+                .map(|finding| finding.finding_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["audit/dangling-links/added-order/added"]
+        );
+        assert_eq!(
+            diff.removed
+                .iter()
+                .map(|finding| finding.finding_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["audit/dangling-links/added-order/removed"]
+        );
+        assert_eq!(
+            diff.unchanged
+                .iter()
+                .map(|finding| finding.finding_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["audit/dangling-links/added-order/unchanged"]
+        );
+        assert!(diff.content_changed.is_empty());
+        assert_eq!(diff.status_changed.len(), 1);
+        assert_eq!(
+            diff.status_changed[0].finding_id,
+            "audit/dangling-links/added-order/status-changed"
+        );
+        assert_eq!(
+            diff.status_changed[0].from_status,
+            ReviewFindingStatus::Open
+        );
+        assert_eq!(
+            diff.status_changed[0].to_status,
+            ReviewFindingStatus::Accepted
+        );
+    }
+
+    #[test]
+    fn review_run_diffs_separate_content_changes_from_unchanged_findings() {
+        let workflow = WorkflowSummary {
+            metadata: WorkflowMetadata {
+                workflow_id: "workflow/research/context".to_owned(),
+                title: "Research Context".to_owned(),
+                summary: None,
+            },
+            step_count: 1,
+        };
+        let base = ReviewRun {
+            metadata: ReviewRunMetadata {
+                review_id: "review/workflow/context/base".to_owned(),
+                title: "Workflow Review".to_owned(),
+                summary: None,
+            },
+            payload: ReviewRunPayload::Workflow {
+                workflow: workflow.clone(),
+                inputs: Vec::new(),
+                step_ids: vec!["resolve-focus".to_owned()],
+            },
+            findings: vec![ReviewFinding {
+                finding_id: "workflow-step/resolve-focus".to_owned(),
+                status: ReviewFindingStatus::Open,
+                payload: ReviewFindingPayload::WorkflowStep {
+                    step: Box::new(WorkflowStepReport {
+                        step_id: "resolve-focus".to_owned(),
+                        payload: WorkflowStepReportPayload::Resolve {
+                            node: Box::new(sample_node("heading:focus.org:3", "Old Focus")),
+                        },
+                    }),
+                },
+            }],
+        };
+        let target = ReviewRun {
+            metadata: ReviewRunMetadata {
+                review_id: "review/workflow/context/target".to_owned(),
+                title: "Workflow Review".to_owned(),
+                summary: None,
+            },
+            payload: ReviewRunPayload::Workflow {
+                workflow,
+                inputs: Vec::new(),
+                step_ids: vec!["resolve-focus".to_owned()],
+            },
+            findings: vec![ReviewFinding {
+                finding_id: "workflow-step/resolve-focus".to_owned(),
+                status: ReviewFindingStatus::Open,
+                payload: ReviewFindingPayload::WorkflowStep {
+                    step: Box::new(WorkflowStepReport {
+                        step_id: "resolve-focus".to_owned(),
+                        payload: WorkflowStepReportPayload::Resolve {
+                            node: Box::new(sample_node("heading:focus.org:3", "New Focus")),
+                        },
+                    }),
+                },
+            }],
+        };
+
+        let diff = ReviewRunDiff::between(&base, &target).expect("compatible reviews should diff");
+
+        assert!(diff.added.is_empty());
+        assert!(diff.removed.is_empty());
+        assert!(diff.unchanged.is_empty());
+        assert!(diff.status_changed.is_empty());
+        assert_eq!(diff.content_changed.len(), 1);
+        assert_eq!(
+            diff.content_changed[0].finding_id,
+            "workflow-step/resolve-focus"
+        );
+        match &diff.content_changed[0].base.payload {
+            ReviewFindingPayload::WorkflowStep { step } => match &step.payload {
+                WorkflowStepReportPayload::Resolve { node } => assert_eq!(node.title, "Old Focus"),
+                other => panic!("expected resolve payload, got {:?}", other.kind()),
+            },
+            other => panic!("expected workflow-step payload, got {:?}", other.kind()),
+        }
+        match &diff.content_changed[0].target.payload {
+            ReviewFindingPayload::WorkflowStep { step } => match &step.payload {
+                WorkflowStepReportPayload::Resolve { node } => assert_eq!(node.title, "New Focus"),
+                other => panic!("expected resolve payload, got {:?}", other.kind()),
+            },
+            other => panic!("expected workflow-step payload, got {:?}", other.kind()),
+        }
+    }
+
+    #[test]
+    fn review_run_diffs_reject_incompatible_review_sources() {
+        let audit_review = sample_dangling_review(
+            "review/audit/dangling-links",
+            vec![sample_dangling_finding(
+                "audit/dangling-links/source/missing-id",
+                "missing-id",
+                ReviewFindingStatus::Open,
+            )],
+        );
+        let different_audit = ReviewRun {
+            metadata: ReviewRunMetadata {
+                review_id: "review/audit/orphan-notes".to_owned(),
+                title: "Orphan Review".to_owned(),
+                summary: None,
+            },
+            payload: ReviewRunPayload::Audit {
+                audit: CorpusAuditKind::OrphanNotes,
+                limit: 200,
+            },
+            findings: Vec::new(),
+        };
+        let audit_error = ReviewRunDiff::between(&audit_review, &different_audit)
+            .expect_err("different audit kinds should be incompatible");
+        assert!(audit_error.contains("different audit kinds"));
+
+        let workflow = WorkflowSummary {
+            metadata: WorkflowMetadata {
+                workflow_id: "workflow/research/context".to_owned(),
+                title: "Research Context".to_owned(),
+                summary: None,
+            },
+            step_count: 1,
+        };
+        let workflow_review = ReviewRun {
+            metadata: ReviewRunMetadata {
+                review_id: "review/workflow/context".to_owned(),
+                title: "Workflow Review".to_owned(),
+                summary: None,
+            },
+            payload: ReviewRunPayload::Workflow {
+                workflow: workflow.clone(),
+                inputs: Vec::new(),
+                step_ids: vec!["resolve-focus".to_owned()],
+            },
+            findings: Vec::new(),
+        };
+        let changed_workflow_review = ReviewRun {
+            payload: ReviewRunPayload::Workflow {
+                workflow,
+                inputs: vec![WorkflowInputAssignment {
+                    input_id: "focus".to_owned(),
+                    target: WorkflowResolveTarget::NodeKey {
+                        node_key: "heading:focus.org:3".to_owned(),
+                    },
+                }],
+                step_ids: vec!["resolve-focus".to_owned()],
+            },
+            ..workflow_review.clone()
+        };
+        let workflow_error = ReviewRunDiff::between(&workflow_review, &changed_workflow_review)
+            .expect_err("different workflow inputs should be incompatible");
+        assert!(workflow_error.contains("different inputs"));
+
+        let cross_kind_error = ReviewRunDiff::between(&audit_review, &workflow_review)
+            .expect_err("cross-kind reviews should be incompatible");
+        assert_eq!(
+            cross_kind_error,
+            "cannot diff review runs with different kinds"
+        );
     }
 
     #[test]

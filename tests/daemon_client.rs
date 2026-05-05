@@ -9,10 +9,10 @@ use slipbox_core::{
     ExplorationArtifactIdParams, ExplorationArtifactMetadata, ExplorationArtifactPayload,
     ExplorationLens, ExploreParams, NodeFromIdParams, NodeFromRefParams,
     NodeFromTitleOrAliasParams, NodeKind, ReviewFinding, ReviewFindingPayload, ReviewFindingStatus,
-    ReviewRun, ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload, RunWorkflowParams,
-    SaveCorpusAuditReviewParams, SaveExplorationArtifactParams, SaveReviewRunParams,
-    SaveWorkflowReviewParams, SavedExplorationArtifact, SavedLensViewArtifact, SearchNodesParams,
-    WorkflowIdParams, WorkflowInputAssignment, WorkflowResult,
+    ReviewRun, ReviewRunDiffParams, ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload,
+    RunWorkflowParams, SaveCorpusAuditReviewParams, SaveExplorationArtifactParams,
+    SaveReviewRunParams, SaveWorkflowReviewParams, SavedExplorationArtifact, SavedLensViewArtifact,
+    SearchNodesParams, WorkflowIdParams, WorkflowInputAssignment, WorkflowResult,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonServeConfig};
 use slipbox_index::scan_root;
@@ -328,6 +328,30 @@ fn daemon_client_queries_spawned_daemon_and_round_trips_artifacts() -> Result<()
     })?;
     assert_eq!(loaded_review.review, review);
 
+    let mut target_review = review.clone();
+    target_review.metadata.review_id = "review/audit/dangling-links/target".to_owned();
+    target_review.findings[0].status = ReviewFindingStatus::Reviewed;
+    let saved_target_review = client.save_review_run(&SaveReviewRunParams {
+        review: target_review,
+        overwrite: true,
+    })?;
+    assert_eq!(
+        saved_target_review.review.metadata.review_id,
+        "review/audit/dangling-links/target"
+    );
+    let diff = client.diff_review_runs(&ReviewRunDiffParams {
+        base_review_id: "review/audit/dangling-links".to_owned(),
+        target_review_id: "review/audit/dangling-links/target".to_owned(),
+    })?;
+    assert!(diff.diff.added.is_empty());
+    assert!(diff.diff.removed.is_empty());
+    assert!(diff.diff.unchanged.is_empty());
+    assert_eq!(diff.diff.status_changed.len(), 1);
+    assert_eq!(
+        diff.diff.status_changed[0].finding_id,
+        "audit/dangling-links/source/missing-id"
+    );
+
     let marked = client.mark_review_finding(&slipbox_core::MarkReviewFindingParams {
         review_id: "review/audit/dangling-links".to_owned(),
         finding_id: "audit/dangling-links/source/missing-id".to_owned(),
@@ -348,6 +372,13 @@ fn daemon_client_queries_spawned_daemon_and_round_trips_artifacts() -> Result<()
         review_id: "review/audit/dangling-links".to_owned(),
     })?;
     assert_eq!(deleted_review.review_id, "review/audit/dangling-links");
+    let deleted_target_review = client.delete_review_run(&ReviewRunIdParams {
+        review_id: "review/audit/dangling-links/target".to_owned(),
+    })?;
+    assert_eq!(
+        deleted_target_review.review_id,
+        "review/audit/dangling-links/target"
+    );
     assert!(client.list_review_runs()?.reviews.is_empty());
 
     let audit_review = client.save_corpus_audit_review(&SaveCorpusAuditReviewParams {

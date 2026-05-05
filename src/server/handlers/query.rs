@@ -15,15 +15,16 @@ use slipbox_core::{
     NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
     NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonGroup, NoteComparisonResult, PingInfo,
     RandomNodeResult, ReflinksParams, ReflinksResult, ReviewFinding, ReviewFindingPayload,
-    ReviewFindingStatus, ReviewFindingStatusTransition, ReviewRun, ReviewRunIdParams,
-    ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, ReviewRunSummary, RunWorkflowParams,
-    RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
-    SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
-    SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
-    SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailStep,
-    SearchFilesParams, SearchFilesResult, SearchNodesParams, SearchNodesResult,
-    SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams, SearchRefsResult,
-    SearchTagsParams, SearchTagsResult, StatusInfo, TrailReplayResult, TrailReplayStepResult,
+    ReviewFindingStatus, ReviewFindingStatusTransition, ReviewRun, ReviewRunDiff,
+    ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunMetadata,
+    ReviewRunPayload, ReviewRunResult, ReviewRunSummary, RunWorkflowParams, RunWorkflowResult,
+    SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult, SaveExplorationArtifactParams,
+    SaveExplorationArtifactResult, SaveReviewRunParams, SaveReviewRunResult,
+    SaveWorkflowReviewParams, SaveWorkflowReviewResult, SavedComparisonArtifact,
+    SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailStep, SearchFilesParams,
+    SearchFilesResult, SearchNodesParams, SearchNodesResult, SearchOccurrencesParams,
+    SearchOccurrencesResult, SearchRefsParams, SearchRefsResult, SearchTagsParams,
+    SearchTagsResult, StatusInfo, TrailReplayResult, TrailReplayStepResult,
     UnlinkedReferencesParams, UnlinkedReferencesResult, WorkflowExecutionResult, WorkflowIdParams,
     WorkflowInputAssignment, WorkflowResolveTarget, WorkflowResult, WorkflowSpec,
     WorkflowStepPayload, WorkflowStepReport, WorkflowStepReportPayload,
@@ -1461,6 +1462,20 @@ pub(crate) fn review_run(
     })
 }
 
+pub(crate) fn diff_review_runs(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: ReviewRunDiffParams = parse_params(params)?;
+    if let Some(message) = params.validation_error() {
+        return Err(invalid_request(message));
+    }
+    let base = known_review_run(state, &params.base_review_id)?;
+    let target = known_review_run(state, &params.target_review_id)?;
+    let diff = ReviewRunDiff::between(&base, &target).map_err(invalid_request)?;
+    to_value(ReviewRunDiffResult { diff })
+}
+
 pub(crate) fn list_review_runs(
     state: &mut ServerState,
     params: serde_json::Value,
@@ -1758,25 +1773,25 @@ mod tests {
         ExploreResult, ListExplorationArtifactsResult, ListReviewRunsResult, ListWorkflowsResult,
         MarkReviewFindingResult, NodeKind, NoteComparisonEntry, NoteComparisonExplanation,
         NoteComparisonGroup, NoteComparisonResult, NoteComparisonSectionKind, ReviewFinding,
-        ReviewFindingPayload, ReviewFindingStatus, ReviewRun, ReviewRunMetadata, ReviewRunPayload,
-        ReviewRunResult, RunWorkflowResult, SaveCorpusAuditReviewResult,
-        SaveExplorationArtifactResult, SaveReviewRunResult, SaveWorkflowReviewResult,
-        SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact,
-        SavedTrailArtifact, SavedTrailStep, TrailReplayStepResult, WorkflowInputAssignment,
-        WorkflowResolveTarget, WorkflowResult, WorkflowSpec, WorkflowStepReport,
-        WorkflowStepReportPayload,
+        ReviewFindingPayload, ReviewFindingStatus, ReviewRun, ReviewRunDiffResult,
+        ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, RunWorkflowResult,
+        SaveCorpusAuditReviewResult, SaveExplorationArtifactResult, SaveReviewRunResult,
+        SaveWorkflowReviewResult, SavedComparisonArtifact, SavedExplorationArtifact,
+        SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, TrailReplayStepResult,
+        WorkflowInputAssignment, WorkflowResolveTarget, WorkflowResult, WorkflowSpec,
+        WorkflowStepReport, WorkflowStepReportPayload,
     };
     use slipbox_index::{DiscoveryPolicy, scan_root_with_policy};
     use tempfile::TempDir;
 
     use super::{
         compare_notes, corpus_audit, delete_exploration_artifact, delete_review_run,
-        execute_compare_notes_query, execute_exploration_artifact, execute_explore_query,
-        execute_saved_exploration_artifact, execute_saved_exploration_artifact_by_id,
-        execute_workflow_spec, exploration_artifact, explore, list_exploration_artifacts,
-        list_review_runs, list_workflows, mark_review_finding, review_run, run_workflow,
-        save_corpus_audit_review, save_exploration_artifact, save_review_run, save_workflow_review,
-        workflow,
+        diff_review_runs, execute_compare_notes_query, execute_exploration_artifact,
+        execute_explore_query, execute_saved_exploration_artifact,
+        execute_saved_exploration_artifact_by_id, execute_workflow_spec, exploration_artifact,
+        explore, list_exploration_artifacts, list_review_runs, list_workflows, mark_review_finding,
+        review_run, run_workflow, save_corpus_audit_review, save_exploration_artifact,
+        save_review_run, save_workflow_review, workflow,
     };
     use crate::server::state::ServerState;
 
@@ -2973,6 +2988,161 @@ mod tests {
     }
 
     #[test]
+    fn review_run_diff_rpc_classifies_stored_review_runs() {
+        let (_workspace, mut state) = audit_state();
+        let mut base = sample_audit_review_run(
+            "review/audit/dangling-links/base",
+            "Base Dangling Review",
+            ReviewFindingStatus::Open,
+        );
+        base.findings.push(ReviewFinding {
+            finding_id: "audit/dangling-links/source/removed-id".to_owned(),
+            status: ReviewFindingStatus::Dismissed,
+            payload: ReviewFindingPayload::Audit {
+                entry: Box::new(CorpusAuditEntry::DanglingLink {
+                    record: Box::new(DanglingLinkAuditRecord {
+                        source: AnchorRecord {
+                            node_key: "file:source.org".to_owned(),
+                            explicit_id: Some("source-id".to_owned()),
+                            file_path: "source.org".to_owned(),
+                            title: "Source".to_owned(),
+                            outline_path: "Source".to_owned(),
+                            aliases: Vec::new(),
+                            tags: Vec::new(),
+                            refs: Vec::new(),
+                            todo_keyword: None,
+                            scheduled_for: None,
+                            deadline_for: None,
+                            closed_at: None,
+                            level: 0,
+                            line: 1,
+                            kind: NodeKind::File,
+                            file_mtime_ns: 0,
+                            backlink_count: 0,
+                            forward_link_count: 0,
+                        },
+                        missing_explicit_id: "removed-id".to_owned(),
+                        line: 14,
+                        column: 3,
+                        preview: "[[id:removed-id][Removed]]".to_owned(),
+                    }),
+                }),
+            },
+        });
+        let mut target = sample_audit_review_run(
+            "review/audit/dangling-links/target",
+            "Target Dangling Review",
+            ReviewFindingStatus::Reviewed,
+        );
+        target.findings.push(ReviewFinding {
+            finding_id: "audit/dangling-links/source/added-id".to_owned(),
+            status: ReviewFindingStatus::Open,
+            payload: ReviewFindingPayload::Audit {
+                entry: Box::new(CorpusAuditEntry::DanglingLink {
+                    record: Box::new(DanglingLinkAuditRecord {
+                        source: AnchorRecord {
+                            node_key: "file:source.org".to_owned(),
+                            explicit_id: Some("source-id".to_owned()),
+                            file_path: "source.org".to_owned(),
+                            title: "Source".to_owned(),
+                            outline_path: "Source".to_owned(),
+                            aliases: Vec::new(),
+                            tags: Vec::new(),
+                            refs: Vec::new(),
+                            todo_keyword: None,
+                            scheduled_for: None,
+                            deadline_for: None,
+                            closed_at: None,
+                            level: 0,
+                            line: 1,
+                            kind: NodeKind::File,
+                            file_mtime_ns: 0,
+                            backlink_count: 0,
+                            forward_link_count: 0,
+                        },
+                        missing_explicit_id: "added-id".to_owned(),
+                        line: 16,
+                        column: 3,
+                        preview: "[[id:added-id][Added]]".to_owned(),
+                    }),
+                }),
+            },
+        });
+
+        state
+            .database
+            .save_review_run(&base)
+            .expect("base review should be saved");
+        state
+            .database
+            .save_review_run(&target)
+            .expect("target review should be saved");
+
+        let diff: ReviewRunDiffResult = serde_json::from_value(
+            diff_review_runs(
+                &mut state,
+                json!({
+                    "base_review_id": "review/audit/dangling-links/base",
+                    "target_review_id": "review/audit/dangling-links/target"
+                }),
+            )
+            .expect("review diff RPC should succeed"),
+        )
+        .expect("diff result should decode");
+
+        assert_eq!(diff.diff.added.len(), 1);
+        assert_eq!(
+            diff.diff.added[0].finding_id,
+            "audit/dangling-links/source/added-id"
+        );
+        assert_eq!(diff.diff.removed.len(), 1);
+        assert_eq!(
+            diff.diff.removed[0].finding_id,
+            "audit/dangling-links/source/removed-id"
+        );
+        assert!(diff.diff.unchanged.is_empty());
+        assert_eq!(diff.diff.status_changed.len(), 1);
+        assert_eq!(
+            diff.diff.status_changed[0].finding_id,
+            "audit/dangling-links/source/missing-id"
+        );
+        assert_eq!(
+            diff.diff.status_changed[0].from_status,
+            ReviewFindingStatus::Open
+        );
+        assert_eq!(
+            diff.diff.status_changed[0].to_status,
+            ReviewFindingStatus::Reviewed
+        );
+
+        let incompatible = ReviewRun {
+            metadata: ReviewRunMetadata {
+                review_id: "review/audit/orphans".to_owned(),
+                title: "Orphan Review".to_owned(),
+                summary: None,
+            },
+            payload: ReviewRunPayload::Audit {
+                audit: CorpusAuditKind::OrphanNotes,
+                limit: 200,
+            },
+            findings: Vec::new(),
+        };
+        state
+            .database
+            .save_review_run(&incompatible)
+            .expect("incompatible review should be saved");
+        let error = diff_review_runs(
+            &mut state,
+            json!({
+                "base_review_id": "review/audit/dangling-links/base",
+                "target_review_id": "review/audit/orphans"
+            }),
+        )
+        .expect_err("incompatible review diff should be rejected");
+        assert!(error.into_inner().message.contains("different audit kinds"));
+    }
+
+    #[test]
     fn review_run_rpc_reports_missing_invalid_and_malformed_reviews() {
         let (_workspace, mut state) = audit_state();
         let review = sample_audit_review_run(
@@ -2987,6 +3157,18 @@ mod tests {
             padded_error.into_inner().message,
             "review_id must not have leading or trailing whitespace"
         );
+        let padded_diff = diff_review_runs(
+            &mut state,
+            json!({
+                "base_review_id": " missing ",
+                "target_review_id": "review/audit/dangling-links"
+            }),
+        )
+        .expect_err("padded review id in diff should be rejected");
+        assert_eq!(
+            padded_diff.into_inner().message,
+            "review_id must not have leading or trailing whitespace"
+        );
 
         for operation in [
             review_run(&mut state, json!({ "review_id": "missing" })),
@@ -2997,6 +3179,13 @@ mod tests {
                     "review_id": "missing",
                     "finding_id": "finding",
                     "status": "reviewed"
+                }),
+            ),
+            diff_review_runs(
+                &mut state,
+                json!({
+                    "base_review_id": "missing",
+                    "target_review_id": "review/audit/dangling-links"
                 }),
             ),
         ] {
