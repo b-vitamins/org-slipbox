@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PingInfo {
@@ -2560,6 +2560,16 @@ impl ReviewFindingStatus {
     pub fn can_transition_to(self, next: Self) -> bool {
         self != next
     }
+
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Reviewed => "reviewed",
+            Self::Dismissed => "dismissed",
+            Self::Accepted => "accepted",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -2870,6 +2880,29 @@ pub struct ReviewRunDiff {
     pub status_changed: Vec<ReviewFindingStatusDiff>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReviewRunDiffBucket {
+    Added,
+    Removed,
+    Unchanged,
+    ContentChanged,
+    StatusChanged,
+}
+
+impl ReviewRunDiffBucket {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Added => "added",
+            Self::Removed => "removed",
+            Self::Unchanged => "unchanged",
+            Self::ContentChanged => "content-changed",
+            Self::StatusChanged => "status-changed",
+        }
+    }
+}
+
 impl ReviewRunDiff {
     pub fn between(base: &ReviewRun, target: &ReviewRun) -> Result<Self, String> {
         if let Some(error) = base.validation_error() {
@@ -2938,6 +2971,207 @@ impl ReviewRunDiff {
             content_changed,
             status_changed,
         })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReportProfileMetadata {
+    pub profile_id: String,
+    pub title: String,
+    #[serde(default)]
+    pub summary: Option<String>,
+}
+
+impl ReportProfileMetadata {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_report_profile_id_field(&self.profile_id)
+            .or_else(|| validate_required_text_field(&self.title, "title"))
+            .or_else(|| validate_optional_text_field(self.summary.as_deref(), "summary"))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReportProfileSubject {
+    Review,
+    Routine,
+    Audit,
+    Workflow,
+    Diff,
+}
+
+impl ReportProfileSubject {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Review => "review",
+            Self::Routine => "routine",
+            Self::Audit => "audit",
+            Self::Workflow => "workflow",
+            Self::Diff => "diff",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReportProfileMode {
+    Summary,
+    #[default]
+    Detail,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReportJsonlLineKind {
+    Workflow,
+    Step,
+    Audit,
+    Entry,
+    Review,
+    Finding,
+    Routine,
+    Diff,
+    Added,
+    Removed,
+    Unchanged,
+    ContentChanged,
+    StatusChanged,
+    Unsupported(String),
+}
+
+impl ReportJsonlLineKind {
+    #[must_use]
+    pub fn label(&self) -> &str {
+        match self {
+            Self::Workflow => "workflow",
+            Self::Step => "step",
+            Self::Audit => "audit",
+            Self::Entry => "entry",
+            Self::Review => "review",
+            Self::Finding => "finding",
+            Self::Routine => "routine",
+            Self::Diff => "diff",
+            Self::Added => "added",
+            Self::Removed => "removed",
+            Self::Unchanged => "unchanged",
+            Self::ContentChanged => "content-changed",
+            Self::StatusChanged => "status-changed",
+            Self::Unsupported(value) => value.as_str(),
+        }
+    }
+
+    #[must_use]
+    pub fn from_label(value: &str) -> Self {
+        match value {
+            "workflow" => Self::Workflow,
+            "step" => Self::Step,
+            "audit" => Self::Audit,
+            "entry" => Self::Entry,
+            "review" => Self::Review,
+            "finding" => Self::Finding,
+            "routine" => Self::Routine,
+            "diff" => Self::Diff,
+            "added" => Self::Added,
+            "removed" => Self::Removed,
+            "unchanged" => Self::Unchanged,
+            "content-changed" => Self::ContentChanged,
+            "status-changed" => Self::StatusChanged,
+            other => Self::Unsupported(other.to_owned()),
+        }
+    }
+
+    #[must_use]
+    pub const fn is_supported(&self) -> bool {
+        !matches!(self, Self::Unsupported(_))
+    }
+
+    #[must_use]
+    pub const fn is_detail_line(&self) -> bool {
+        matches!(
+            self,
+            Self::Step
+                | Self::Entry
+                | Self::Finding
+                | Self::Added
+                | Self::Removed
+                | Self::Unchanged
+                | Self::ContentChanged
+                | Self::StatusChanged
+        )
+    }
+}
+
+impl Serialize for ReportJsonlLineKind {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.label())
+    }
+}
+
+impl<'de> Deserialize<'de> for ReportJsonlLineKind {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::from_label(&value))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReportProfileSpec {
+    #[serde(flatten)]
+    pub metadata: ReportProfileMetadata,
+    #[serde(default)]
+    pub subjects: Vec<ReportProfileSubject>,
+    #[serde(default)]
+    pub mode: ReportProfileMode,
+    #[serde(default)]
+    pub status_filters: Option<Vec<ReviewFindingStatus>>,
+    #[serde(default)]
+    pub diff_buckets: Option<Vec<ReviewRunDiffBucket>>,
+    #[serde(default)]
+    pub jsonl_line_kinds: Option<Vec<ReportJsonlLineKind>>,
+}
+
+impl ReportProfileSpec {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        self.metadata
+            .validation_error()
+            .or_else(|| validate_report_profile_subjects(&self.subjects))
+            .or_else(|| validate_report_profile_status_filters(self))
+            .or_else(|| validate_report_profile_diff_buckets(self))
+            .or_else(|| validate_report_profile_jsonl_line_kinds(self))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ReportProfileCatalog {
+    #[serde(default)]
+    pub profiles: Vec<ReportProfileSpec>,
+}
+
+impl ReportProfileCatalog {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        let mut seen: Vec<&str> = Vec::with_capacity(self.profiles.len());
+        for (index, profile) in self.profiles.iter().enumerate() {
+            if let Some(error) = profile.validation_error() {
+                return Some(format!("report profile {index} is invalid: {error}"));
+            }
+            if seen.contains(&profile.metadata.profile_id.as_str()) {
+                return Some(format!(
+                    "report profile {index} reuses duplicate profile_id {}",
+                    profile.metadata.profile_id
+                ));
+            }
+            seen.push(profile.metadata.profile_id.as_str());
+        }
+        None
     }
 }
 
@@ -3737,8 +3971,179 @@ fn validate_review_finding_id_field(value: &str) -> Option<String> {
     })
 }
 
+fn validate_report_profile_id_field(value: &str) -> Option<String> {
+    validate_required_text_field(value, "profile_id").or_else(|| {
+        (value.trim() != value)
+            .then(|| "profile_id must not have leading or trailing whitespace".to_owned())
+    })
+}
+
 fn validate_optional_text_field(value: Option<&str>, field: &str) -> Option<String> {
     value.and_then(|text| validate_required_text_field(text, field))
+}
+
+fn validate_report_profile_subjects(subjects: &[ReportProfileSubject]) -> Option<String> {
+    if subjects.is_empty() {
+        return Some("report profiles must select at least one subject".to_owned());
+    }
+
+    let mut seen: Vec<ReportProfileSubject> = Vec::with_capacity(subjects.len());
+    for (index, subject) in subjects.iter().copied().enumerate() {
+        if seen.contains(&subject) {
+            return Some(format!(
+                "report profile subject {index} is duplicate: {}",
+                subject.label()
+            ));
+        }
+        seen.push(subject);
+    }
+    None
+}
+
+fn validate_report_profile_status_filters(profile: &ReportProfileSpec) -> Option<String> {
+    let Some(status_filters) = &profile.status_filters else {
+        return None;
+    };
+    if status_filters.is_empty() {
+        return Some("report profile status_filters must not be empty when present".to_owned());
+    }
+    if !profile
+        .subjects
+        .iter()
+        .any(|subject| report_profile_subject_supports_status_filters(*subject))
+    {
+        return Some(
+            "report profile status_filters require a review, routine, or diff subject".to_owned(),
+        );
+    }
+
+    let mut seen: Vec<ReviewFindingStatus> = Vec::with_capacity(status_filters.len());
+    for (index, status) in status_filters.iter().copied().enumerate() {
+        if seen.contains(&status) {
+            return Some(format!(
+                "report profile status_filters entry {index} is duplicate: {}",
+                status.label()
+            ));
+        }
+        seen.push(status);
+    }
+    None
+}
+
+fn validate_report_profile_diff_buckets(profile: &ReportProfileSpec) -> Option<String> {
+    let Some(diff_buckets) = &profile.diff_buckets else {
+        return None;
+    };
+    if diff_buckets.is_empty() {
+        return Some("report profile diff_buckets must not be empty when present".to_owned());
+    }
+    if !profile.subjects.contains(&ReportProfileSubject::Diff) {
+        return Some("report profile diff_buckets require a diff subject".to_owned());
+    }
+
+    let mut seen: Vec<ReviewRunDiffBucket> = Vec::with_capacity(diff_buckets.len());
+    for (index, bucket) in diff_buckets.iter().copied().enumerate() {
+        if seen.contains(&bucket) {
+            return Some(format!(
+                "report profile diff_buckets entry {index} is duplicate: {}",
+                bucket.label()
+            ));
+        }
+        seen.push(bucket);
+    }
+    None
+}
+
+fn validate_report_profile_jsonl_line_kinds(profile: &ReportProfileSpec) -> Option<String> {
+    let Some(line_kinds) = &profile.jsonl_line_kinds else {
+        return None;
+    };
+    if line_kinds.is_empty() {
+        return Some("report profile jsonl_line_kinds must not be empty when present".to_owned());
+    }
+
+    let mut seen: Vec<&str> = Vec::with_capacity(line_kinds.len());
+    for (index, line_kind) in line_kinds.iter().enumerate() {
+        let label = line_kind.label();
+        if label.trim().is_empty() {
+            return Some(format!(
+                "report profile jsonl_line_kinds entry {index} must not be empty"
+            ));
+        }
+        if !line_kind.is_supported() {
+            return Some(format!(
+                "report profile jsonl_line_kinds entry {index} is unsupported: {label}"
+            ));
+        }
+        if seen.contains(&label) {
+            return Some(format!(
+                "report profile jsonl_line_kinds entry {index} is duplicate: {label}"
+            ));
+        }
+        if matches!(profile.mode, ReportProfileMode::Summary) && line_kind.is_detail_line() {
+            return Some(format!(
+                "report profile summary mode cannot select detail JSONL line kind: {label}"
+            ));
+        }
+        if !profile
+            .subjects
+            .iter()
+            .any(|subject| report_profile_subject_supports_line_kind(*subject, line_kind))
+        {
+            return Some(format!(
+                "report profile jsonl_line_kinds entry {index} is not supported by selected subjects: {label}"
+            ));
+        }
+        seen.push(label);
+    }
+    None
+}
+
+const fn report_profile_subject_supports_status_filters(subject: ReportProfileSubject) -> bool {
+    matches!(
+        subject,
+        ReportProfileSubject::Review | ReportProfileSubject::Routine | ReportProfileSubject::Diff
+    )
+}
+
+const fn report_profile_subject_supports_line_kind(
+    subject: ReportProfileSubject,
+    line_kind: &ReportJsonlLineKind,
+) -> bool {
+    match subject {
+        ReportProfileSubject::Workflow => {
+            matches!(
+                line_kind,
+                ReportJsonlLineKind::Workflow | ReportJsonlLineKind::Step
+            )
+        }
+        ReportProfileSubject::Audit => {
+            matches!(
+                line_kind,
+                ReportJsonlLineKind::Audit | ReportJsonlLineKind::Entry
+            )
+        }
+        ReportProfileSubject::Review => matches!(
+            line_kind,
+            ReportJsonlLineKind::Review | ReportJsonlLineKind::Finding
+        ),
+        ReportProfileSubject::Routine => matches!(
+            line_kind,
+            ReportJsonlLineKind::Routine
+                | ReportJsonlLineKind::Step
+                | ReportJsonlLineKind::Review
+                | ReportJsonlLineKind::Finding
+        ),
+        ReportProfileSubject::Diff => matches!(
+            line_kind,
+            ReportJsonlLineKind::Diff
+                | ReportJsonlLineKind::Added
+                | ReportJsonlLineKind::Removed
+                | ReportJsonlLineKind::Unchanged
+                | ReportJsonlLineKind::ContentChanged
+                | ReportJsonlLineKind::StatusChanged
+        ),
+    }
 }
 
 fn workflow_step_kind_for_reference(
@@ -3937,24 +4342,25 @@ mod tests {
         NodeFromTitleOrAliasParams, NodeKind, NodeRecord, NoteComparisonEntry,
         NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
         NoteComparisonSection, NoteComparisonSectionKind, NoteConnectivityAuditRecord,
-        PlanningField, PlanningRelationRecord, PreviewNodeRecord, ReviewFinding,
-        ReviewFindingPayload, ReviewFindingRemediationPreview,
+        PlanningField, PlanningRelationRecord, PreviewNodeRecord, ReportJsonlLineKind,
+        ReportProfileCatalog, ReportProfileMetadata, ReportProfileMode, ReportProfileSpec,
+        ReportProfileSubject, ReviewFinding, ReviewFindingPayload, ReviewFindingRemediationPreview,
         ReviewFindingRemediationPreviewParams, ReviewFindingRemediationPreviewResult,
         ReviewFindingStatus, ReviewFindingStatusTransition, ReviewRun, ReviewRunDiff,
-        ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunMetadata,
-        ReviewRunPayload, ReviewRunResult, ReviewRunSummary, SaveCorpusAuditReviewParams,
-        SaveCorpusAuditReviewResult, SaveExplorationArtifactParams, SaveExplorationArtifactResult,
-        SaveReviewRunParams, SaveReviewRunResult, SaveWorkflowReviewParams,
-        SaveWorkflowReviewResult, SavedComparisonArtifact, SavedExplorationArtifact,
-        SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, SearchNodesParams,
-        SearchNodesSort, TrailReplayResult, TrailReplayStepResult, UnlinkedReferencesParams,
-        UpdateNodeMetadataParams, WorkflowArtifactSaveSource, WorkflowExecutionResult,
-        WorkflowExploreFocus, WorkflowInputAssignment, WorkflowInputKind, WorkflowInputSpec,
-        WorkflowMetadata, WorkflowReportLine, WorkflowResolveTarget, WorkflowSpec,
-        WorkflowSpecCompatibility, WorkflowSpecCompatibilityEnvelope, WorkflowStepPayload,
-        WorkflowStepRef, WorkflowStepReport, WorkflowStepReportPayload, WorkflowStepSpec,
-        WorkflowSummary, built_in_workflow, built_in_workflow_summaries, built_in_workflows,
-        normalize_reference,
+        ReviewRunDiffBucket, ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams,
+        ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, ReviewRunSummary,
+        SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult, SaveExplorationArtifactParams,
+        SaveExplorationArtifactResult, SaveReviewRunParams, SaveReviewRunResult,
+        SaveWorkflowReviewParams, SaveWorkflowReviewResult, SavedComparisonArtifact,
+        SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep,
+        SearchNodesParams, SearchNodesSort, TrailReplayResult, TrailReplayStepResult,
+        UnlinkedReferencesParams, UpdateNodeMetadataParams, WorkflowArtifactSaveSource,
+        WorkflowExecutionResult, WorkflowExploreFocus, WorkflowInputAssignment, WorkflowInputKind,
+        WorkflowInputSpec, WorkflowMetadata, WorkflowReportLine, WorkflowResolveTarget,
+        WorkflowSpec, WorkflowSpecCompatibility, WorkflowSpecCompatibilityEnvelope,
+        WorkflowStepPayload, WorkflowStepRef, WorkflowStepReport, WorkflowStepReportPayload,
+        WorkflowStepSpec, WorkflowSummary, built_in_workflow, built_in_workflow_summaries,
+        built_in_workflows, normalize_reference,
     };
     use serde_json::json;
 
@@ -5703,6 +6109,229 @@ mod tests {
         )
         .expect("audit report lines should deserialize");
         assert_eq!(round_trip_lines, lines);
+    }
+
+    #[test]
+    fn report_profile_specs_round_trip_with_bounded_selections() {
+        let profile = ReportProfileSpec {
+            metadata: ReportProfileMetadata {
+                profile_id: "profile/review-diff-focus".to_owned(),
+                title: "Review Diff Focus".to_owned(),
+                summary: Some("Show open review details and selected diff buckets.".to_owned()),
+            },
+            subjects: vec![ReportProfileSubject::Review, ReportProfileSubject::Diff],
+            mode: ReportProfileMode::Detail,
+            status_filters: Some(vec![
+                ReviewFindingStatus::Open,
+                ReviewFindingStatus::Reviewed,
+            ]),
+            diff_buckets: Some(vec![
+                ReviewRunDiffBucket::Added,
+                ReviewRunDiffBucket::StatusChanged,
+            ]),
+            jsonl_line_kinds: Some(vec![
+                ReportJsonlLineKind::Review,
+                ReportJsonlLineKind::Finding,
+                ReportJsonlLineKind::Diff,
+                ReportJsonlLineKind::Added,
+                ReportJsonlLineKind::StatusChanged,
+            ]),
+        };
+
+        assert_eq!(profile.validation_error(), None);
+        let serialized = serde_json::to_value(&profile).expect("profile should serialize");
+        assert_eq!(serialized["profile_id"], json!("profile/review-diff-focus"));
+        assert_eq!(serialized["subjects"], json!(["review", "diff"]));
+        assert_eq!(serialized["mode"], json!("detail"));
+        assert_eq!(serialized["status_filters"], json!(["open", "reviewed"]));
+        assert_eq!(
+            serialized["diff_buckets"],
+            json!(["added", "status-changed"])
+        );
+        assert_eq!(
+            serialized["jsonl_line_kinds"],
+            json!(["review", "finding", "diff", "added", "status-changed"])
+        );
+
+        let round_trip: ReportProfileSpec =
+            serde_json::from_value(serialized).expect("profile should deserialize");
+        assert_eq!(round_trip, profile);
+
+        let catalog = ReportProfileCatalog {
+            profiles: vec![
+                profile,
+                ReportProfileSpec {
+                    metadata: ReportProfileMetadata {
+                        profile_id: "profile/workflow-summary".to_owned(),
+                        title: "Workflow Summary".to_owned(),
+                        summary: None,
+                    },
+                    subjects: vec![ReportProfileSubject::Workflow],
+                    mode: ReportProfileMode::Summary,
+                    status_filters: None,
+                    diff_buckets: None,
+                    jsonl_line_kinds: Some(vec![ReportJsonlLineKind::Workflow]),
+                },
+            ],
+        };
+        assert_eq!(catalog.validation_error(), None);
+        let catalog_round_trip: ReportProfileCatalog = serde_json::from_value(
+            serde_json::to_value(&catalog).expect("catalog should serialize"),
+        )
+        .expect("catalog should deserialize");
+        assert_eq!(catalog_round_trip, catalog);
+    }
+
+    #[test]
+    fn report_profile_specs_reject_malformed_and_contradictory_selections() {
+        let valid = ReportProfileSpec {
+            metadata: ReportProfileMetadata {
+                profile_id: "profile/review-open".to_owned(),
+                title: "Review Open".to_owned(),
+                summary: None,
+            },
+            subjects: vec![ReportProfileSubject::Review],
+            mode: ReportProfileMode::Detail,
+            status_filters: Some(vec![ReviewFindingStatus::Open]),
+            diff_buckets: None,
+            jsonl_line_kinds: Some(vec![ReportJsonlLineKind::Review]),
+        };
+
+        let mut padded_id = valid.clone();
+        padded_id.metadata.profile_id = " profile/review-open".to_owned();
+        assert_eq!(
+            padded_id.validation_error().as_deref(),
+            Some("profile_id must not have leading or trailing whitespace")
+        );
+
+        let mut empty_subjects = valid.clone();
+        empty_subjects.subjects.clear();
+        assert_eq!(
+            empty_subjects.validation_error().as_deref(),
+            Some("report profiles must select at least one subject")
+        );
+
+        let mut duplicate_subjects = valid.clone();
+        duplicate_subjects.subjects =
+            vec![ReportProfileSubject::Review, ReportProfileSubject::Review];
+        assert_eq!(
+            duplicate_subjects.validation_error().as_deref(),
+            Some("report profile subject 1 is duplicate: review")
+        );
+
+        let mut empty_status_filters = valid.clone();
+        empty_status_filters.status_filters = Some(Vec::new());
+        assert_eq!(
+            empty_status_filters.validation_error().as_deref(),
+            Some("report profile status_filters must not be empty when present")
+        );
+
+        let mut duplicate_status_filters = valid.clone();
+        duplicate_status_filters.status_filters =
+            Some(vec![ReviewFindingStatus::Open, ReviewFindingStatus::Open]);
+        assert_eq!(
+            duplicate_status_filters.validation_error().as_deref(),
+            Some("report profile status_filters entry 1 is duplicate: open")
+        );
+
+        let mut status_without_review_surface = valid.clone();
+        status_without_review_surface.subjects = vec![ReportProfileSubject::Workflow];
+        status_without_review_surface.jsonl_line_kinds = Some(vec![ReportJsonlLineKind::Workflow]);
+        assert_eq!(
+            status_without_review_surface.validation_error().as_deref(),
+            Some("report profile status_filters require a review, routine, or diff subject")
+        );
+
+        let mut empty_diff_buckets = valid.clone();
+        empty_diff_buckets.subjects = vec![ReportProfileSubject::Diff];
+        empty_diff_buckets.status_filters = None;
+        empty_diff_buckets.diff_buckets = Some(Vec::new());
+        empty_diff_buckets.jsonl_line_kinds = Some(vec![ReportJsonlLineKind::Diff]);
+        assert_eq!(
+            empty_diff_buckets.validation_error().as_deref(),
+            Some("report profile diff_buckets must not be empty when present")
+        );
+
+        let mut diff_without_diff_subject = valid.clone();
+        diff_without_diff_subject.diff_buckets = Some(vec![ReviewRunDiffBucket::Added]);
+        assert_eq!(
+            diff_without_diff_subject.validation_error().as_deref(),
+            Some("report profile diff_buckets require a diff subject")
+        );
+
+        let mut duplicate_diff_buckets = valid.clone();
+        duplicate_diff_buckets.subjects = vec![ReportProfileSubject::Diff];
+        duplicate_diff_buckets.status_filters = None;
+        duplicate_diff_buckets.diff_buckets =
+            Some(vec![ReviewRunDiffBucket::Added, ReviewRunDiffBucket::Added]);
+        duplicate_diff_buckets.jsonl_line_kinds = Some(vec![ReportJsonlLineKind::Diff]);
+        assert_eq!(
+            duplicate_diff_buckets.validation_error().as_deref(),
+            Some("report profile diff_buckets entry 1 is duplicate: added")
+        );
+
+        let mut empty_line_kinds = valid.clone();
+        empty_line_kinds.jsonl_line_kinds = Some(Vec::new());
+        assert_eq!(
+            empty_line_kinds.validation_error().as_deref(),
+            Some("report profile jsonl_line_kinds must not be empty when present")
+        );
+
+        let unsupported_line_kind: ReportProfileSpec = serde_json::from_value(json!({
+            "profile_id": "profile/unsupported-line",
+            "title": "Unsupported Line",
+            "subjects": ["workflow"],
+            "mode": "detail",
+            "status_filters": null,
+            "diff_buckets": null,
+            "jsonl_line_kinds": ["workflow", "template-snippet"]
+        }))
+        .expect("unsupported line kind should deserialize for validation");
+        assert_eq!(
+            unsupported_line_kind.validation_error().as_deref(),
+            Some("report profile jsonl_line_kinds entry 1 is unsupported: template-snippet")
+        );
+
+        let mut incompatible_line_kind = valid.clone();
+        incompatible_line_kind.subjects = vec![ReportProfileSubject::Audit];
+        incompatible_line_kind.status_filters = None;
+        incompatible_line_kind.jsonl_line_kinds = Some(vec![ReportJsonlLineKind::Workflow]);
+        assert_eq!(
+            incompatible_line_kind.validation_error().as_deref(),
+            Some(
+                "report profile jsonl_line_kinds entry 0 is not supported by selected subjects: workflow"
+            )
+        );
+
+        let mut summary_with_detail_line = valid.clone();
+        summary_with_detail_line.mode = ReportProfileMode::Summary;
+        summary_with_detail_line.jsonl_line_kinds = Some(vec![ReportJsonlLineKind::Finding]);
+        assert_eq!(
+            summary_with_detail_line.validation_error().as_deref(),
+            Some("report profile summary mode cannot select detail JSONL line kind: finding")
+        );
+
+        let catalog = ReportProfileCatalog {
+            profiles: vec![
+                valid.clone(),
+                ReportProfileSpec {
+                    metadata: ReportProfileMetadata {
+                        profile_id: valid.metadata.profile_id.clone(),
+                        title: "Duplicate".to_owned(),
+                        summary: None,
+                    },
+                    subjects: vec![ReportProfileSubject::Workflow],
+                    mode: ReportProfileMode::Summary,
+                    status_filters: None,
+                    diff_buckets: None,
+                    jsonl_line_kinds: Some(vec![ReportJsonlLineKind::Workflow]),
+                },
+            ],
+        };
+        assert_eq!(
+            catalog.validation_error().as_deref(),
+            Some("report profile 1 reuses duplicate profile_id profile/review-open")
+        );
     }
 
     #[test]
