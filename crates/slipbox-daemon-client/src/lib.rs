@@ -9,28 +9,33 @@ use serde_json::Value;
 use slipbox_core::{
     CompareNotesParams, CorpusAuditParams, CorpusAuditResult, ExecuteExplorationArtifactResult,
     ExplorationArtifactIdParams, ExplorationArtifactResult, ExploreParams, ExploreResult,
-    ListExplorationArtifactsParams, ListExplorationArtifactsResult, ListReviewRunsParams,
-    ListReviewRunsResult, ListWorkflowsParams, ListWorkflowsResult, MarkReviewFindingParams,
-    MarkReviewFindingResult, NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams,
-    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, PingInfo,
-    ReviewFindingRemediationPreviewParams, ReviewFindingRemediationPreviewResult,
-    ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunResult,
-    RunWorkflowParams, RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
-    SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
-    SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult, SearchNodesParams,
-    SearchNodesResult, StatusInfo, WorkflowIdParams, WorkflowResult,
+    ImportWorkbenchPackParams, ImportWorkbenchPackResult, ListExplorationArtifactsParams,
+    ListExplorationArtifactsResult, ListReviewRunsParams, ListReviewRunsResult,
+    ListWorkbenchPacksParams, ListWorkbenchPacksResult, ListWorkflowsParams, ListWorkflowsResult,
+    MarkReviewFindingParams, MarkReviewFindingResult, NodeAtPointParams, NodeFromIdParams,
+    NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
+    NoteComparisonResult, PingInfo, ReviewFindingRemediationPreviewParams,
+    ReviewFindingRemediationPreviewResult, ReviewRunDiffParams, ReviewRunDiffResult,
+    ReviewRunIdParams, ReviewRunResult, RunWorkflowParams, RunWorkflowResult,
+    SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult, SaveExplorationArtifactParams,
+    SaveExplorationArtifactResult, SaveReviewRunParams, SaveReviewRunResult,
+    SaveWorkflowReviewParams, SaveWorkflowReviewResult, SearchNodesParams, SearchNodesResult,
+    StatusInfo, ValidateWorkbenchPackParams, ValidateWorkbenchPackResult, WorkbenchPackIdParams,
+    WorkbenchPackManifest, WorkbenchPackResult, WorkflowIdParams, WorkflowResult,
 };
 use slipbox_rpc::{
     JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_COMPARE_NOTES, METHOD_CORPUS_AUDIT,
-    METHOD_DELETE_EXPLORATION_ARTIFACT, METHOD_DELETE_REVIEW_RUN, METHOD_DIFF_REVIEW_RUNS,
-    METHOD_EXECUTE_EXPLORATION_ARTIFACT, METHOD_EXPLORATION_ARTIFACT, METHOD_EXPLORE,
-    METHOD_LIST_EXPLORATION_ARTIFACTS, METHOD_LIST_REVIEW_RUNS, METHOD_LIST_WORKFLOWS,
-    METHOD_MARK_REVIEW_FINDING, METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY,
-    METHOD_NODE_FROM_REF, METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING,
+    METHOD_DELETE_EXPLORATION_ARTIFACT, METHOD_DELETE_REVIEW_RUN, METHOD_DELETE_WORKBENCH_PACK,
+    METHOD_DIFF_REVIEW_RUNS, METHOD_EXECUTE_EXPLORATION_ARTIFACT, METHOD_EXPLORATION_ARTIFACT,
+    METHOD_EXPLORE, METHOD_EXPORT_WORKBENCH_PACK, METHOD_IMPORT_WORKBENCH_PACK,
+    METHOD_LIST_EXPLORATION_ARTIFACTS, METHOD_LIST_REVIEW_RUNS, METHOD_LIST_WORKBENCH_PACKS,
+    METHOD_LIST_WORKFLOWS, METHOD_MARK_REVIEW_FINDING, METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID,
+    METHOD_NODE_FROM_KEY, METHOD_NODE_FROM_REF, METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING,
     METHOD_REVIEW_FINDING_REMEDIATION_PREVIEW, METHOD_REVIEW_RUN, METHOD_RUN_WORKFLOW,
     METHOD_SAVE_CORPUS_AUDIT_REVIEW, METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SAVE_REVIEW_RUN,
-    METHOD_SAVE_WORKFLOW_REVIEW, METHOD_SEARCH_NODES, METHOD_STATUS, METHOD_WORKFLOW,
-    read_framed_message, write_framed_message,
+    METHOD_SAVE_WORKFLOW_REVIEW, METHOD_SEARCH_NODES, METHOD_STATUS,
+    METHOD_VALIDATE_WORKBENCH_PACK, METHOD_WORKBENCH_PACK, METHOD_WORKFLOW, read_framed_message,
+    write_framed_message,
 };
 use thiserror::Error;
 
@@ -377,6 +382,48 @@ where
         self.request(METHOD_SAVE_WORKFLOW_REVIEW, params)
     }
 
+    fn import_workbench_pack(
+        &mut self,
+        params: &ImportWorkbenchPackParams,
+    ) -> Result<ImportWorkbenchPackResult, DaemonClientError> {
+        self.request(METHOD_IMPORT_WORKBENCH_PACK, params)
+    }
+
+    fn workbench_pack(
+        &mut self,
+        params: &WorkbenchPackIdParams,
+    ) -> Result<WorkbenchPackResult, DaemonClientError> {
+        self.request(METHOD_WORKBENCH_PACK, params)
+    }
+
+    fn validate_workbench_pack(
+        &mut self,
+        params: &ValidateWorkbenchPackParams,
+    ) -> Result<ValidateWorkbenchPackResult, DaemonClientError> {
+        self.request(METHOD_VALIDATE_WORKBENCH_PACK, params)
+    }
+
+    fn export_workbench_pack(
+        &mut self,
+        params: &WorkbenchPackIdParams,
+    ) -> Result<WorkbenchPackManifest, DaemonClientError> {
+        self.request(METHOD_EXPORT_WORKBENCH_PACK, params)
+    }
+
+    fn list_workbench_packs(&mut self) -> Result<ListWorkbenchPacksResult, DaemonClientError> {
+        self.request(
+            METHOD_LIST_WORKBENCH_PACKS,
+            &ListWorkbenchPacksParams::default(),
+        )
+    }
+
+    fn delete_workbench_pack(
+        &mut self,
+        params: &WorkbenchPackIdParams,
+    ) -> Result<slipbox_core::DeleteWorkbenchPackResult, DaemonClientError> {
+        self.request(METHOD_DELETE_WORKBENCH_PACK, params)
+    }
+
     fn shutdown(&mut self) -> Result<(), DaemonClientError> {
         self.transport.shutdown()
     }
@@ -690,6 +737,45 @@ impl DaemonClient {
         params: &SaveWorkflowReviewParams,
     ) -> Result<SaveWorkflowReviewResult, DaemonClientError> {
         self.rpc.save_workflow_review(params)
+    }
+
+    pub fn import_workbench_pack(
+        &mut self,
+        params: &ImportWorkbenchPackParams,
+    ) -> Result<ImportWorkbenchPackResult, DaemonClientError> {
+        self.rpc.import_workbench_pack(params)
+    }
+
+    pub fn workbench_pack(
+        &mut self,
+        params: &WorkbenchPackIdParams,
+    ) -> Result<WorkbenchPackResult, DaemonClientError> {
+        self.rpc.workbench_pack(params)
+    }
+
+    pub fn validate_workbench_pack(
+        &mut self,
+        params: &ValidateWorkbenchPackParams,
+    ) -> Result<ValidateWorkbenchPackResult, DaemonClientError> {
+        self.rpc.validate_workbench_pack(params)
+    }
+
+    pub fn export_workbench_pack(
+        &mut self,
+        params: &WorkbenchPackIdParams,
+    ) -> Result<WorkbenchPackManifest, DaemonClientError> {
+        self.rpc.export_workbench_pack(params)
+    }
+
+    pub fn list_workbench_packs(&mut self) -> Result<ListWorkbenchPacksResult, DaemonClientError> {
+        self.rpc.list_workbench_packs()
+    }
+
+    pub fn delete_workbench_pack(
+        &mut self,
+        params: &WorkbenchPackIdParams,
+    ) -> Result<slipbox_core::DeleteWorkbenchPackResult, DaemonClientError> {
+        self.rpc.delete_workbench_pack(params)
     }
 
     pub fn shutdown(mut self) -> Result<(), DaemonClientError> {

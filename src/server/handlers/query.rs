@@ -1,34 +1,39 @@
 use std::collections::HashMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use slipbox_core::{
     AgendaParams, AgendaResult, BacklinksParams, BacklinksResult, CompareNotesParams,
     CorpusAuditEntry, CorpusAuditKind, CorpusAuditParams, CorpusAuditResult,
-    DeleteExplorationArtifactResult, DeleteReviewRunResult, ExecuteExplorationArtifactResult,
-    ExecutedExplorationArtifact, ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams,
-    ExplorationArtifactPayload, ExplorationArtifactResult, ExplorationArtifactSummary,
-    ExplorationEntry, ExplorationLens, ExplorationSection, ExplorationSectionKind, ExploreParams,
-    ExploreResult, ForwardLinksParams, ForwardLinksResult, GraphParams, GraphResult,
-    IndexFileParams, IndexedFilesResult, ListExplorationArtifactsParams,
+    DeleteExplorationArtifactResult, DeleteReviewRunResult, DeleteWorkbenchPackResult,
+    ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
+    ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactPayload,
+    ExplorationArtifactResult, ExplorationArtifactSummary, ExplorationEntry, ExplorationLens,
+    ExplorationSection, ExplorationSectionKind, ExploreParams, ExploreResult, ForwardLinksParams,
+    ForwardLinksResult, GraphParams, GraphResult, ImportWorkbenchPackParams,
+    ImportWorkbenchPackResult, IndexFileParams, IndexedFilesResult, ListExplorationArtifactsParams,
     ListExplorationArtifactsResult, ListReviewRunsParams, ListReviewRunsResult,
-    ListWorkflowsParams, ListWorkflowsResult, MarkReviewFindingParams, MarkReviewFindingResult,
-    NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
-    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonGroup, NoteComparisonResult, PingInfo,
-    RandomNodeResult, ReflinksParams, ReflinksResult, ReviewFinding, ReviewFindingPayload,
-    ReviewFindingRemediationPreview, ReviewFindingRemediationPreviewParams,
-    ReviewFindingRemediationPreviewResult, ReviewFindingStatus, ReviewFindingStatusTransition,
-    ReviewRun, ReviewRunDiff, ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams,
-    ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, ReviewRunSummary, RunWorkflowParams,
-    RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
-    SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
-    SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
-    SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailStep,
-    SearchFilesParams, SearchFilesResult, SearchNodesParams, SearchNodesResult,
-    SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams, SearchRefsResult,
-    SearchTagsParams, SearchTagsResult, StatusInfo, TrailReplayResult, TrailReplayStepResult,
-    UnlinkedReferencesParams, UnlinkedReferencesResult, WorkflowExecutionResult, WorkflowIdParams,
-    WorkflowInputAssignment, WorkflowResolveTarget, WorkflowResult, WorkflowSpec,
-    WorkflowStepPayload, WorkflowStepReport, WorkflowStepReportPayload,
+    ListWorkbenchPacksParams, ListWorkbenchPacksResult, ListWorkflowsParams, ListWorkflowsResult,
+    MarkReviewFindingParams, MarkReviewFindingResult, NodeAtPointParams, NodeFromIdParams,
+    NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
+    NoteComparisonGroup, NoteComparisonResult, PingInfo, RandomNodeResult, ReflinksParams,
+    ReflinksResult, ReviewFinding, ReviewFindingPayload, ReviewFindingRemediationPreview,
+    ReviewFindingRemediationPreviewParams, ReviewFindingRemediationPreviewResult,
+    ReviewFindingStatus, ReviewFindingStatusTransition, ReviewRun, ReviewRunDiff,
+    ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunMetadata,
+    ReviewRunPayload, ReviewRunResult, ReviewRunSummary, RunWorkflowParams, RunWorkflowResult,
+    SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult, SaveExplorationArtifactParams,
+    SaveExplorationArtifactResult, SaveReviewRunParams, SaveReviewRunResult,
+    SaveWorkflowReviewParams, SaveWorkflowReviewResult, SavedComparisonArtifact,
+    SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailStep, SearchFilesParams,
+    SearchFilesResult, SearchNodesParams, SearchNodesResult, SearchOccurrencesParams,
+    SearchOccurrencesResult, SearchRefsParams, SearchRefsResult, SearchTagsParams,
+    SearchTagsResult, StatusInfo, TrailReplayResult, TrailReplayStepResult,
+    UnlinkedReferencesParams, UnlinkedReferencesResult, ValidateWorkbenchPackParams,
+    ValidateWorkbenchPackResult, WorkbenchPackCompatibilityEnvelope, WorkbenchPackIdParams,
+    WorkbenchPackIssue, WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackResult,
+    WorkbenchPackSummary, WorkflowExecutionResult, WorkflowIdParams, WorkflowInputAssignment,
+    WorkflowResolveTarget, WorkflowResult, WorkflowSpec, WorkflowStepPayload, WorkflowStepReport,
+    WorkflowStepReportPayload,
 };
 use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
 
@@ -651,6 +656,13 @@ fn validate_review_id_params(params: &ReviewRunIdParams) -> Result<(), JsonRpcEr
     Ok(())
 }
 
+fn validate_pack_id_params(params: &WorkbenchPackIdParams) -> Result<(), JsonRpcError> {
+    if let Some(message) = params.validation_error() {
+        return Err(invalid_request(message));
+    }
+    Ok(())
+}
+
 fn validate_workflow_id_params(params: &WorkflowIdParams) -> Result<(), JsonRpcError> {
     if let Some(message) = params.validation_error() {
         return Err(invalid_request(message));
@@ -816,6 +828,32 @@ fn save_review_run_with_policy(
     }
 
     Ok(ReviewRunSummary::from(review))
+}
+
+fn save_workbench_pack_with_policy(
+    state: &mut ServerState,
+    pack: &WorkbenchPackManifest,
+    overwrite: bool,
+) -> Result<WorkbenchPackSummary, JsonRpcError> {
+    if overwrite {
+        state
+            .database
+            .save_workbench_pack(pack)
+            .map_err(|error| internal_error(error.context("failed to save workbench pack")))?;
+    } else if !state
+        .database
+        .save_workbench_pack_if_absent(pack)
+        .map_err(|error| {
+            internal_error(error.context("failed to save workbench pack without overwrite"))
+        })?
+    {
+        return Err(invalid_request(format!(
+            "workbench pack already exists: {}",
+            pack.metadata.pack_id
+        )));
+    }
+
+    Ok(WorkbenchPackSummary::from(pack))
 }
 
 fn render_audit_kind(kind: CorpusAuditKind) -> &'static str {
@@ -1362,6 +1400,35 @@ fn known_review_run(state: &ServerState, review_id: &str) -> Result<ReviewRun, J
     review.ok_or_else(|| invalid_request(format!("unknown review run: {review_id}")))
 }
 
+fn known_workbench_pack(
+    state: &ServerState,
+    pack_id: &str,
+) -> Result<WorkbenchPackManifest, JsonRpcError> {
+    let pack = state
+        .database
+        .workbench_pack(pack_id)
+        .map_err(|error| internal_error(error.context("failed to load workbench pack")))?;
+    pack.ok_or_else(|| invalid_request(format!("unknown workbench pack: {pack_id}")))
+}
+
+#[derive(Debug, Deserialize)]
+struct WorkbenchPackCompatibilityParams {
+    pack: WorkbenchPackCompatibilityEnvelope,
+}
+
+fn workbench_pack_compatibility_issue(params: &serde_json::Value) -> Option<WorkbenchPackIssue> {
+    let params = serde_json::from_value::<WorkbenchPackCompatibilityParams>(params.clone()).ok()?;
+    params
+        .pack
+        .compatibility
+        .validation_error()
+        .map(|message| WorkbenchPackIssue {
+            kind: WorkbenchPackIssueKind::UnsupportedVersion,
+            asset_id: params.pack.pack_id,
+            message,
+        })
+}
+
 pub(crate) fn save_exploration_artifact(
     state: &mut ServerState,
     params: serde_json::Value,
@@ -1707,6 +1774,102 @@ pub(crate) fn save_workflow_review(
     to_value(SaveWorkflowReviewResult { result, review })
 }
 
+pub(crate) fn import_workbench_pack(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: ImportWorkbenchPackParams = parse_params(params.clone()).map_err(|error| {
+        workbench_pack_compatibility_issue(&params)
+            .map(|issue| invalid_request(issue.message))
+            .unwrap_or(error)
+    })?;
+    if let Some(message) = params.validation_error() {
+        return Err(invalid_request(message));
+    }
+    let pack = save_workbench_pack_with_policy(state, &params.pack, params.overwrite)?;
+    to_value(ImportWorkbenchPackResult { pack })
+}
+
+pub(crate) fn workbench_pack(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: WorkbenchPackIdParams = parse_params(params)?;
+    validate_pack_id_params(&params)?;
+    to_value(WorkbenchPackResult {
+        pack: known_workbench_pack(state, &params.pack_id)?,
+    })
+}
+
+pub(crate) fn validate_workbench_pack(
+    _state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: ValidateWorkbenchPackParams = match parse_params(params.clone()) {
+        Ok(params) => params,
+        Err(error) => {
+            if let Some(issue) = workbench_pack_compatibility_issue(&params) {
+                return to_value(ValidateWorkbenchPackResult {
+                    pack: None,
+                    valid: false,
+                    issues: vec![issue],
+                });
+            }
+            return Err(error);
+        }
+    };
+    let issues = params.pack.validation_issues();
+    to_value(ValidateWorkbenchPackResult {
+        pack: Some(params.pack.summary()),
+        valid: issues.is_empty(),
+        issues,
+    })
+}
+
+pub(crate) fn export_workbench_pack(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: WorkbenchPackIdParams = parse_params(params)?;
+    validate_pack_id_params(&params)?;
+    to_value(known_workbench_pack(state, &params.pack_id)?)
+}
+
+pub(crate) fn list_workbench_packs(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let _params: ListWorkbenchPacksParams = parse_params(params)?;
+    let packs = state
+        .database
+        .list_workbench_packs()
+        .map_err(|error| internal_error(error.context("failed to list workbench packs")))?;
+    to_value(ListWorkbenchPacksResult {
+        packs: packs.iter().map(WorkbenchPackSummary::from).collect(),
+    })
+}
+
+pub(crate) fn delete_workbench_pack(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: WorkbenchPackIdParams = parse_params(params)?;
+    validate_pack_id_params(&params)?;
+    if !state
+        .database
+        .delete_workbench_pack(&params.pack_id)
+        .map_err(|error| internal_error(error.context("failed to delete workbench pack")))?
+    {
+        return Err(invalid_request(format!(
+            "unknown workbench pack: {}",
+            params.pack_id
+        )));
+    }
+    to_value(DeleteWorkbenchPackResult {
+        pack_id: params.pack_id,
+    })
+}
+
 pub(crate) fn explore(
     state: &mut ServerState,
     params: serde_json::Value,
@@ -1794,32 +1957,38 @@ mod tests {
         BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID, CompareNotesParams,
         ComparisonConnectorDirection, CorpusAuditEntry, CorpusAuditKind, CorpusAuditResult,
         DanglingLinkAuditRecord, DeleteExplorationArtifactResult, DeleteReviewRunResult,
-        ExecuteExplorationArtifactResult, ExecutedExplorationArtifactPayload,
-        ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
-        ExplorationEntry, ExplorationExplanation, ExplorationLens, ExplorationSectionKind,
-        ExploreParams, ExploreResult, ListExplorationArtifactsResult, ListReviewRunsResult,
-        ListWorkflowsResult, MarkReviewFindingResult, NodeKind, NoteComparisonEntry,
-        NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
-        NoteComparisonSectionKind, ReviewFinding, ReviewFindingPayload,
-        ReviewFindingRemediationPreviewResult, ReviewFindingStatus, ReviewRun, ReviewRunDiffResult,
-        ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, RunWorkflowResult,
-        SaveCorpusAuditReviewResult, SaveExplorationArtifactResult, SaveReviewRunResult,
-        SaveWorkflowReviewResult, SavedComparisonArtifact, SavedExplorationArtifact,
-        SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, TrailReplayStepResult,
-        WorkflowInputAssignment, WorkflowResolveTarget, WorkflowResult, WorkflowSpec,
-        WorkflowStepReport, WorkflowStepReportPayload,
+        DeleteWorkbenchPackResult, ExecuteExplorationArtifactResult,
+        ExecutedExplorationArtifactPayload, ExplorationArtifactMetadata,
+        ExplorationArtifactPayload, ExplorationArtifactResult, ExplorationEntry,
+        ExplorationExplanation, ExplorationLens, ExplorationSectionKind, ExploreParams,
+        ExploreResult, ImportWorkbenchPackResult, ListExplorationArtifactsResult,
+        ListReviewRunsResult, ListWorkbenchPacksResult, ListWorkflowsResult,
+        MarkReviewFindingResult, NodeKind, NoteComparisonEntry, NoteComparisonExplanation,
+        NoteComparisonGroup, NoteComparisonResult, NoteComparisonSectionKind,
+        ReportProfileMetadata, ReportProfileMode, ReportProfileSpec, ReportProfileSubject,
+        ReviewFinding, ReviewFindingPayload, ReviewFindingRemediationPreviewResult,
+        ReviewFindingStatus, ReviewRun, ReviewRunDiffResult, ReviewRunMetadata, ReviewRunPayload,
+        ReviewRunResult, RunWorkflowResult, SaveCorpusAuditReviewResult,
+        SaveExplorationArtifactResult, SaveReviewRunResult, SaveWorkflowReviewResult,
+        SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact,
+        SavedTrailArtifact, SavedTrailStep, TrailReplayStepResult, ValidateWorkbenchPackResult,
+        WorkbenchPackCompatibility, WorkbenchPackIssueKind, WorkbenchPackManifest,
+        WorkbenchPackMetadata, WorkbenchPackResult, WorkflowInputAssignment, WorkflowResolveTarget,
+        WorkflowResult, WorkflowSpec, WorkflowStepReport, WorkflowStepReportPayload,
     };
     use slipbox_index::{DiscoveryPolicy, scan_root_with_policy};
     use tempfile::TempDir;
 
     use super::{
         compare_notes, corpus_audit, delete_exploration_artifact, delete_review_run,
-        diff_review_runs, execute_compare_notes_query, execute_exploration_artifact,
-        execute_explore_query, execute_saved_exploration_artifact,
+        delete_workbench_pack, diff_review_runs, execute_compare_notes_query,
+        execute_exploration_artifact, execute_explore_query, execute_saved_exploration_artifact,
         execute_saved_exploration_artifact_by_id, execute_workflow_spec, exploration_artifact,
-        explore, list_exploration_artifacts, list_review_runs, list_workflows, mark_review_finding,
+        explore, export_workbench_pack, import_workbench_pack, list_exploration_artifacts,
+        list_review_runs, list_workbench_packs, list_workflows, mark_review_finding,
         review_finding_remediation_preview, review_run, run_workflow, save_corpus_audit_review,
-        save_exploration_artifact, save_review_run, save_workflow_review, workflow,
+        save_exploration_artifact, save_review_run, save_workflow_review, validate_workbench_pack,
+        workbench_pack, workflow,
     };
     use crate::server::state::ServerState;
 
@@ -2923,6 +3092,235 @@ mod tests {
             .expect("stored artifact lookup should succeed")
             .expect("stored artifact should remain readable");
         assert_eq!(stored, original);
+    }
+
+    #[test]
+    fn workbench_pack_rpc_round_trips_import_validate_export_delete_after_reopen() {
+        let (_workspace, mut state, _target_key) = indexed_state();
+        let pack = sample_workbench_pack("pack/research-review", "Research Review Pack");
+
+        let validation: ValidateWorkbenchPackResult = serde_json::from_value(
+            validate_workbench_pack(&mut state, json!({ "pack": pack.clone() }))
+                .expect("validate pack RPC should succeed"),
+        )
+        .expect("validation result should decode");
+        assert!(validation.valid);
+        assert!(validation.issues.is_empty());
+        assert_eq!(validation.pack, Some(pack.summary()));
+        let listed_after_validation: ListWorkbenchPacksResult = serde_json::from_value(
+            list_workbench_packs(&mut state, json!({}))
+                .expect("validation should not persist packs"),
+        )
+        .expect("list result should decode");
+        assert!(listed_after_validation.packs.is_empty());
+
+        let imported: ImportWorkbenchPackResult = serde_json::from_value(
+            import_workbench_pack(&mut state, json!({ "pack": pack.clone() }))
+                .expect("import pack RPC should succeed"),
+        )
+        .expect("import result should decode");
+        assert_eq!(imported.pack, pack.summary());
+
+        let conflict = import_workbench_pack(&mut state, json!({ "pack": pack.clone() }))
+            .expect_err("default import should reject existing packs");
+        assert_eq!(
+            conflict.into_inner().message,
+            "workbench pack already exists: pack/research-review"
+        );
+
+        let mut replacement = pack.clone();
+        replacement.metadata.title = "Research Review Pack Updated".to_owned();
+        let overwritten: ImportWorkbenchPackResult = serde_json::from_value(
+            import_workbench_pack(
+                &mut state,
+                json!({ "pack": replacement.clone(), "overwrite": true }),
+            )
+            .expect("overwrite import should succeed"),
+        )
+        .expect("overwrite result should decode");
+        assert_eq!(overwritten.pack, replacement.summary());
+
+        let root = state.root.clone();
+        let db_path = state.db_path.clone();
+        let discovery = state.discovery.clone();
+        drop(state);
+
+        let mut reopened =
+            ServerState::new(root, db_path, Vec::new(), discovery).expect("state should reopen");
+        let listed: ListWorkbenchPacksResult = serde_json::from_value(
+            list_workbench_packs(&mut reopened, json!({}))
+                .expect("list packs after reopen should succeed"),
+        )
+        .expect("list result should decode");
+        assert_eq!(listed.packs, vec![replacement.summary()]);
+
+        let shown: WorkbenchPackResult = serde_json::from_value(
+            workbench_pack(&mut reopened, json!({ "pack_id": "pack/research-review" }))
+                .expect("show pack after reopen should succeed"),
+        )
+        .expect("show result should decode");
+        assert_eq!(shown.pack, replacement);
+
+        let exported: WorkbenchPackManifest = serde_json::from_value(
+            export_workbench_pack(&mut reopened, json!({ "pack_id": "pack/research-review" }))
+                .expect("export pack after reopen should succeed"),
+        )
+        .expect("exported pack should decode as canonical manifest");
+        assert_eq!(exported, shown.pack);
+
+        let deleted: DeleteWorkbenchPackResult = serde_json::from_value(
+            delete_workbench_pack(&mut reopened, json!({ "pack_id": "pack/research-review" }))
+                .expect("delete pack RPC should succeed"),
+        )
+        .expect("delete result should decode");
+        assert_eq!(deleted.pack_id, "pack/research-review");
+        let listed_after_delete: ListWorkbenchPacksResult = serde_json::from_value(
+            list_workbench_packs(&mut reopened, json!({}))
+                .expect("list after delete should succeed"),
+        )
+        .expect("list result should decode");
+        assert!(listed_after_delete.packs.is_empty());
+    }
+
+    #[test]
+    fn workbench_pack_rpc_reports_malformed_unsupported_and_missing_packs() {
+        let (_workspace, mut state, _target_key) = indexed_state();
+        let valid = sample_workbench_pack("pack/research-review", "Research Review Pack");
+
+        let padded_error =
+            workbench_pack(&mut state, json!({ "pack_id": " pack/research-review " }))
+                .expect_err("padded pack id should be rejected");
+        assert_eq!(
+            padded_error.into_inner().message,
+            "pack_id must not have leading or trailing whitespace"
+        );
+
+        for operation in [
+            workbench_pack(&mut state, json!({ "pack_id": "pack/missing" })),
+            export_workbench_pack(&mut state, json!({ "pack_id": "pack/missing" })),
+            delete_workbench_pack(&mut state, json!({ "pack_id": "pack/missing" })),
+        ] {
+            let error = operation.expect_err("missing pack should be rejected");
+            assert_eq!(
+                error.into_inner().message,
+                "unknown workbench pack: pack/missing"
+            );
+        }
+
+        let mut unsupported = valid.clone();
+        unsupported.compatibility = WorkbenchPackCompatibility { version: 2 };
+        let validation: ValidateWorkbenchPackResult = serde_json::from_value(
+            validate_workbench_pack(&mut state, json!({ "pack": unsupported }))
+                .expect("unsupported version should produce validation issues"),
+        )
+        .expect("validation result should decode");
+        assert!(!validation.valid);
+        assert_eq!(
+            validation.issues[0].kind,
+            WorkbenchPackIssueKind::UnsupportedVersion
+        );
+        assert_eq!(
+            validation.issues[0].message,
+            "unsupported workbench pack compatibility version 2; supported version is 1"
+        );
+
+        let future_syntax_validation: ValidateWorkbenchPackResult = serde_json::from_value(
+            validate_workbench_pack(
+                &mut state,
+                json!({
+                    "pack": {
+                        "pack_id": "pack/future",
+                        "title": "Future Pack",
+                        "compatibility": { "version": 2 },
+                        "workflows": [{
+                            "workflow_id": "workflow/future",
+                            "title": "Future Workflow",
+                            "inputs": [{
+                                "input_id": "focus",
+                                "title": "Focus",
+                                "kind": "future-target"
+                            }],
+                            "steps": []
+                        }]
+                    }
+                }),
+            )
+            .expect("future pack compatibility should be detected before typed parse"),
+        )
+        .expect("future syntax validation result should decode");
+        assert!(!future_syntax_validation.valid);
+        assert_eq!(future_syntax_validation.pack, None);
+        assert_eq!(
+            future_syntax_validation.issues[0].kind,
+            WorkbenchPackIssueKind::UnsupportedVersion
+        );
+
+        let future_import_error = import_workbench_pack(
+            &mut state,
+            json!({
+                "pack": {
+                    "pack_id": "pack/future",
+                    "title": "Future Pack",
+                    "compatibility": { "version": 2 },
+                    "workflows": [{
+                        "workflow_id": "workflow/future",
+                        "title": "Future Workflow",
+                        "inputs": [{
+                            "input_id": "focus",
+                            "title": "Focus",
+                            "kind": "future-target"
+                        }],
+                        "steps": []
+                    }]
+                }
+            }),
+        )
+        .expect_err("future pack import should fail as unsupported before typed parse");
+        assert_eq!(
+            future_import_error.into_inner().message,
+            "unsupported workbench pack compatibility version 2; supported version is 1"
+        );
+
+        let listed_after_validation: ListWorkbenchPacksResult = serde_json::from_value(
+            list_workbench_packs(&mut state, json!({}))
+                .expect("invalid validation should not persist packs"),
+        )
+        .expect("list result should decode");
+        assert!(listed_after_validation.packs.is_empty());
+
+        let mut empty = valid.clone();
+        empty.workflows.clear();
+        empty.review_routines.clear();
+        empty.report_profiles.clear();
+        let save_error = import_workbench_pack(&mut state, json!({ "pack": empty }))
+            .expect_err("import should reject invalid packs");
+        assert_eq!(
+            save_error.into_inner().message,
+            "workbench packs must contain at least one workflow, review routine, or report profile"
+        );
+
+        let malformed_error = validate_workbench_pack(
+            &mut state,
+            json!({
+                "pack": {
+                    "pack_id": "pack/malformed",
+                    "title": "Malformed",
+                    "report_profiles": [{
+                        "profile_id": "profile/malformed",
+                        "title": "Malformed",
+                        "subjects": ["future-subject"]
+                    }]
+                }
+            }),
+        )
+        .expect_err("malformed pack should fail request parsing");
+        assert!(
+            malformed_error
+                .into_inner()
+                .message
+                .starts_with("invalid request parameters:"),
+            "unexpected malformed error"
+        );
     }
 
     #[test]
@@ -4238,6 +4636,32 @@ mod tests {
                     frozen_context: false,
                 }),
             },
+        }
+    }
+
+    fn sample_workbench_pack(pack_id: &str, title: &str) -> WorkbenchPackManifest {
+        WorkbenchPackManifest {
+            metadata: WorkbenchPackMetadata {
+                pack_id: pack_id.to_owned(),
+                title: title.to_owned(),
+                summary: Some("Reusable workbench assets".to_owned()),
+            },
+            compatibility: WorkbenchPackCompatibility::default(),
+            workflows: Vec::new(),
+            review_routines: Vec::new(),
+            report_profiles: vec![ReportProfileSpec {
+                metadata: ReportProfileMetadata {
+                    profile_id: format!("{pack_id}/profile/detail"),
+                    title: "Detail Report".to_owned(),
+                    summary: None,
+                },
+                subjects: vec![ReportProfileSubject::Audit],
+                mode: ReportProfileMode::Detail,
+                status_filters: None,
+                diff_buckets: None,
+                jsonl_line_kinds: None,
+            }],
+            entrypoint_routine_ids: Vec::new(),
         }
     }
 

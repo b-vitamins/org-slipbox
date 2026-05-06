@@ -3575,6 +3575,68 @@ impl From<&WorkbenchPackManifest> for WorkbenchPackSummary {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkbenchPackIdParams {
+    pub pack_id: String,
+}
+
+impl WorkbenchPackIdParams {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_workbench_pack_id_field(&self.pack_id)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImportWorkbenchPackParams {
+    pub pack: WorkbenchPackManifest,
+    #[serde(default)]
+    pub overwrite: bool,
+}
+
+impl ImportWorkbenchPackParams {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        self.pack.validation_error()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ValidateWorkbenchPackParams {
+    pub pack: WorkbenchPackManifest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ListWorkbenchPacksParams {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImportWorkbenchPackResult {
+    pub pack: WorkbenchPackSummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkbenchPackResult {
+    pub pack: WorkbenchPackManifest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ValidateWorkbenchPackResult {
+    #[serde(default)]
+    pub pack: Option<WorkbenchPackSummary>,
+    pub valid: bool,
+    pub issues: Vec<WorkbenchPackIssue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListWorkbenchPacksResult {
+    pub packs: Vec<WorkbenchPackSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeleteWorkbenchPackResult {
+    pub pack_id: String,
+}
+
 fn validate_review_diff_compatibility(
     base: &ReviewRunPayload,
     target: &ReviewRunPayload,
@@ -5107,13 +5169,14 @@ mod tests {
         ComparisonConnectorDirection, ComparisonPlanningRecord, ComparisonReferenceRecord,
         ComparisonTaskStateRecord, CorpusAuditEntry, CorpusAuditKind, CorpusAuditParams,
         CorpusAuditReportLine, CorpusAuditResult, DanglingLinkAuditRecord,
-        DeleteExplorationArtifactResult, DuplicateTitleAuditRecord,
+        DeleteExplorationArtifactResult, DeleteWorkbenchPackResult, DuplicateTitleAuditRecord,
         ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
         ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactKind,
         ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
         ExplorationArtifactSummary, ExplorationEntry, ExplorationExplanation, ExplorationLens,
         ExplorationSection, ExplorationSectionKind, ExploreParams, ExploreResult,
-        ListExplorationArtifactsResult, MarkReviewFindingParams, NodeFromKeyParams,
+        ImportWorkbenchPackParams, ImportWorkbenchPackResult, ListExplorationArtifactsResult,
+        ListWorkbenchPacksResult, MarkReviewFindingParams, NodeFromKeyParams,
         NodeFromTitleOrAliasParams, NodeKind, NodeRecord, NoteComparisonEntry,
         NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
         NoteComparisonSection, NoteComparisonSectionKind, NoteConnectivityAuditRecord,
@@ -5131,15 +5194,16 @@ mod tests {
         SaveWorkflowReviewParams, SaveWorkflowReviewResult, SavedComparisonArtifact,
         SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep,
         SearchNodesParams, SearchNodesSort, TrailReplayResult, TrailReplayStepResult,
-        UnlinkedReferencesParams, UpdateNodeMetadataParams, WorkbenchPackCompatibility,
-        WorkbenchPackCompatibilityEnvelope, WorkbenchPackIssueKind, WorkbenchPackManifest,
-        WorkbenchPackMetadata, WorkbenchPackSummary, WorkflowArtifactSaveSource,
-        WorkflowExecutionResult, WorkflowExploreFocus, WorkflowInputAssignment, WorkflowInputKind,
-        WorkflowInputSpec, WorkflowMetadata, WorkflowReportLine, WorkflowResolveTarget,
-        WorkflowSpec, WorkflowSpecCompatibility, WorkflowSpecCompatibilityEnvelope,
-        WorkflowStepPayload, WorkflowStepRef, WorkflowStepReport, WorkflowStepReportPayload,
-        WorkflowStepSpec, WorkflowSummary, built_in_workflow, built_in_workflow_summaries,
-        built_in_workflows, normalize_reference,
+        UnlinkedReferencesParams, UpdateNodeMetadataParams, ValidateWorkbenchPackParams,
+        ValidateWorkbenchPackResult, WorkbenchPackCompatibility,
+        WorkbenchPackCompatibilityEnvelope, WorkbenchPackIdParams, WorkbenchPackIssueKind,
+        WorkbenchPackManifest, WorkbenchPackMetadata, WorkbenchPackResult, WorkbenchPackSummary,
+        WorkflowArtifactSaveSource, WorkflowExecutionResult, WorkflowExploreFocus,
+        WorkflowInputAssignment, WorkflowInputKind, WorkflowInputSpec, WorkflowMetadata,
+        WorkflowReportLine, WorkflowResolveTarget, WorkflowSpec, WorkflowSpecCompatibility,
+        WorkflowSpecCompatibilityEnvelope, WorkflowStepPayload, WorkflowStepRef,
+        WorkflowStepReport, WorkflowStepReportPayload, WorkflowStepSpec, WorkflowSummary,
+        built_in_workflow, built_in_workflow_summaries, built_in_workflows, normalize_reference,
     };
     use serde_json::json;
 
@@ -7558,6 +7622,102 @@ mod tests {
         assert_eq!(
             envelope.compatibility.validation_error().as_deref(),
             Some("unsupported workbench pack compatibility version 2; supported version is 1")
+        );
+    }
+
+    #[test]
+    fn workbench_pack_rpc_contracts_round_trip() {
+        let manifest = sample_workbench_pack_manifest();
+        let summary = WorkbenchPackSummary::from(&manifest);
+
+        let import_params: ImportWorkbenchPackParams = serde_json::from_value(json!({
+            "pack": manifest.clone()
+        }))
+        .expect("import params should deserialize with default overwrite");
+        assert!(!import_params.overwrite);
+        assert_eq!(import_params.validation_error(), None);
+        assert_eq!(import_params.pack, manifest);
+
+        let explicit_overwrite: ImportWorkbenchPackParams = serde_json::from_value(json!({
+            "pack": manifest.clone(),
+            "overwrite": true
+        }))
+        .expect("explicit overwrite import params should deserialize");
+        assert!(explicit_overwrite.overwrite);
+
+        let validate_params = ValidateWorkbenchPackParams {
+            pack: manifest.clone(),
+        };
+        let import_result = ImportWorkbenchPackResult {
+            pack: summary.clone(),
+        };
+        let show_result = WorkbenchPackResult {
+            pack: manifest.clone(),
+        };
+        let validate_result = ValidateWorkbenchPackResult {
+            pack: Some(summary.clone()),
+            valid: true,
+            issues: Vec::new(),
+        };
+        let list_result = ListWorkbenchPacksResult {
+            packs: vec![summary.clone()],
+        };
+        let delete_result = DeleteWorkbenchPackResult {
+            pack_id: manifest.metadata.pack_id.clone(),
+        };
+        let id_params = WorkbenchPackIdParams {
+            pack_id: manifest.metadata.pack_id.clone(),
+        };
+        assert_eq!(id_params.validation_error(), None);
+
+        assert_eq!(
+            serde_json::from_value::<ValidateWorkbenchPackParams>(
+                serde_json::to_value(&validate_params).expect("validate params should serialize")
+            )
+            .expect("validate params should deserialize"),
+            validate_params
+        );
+        assert_eq!(
+            serde_json::from_value::<ImportWorkbenchPackResult>(
+                serde_json::to_value(&import_result).expect("import result should serialize")
+            )
+            .expect("import result should deserialize"),
+            import_result
+        );
+        assert_eq!(
+            serde_json::from_value::<WorkbenchPackResult>(
+                serde_json::to_value(&show_result).expect("show result should serialize")
+            )
+            .expect("show result should deserialize"),
+            show_result
+        );
+        assert_eq!(
+            serde_json::from_value::<ValidateWorkbenchPackResult>(
+                serde_json::to_value(&validate_result).expect("validate result should serialize")
+            )
+            .expect("validate result should deserialize"),
+            validate_result
+        );
+        assert_eq!(
+            serde_json::from_value::<ListWorkbenchPacksResult>(
+                serde_json::to_value(&list_result).expect("list result should serialize")
+            )
+            .expect("list result should deserialize"),
+            list_result
+        );
+        assert_eq!(
+            serde_json::from_value::<DeleteWorkbenchPackResult>(
+                serde_json::to_value(&delete_result).expect("delete result should serialize")
+            )
+            .expect("delete result should deserialize"),
+            delete_result
+        );
+        assert_eq!(
+            serde_json::from_value::<WorkbenchPackIdParams>(
+                serde_json::to_value(&id_params).expect("id params should serialize")
+            )
+            .expect("id params should deserialize"),
+            id_params
         );
     }
 

@@ -8,13 +8,17 @@ use slipbox_core::{
     BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID,
     CompareNotesParams, CorpusAuditEntry, CorpusAuditKind, DanglingLinkAuditRecord,
     ExecuteExplorationArtifactResult, ExplorationArtifactIdParams, ExplorationArtifactMetadata,
-    ExplorationArtifactPayload, ExplorationLens, ExploreParams, NodeFromIdParams,
-    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeKind, ReviewFinding, ReviewFindingPayload,
-    ReviewFindingRemediationPreviewParams, ReviewFindingStatus, ReviewRun, ReviewRunDiffParams,
-    ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload, RunWorkflowParams,
-    SaveCorpusAuditReviewParams, SaveExplorationArtifactParams, SaveReviewRunParams,
-    SaveWorkflowReviewParams, SavedExplorationArtifact, SavedLensViewArtifact, SearchNodesParams,
-    WorkflowIdParams, WorkflowInputAssignment, WorkflowResult,
+    ExplorationArtifactPayload, ExplorationLens, ExploreParams, ImportWorkbenchPackParams,
+    NodeFromIdParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeKind,
+    ReportProfileMetadata, ReportProfileMode, ReportProfileSpec, ReportProfileSubject,
+    ReviewFinding, ReviewFindingPayload, ReviewFindingRemediationPreviewParams,
+    ReviewFindingStatus, ReviewRun, ReviewRunDiffParams, ReviewRunIdParams, ReviewRunMetadata,
+    ReviewRunPayload, RunWorkflowParams, SaveCorpusAuditReviewParams,
+    SaveExplorationArtifactParams, SaveReviewRunParams, SaveWorkflowReviewParams,
+    SavedExplorationArtifact, SavedLensViewArtifact, SearchNodesParams,
+    ValidateWorkbenchPackParams, WorkbenchPackCompatibility, WorkbenchPackIdParams,
+    WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackMetadata, WorkflowIdParams,
+    WorkflowInputAssignment, WorkflowResult,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonServeConfig};
 use slipbox_index::scan_root;
@@ -128,6 +132,32 @@ fn sample_review_run() -> ReviewRun {
                 }),
             },
         }],
+    }
+}
+
+fn sample_workbench_pack() -> WorkbenchPackManifest {
+    WorkbenchPackManifest {
+        metadata: WorkbenchPackMetadata {
+            pack_id: "pack/daemon-client".to_owned(),
+            title: "Daemon Client Pack".to_owned(),
+            summary: Some("Pack round trip over stdio".to_owned()),
+        },
+        compatibility: WorkbenchPackCompatibility::default(),
+        workflows: Vec::new(),
+        review_routines: Vec::new(),
+        report_profiles: vec![ReportProfileSpec {
+            metadata: ReportProfileMetadata {
+                profile_id: "profile/daemon-client/detail".to_owned(),
+                title: "Daemon Client Detail".to_owned(),
+                summary: None,
+            },
+            subjects: vec![ReportProfileSubject::Audit],
+            mode: ReportProfileMode::Detail,
+            status_filters: None,
+            diff_buckets: None,
+            jsonl_line_kinds: None,
+        }],
+        entrypoint_routine_ids: Vec::new(),
     }
 }
 
@@ -321,6 +351,71 @@ fn daemon_client_queries_spawned_daemon_and_round_trips_artifacts() -> Result<()
     })?;
     assert_eq!(deleted.artifact_id, "alpha-structure");
     assert!(client.list_exploration_artifacts()?.artifacts.is_empty());
+
+    let pack = sample_workbench_pack();
+    let pack_validation =
+        client.validate_workbench_pack(&ValidateWorkbenchPackParams { pack: pack.clone() })?;
+    assert!(pack_validation.valid);
+    assert!(pack_validation.issues.is_empty());
+    assert_eq!(pack_validation.pack, Some(pack.summary()));
+    assert!(client.list_workbench_packs()?.packs.is_empty());
+
+    let imported_pack = client.import_workbench_pack(&ImportWorkbenchPackParams {
+        pack: pack.clone(),
+        overwrite: false,
+    })?;
+    assert_eq!(imported_pack.pack, pack.summary());
+    let pack_conflict = client
+        .import_workbench_pack(&ImportWorkbenchPackParams {
+            pack: pack.clone(),
+            overwrite: false,
+        })
+        .expect_err("pack import should reject collisions by default");
+    match pack_conflict {
+        slipbox_daemon_client::DaemonClientError::Rpc(error) => {
+            assert_eq!(
+                error.message,
+                "workbench pack already exists: pack/daemon-client"
+            );
+        }
+        other => panic!("expected RPC conflict for duplicate pack import, got {other:?}"),
+    }
+
+    let mut updated_pack = pack.clone();
+    updated_pack.metadata.title = "Daemon Client Pack Updated".to_owned();
+    let overwritten_pack = client.import_workbench_pack(&ImportWorkbenchPackParams {
+        pack: updated_pack.clone(),
+        overwrite: true,
+    })?;
+    assert_eq!(overwritten_pack.pack, updated_pack.summary());
+
+    let listed_packs = client.list_workbench_packs()?;
+    assert_eq!(listed_packs.packs, vec![updated_pack.summary()]);
+    let loaded_pack = client.workbench_pack(&WorkbenchPackIdParams {
+        pack_id: "pack/daemon-client".to_owned(),
+    })?;
+    assert_eq!(loaded_pack.pack, updated_pack);
+    let exported_pack = client.export_workbench_pack(&WorkbenchPackIdParams {
+        pack_id: "pack/daemon-client".to_owned(),
+    })?;
+    assert_eq!(exported_pack, loaded_pack.pack);
+
+    let mut unsupported_pack = exported_pack.clone();
+    unsupported_pack.compatibility = WorkbenchPackCompatibility { version: 2 };
+    let unsupported_validation = client.validate_workbench_pack(&ValidateWorkbenchPackParams {
+        pack: unsupported_pack,
+    })?;
+    assert!(!unsupported_validation.valid);
+    assert_eq!(
+        unsupported_validation.issues[0].kind,
+        WorkbenchPackIssueKind::UnsupportedVersion
+    );
+
+    let deleted_pack = client.delete_workbench_pack(&WorkbenchPackIdParams {
+        pack_id: "pack/daemon-client".to_owned(),
+    })?;
+    assert_eq!(deleted_pack.pack_id, "pack/daemon-client");
+    assert!(client.list_workbench_packs()?.packs.is_empty());
 
     let review = sample_review_run();
     let saved_review = client.save_review_run(&SaveReviewRunParams {

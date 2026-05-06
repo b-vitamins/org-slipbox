@@ -22,6 +22,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Added durable workbench pack persistence outside the derived SQLite index,
   with overwrite/no-overwrite save modes, validated loads, and non-polluting
   pack identity.
+- Added typed daemon/RPC workbench pack operations for import, show, validate,
+  export, list, and delete over the durable pack store.
 
 ### Changed
 - Defined the `0.10.x` release band as declarative workbench extension through
