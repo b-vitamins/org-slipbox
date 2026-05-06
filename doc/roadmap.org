@@ -150,8 +150,8 @@ Focus:
 - explicit review status so repeated runs can be triaged without becoming a
   task-manager clone
 - review diffs that show what changed since an earlier run
-- safe remediation previews for audit findings and workflow outcomes before
-  any write occurs
+- read-only remediation previews for supported audit findings before any write
+  occurs
 - a clear boundary between review records, ordinary notes, and saved
   exploration artifacts
 - operational loops over the composed `0.8.x` workbench without widening into
@@ -164,7 +164,7 @@ Watchpoints:
 - do not imply that review status is a general task-management system
 - do not execute broad structural writes when the right product surface is a
   preview and an explicit later decision
-- do not let remediation previews bypass the Rust-owned write path
+- do not let remediation previews imply or bypass a Rust-owned write path
 - keep extension APIs, plugin-runtime work, MCP, and agent-adapter ambitions
   out of this band
 - keep the one exploratory model intact across cockpit, daemon, CLI,

@@ -87,11 +87,11 @@ is complete.
 sprawl: named workflows, corpus-health audits, bounded workflow discovery from
 configured directories, report output surfaces, and stricter scale guarantees
 over the same settled exploratory model.
-`0.9.x` should make that composed workbench operational: durable review runs,
-review status, review diffs, and safe remediation previews for recurring
-workflow and audit loops. Review state should be a distinct domain concept. It
-must not collapse into ordinary note identity, saved exploration-artifact
-identity, task-manager sprawl, or broad write automation.
+`0.9.x` makes that composed workbench operational: durable review runs, review
+status, review diffs, and read-only remediation previews for supported audit
+findings. Review state is a distinct domain concept. It must not collapse into
+ordinary note identity, saved exploration-artifact identity, task-manager
+sprawl, or broad write automation.
 Broader extension, plugin-runtime, MCP, and platform surfaces still come
 later.
 

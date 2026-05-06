@@ -19,6 +19,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Broadened benchmark gates for operational review paths, covering persisted
   review list/show/diff/mark flows, save-review execution, and remediation
   previews over canonical server-backed fixtures.
+- Documented the operational review loop, including `--save-review` examples,
+  review list/show/diff/mark/delete commands, and the boundary between review
+  records, notes, saved exploration artifacts, and read-only remediation
+  previews.
 
 ### Fixed
 - Hardened review CLI JSON contract coverage for save-review, show, diff, mark,

@@ -20,9 +20,10 @@ day-to-day replacement use while the project deepens its exploratory model.
 The released `0.8.x` line broadened the research workbench by composition:
 named workflows, corpus-health audits, bounded workflow discovery, report
 outputs, and stricter scale guarantees over the shipped headless surface.
-The next `0.9.x` line is operational workbench work: durable review runs,
-review status, review diffs, and safe remediation previews for recurring
-workflow and audit loops. Raw-RPC sprawl, plugin-runtime ambitions, MCP,
+The `0.9.x` line makes those recurring loops operational: durable review
+runs, review status, review diffs, and read-only remediation previews for
+supported audit findings. Review records stay distinct from notes and saved
+exploration artifacts. Raw-RPC sprawl, plugin-runtime ambitions, MCP,
 agent-adapter claims, and broad automated mutation remain deferred.
 
 ## Requirements
@@ -263,11 +264,12 @@ builds the first usable headless workbench on top of that same model through
 task-shaped `slipbox` commands for node resolution, live exploration,
 comparison, and artifact lifecycle over `slipbox serve`. `0.8.x` broadens the
 same house through named workflows, corpus-health audits, bounded workflow
-discovery, report outputs, and scale gates. `0.9.x` should make those recurring
+discovery, report outputs, and scale gates. `0.9.x` makes those recurring
 workbench loops reviewable and operational through durable review records,
-status, diffs, and remediation previews, while keeping review state distinct
-from notes and saved exploration artifacts. Broader platform maturity,
-extension APIs, and agent-adapter work remain later work.
+status, diffs, and read-only remediation previews for supported audit
+findings, while keeping review state distinct from notes and saved exploration
+artifacts. Broader platform maturity, extension APIs, and agent-adapter work
+remain later work.
 
 When the current node record includes indexed metadata, the node summary also
 renders file modification time plus backlink and forward-link counts without
@@ -621,12 +623,13 @@ These stay opt-in and isolated from startup:
 `org-slipbox` ships with an explicit corpus benchmark harness instead of
 relying on anecdotal scale claims.
 
-- `cargo run --bin slipbox-bench -- check --profile ci` generates a deterministic corpus, measures full indexing, single-file incremental indexing, indexed search, backlinks, node-at-point lookup, agenda queries, workflow catalog discovery, discovered workflow execution, corpus-health audits, and batch Emacs benchmarks for the persistent tracking buffer, the dedicated comparison render path, and a guaranteed non-structure dedicated exploration render path rooted in the unresolved lens with trail state.
+- `cargo run --bin slipbox-bench -- check --profile ci` generates a deterministic corpus, measures full indexing, single-file incremental indexing, indexed search, backlinks, node-at-point lookup, agenda queries, workflow catalog discovery, discovered workflow execution, corpus-health audits, operational review paths, and batch Emacs benchmarks for the persistent tracking buffer, the dedicated comparison render path, and a guaranteed non-structure dedicated exploration render path rooted in the unresolved lens with trail state.
 - `cargo run --bin slipbox-bench -- run --profile release --keep-corpus` runs the larger local profile and keeps the generated corpus under `target/bench/` for inspection.
 - Benchmark profiles live in [`benches/profiles/ci.json`](/home/b/projects/org-slipbox/benches/profiles/ci.json) and [`benches/profiles/release.json`](/home/b/projects/org-slipbox/benches/profiles/release.json). Reports are written to `target/bench/`.
-- The benchmark corpus includes discovered workflow specs plus explicit audit
-  fixtures, so the workflow and audit gates measure real workbench behavior
-  rather than empty catalog scans or cheap fallback paths.
+- The benchmark corpus includes discovered workflow specs, explicit audit
+  fixtures, and persisted review fixtures, so workflow, audit, and operational
+  review gates measure real workbench behavior rather than empty catalog scans
+  or cheap fallback paths.
 
 This is an intentional divergence from the `org-roam` manual's performance
 guidance. `org-slipbox` does not expose GC-tuning knobs for cache builds,
@@ -651,19 +654,20 @@ that the whole programmable platform is done.
   bounded workflow discovery from configured directories, report output
   surfaces, and stricter scale guarantees built on that same settled
   exploratory model.
-- `0.9.x` is the next operational workbench step: durable review runs for
-  repeated workflow and audit loops, explicit review status, review diffs, and
-  safe remediation previews. Review records are not notes, and they are not
-  saved exploration artifacts.
+- `0.9.x` is the operational workbench step: durable review runs for repeated
+  workflow and audit loops, explicit review status, review diffs, and
+  read-only remediation previews for supported audit findings. Review records
+  are not notes, and they are not saved exploration artifacts.
 - Broad CLI families, extension APIs, MCP surfaces, and agent adapters are
   still deferred.
 
 ## Headless Workbench
 
-`0.7.x` made the workbench genuinely usable outside Emacs. The current
-`0.8.x` line composes that surface into named workflows, corpus-health audits,
-bounded workflow discovery, and report outputs. The CLI stays on the same
-architectural line as the rest of the project:
+`0.7.x` made the workbench genuinely usable outside Emacs. `0.8.x` composed
+that surface into named workflows, corpus-health audits, bounded workflow
+discovery, and report outputs. `0.9.x` makes repeated workflow and audit loops
+durable, reviewable, and diffable. The CLI stays on the same architectural
+line as the rest of the project:
 
 - every headless command talks to the daemon over canonical JSON-RPC stdio
 - the CLI auto-spawns `slipbox serve` from the current executable unless you
@@ -684,6 +688,11 @@ The shipped headless commands are:
 - `slipbox workflow list`
 - `slipbox workflow show`
 - `slipbox workflow run`
+- `slipbox review list`
+- `slipbox review show`
+- `slipbox review diff`
+- `slipbox review mark`
+- `slipbox review delete`
 - `slipbox artifact list`
 - `slipbox artifact show`
 - `slipbox artifact run`
@@ -824,6 +833,73 @@ slipbox audit weakly-integrated-notes \
   --json
 ```
 
+Save recurring audit and workflow runs as durable review records:
+
+```bash
+slipbox audit dangling-links \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --limit 200 \
+  --save-review \
+  --review-id review/dangling-links/2026-05-06 \
+  --review-title "Dangling links, 2026-05-06" \
+  --json
+```
+
+```bash
+slipbox workflow run workflow/builtin/periodic-review \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --input 'focus=title:Project X' \
+  --save-review \
+  --review-id review/project-x/periodic/2026-05-06 \
+  --review-title "Project X periodic review" \
+  --json
+```
+
+Review records capture the result evidence plus explicit review status. They
+are not ordinary notes, and they are not saved exploration artifacts. Use the
+review commands to inspect repeated runs, compare compatible runs, triage
+findings, and remove obsolete review records:
+
+```bash
+slipbox review list \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --json
+
+slipbox review show review/project-x/periodic/2026-05-06 \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --json
+
+slipbox review diff \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  review/project-x/periodic/2026-04-29 \
+  review/project-x/periodic/2026-05-06 \
+  --json
+
+slipbox review mark \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  review/project-x/periodic/2026-05-06 \
+  workflow-step/review-unresolved \
+  reviewed \
+  --json
+
+slipbox review delete \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  review/project-x/periodic/2026-04-29 \
+  --json
+```
+
+Supported audit findings can produce read-only remediation previews through
+the daemon. There is deliberately no broad automatic fix/apply surface in this
+line; structural writes remain Rust-owned and require a later explicit product
+surface before anything mutates Org files.
+
 Save a live exploration or comparison as a durable artifact:
 
 ```bash
@@ -870,21 +946,20 @@ The JSON contracts are intentionally different where the semantics differ:
   payload is the executed artifact shape
 - `slipbox artifact export --json` emits raw saved-artifact JSON, and
   `slipbox artifact import --json` consumes that same raw saved-artifact JSON
+- `slipbox audit <kind> --save-review --json` and `slipbox workflow run
+  --save-review --json` return `{ "result": ..., "review": ... }`
+- `slipbox review show --json` returns `{ "review": ... }`, `review diff`
+  returns `{ "diff": ... }`, and `review mark` returns `{ "transition": ... }`
+- `slipbox review delete --json` returns `{ "review_id": ... }`
 
 This is now a broader composed research workbench surface, not the whole
-platform. Named workflows and audits compose the settled live
+platform. Named workflows, audits, and reviews compose the settled live
 explore/compare/artifact model; they do not introduce a broad CLI for every
 RPC, an extension API, MCP, or an agent-adapter layer. Workflow discovery is a
 bounded declarative mechanism for JSON specs in configured directories, not a
-plugin runtime.
-
-The next workbench line is operational rather than expansive. `0.9.x` should
-make recurring workflow and audit runs durable, comparable, and reviewable:
-what ran, what changed since the last run, what still needs attention, and
-what remediation could be previewed safely before any write occurs. That
-review state should live beside the composed workbench model without becoming
-note identity, saved exploration-artifact identity, a task-manager clone, or a
-general automation platform.
+plugin runtime. Review status is explicit triage state for durable review
+runs, not a general task manager. Remediation previews describe possible safe
+actions; they do not apply writes.
 
 ## FAQ
 
