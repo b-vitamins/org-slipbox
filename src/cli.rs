@@ -22,12 +22,14 @@ use slipbox_core::{
     ReviewFindingKind, ReviewFindingPair, ReviewFindingPayload, ReviewFindingStatus,
     ReviewFindingStatusDiff, ReviewRun, ReviewRunDiff, ReviewRunDiffParams, ReviewRunDiffResult,
     ReviewRunIdParams, ReviewRunKind, ReviewRunPayload, ReviewRunResult, ReviewRunSummary,
-    RunWorkflowParams, RunWorkflowResult, SaveExplorationArtifactParams, SavedComparisonArtifact,
-    SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep,
-    StatusInfo, TrailReplayResult, TrailReplayStepResult, WorkflowArtifactSaveSource,
-    WorkflowExecutionResult, WorkflowExploreFocus, WorkflowIdParams, WorkflowInputAssignment,
-    WorkflowInputKind, WorkflowInputSpec, WorkflowResolveTarget, WorkflowSpec, WorkflowStepPayload,
-    WorkflowStepReport, WorkflowStepReportPayload, WorkflowStepSpec, WorkflowSummary,
+    RunWorkflowParams, RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
+    SaveExplorationArtifactParams, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
+    SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact,
+    SavedTrailStep, StatusInfo, TrailReplayResult, TrailReplayStepResult,
+    WorkflowArtifactSaveSource, WorkflowExecutionResult, WorkflowExploreFocus, WorkflowIdParams,
+    WorkflowInputAssignment, WorkflowInputKind, WorkflowInputSpec, WorkflowResolveTarget,
+    WorkflowSpec, WorkflowStepPayload, WorkflowStepReport, WorkflowStepReportPayload,
+    WorkflowStepSpec, WorkflowSummary,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonClientError, DaemonServeConfig};
 use slipbox_index::DiscoveryPolicy;
@@ -403,6 +405,8 @@ pub(crate) struct AuditRunArgs {
     pub(crate) limit: usize,
     #[command(flatten)]
     pub(crate) report: ReportOutputArgs,
+    #[command(flatten)]
+    pub(crate) save_review: SaveReviewArgs,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -508,6 +512,8 @@ pub(crate) struct WorkflowRunArgs {
     pub(crate) inputs: Vec<String>,
     #[command(flatten)]
     pub(crate) report: ReportOutputArgs,
+    #[command(flatten)]
+    pub(crate) save_review: SaveReviewArgs,
 }
 
 #[derive(Debug, Clone, Args, Default)]
@@ -540,6 +546,25 @@ impl ReportOutputArgs {
             .as_deref()
             .filter(|path| *path != Path::new("-"))
     }
+}
+
+#[derive(Debug, Clone, Args, Default)]
+pub(crate) struct SaveReviewArgs {
+    /// Persist this live audit or workflow run as a durable review.
+    #[arg(long = "save-review")]
+    pub(crate) save_review: bool,
+    /// Durable identifier to assign to the saved review.
+    #[arg(long = "review-id")]
+    pub(crate) review_id: Option<String>,
+    /// Human title to assign to the saved review.
+    #[arg(long = "review-title")]
+    pub(crate) review_title: Option<String>,
+    /// Optional human summary for the saved review.
+    #[arg(long = "review-summary")]
+    pub(crate) review_summary: Option<String>,
+    /// Replace an existing saved review with the same durable identifier.
+    #[arg(long)]
+    pub(crate) overwrite: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -904,6 +929,15 @@ struct WorkflowReportOutputResult {
 }
 
 #[derive(Debug, Serialize)]
+struct SavedWorkflowReportOutputResult {
+    workflow: WorkflowSummary,
+    format: ReportFormat,
+    output_path: String,
+    step_count: usize,
+    review: ReviewRunSummary,
+}
+
+#[derive(Debug, Serialize)]
 struct AuditReportOutputResult {
     audit: CorpusAuditKind,
     format: ReportFormat,
@@ -912,8 +946,57 @@ struct AuditReportOutputResult {
 }
 
 #[derive(Debug, Serialize)]
+struct SavedAuditReportOutputResult {
+    audit: CorpusAuditKind,
+    format: ReportFormat,
+    output_path: String,
+    entry_count: usize,
+    review: ReviewRunSummary,
+}
+
+#[derive(Debug, Serialize)]
 struct WorkflowShowFileResult {
     workflow: WorkflowSpec,
+}
+
+#[derive(Debug, Clone)]
+struct SaveReviewRequest {
+    review_id: Option<String>,
+    title: Option<String>,
+    summary: Option<String>,
+    overwrite: bool,
+}
+
+impl SaveReviewArgs {
+    fn request(&self) -> Result<Option<SaveReviewRequest>> {
+        let mut stray_flags = Vec::new();
+        if self.review_id.is_some() {
+            stray_flags.push("--review-id");
+        }
+        if self.review_title.is_some() {
+            stray_flags.push("--review-title");
+        }
+        if self.review_summary.is_some() {
+            stray_flags.push("--review-summary");
+        }
+        if self.overwrite {
+            stray_flags.push("--overwrite");
+        }
+
+        if !self.save_review {
+            if stray_flags.is_empty() {
+                return Ok(None);
+            }
+            anyhow::bail!("{} require --save-review", render_flag_list(&stray_flags));
+        }
+
+        Ok(Some(SaveReviewRequest {
+            review_id: self.review_id.clone(),
+            title: self.review_title.clone(),
+            summary: self.review_summary.clone(),
+            overwrite: self.overwrite,
+        }))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1707,7 +1790,29 @@ fn run_audit_command(kind: CorpusAuditKind, args: &AuditRunArgs) -> Result<(), C
         .format(output_mode)
         .map_err(|error| CliCommandError::new(output_mode, error))?;
     let error_output_mode = report_format.error_output_mode();
+    let save_review = args
+        .save_review
+        .request()
+        .map_err(|error| CliCommandError::new(error_output_mode, error))?;
     let mut client = args.headless.connect_with_output_mode(error_output_mode)?;
+
+    if let Some(save_review) = save_review {
+        let saved = client
+            .save_corpus_audit_review(&SaveCorpusAuditReviewParams {
+                audit: kind,
+                limit: args.limit,
+                review_id: save_review.review_id,
+                title: save_review.title,
+                summary: save_review.summary,
+                overwrite: save_review.overwrite,
+            })
+            .map_err(|error| CliCommandError::new(error_output_mode, error))?;
+        client
+            .shutdown()
+            .map_err(|error| CliCommandError::new(error_output_mode, error))?;
+        return write_saved_audit_command_output(args, report_format, saved, error_output_mode);
+    }
+
     let result = client
         .corpus_audit(&CorpusAuditParams {
             audit: kind,
@@ -1762,9 +1867,37 @@ fn run_workflow_command(command: &WorkflowRunArgs) -> Result<(), CliCommandError
         .format(output_mode)
         .map_err(|error| CliCommandError::new(output_mode, error))?;
     let error_output_mode = report_format.error_output_mode();
+    let save_review = command
+        .save_review
+        .request()
+        .map_err(|error| CliCommandError::new(error_output_mode, error))?;
     let mut client = command
         .headless
         .connect_with_output_mode(error_output_mode)?;
+
+    if let Some(save_review) = save_review {
+        let saved = client
+            .save_workflow_review(&SaveWorkflowReviewParams {
+                workflow_id: command.workflow_id.clone(),
+                inputs: parse_workflow_input_assignments(&command.inputs)
+                    .map_err(|error| CliCommandError::new(error_output_mode, error))?,
+                review_id: save_review.review_id,
+                title: save_review.title,
+                summary: save_review.summary,
+                overwrite: save_review.overwrite,
+            })
+            .map_err(|error| CliCommandError::new(error_output_mode, error))?;
+        client
+            .shutdown()
+            .map_err(|error| CliCommandError::new(error_output_mode, error))?;
+        return write_saved_workflow_command_output(
+            command,
+            report_format,
+            saved,
+            error_output_mode,
+        );
+    }
+
     let result = command
         .execute(&mut client)
         .map_err(|error| CliCommandError::new(error_output_mode, error))?;
@@ -1807,6 +1940,158 @@ fn run_workflow_command(command: &WorkflowRunArgs) -> Result<(), CliCommandError
         .map_err(|error| CliCommandError::new(report_format.ack_output_mode(), error))?;
     }
     Ok(())
+}
+
+fn write_saved_audit_command_output(
+    args: &AuditRunArgs,
+    report_format: ReportFormat,
+    saved: SaveCorpusAuditReviewResult,
+    error_output_mode: OutputMode,
+) -> Result<(), CliCommandError> {
+    if let Some(output_path) = args.report.output_path() {
+        let report_bytes = render_report_bytes(
+            report_format,
+            &saved.result,
+            render_corpus_audit_result,
+            CorpusAuditResult::report_lines,
+        )
+        .map_err(|error| CliCommandError::new(error_output_mode, error))?;
+        write_report_destination(&report_bytes, Some(output_path))
+            .map_err(|error| CliCommandError::new(error_output_mode, error))?;
+
+        let stdout = io::stdout();
+        let mut writer = stdout.lock();
+        let ack = SavedAuditReportOutputResult {
+            audit: saved.result.audit,
+            format: report_format,
+            output_path: output_path.display().to_string(),
+            entry_count: saved.result.entries.len(),
+            review: saved.review,
+        };
+        return write_output(
+            &mut writer,
+            report_format.ack_output_mode(),
+            &ack,
+            |value| {
+                let mut output = format!(
+                    "wrote audit report: {} -> {} ({})\n",
+                    render_corpus_audit_kind(value.audit),
+                    value.output_path,
+                    value.format.label(),
+                );
+                output.push_str(&render_saved_review_summary(&value.review));
+                output
+            },
+        )
+        .map_err(|error| CliCommandError::new(report_format.ack_output_mode(), error));
+    }
+
+    match report_format {
+        ReportFormat::Human => {
+            let stdout = io::stdout();
+            let mut writer = stdout.lock();
+            write_output(&mut writer, OutputMode::Human, &saved, |value| {
+                let mut output = render_corpus_audit_result(&value.result);
+                output.push('\n');
+                output.push_str(&render_saved_review_summary(&value.review));
+                output
+            })
+            .map_err(|error| CliCommandError::new(OutputMode::Human, error))
+        }
+        ReportFormat::Json => {
+            let stdout = io::stdout();
+            let mut writer = stdout.lock();
+            write_output(&mut writer, OutputMode::Json, &saved, |_| String::new())
+                .map_err(|error| CliCommandError::new(OutputMode::Json, error))
+        }
+        ReportFormat::Jsonl => {
+            let report_bytes = render_report_bytes(
+                report_format,
+                &saved.result,
+                render_corpus_audit_result,
+                CorpusAuditResult::report_lines,
+            )
+            .map_err(|error| CliCommandError::new(error_output_mode, error))?;
+            write_report_destination(&report_bytes, None)
+                .map_err(|error| CliCommandError::new(error_output_mode, error))
+        }
+    }
+}
+
+fn write_saved_workflow_command_output(
+    command: &WorkflowRunArgs,
+    report_format: ReportFormat,
+    saved: SaveWorkflowReviewResult,
+    error_output_mode: OutputMode,
+) -> Result<(), CliCommandError> {
+    if let Some(output_path) = command.report.output_path() {
+        let report_bytes = render_report_bytes(
+            report_format,
+            &saved.result,
+            render_workflow_execution_result,
+            WorkflowExecutionResult::report_lines,
+        )
+        .map_err(|error| CliCommandError::new(error_output_mode, error))?;
+        write_report_destination(&report_bytes, Some(output_path))
+            .map_err(|error| CliCommandError::new(error_output_mode, error))?;
+
+        let stdout = io::stdout();
+        let mut writer = stdout.lock();
+        let ack = SavedWorkflowReportOutputResult {
+            workflow: saved.result.workflow.clone(),
+            format: report_format,
+            output_path: output_path.display().to_string(),
+            step_count: saved.result.steps.len(),
+            review: saved.review,
+        };
+        return write_output(
+            &mut writer,
+            report_format.ack_output_mode(),
+            &ack,
+            |value| {
+                let mut output = format!(
+                    "wrote workflow report: {} -> {} ({})\n",
+                    value.workflow.metadata.workflow_id,
+                    value.output_path,
+                    value.format.label(),
+                );
+                output.push_str(&render_saved_review_summary(&value.review));
+                output
+            },
+        )
+        .map_err(|error| CliCommandError::new(report_format.ack_output_mode(), error));
+    }
+
+    match report_format {
+        ReportFormat::Human => {
+            let stdout = io::stdout();
+            let mut writer = stdout.lock();
+            write_output(&mut writer, OutputMode::Human, &saved, |value| {
+                let mut output = render_workflow_execution_result(&value.result);
+                output.push('\n');
+                output.push_str(&render_saved_review_summary(&value.review));
+                output
+            })
+            .map_err(|error| CliCommandError::new(OutputMode::Human, error))
+        }
+        ReportFormat::Json => {
+            let stdout = io::stdout();
+            let mut writer = stdout.lock();
+            write_output(&mut writer, OutputMode::Json, &saved, |_| String::new())
+                .map_err(|error| CliCommandError::new(OutputMode::Json, error))
+        }
+        ReportFormat::Jsonl => {
+            let report_bytes = render_report_bytes(
+                report_format,
+                &saved.result,
+                render_workflow_execution_result,
+                WorkflowExecutionResult::report_lines,
+            )
+            .map_err(|error| CliCommandError::new(error_output_mode, error))?;
+            write_report_destination(&report_bytes, None)
+                .map_err(|error| CliCommandError::new(error_output_mode, error))
+        }
+    }
 }
 
 fn render_flag_list(flags: &[&str]) -> String {
@@ -2104,6 +2389,14 @@ fn render_saved_artifact_summary(artifact: &ExplorationArtifactSummary) -> Strin
         "saved artifact: {} [{}]\n",
         artifact.metadata.artifact_id,
         render_artifact_kind(artifact.kind)
+    )
+}
+
+fn render_saved_review_summary(review: &ReviewRunSummary) -> String {
+    format!(
+        "saved review: {} [{}]\n",
+        review.metadata.review_id,
+        render_review_kind(review.kind)
     )
 }
 

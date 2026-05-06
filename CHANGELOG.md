@@ -12,6 +12,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
   durable review-run capture without adding new workflow step kinds.
 - Added read-only remediation preview types and daemon operation for supported
   audit review findings, starting with dangling links and duplicate titles.
+- Added `--save-review` flows to audit and workflow run commands so live
+  operational results can be persisted as durable review runs from the CLI.
 
 ## [0.8.0] - 2026-05-05
 

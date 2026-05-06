@@ -4,7 +4,11 @@ use std::process::Command;
 
 use anyhow::Result;
 use serde::Deserialize;
-use slipbox_core::{CorpusAuditEntry, CorpusAuditKind, CorpusAuditResult};
+use serde_json::Value;
+use slipbox_core::{
+    CorpusAuditEntry, CorpusAuditKind, CorpusAuditResult, ReviewRunPayload, ReviewRunResult,
+    SaveCorpusAuditReviewResult,
+};
 use slipbox_index::scan_root;
 use slipbox_store::Database;
 use tempfile::tempdir;
@@ -124,6 +128,44 @@ fn audit_command_with_server(
     if json {
         command.arg("--json");
     }
+    command.output().map_err(Into::into)
+}
+
+fn audit_command_with_args(
+    root: &str,
+    db: &str,
+    subcommand: &str,
+    args: &[&str],
+) -> Result<std::process::Output> {
+    let mut command = Command::new(slipbox_binary());
+    command.args([
+        "audit",
+        subcommand,
+        "--root",
+        root,
+        "--db",
+        db,
+        "--server-program",
+        slipbox_binary(),
+    ]);
+    command.args(args);
+    command.output().map_err(Into::into)
+}
+
+fn review_show_command(root: &str, db: &str, review_id: &str) -> Result<std::process::Output> {
+    let mut command = Command::new(slipbox_binary());
+    command.args([
+        "review",
+        "show",
+        "--root",
+        root,
+        "--db",
+        db,
+        "--server-program",
+        slipbox_binary(),
+        review_id,
+        "--json",
+    ]);
     command.output().map_err(Into::into)
 }
 
@@ -267,6 +309,161 @@ fn audit_commands_report_structured_daemon_failures() -> Result<()> {
             .message
             .contains("failed to start slipbox daemon")
     );
+
+    Ok(())
+}
+
+#[test]
+fn audit_save_review_flags_persist_typed_reviews_and_enforce_policy() -> Result<()> {
+    let (_workspace, root, db) = build_indexed_fixture()?;
+
+    let output = audit_command_with_args(
+        &root,
+        &db,
+        "dangling-links",
+        &[
+            "--save-review",
+            "--review-id",
+            "review/audit/dangling/custom",
+            "--review-title",
+            "Dangling Review",
+            "--review-summary",
+            "Review links to missing IDs.",
+            "--json",
+        ],
+    )?;
+    assert!(output.status.success(), "{output:?}");
+    let saved: SaveCorpusAuditReviewResult = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(saved.result.audit, CorpusAuditKind::DanglingLinks);
+    assert_eq!(saved.result.entries.len(), 1);
+    assert_eq!(
+        saved.review.metadata.review_id,
+        "review/audit/dangling/custom"
+    );
+    assert_eq!(saved.review.metadata.title, "Dangling Review");
+    assert_eq!(saved.review.finding_count, saved.result.entries.len());
+
+    let shown = review_show_command(&root, &db, "review/audit/dangling/custom")?;
+    assert!(shown.status.success(), "{shown:?}");
+    let shown: ReviewRunResult = serde_json::from_slice(&shown.stdout)?;
+    match shown.review.payload {
+        ReviewRunPayload::Audit { audit, limit } => {
+            assert_eq!(audit, CorpusAuditKind::DanglingLinks);
+            assert_eq!(limit, 200);
+        }
+        other => panic!("expected audit review, got {:?}", other.kind()),
+    }
+    assert_eq!(shown.review.findings.len(), saved.result.entries.len());
+    match &shown.review.findings[0].payload {
+        slipbox_core::ReviewFindingPayload::Audit { entry } => {
+            assert_eq!(entry.as_ref(), &saved.result.entries[0]);
+        }
+        other => panic!("expected audit finding, got {:?}", other.kind()),
+    }
+
+    let conflict = audit_command_with_args(
+        &root,
+        &db,
+        "dangling-links",
+        &[
+            "--save-review",
+            "--review-id",
+            "review/audit/dangling/custom",
+            "--json",
+        ],
+    )?;
+    assert_eq!(conflict.status.code(), Some(1));
+    assert!(conflict.stdout.is_empty());
+    let error: ErrorPayload = serde_json::from_slice(&conflict.stderr)?;
+    assert!(
+        error
+            .error
+            .message
+            .contains("review run already exists: review/audit/dangling/custom")
+    );
+
+    let overwritten = audit_command_with_args(
+        &root,
+        &db,
+        "dangling-links",
+        &[
+            "--save-review",
+            "--review-id",
+            "review/audit/dangling/custom",
+            "--review-title",
+            "Replacement Dangling Review",
+            "--overwrite",
+            "--json",
+        ],
+    )?;
+    assert!(overwritten.status.success(), "{overwritten:?}");
+    let overwritten: SaveCorpusAuditReviewResult = serde_json::from_slice(&overwritten.stdout)?;
+    assert_eq!(
+        overwritten.review.metadata.title,
+        "Replacement Dangling Review"
+    );
+
+    let invalid = audit_command_with_args(
+        &root,
+        &db,
+        "dangling-links",
+        &["--save-review", "--review-id", " bad ", "--json"],
+    )?;
+    assert_eq!(invalid.status.code(), Some(1));
+    let error: ErrorPayload = serde_json::from_slice(&invalid.stderr)?;
+    assert!(
+        error
+            .error
+            .message
+            .contains("review_id must not have leading or trailing whitespace")
+    );
+
+    let stray = audit_command_with_args(
+        &root,
+        &db,
+        "dangling-links",
+        &["--review-id", "review/audit/stray", "--json"],
+    )?;
+    assert_eq!(stray.status.code(), Some(1));
+    let error: ErrorPayload = serde_json::from_slice(&stray.stderr)?;
+    assert!(
+        error
+            .error
+            .message
+            .contains("--review-id require --save-review")
+    );
+
+    Ok(())
+}
+
+#[test]
+fn audit_save_review_report_output_acknowledges_review_summary() -> Result<()> {
+    let (workspace, root, db) = build_indexed_fixture()?;
+    let report_path = workspace.path().join("duplicate-report.json");
+
+    let output = audit_command_with_args(
+        &root,
+        &db,
+        "duplicate-titles",
+        &[
+            "--save-review",
+            "--review-id",
+            "review/audit/duplicates/report",
+            "--output",
+            report_path
+                .to_str()
+                .expect("report path should be valid utf-8"),
+            "--json",
+        ],
+    )?;
+    assert!(output.status.success(), "{output:?}");
+    let ack: Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(ack["audit"], "duplicate-titles");
+    assert_eq!(ack["format"], "json");
+    assert_eq!(ack["review"]["review_id"], "review/audit/duplicates/report");
+    let report: CorpusAuditResult = serde_json::from_slice(&fs::read(report_path)?)?;
+    assert_eq!(report.audit, CorpusAuditKind::DuplicateTitles);
+    assert_eq!(report.entries.len(), 1);
 
     Ok(())
 }

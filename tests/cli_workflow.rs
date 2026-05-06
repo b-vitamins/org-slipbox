@@ -9,7 +9,8 @@ use slipbox_core::{
     BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
     BUILT_IN_WORKFLOW_PERIODIC_REVIEW_ID, BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
     BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID, ExplorationLens, ListWorkflowsResult,
-    RunWorkflowResult, WorkflowResult, WorkflowSpec, built_in_workflow,
+    ReviewRunPayload, ReviewRunResult, RunWorkflowResult, SaveWorkflowReviewResult, WorkflowResult,
+    WorkflowSpec, built_in_workflow,
 };
 use slipbox_index::scan_root;
 use slipbox_store::Database;
@@ -150,6 +151,23 @@ fn workflow_show_stdin(json: bool, payload: &[u8]) -> Result<std::process::Outpu
         .context("stdin pipe should exist")?
         .write_all(payload)?;
     Ok(child.wait_with_output()?)
+}
+
+fn review_show_command(root: &str, db: &str, review_id: &str) -> Result<std::process::Output> {
+    let mut command = Command::new(slipbox_binary());
+    command.args([
+        "review",
+        "show",
+        "--root",
+        root,
+        "--db",
+        db,
+        "--server-program",
+        slipbox_binary(),
+        review_id,
+        "--json",
+    ]);
+    Ok(command.output()?)
 }
 
 #[test]
@@ -396,6 +414,173 @@ fn workflow_run_command_executes_operational_review_built_ins() -> Result<()> {
             other.kind()
         ),
     }
+
+    Ok(())
+}
+
+#[test]
+fn workflow_run_save_review_flags_persist_typed_reviews_and_enforce_policy() -> Result<()> {
+    let (_workspace, root, db, anchor_key) = build_indexed_fixture()?;
+
+    let output = workflow_command(
+        &root,
+        &db,
+        &[
+            "run",
+            BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
+            "--input",
+            &format!("focus=key:{anchor_key}"),
+            "--save-review",
+            "--review-id",
+            "review/workflow/unresolved/custom",
+            "--review-title",
+            "Unresolved Workflow Review",
+            "--review-summary",
+            "Preserve unresolved workflow evidence.",
+            "--json",
+        ],
+    )?;
+    assert!(output.status.success(), "{output:?}");
+    let saved: SaveWorkflowReviewResult = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(
+        saved.result.workflow.metadata.workflow_id,
+        BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID
+    );
+    assert_eq!(saved.result.steps.len(), 4);
+    assert_eq!(
+        saved.review.metadata.review_id,
+        "review/workflow/unresolved/custom"
+    );
+    assert_eq!(saved.review.metadata.title, "Unresolved Workflow Review");
+    assert_eq!(saved.review.finding_count, saved.result.steps.len());
+
+    let shown = review_show_command(&root, &db, "review/workflow/unresolved/custom")?;
+    assert!(shown.status.success(), "{shown:?}");
+    let shown: ReviewRunResult = serde_json::from_slice(&shown.stdout)?;
+    match &shown.review.payload {
+        ReviewRunPayload::Workflow {
+            workflow,
+            inputs,
+            step_ids,
+        } => {
+            assert_eq!(
+                workflow.metadata.workflow_id,
+                BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID
+            );
+            assert_eq!(inputs.len(), 1);
+            assert_eq!(inputs[0].input_id, "focus");
+            assert_eq!(
+                step_ids,
+                &saved
+                    .result
+                    .steps
+                    .iter()
+                    .map(|step| step.step_id.clone())
+                    .collect::<Vec<_>>()
+            );
+        }
+        other => panic!("expected workflow review, got {:?}", other.kind()),
+    }
+    assert_eq!(shown.review.findings.len(), saved.result.steps.len());
+    match &shown.review.findings[0].payload {
+        slipbox_core::ReviewFindingPayload::WorkflowStep { step } => {
+            assert_eq!(step.as_ref(), &saved.result.steps[0]);
+        }
+        other => panic!("expected workflow-step finding, got {:?}", other.kind()),
+    }
+
+    let conflict = workflow_command(
+        &root,
+        &db,
+        &[
+            "run",
+            BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
+            "--input",
+            &format!("focus=key:{anchor_key}"),
+            "--save-review",
+            "--review-id",
+            "review/workflow/unresolved/custom",
+            "--json",
+        ],
+    )?;
+    assert_eq!(conflict.status.code(), Some(1));
+    assert!(conflict.stdout.is_empty());
+    let error: ErrorPayload = serde_json::from_slice(&conflict.stderr)?;
+    assert!(
+        error
+            .error
+            .message
+            .contains("review run already exists: review/workflow/unresolved/custom")
+    );
+
+    let overwritten = workflow_command(
+        &root,
+        &db,
+        &[
+            "run",
+            BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
+            "--input",
+            &format!("focus=key:{anchor_key}"),
+            "--save-review",
+            "--review-id",
+            "review/workflow/unresolved/custom",
+            "--review-title",
+            "Replacement Workflow Review",
+            "--overwrite",
+            "--json",
+        ],
+    )?;
+    assert!(overwritten.status.success(), "{overwritten:?}");
+    let overwritten: SaveWorkflowReviewResult = serde_json::from_slice(&overwritten.stdout)?;
+    assert_eq!(
+        overwritten.review.metadata.title,
+        "Replacement Workflow Review"
+    );
+
+    let invalid = workflow_command(
+        &root,
+        &db,
+        &[
+            "run",
+            BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
+            "--input",
+            &format!("focus=key:{anchor_key}"),
+            "--save-review",
+            "--review-id",
+            " bad ",
+            "--json",
+        ],
+    )?;
+    assert_eq!(invalid.status.code(), Some(1));
+    let error: ErrorPayload = serde_json::from_slice(&invalid.stderr)?;
+    assert!(
+        error
+            .error
+            .message
+            .contains("review_id must not have leading or trailing whitespace")
+    );
+
+    let stray = workflow_command(
+        &root,
+        &db,
+        &[
+            "run",
+            BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
+            "--input",
+            &format!("focus=key:{anchor_key}"),
+            "--review-title",
+            "Stray Review",
+            "--json",
+        ],
+    )?;
+    assert_eq!(stray.status.code(), Some(1));
+    let error: ErrorPayload = serde_json::from_slice(&stray.stderr)?;
+    assert!(
+        error
+            .error
+            .message
+            .contains("--review-title require --save-review")
+    );
 
     Ok(())
 }
