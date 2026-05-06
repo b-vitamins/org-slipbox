@@ -9,8 +9,8 @@ use slipbox_core::{
     BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
     BUILT_IN_WORKFLOW_PERIODIC_REVIEW_ID, BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
     BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID, ExplorationLens, ListWorkflowsResult,
-    ReviewRunPayload, ReviewRunResult, RunWorkflowResult, SaveWorkflowReviewResult, WorkflowResult,
-    WorkflowSpec, built_in_workflow,
+    ReviewRunPayload, ReviewRunResult, RunWorkflowResult, SaveWorkflowReviewResult,
+    WorkflowCatalogIssueKind, WorkflowResult, WorkflowSpec, built_in_workflow,
 };
 use slipbox_index::scan_root;
 use slipbox_store::Database;
@@ -245,6 +245,7 @@ fn workflow_show_command_prints_human_built_in_specs() -> Result<()> {
     assert!(output.status.success(), "{output:?}");
     let stdout = String::from_utf8(output.stdout)?;
     assert!(stdout.contains("workflow id: workflow/builtin/context-sweep"));
+    assert!(stdout.contains("compatibility: workflow-spec/v1"));
     assert!(stdout.contains("[inputs]"));
     assert!(stdout.contains("- focus [focus-target]"));
     assert!(stdout.contains("- explore-refs [explore]"));
@@ -641,6 +642,25 @@ fn workflow_discovery_lists_shows_and_runs_valid_specs_while_reporting_invalid_o
         workflow_dir.join("invalid.json"),
         serde_json::to_vec_pretty(&invalid)?,
     )?;
+    fs::write(
+        workflow_dir.join("future.json"),
+        br#"{
+  "workflow_id": "workflow/test/future-workflow",
+  "title": "Future Workflow",
+  "summary": "Unsupported future compatibility fixture.",
+  "compatibility": {
+    "version": 2
+  },
+  "inputs": [],
+  "steps": [
+    {
+      "step_id": "future-step",
+      "kind": "future-step",
+      "future_field": true
+    }
+  ]
+}"#,
+    )?;
 
     let listed =
         workflow_command_with_dirs(&root, &db, &[workflow_dir.as_path()], &["list", "--json"])?;
@@ -652,16 +672,28 @@ fn workflow_discovery_lists_shows_and_runs_valid_specs_while_reporting_invalid_o
             .iter()
             .any(|workflow| workflow.metadata.workflow_id == valid.metadata.workflow_id)
     );
-    assert_eq!(listed.issues.len(), 1);
-    assert_eq!(
-        listed.issues[0].workflow_id.as_deref(),
-        Some("workflow/test/invalid-workflow")
-    );
+    assert_eq!(listed.issues.len(), 2);
+    let invalid_issue = listed
+        .issues
+        .iter()
+        .find(|issue| issue.workflow_id.as_deref() == Some("workflow/test/invalid-workflow"))
+        .expect("invalid workflow issue should be reported");
+    assert_eq!(invalid_issue.kind, WorkflowCatalogIssueKind::InvalidSpec);
     assert!(
-        listed.issues[0]
+        invalid_issue
             .message
             .contains("workflows must contain at least one step")
     );
+    let future_issue = listed
+        .issues
+        .iter()
+        .find(|issue| issue.workflow_id.as_deref() == Some("workflow/test/future-workflow"))
+        .expect("future workflow issue should be reported");
+    assert_eq!(
+        future_issue.kind,
+        WorkflowCatalogIssueKind::UnsupportedVersion
+    );
+    assert!(future_issue.message.contains("unsupported workflow spec"));
 
     let listed_human =
         workflow_command_with_dirs(&root, &db, &[workflow_dir.as_path()], &["list"])?;
@@ -671,7 +703,10 @@ fn workflow_discovery_lists_shows_and_runs_valid_specs_while_reporting_invalid_o
         listed_human.contains("Discovered Unresolved Sweep [workflow/test/discovered-unresolved]")
     );
     assert!(listed_human.contains("[issues]"));
+    assert!(listed_human.contains("kind: invalid-spec"));
     assert!(listed_human.contains("workflow id: workflow/test/invalid-workflow"));
+    assert!(listed_human.contains("kind: unsupported-version"));
+    assert!(listed_human.contains("workflow id: workflow/test/future-workflow"));
 
     let shown = workflow_command_with_dirs(
         &root,
@@ -772,6 +807,7 @@ fn workflow_discovery_uses_deterministic_collision_precedence() -> Result<()> {
             .iter()
             .any(|issue| issue.workflow_id.as_deref()
                 == Some("workflow/test/discovered-collision")
+                && issue.kind == WorkflowCatalogIssueKind::DuplicateWorkflowId
                 && issue.message.contains("collides with discovered workflow"))
     );
     assert!(
@@ -780,6 +816,7 @@ fn workflow_discovery_uses_deterministic_collision_precedence() -> Result<()> {
             .iter()
             .any(
                 |issue| issue.workflow_id.as_deref() == Some(BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID)
+                    && issue.kind == WorkflowCatalogIssueKind::DuplicateWorkflowId
                     && issue.message.contains("collides with built-in workflow")
             )
     );

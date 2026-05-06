@@ -1421,6 +1421,51 @@ pub const BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID: &str =
     "workflow/builtin/weak-integration-review";
 pub const BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID: &str =
     "workflow/builtin/comparison-tension-review";
+pub const WORKFLOW_SPEC_COMPATIBILITY_VERSION: u32 = 1;
+
+#[must_use]
+pub const fn default_workflow_spec_compatibility_version() -> u32 {
+    WORKFLOW_SPEC_COMPATIBILITY_VERSION
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowSpecCompatibility {
+    #[serde(default = "default_workflow_spec_compatibility_version")]
+    pub version: u32,
+}
+
+impl Default for WorkflowSpecCompatibility {
+    fn default() -> Self {
+        Self {
+            version: WORKFLOW_SPEC_COMPATIBILITY_VERSION,
+        }
+    }
+}
+
+impl WorkflowSpecCompatibility {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        if self.version == 0 {
+            return Some(
+                "workflow spec compatibility version must be greater than zero".to_owned(),
+            );
+        }
+        (self.version > WORKFLOW_SPEC_COMPATIBILITY_VERSION).then(|| {
+            format!(
+                "unsupported workflow spec compatibility version {}; supported version is {}",
+                self.version, WORKFLOW_SPEC_COMPATIBILITY_VERSION
+            )
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowSpecCompatibilityEnvelope {
+    #[serde(default)]
+    pub workflow_id: Option<String>,
+    #[serde(default)]
+    pub compatibility: WorkflowSpecCompatibility,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -1630,6 +1675,8 @@ pub struct WorkflowSpec {
     #[serde(flatten)]
     pub metadata: WorkflowMetadata,
     #[serde(default)]
+    pub compatibility: WorkflowSpecCompatibility,
+    #[serde(default)]
     pub inputs: Vec<WorkflowInputSpec>,
     pub steps: Vec<WorkflowStepSpec>,
 }
@@ -1637,49 +1684,57 @@ pub struct WorkflowSpec {
 impl WorkflowSpec {
     #[must_use]
     pub fn validation_error(&self) -> Option<String> {
-        self.metadata.validation_error().or_else(|| {
-            let mut seen_inputs: Vec<(&str, WorkflowInputKind)> =
-                Vec::with_capacity(self.inputs.len());
-            for (index, input) in self.inputs.iter().enumerate() {
-                if let Some(error) = input.validation_error() {
-                    return Some(format!("workflow input {index} is invalid: {error}"));
+        self.compatibility
+            .validation_error()
+            .or_else(|| self.metadata.validation_error())
+            .or_else(|| {
+                let mut seen_inputs: Vec<(&str, WorkflowInputKind)> =
+                    Vec::with_capacity(self.inputs.len());
+                for (index, input) in self.inputs.iter().enumerate() {
+                    if let Some(error) = input.validation_error() {
+                        return Some(format!("workflow input {index} is invalid: {error}"));
+                    }
+                    if seen_inputs
+                        .iter()
+                        .any(|(input_id, _)| *input_id == input.input_id)
+                    {
+                        return Some(format!(
+                            "workflow input {index} reuses duplicate input_id {}",
+                            input.input_id
+                        ));
+                    }
+                    seen_inputs.push((input.input_id.as_str(), input.kind));
                 }
-                if seen_inputs
-                    .iter()
-                    .any(|(input_id, _)| *input_id == input.input_id)
-                {
-                    return Some(format!(
-                        "workflow input {index} reuses duplicate input_id {}",
-                        input.input_id
-                    ));
-                }
-                seen_inputs.push((input.input_id.as_str(), input.kind));
-            }
 
-            if self.steps.is_empty() {
-                return Some("workflows must contain at least one step".to_owned());
-            }
+                if self.steps.is_empty() {
+                    return Some("workflows must contain at least one step".to_owned());
+                }
 
-            let mut seen: Vec<(&str, WorkflowStepKind)> = Vec::with_capacity(self.steps.len());
-            for (index, step) in self.steps.iter().enumerate() {
-                if let Some(error) = step.validation_error() {
-                    return Some(format!("workflow step {index} is invalid: {error}"));
+                let mut seen: Vec<(&str, WorkflowStepKind)> = Vec::with_capacity(self.steps.len());
+                for (index, step) in self.steps.iter().enumerate() {
+                    if let Some(error) = step.validation_error() {
+                        return Some(format!("workflow step {index} is invalid: {error}"));
+                    }
+                    if seen.iter().any(|(step_id, _)| *step_id == step.step_id) {
+                        return Some(format!(
+                            "workflow step {index} reuses duplicate step_id {}",
+                            step.step_id
+                        ));
+                    }
+                    if let Some(error) =
+                        validate_workflow_step_references(&step.payload, &seen, &seen_inputs)
+                    {
+                        return Some(format!("workflow step {index} is invalid: {error}"));
+                    }
+                    seen.push((step.step_id.as_str(), step.kind()));
                 }
-                if seen.iter().any(|(step_id, _)| *step_id == step.step_id) {
-                    return Some(format!(
-                        "workflow step {index} reuses duplicate step_id {}",
-                        step.step_id
-                    ));
-                }
-                if let Some(error) =
-                    validate_workflow_step_references(&step.payload, &seen, &seen_inputs)
-                {
-                    return Some(format!("workflow step {index} is invalid: {error}"));
-                }
-                seen.push((step.step_id.as_str(), step.kind()));
-            }
-            None
-        })
+                None
+            })
+    }
+
+    #[must_use]
+    pub fn has_unsupported_compatibility_version(&self) -> bool {
+        self.compatibility.version > WORKFLOW_SPEC_COMPATIBILITY_VERSION
     }
 
     #[must_use]
@@ -1768,6 +1823,7 @@ fn built_in_context_sweep_workflow() -> WorkflowSpec {
                     .to_owned(),
             ),
         },
+        compatibility: WorkflowSpecCompatibility::default(),
         inputs: vec![WorkflowInputSpec {
             input_id: "focus".to_owned(),
             title: "Focus target".to_owned(),
@@ -1830,6 +1886,7 @@ fn built_in_unresolved_sweep_workflow() -> WorkflowSpec {
                     .to_owned(),
             ),
         },
+        compatibility: WorkflowSpecCompatibility::default(),
         inputs: vec![WorkflowInputSpec {
             input_id: "focus".to_owned(),
             title: "Focus target".to_owned(),
@@ -1892,6 +1949,7 @@ fn built_in_periodic_review_workflow() -> WorkflowSpec {
                     .to_owned(),
             ),
         },
+        compatibility: WorkflowSpecCompatibility::default(),
         inputs: vec![WorkflowInputSpec {
             input_id: "focus".to_owned(),
             title: "Review focus".to_owned(),
@@ -1976,6 +2034,7 @@ fn built_in_weak_integration_review_workflow() -> WorkflowSpec {
                     .to_owned(),
             ),
         },
+        compatibility: WorkflowSpecCompatibility::default(),
         inputs: vec![WorkflowInputSpec {
             input_id: "focus".to_owned(),
             title: "Integration focus".to_owned(),
@@ -2039,6 +2098,7 @@ fn built_in_comparison_tension_workflow() -> WorkflowSpec {
                 "Resolve two notes and review both tension and overlap together.".to_owned(),
             ),
         },
+        compatibility: WorkflowSpecCompatibility::default(),
         inputs: vec![
             WorkflowInputSpec {
                 input_id: "left".to_owned(),
@@ -2223,9 +2283,35 @@ pub struct ListWorkflowsParams {}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowCatalogIssue {
     pub path: String,
+    pub kind: WorkflowCatalogIssueKind,
     #[serde(default)]
     pub workflow_id: Option<String>,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WorkflowCatalogIssueKind {
+    Directory,
+    Io,
+    MalformedJson,
+    UnsupportedVersion,
+    InvalidSpec,
+    DuplicateWorkflowId,
+}
+
+impl WorkflowCatalogIssueKind {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Directory => "directory",
+            Self::Io => "io",
+            Self::MalformedJson => "malformed-json",
+            Self::UnsupportedVersion => "unsupported-version",
+            Self::InvalidSpec => "invalid-spec",
+            Self::DuplicateWorkflowId => "duplicate-workflow-id",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -3865,9 +3951,10 @@ mod tests {
         UpdateNodeMetadataParams, WorkflowArtifactSaveSource, WorkflowExecutionResult,
         WorkflowExploreFocus, WorkflowInputAssignment, WorkflowInputKind, WorkflowInputSpec,
         WorkflowMetadata, WorkflowReportLine, WorkflowResolveTarget, WorkflowSpec,
-        WorkflowStepPayload, WorkflowStepRef, WorkflowStepReport, WorkflowStepReportPayload,
-        WorkflowStepSpec, WorkflowSummary, built_in_workflow, built_in_workflow_summaries,
-        built_in_workflows, normalize_reference,
+        WorkflowSpecCompatibility, WorkflowSpecCompatibilityEnvelope, WorkflowStepPayload,
+        WorkflowStepRef, WorkflowStepReport, WorkflowStepReportPayload, WorkflowStepSpec,
+        WorkflowSummary, built_in_workflow, built_in_workflow_summaries, built_in_workflows,
+        normalize_reference,
     };
     use serde_json::json;
 
@@ -5234,6 +5321,7 @@ mod tests {
                 title: "Research Routine".to_owned(),
                 summary: Some("Resolve, explore, compare, and save".to_owned()),
             },
+            compatibility: WorkflowSpecCompatibility::default(),
             inputs: Vec::new(),
             steps: vec![
                 WorkflowStepSpec {
@@ -5318,6 +5406,7 @@ mod tests {
             serialized["workflow_id"],
             json!("workflow/research-routine")
         );
+        assert_eq!(serialized["compatibility"]["version"], json!(1));
         assert_eq!(serialized["steps"][0]["kind"], json!("resolve"));
         assert_eq!(serialized["steps"][3]["kind"], json!("explore"));
         assert_eq!(serialized["steps"][5]["kind"], json!("compare"));
@@ -5333,6 +5422,53 @@ mod tests {
     }
 
     #[test]
+    fn workflow_specs_default_legacy_compatibility_and_reject_future_versions() {
+        let legacy_spec = json!({
+            "workflow_id": "workflow/legacy",
+            "title": "Legacy",
+            "summary": null,
+            "inputs": [],
+            "steps": [{
+                "step_id": "resolve-focus",
+                "kind": "resolve",
+                "target": {
+                    "kind": "id",
+                    "id": "focus-id"
+                }
+            }]
+        });
+        let legacy: WorkflowSpec =
+            serde_json::from_value(legacy_spec).expect("legacy workflow spec should deserialize");
+        assert_eq!(legacy.compatibility, WorkflowSpecCompatibility::default());
+        assert_eq!(legacy.validation_error(), None);
+
+        let future_spec = json!({
+            "workflow_id": "workflow/future",
+            "title": "Future",
+            "summary": null,
+            "compatibility": {
+                "version": 2
+            },
+            "inputs": [],
+            "steps": [{
+                "step_id": "resolve-focus",
+                "kind": "future-step",
+                "future_field": true
+            }]
+        });
+        let envelope: WorkflowSpecCompatibilityEnvelope =
+            serde_json::from_value(future_spec.clone())
+                .expect("future compatibility envelope should deserialize");
+        assert_eq!(envelope.workflow_id.as_deref(), Some("workflow/future"));
+        assert_eq!(
+            envelope.compatibility.validation_error().as_deref(),
+            Some("unsupported workflow spec compatibility version 2; supported version is 1")
+        );
+        serde_json::from_value::<WorkflowSpec>(future_spec)
+            .expect_err("future workflow syntax should not deserialize as current spec");
+    }
+
+    #[test]
     fn workflow_execution_results_round_trip_with_typed_step_reports() {
         let workflow = WorkflowSpec {
             metadata: WorkflowMetadata {
@@ -5340,6 +5476,7 @@ mod tests {
                 title: "Round Trip".to_owned(),
                 summary: None,
             },
+            compatibility: WorkflowSpecCompatibility::default(),
             inputs: Vec::new(),
             steps: vec![
                 WorkflowStepSpec {
@@ -6597,6 +6734,7 @@ mod tests {
                 title: "Workflow".to_owned(),
                 summary: None,
             },
+            compatibility: WorkflowSpecCompatibility::default(),
             inputs: Vec::new(),
             steps: vec![WorkflowStepSpec {
                 step_id: "resolve-focus".to_owned(),
@@ -6618,6 +6756,7 @@ mod tests {
                 title: "Empty".to_owned(),
                 summary: None,
             },
+            compatibility: WorkflowSpecCompatibility::default(),
             inputs: Vec::new(),
             steps: Vec::new(),
         };
@@ -6632,6 +6771,7 @@ mod tests {
                 title: "Duplicate".to_owned(),
                 summary: None,
             },
+            compatibility: WorkflowSpecCompatibility::default(),
             inputs: Vec::new(),
             steps: vec![
                 WorkflowStepSpec {
@@ -6663,6 +6803,7 @@ mod tests {
                 title: "Missing Ref".to_owned(),
                 summary: None,
             },
+            compatibility: WorkflowSpecCompatibility::default(),
             inputs: Vec::new(),
             steps: vec![WorkflowStepSpec {
                 step_id: "explore-focus".to_owned(),
@@ -6687,6 +6828,7 @@ mod tests {
                 title: "Wrong Ref".to_owned(),
                 summary: None,
             },
+            compatibility: WorkflowSpecCompatibility::default(),
             inputs: Vec::new(),
             steps: vec![
                 WorkflowStepSpec {
@@ -6724,6 +6866,7 @@ mod tests {
                 title: "Same Compare".to_owned(),
                 summary: None,
             },
+            compatibility: WorkflowSpecCompatibility::default(),
             inputs: Vec::new(),
             steps: vec![
                 WorkflowStepSpec {
@@ -6762,6 +6905,7 @@ mod tests {
                 title: "Unique Refs".to_owned(),
                 summary: None,
             },
+            compatibility: WorkflowSpecCompatibility::default(),
             inputs: Vec::new(),
             steps: vec![WorkflowStepSpec {
                 step_id: "explore-focus".to_owned(),
@@ -6872,6 +7016,7 @@ mod tests {
                 title: "Duplicate Inputs".to_owned(),
                 summary: None,
             },
+            compatibility: WorkflowSpecCompatibility::default(),
             inputs: vec![
                 WorkflowInputSpec {
                     input_id: "focus".to_owned(),
@@ -6906,6 +7051,7 @@ mod tests {
                 title: "Missing Input".to_owned(),
                 summary: None,
             },
+            compatibility: WorkflowSpecCompatibility::default(),
             inputs: Vec::new(),
             steps: vec![WorkflowStepSpec {
                 step_id: "resolve-focus".to_owned(),
@@ -6927,6 +7073,7 @@ mod tests {
                 title: "Missing Focus Input".to_owned(),
                 summary: None,
             },
+            compatibility: WorkflowSpecCompatibility::default(),
             inputs: Vec::new(),
             steps: vec![WorkflowStepSpec {
                 step_id: "explore-focus".to_owned(),
@@ -6951,6 +7098,7 @@ mod tests {
                 title: "Note Focus Mismatch".to_owned(),
                 summary: None,
             },
+            compatibility: WorkflowSpecCompatibility::default(),
             inputs: vec![WorkflowInputSpec {
                 input_id: "focus".to_owned(),
                 title: "Focus".to_owned(),

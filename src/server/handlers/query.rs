@@ -3699,6 +3699,7 @@ mod tests {
                 title: "Review Save Side Effect".to_owned(),
                 summary: Some("Would save an artifact if it reaches execution".to_owned()),
             },
+            compatibility: slipbox_core::WorkflowSpecCompatibility::default(),
             inputs: Vec::new(),
             steps: vec![
                 slipbox_core::WorkflowStepSpec {
@@ -3800,6 +3801,7 @@ mod tests {
                 title: "All Kinds".to_owned(),
                 summary: Some("Exercise all workflow step kinds".to_owned()),
             },
+            compatibility: slipbox_core::WorkflowSpecCompatibility::default(),
             inputs: vec![
                 slipbox_core::WorkflowInputSpec {
                     input_id: "left".to_owned(),

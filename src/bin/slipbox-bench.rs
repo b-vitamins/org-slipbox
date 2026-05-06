@@ -30,7 +30,7 @@ use slipbox_core::{
     SaveWorkflowReviewParams, SearchNodesSort, WorkflowExecutionResult, WorkflowExploreFocus,
     WorkflowInputAssignment, WorkflowInputKind, WorkflowInputSpec, WorkflowMetadata,
     WorkflowResolveTarget, WorkflowResolveTarget as WorkflowSpecResolveTarget, WorkflowSpec,
-    WorkflowStepPayload, WorkflowStepReportPayload, WorkflowStepSpec,
+    WorkflowSpecCompatibility, WorkflowStepPayload, WorkflowStepReportPayload, WorkflowStepSpec,
 };
 use slipbox_index::{DiscoveryPolicy, scan_path_with_policy, scan_root_with_policy};
 use slipbox_store::Database;
@@ -2086,6 +2086,7 @@ fn benchmark_workflow_spec() -> WorkflowSpec {
                     .to_owned(),
             ),
         },
+        compatibility: WorkflowSpecCompatibility::default(),
         inputs: vec![WorkflowInputSpec {
             input_id: "focus".to_owned(),
             title: "Focus target".to_owned(),
@@ -2156,6 +2157,7 @@ fn catalog_workflow_spec(workflow_index: usize) -> WorkflowSpec {
             title: format!("Catalog Workflow {workflow_index:04}"),
             summary: Some("Discovery-only catalog workflow for benchmark scale.".to_owned()),
         },
+        compatibility: WorkflowSpecCompatibility::default(),
         inputs: vec![WorkflowInputSpec {
             input_id: "focus".to_owned(),
             title: "Focus note".to_owned(),

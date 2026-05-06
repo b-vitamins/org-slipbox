@@ -28,8 +28,8 @@ use slipbox_core::{
     SavedTrailStep, StatusInfo, TrailReplayResult, TrailReplayStepResult,
     WorkflowArtifactSaveSource, WorkflowExecutionResult, WorkflowExploreFocus, WorkflowIdParams,
     WorkflowInputAssignment, WorkflowInputKind, WorkflowInputSpec, WorkflowResolveTarget,
-    WorkflowSpec, WorkflowStepPayload, WorkflowStepReport, WorkflowStepReportPayload,
-    WorkflowStepSpec, WorkflowSummary,
+    WorkflowSpec, WorkflowSpecCompatibilityEnvelope, WorkflowStepPayload, WorkflowStepReport,
+    WorkflowStepReportPayload, WorkflowStepSpec, WorkflowSummary,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonClientError, DaemonServeConfig};
 use slipbox_index::DiscoveryPolicy;
@@ -1234,6 +1234,21 @@ fn run_workflow_show(command: &WorkflowShowArgs) -> Result<(), CliCommandError> 
     let workflow = if let Some(spec_input) = &command.spec {
         let bytes = read_workflow_json_input(spec_input)
             .map_err(|error| CliCommandError::new(output_mode, error))?;
+        let compatibility: WorkflowSpecCompatibilityEnvelope = serde_json::from_slice(&bytes)
+            .with_context(|| {
+                if spec_input == "-" {
+                    "failed to parse workflow spec JSON from stdin".to_owned()
+                } else {
+                    format!("failed to parse workflow spec JSON from {spec_input}")
+                }
+            })
+            .map_err(|error| CliCommandError::new(output_mode, error))?;
+        if let Some(message) = compatibility.compatibility.validation_error() {
+            return Err(CliCommandError::new(
+                output_mode,
+                anyhow::anyhow!("invalid workflow spec: {message}"),
+            ));
+        }
         let workflow: WorkflowSpec = serde_json::from_slice(&bytes)
             .with_context(|| {
                 if spec_input == "-" {
@@ -2132,6 +2147,7 @@ fn render_workflow_list(result: &ListWorkflowsResult) -> String {
         output.push_str("[issues]\n");
         for issue in &result.issues {
             output.push_str(&format!("- path: {}\n", issue.path));
+            output.push_str(&format!("  kind: {}\n", issue.kind.label()));
             if let Some(workflow_id) = &issue.workflow_id {
                 output.push_str(&format!("  workflow id: {workflow_id}\n"));
             }
@@ -2146,6 +2162,10 @@ fn render_workflow_spec(workflow: &WorkflowSpec) -> String {
     let mut output = String::new();
     output.push_str(&format!("workflow id: {}\n", workflow.metadata.workflow_id));
     output.push_str(&format!("title: {}\n", workflow.metadata.title));
+    output.push_str(&format!(
+        "compatibility: workflow-spec/v{}\n",
+        workflow.compatibility.version
+    ));
     if let Some(summary) = &workflow.metadata.summary {
         output.push_str(&format!("summary: {summary}\n"));
     }

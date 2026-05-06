@@ -830,7 +830,18 @@ fn workflow_and_audit_commands_expose_stable_json_shapes() -> Result<()> {
     assert_exact_object_keys(&workflow_show_json, &["workflow"]);
     assert_exact_object_keys(
         &workflow_show_json["workflow"],
-        &["workflow_id", "title", "summary", "inputs", "steps"],
+        &[
+            "workflow_id",
+            "title",
+            "summary",
+            "compatibility",
+            "inputs",
+            "steps",
+        ],
+    );
+    assert_exact_object_keys(
+        &workflow_show_json["workflow"]["compatibility"],
+        &["version"],
     );
     assert_exact_object_keys(
         &workflow_show_json["workflow"]["inputs"][0],
@@ -936,7 +947,7 @@ fn workflow_discovery_and_report_outputs_expose_stable_json_shapes() -> Result<(
     assert_exact_object_keys(&listed_json, &["workflows", "issues"]);
     assert_exact_object_keys(
         &listed_json["issues"][0],
-        &["path", "workflow_id", "message"],
+        &["path", "kind", "workflow_id", "message"],
     );
 
     let workflow_report_path = workspace.path().join("workflow-report.jsonl");
@@ -1457,6 +1468,16 @@ fn workflow_and_audit_commands_report_structured_json_failures() -> Result<()> {
     assert_error_failure(
         &invalid_spec,
         "invalid workflow spec: workflows must contain at least one step",
+    );
+
+    let future_spec = workflow_json_command_with_stdin(
+        "show",
+        &["--spec", "-"],
+        br#"{"workflow_id":"workflow/future","title":"Future","compatibility":{"version":2},"inputs":[],"steps":[{"step_id":"future-step","kind":"future-step","future_field":true}]}"#,
+    )?;
+    assert_error_failure(
+        &future_spec,
+        "invalid workflow spec: unsupported workflow spec compatibility version 2; supported version is 1",
     );
 
     let unknown_show = workflow_json_command("show", &root, &db, &["workflow/builtin/missing"])?;

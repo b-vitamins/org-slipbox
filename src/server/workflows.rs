@@ -2,7 +2,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use slipbox_core::{WorkflowCatalogIssue, WorkflowSpec, WorkflowSummary, built_in_workflows};
+use slipbox_core::{
+    WORKFLOW_SPEC_COMPATIBILITY_VERSION, WorkflowCatalogIssue, WorkflowCatalogIssueKind,
+    WorkflowSpec, WorkflowSpecCompatibilityEnvelope, WorkflowSummary, built_in_workflows,
+};
 
 pub(super) struct WorkflowCatalog {
     workflows: Vec<WorkflowSpec>,
@@ -64,6 +67,7 @@ fn collect_workflows_from_directory(
     if !directory.exists() {
         issues.push(WorkflowCatalogIssue {
             path,
+            kind: WorkflowCatalogIssueKind::Directory,
             workflow_id: None,
             message: "configured workflow directory does not exist".to_owned(),
         });
@@ -72,6 +76,7 @@ fn collect_workflows_from_directory(
     if !directory.is_dir() {
         issues.push(WorkflowCatalogIssue {
             path,
+            kind: WorkflowCatalogIssueKind::Directory,
             workflow_id: None,
             message: "configured workflow directory is not a directory".to_owned(),
         });
@@ -85,6 +90,7 @@ fn collect_workflows_from_directory(
                 Err(error) => {
                     issues.push(WorkflowCatalogIssue {
                         path: directory.display().to_string(),
+                        kind: WorkflowCatalogIssueKind::Io,
                         workflow_id: None,
                         message: format!("failed to read workflow directory entry: {error}"),
                     });
@@ -102,6 +108,7 @@ fn collect_workflows_from_directory(
         Err(error) => {
             issues.push(WorkflowCatalogIssue {
                 path: directory.display().to_string(),
+                kind: WorkflowCatalogIssueKind::Io,
                 workflow_id: None,
                 message: format!("failed to read workflow directory: {error}"),
             });
@@ -127,6 +134,7 @@ fn load_workflow_spec_from_file(
         Err(error) => {
             issues.push(WorkflowCatalogIssue {
                 path: display_path,
+                kind: WorkflowCatalogIssueKind::Io,
                 workflow_id: None,
                 message: format!("failed to read workflow spec JSON: {error}"),
             });
@@ -134,12 +142,41 @@ fn load_workflow_spec_from_file(
         }
     };
 
+    let compatibility: WorkflowSpecCompatibilityEnvelope = match serde_json::from_slice(&bytes) {
+        Ok(compatibility) => compatibility,
+        Err(error) => {
+            issues.push(WorkflowCatalogIssue {
+                path: display_path,
+                kind: WorkflowCatalogIssueKind::MalformedJson,
+                workflow_id: None,
+                message: format!("failed to parse workflow spec JSON: {error}"),
+            });
+            return;
+        }
+    };
+
+    if let Some(message) = compatibility.compatibility.validation_error() {
+        let kind = if compatibility.compatibility.version > WORKFLOW_SPEC_COMPATIBILITY_VERSION {
+            WorkflowCatalogIssueKind::UnsupportedVersion
+        } else {
+            WorkflowCatalogIssueKind::InvalidSpec
+        };
+        issues.push(WorkflowCatalogIssue {
+            path: display_path,
+            kind,
+            workflow_id: compatibility.workflow_id,
+            message,
+        });
+        return;
+    }
+
     let workflow: WorkflowSpec = match serde_json::from_slice(&bytes) {
         Ok(workflow) => workflow,
         Err(error) => {
             issues.push(WorkflowCatalogIssue {
                 path: display_path,
-                workflow_id: None,
+                kind: WorkflowCatalogIssueKind::MalformedJson,
+                workflow_id: compatibility.workflow_id,
                 message: format!("failed to parse workflow spec JSON: {error}"),
             });
             return;
@@ -149,6 +186,7 @@ fn load_workflow_spec_from_file(
     if let Some(message) = workflow.validation_error() {
         issues.push(WorkflowCatalogIssue {
             path: display_path,
+            kind: WorkflowCatalogIssueKind::InvalidSpec,
             workflow_id: Some(workflow.metadata.workflow_id.clone()),
             message,
         });
@@ -164,6 +202,7 @@ fn load_workflow_spec_from_file(
         };
         issues.push(WorkflowCatalogIssue {
             path: display_path,
+            kind: WorkflowCatalogIssueKind::DuplicateWorkflowId,
             workflow_id: Some(workflow_id),
             message,
         });

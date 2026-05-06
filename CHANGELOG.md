@@ -6,6 +6,11 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+### Added
+- Added explicit workflow spec compatibility metadata with legacy v1 defaulting,
+  future-version rejection, and distinct discovery issue reporting for
+  unsupported workflow JSON.
+
 ### Changed
 - Defined the `0.10.x` release band as declarative workbench extension through
   workflow compatibility, review routines, report profiles, and packs, while
