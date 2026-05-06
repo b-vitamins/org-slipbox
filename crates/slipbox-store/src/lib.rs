@@ -11,6 +11,7 @@ mod graph;
 mod links;
 mod nodes;
 mod occurrences;
+mod packs;
 mod refs;
 mod reviews;
 mod schema;
@@ -25,6 +26,7 @@ use rusqlite::Connection;
 pub struct Database {
     connection: Connection,
     artifact_store: artifacts::ExplorationArtifactStore,
+    pack_store: packs::WorkbenchPackStore,
     review_store: reviews::ReviewRunStore,
 }
 
@@ -40,11 +42,14 @@ impl Database {
             .with_context(|| format!("failed to open database {}", path.display()))?;
         let artifact_store = artifacts::ExplorationArtifactStore::for_database_path(path);
         artifact_store.migrate()?;
+        let pack_store = packs::WorkbenchPackStore::for_database_path(path);
+        pack_store.migrate()?;
         let review_store = reviews::ReviewRunStore::for_database_path(path);
         review_store.migrate()?;
         let database = Self {
             connection,
             artifact_store,
+            pack_store,
             review_store,
         };
         database.migrate()?;

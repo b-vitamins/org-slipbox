@@ -19,6 +19,9 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Added core workbench pack manifests for bundling workflows, review routines,
   report profiles, entrypoint routine references, summaries, and validation
   issues as declarative portable assets.
+- Added durable workbench pack persistence outside the derived SQLite index,
+  with overwrite/no-overwrite save modes, validated loads, and non-polluting
+  pack identity.
 
 ### Changed
 - Defined the `0.10.x` release band as declarative workbench extension through
