@@ -23,8 +23,12 @@ outputs, and stricter scale guarantees over the shipped headless surface.
 The `0.9.x` line makes those recurring loops operational: durable review
 runs, review status, review diffs, and read-only remediation previews for
 supported audit findings. Review records stay distinct from notes and saved
-exploration artifacts. Raw-RPC sprawl, plugin-runtime ambitions, MCP,
-agent-adapter claims, and broad automated mutation remain deferred.
+exploration artifacts. The `0.10.x` line is declarative workbench extension:
+versioned workflow specs, review routines, report profiles, and portable packs
+as data assets rather than executable plugins. Imported declarative workbench
+assets stay separate from notes, review runs, and saved exploration artifacts.
+Raw-RPC sprawl, plugin-runtime ambitions, MCP, agent-adapter claims, and broad
+automated mutation remain deferred.
 
 ## Requirements
 
@@ -268,8 +272,11 @@ discovery, report outputs, and scale gates. `0.9.x` makes those recurring
 workbench loops reviewable and operational through durable review records,
 status, diffs, and read-only remediation previews for supported audit
 findings, while keeping review state distinct from notes and saved exploration
-artifacts. Broader platform maturity, extension APIs, and agent-adapter work
-remain later work.
+artifacts. `0.10.x` should make that workbench extensible through declarative
+assets: versioned workflow specs, review routines, report profiles, and packs
+that can be validated and shared without becoming notes, review runs, saved
+exploration artifacts, or executable plugin code. Broader platform maturity,
+extension APIs, and agent-adapter work remain later work.
 
 When the current node record includes indexed metadata, the node summary also
 renders file modification time plus backlink and forward-link counts without
@@ -658,6 +665,10 @@ that the whole programmable platform is done.
   workflow and audit loops, explicit review status, review diffs, and
   read-only remediation previews for supported audit findings. Review records
   are not notes, and they are not saved exploration artifacts.
+- `0.10.x` is the declarative extension step: workflow compatibility metadata,
+  review routine specs, report profile specs, and portable packs for bundling
+  workbench assets as data. Imported pack contents are not notes, review runs,
+  saved exploration artifacts, executable plugins, or raw RPC wrappers.
 - Broad CLI families, extension APIs, MCP surfaces, and agent adapters are
   still deferred.
 
@@ -666,8 +677,10 @@ that the whole programmable platform is done.
 `0.7.x` made the workbench genuinely usable outside Emacs. `0.8.x` composed
 that surface into named workflows, corpus-health audits, bounded workflow
 discovery, and report outputs. `0.9.x` makes repeated workflow and audit loops
-durable, reviewable, and diffable. The CLI stays on the same architectural
-line as the rest of the project:
+durable, reviewable, and diffable. `0.10.x` extends the workbench
+declaratively through compatible specs, routines, profiles, and packs rather
+than through a plugin runtime. The CLI stays on the same architectural line as
+the rest of the project:
 
 - every headless command talks to the daemon over canonical JSON-RPC stdio
 - the CLI auto-spawns `slipbox serve` from the current executable unless you
@@ -954,10 +967,10 @@ The JSON contracts are intentionally different where the semantics differ:
 
 This is now a broader composed research workbench surface, not the whole
 platform. Named workflows, audits, and reviews compose the settled live
-explore/compare/artifact model; they do not introduce a broad CLI for every
-RPC, an extension API, MCP, or an agent-adapter layer. Workflow discovery is a
-bounded declarative mechanism for JSON specs in configured directories, not a
-plugin runtime. Review status is explicit triage state for durable review
+explore/compare/artifact model. The next extension layer should remain
+declarative: workflows, review routines, report profiles, and packs are
+portable assets to validate, import, and catalog, not executable plugins or raw
+transport wrappers. Review status is explicit triage state for durable review
 runs, not a general task manager. Remediation previews describe possible safe
 actions; they do not apply writes.
 

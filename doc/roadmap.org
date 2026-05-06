@@ -170,6 +170,40 @@ Watchpoints:
 - keep the one exploratory model intact across cockpit, daemon, CLI,
   workflows, audits, and reviews
 
+* 0.10.x
+
+Theme: declarative workbench extension.
+
+Focus:
+
+- explicit workflow-spec compatibility so portable workflow JSON has a clear
+  version story before it becomes packaged workbench material
+- report profile specs for bounded, reusable output presets without arbitrary
+  template languages or renderer plugins
+- review routine specs for recurring audit and workflow review loops without
+  schedulers, task-manager semantics, or hidden automation
+- workbench pack manifests that bundle workflows, review routines, report
+  profiles, and metadata as declarative assets
+- imported declarative assets that remain distinct from ordinary notes, review
+  runs, and saved exploration artifacts
+- deterministic cataloging, validation, and lifecycle semantics for packaged
+  assets without making packs executable code
+
+Watchpoints:
+
+- do not introduce a plugin runtime, executable hook system, scripting layer,
+  MCP surface, or agent adapter in this band
+- do not expose raw RPC sprawl when the useful product surface is a workflow,
+  routine, report profile, or pack
+- do not let imported pack contents become note identity, review-run identity,
+  saved exploration-artifact identity, search identity, ref identity, or graph
+  identity
+- do not let report profiles become templates or renderer plugins
+- do not let routines become background schedulers, task-management state, or
+  broad mutation flows
+- keep declarative extension compatible with the one exploratory model across
+  cockpit, daemon, CLI, workflows, audits, and reviews
+
 * 1.0.x
 
 Theme: dependable system.
@@ -178,8 +212,7 @@ Focus:
 
 - stable public surfaces
 - explicit upgrade and compatibility expectations
-- mature manual and extension guidance
-- routine packaging and release engineering
+- mature manual, declarative extension guidance, and release engineering
 
 Watchpoints:
 

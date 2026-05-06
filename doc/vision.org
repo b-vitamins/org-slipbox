@@ -59,7 +59,9 @@ explanations, factual comparison, and explicit trails. It should support:
   outputs, and stricter scale gates over that same model, and `0.9.x` making
   repeated workflow and audit loops durable, reviewable, and diffable without
   turning review records into notes, saved exploration artifacts, or broad
-  automated mutation
+  automated mutation, and `0.10.x` packaging workflows, review routines,
+  report profiles, and packs as declarative workbench assets rather than as a
+  plugin runtime
 - clear explanations for why a node or section is being shown
 - controlled discovery of non-obvious but relevant material through indexed
   evidence over refs, tasks, time, and local graph structure
@@ -92,6 +94,13 @@ status, review diffs, and read-only remediation previews for supported audit
 findings. Review state is a distinct domain concept. It must not collapse into
 ordinary note identity, saved exploration-artifact identity, task-manager
 sprawl, or broad write automation.
+`0.10.x` should extend that operational workbench declaratively. Workflow
+specs should carry compatibility expectations. Review routines should describe
+recurring audit or workflow loops without becoming schedulers. Report profiles
+should be bounded output presets, not templates or renderer plugins. Packs
+should bundle those assets for validation, cataloging, and sharing without
+turning imported assets into notes, review runs, saved exploration artifacts,
+or executable code.
 Broader extension, plugin-runtime, MCP, and platform surfaces still come
 later.
 
@@ -103,6 +112,9 @@ This implies:
   domain concepts, not buffer accidents
 - review runs, review status, and review diffs are durable workbench concepts,
   but remain distinct from both notes and saved exploration artifacts
+- declarative workflows, routines, report profiles, and packs are durable
+  workbench assets, but remain distinct from notes, review records, saved
+  exploration artifacts, and executable plugins
 - programmable surfaces expose meaningful operations rather than transport guts
 - the workbench should be extracted from a proven exploratory model, not
   invented in parallel and allowed to drift

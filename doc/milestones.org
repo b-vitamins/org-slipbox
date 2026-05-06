@@ -92,6 +92,9 @@ Outcomes:
 - durable review runs for recurring workflow and audit loops
 - review status, review diffs, and read-only remediation previews for
   supported audit findings over the composed workbench surface
+- declarative workflow compatibility, review routines, report profiles, and
+  workbench packs that package reusable workbench assets as data rather than
+  executable plugin code
 - stronger CLI and headless workflows built from that same exploratory model
 - stable hooks and extension points around exploration only after the first
   composed workbench has proven its shape
@@ -120,6 +123,11 @@ Exit criteria:
   any remediation is appropriate
 - remediation surfaces preview safe audit cleanups without implying broad
   automated mutation
+- imported declarative workbench assets are explicit and separate from notes,
+  review runs, and saved exploration artifacts
+- workflows, review routines, report profiles, and packs can be shared and
+  validated without implying a plugin runtime, MCP surface, agent adapter, or
+  raw RPC wrapper layer
 - users can script and automate meaningful exploratory workflows
 - buffer and query surfaces compose without reaching into unstable internals
 - headless surfaces reuse the exploratory model already proven in the cockpit

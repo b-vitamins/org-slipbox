@@ -6,6 +6,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+### Changed
+- Defined the `0.10.x` release band as declarative workbench extension through
+  workflow compatibility, review routines, report profiles, and packs, while
+  keeping plugin runtime, MCP, agent adapters, raw-RPC sprawl, broad mutation,
+  notes, review runs, and saved exploration artifacts out of that asset model.
+
 ## [0.9.0] - 2026-05-06
 
 ### Added
