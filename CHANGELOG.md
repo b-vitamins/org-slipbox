@@ -15,6 +15,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Added `--save-review` flows to audit and workflow run commands so live
   operational results can be persisted as durable review runs from the CLI.
 
+### Fixed
+- Hardened review CLI JSON contract coverage for save-review, show, diff, mark,
+  and delete flows over the binary/daemon boundary.
+
 ## [0.8.0] - 2026-05-05
 
 ### Added

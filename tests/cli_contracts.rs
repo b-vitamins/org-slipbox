@@ -426,6 +426,82 @@ fn assert_saved_artifact_summary_keys(value: &Value) {
     assert_exact_object_keys(value, &["artifact_id", "title", "summary", "kind"]);
 }
 
+fn assert_review_summary_keys(value: &Value) {
+    assert_exact_object_keys(
+        value,
+        &[
+            "review_id",
+            "title",
+            "summary",
+            "kind",
+            "finding_count",
+            "status_counts",
+        ],
+    );
+    assert_exact_object_keys(
+        &value["status_counts"],
+        &["open", "reviewed", "dismissed", "accepted"],
+    );
+}
+
+fn assert_workflow_review_keys(value: &Value) {
+    assert_exact_object_keys(
+        value,
+        &[
+            "review_id",
+            "title",
+            "summary",
+            "kind",
+            "workflow",
+            "inputs",
+            "step_ids",
+            "findings",
+        ],
+    );
+}
+
+fn assert_audit_review_keys(value: &Value) {
+    assert_exact_object_keys(
+        value,
+        &[
+            "review_id",
+            "title",
+            "summary",
+            "kind",
+            "audit",
+            "limit",
+            "findings",
+        ],
+    );
+}
+
+fn assert_review_finding_keys(value: &Value, payload_key: &str) {
+    assert_exact_object_keys(value, &["finding_id", "status", "kind", payload_key]);
+}
+
+fn seed_duplicate_title_audit_fixture(root: &str, db: &str) -> Result<()> {
+    fs::write(
+        Path::new(root).join("duplicate-a.org"),
+        r#":PROPERTIES:
+:ID: dup-a-id
+:END:
+#+title: Shared Title
+"#,
+    )?;
+    fs::write(
+        Path::new(root).join("duplicate-b.org"),
+        r#":PROPERTIES:
+:ID: dup-b-id
+:END:
+#+title: shared title
+"#,
+    )?;
+    let files = scan_root(Path::new(root))?;
+    let mut database = Database::open(Path::new(db))?;
+    database.sync_index(&files)?;
+    Ok(())
+}
+
 fn parse_jsonl_values(bytes: &[u8]) -> Vec<Value> {
     bytes
         .split(|byte| *byte == b'\n')
@@ -666,39 +742,18 @@ fn headless_commands_expose_stable_json_shapes() -> Result<()> {
     assert!(review_list.status.success(), "{review_list:?}");
     let review_list_json: Value = serde_json::from_slice(&review_list.stdout)?;
     assert_exact_object_keys(&review_list_json, &["reviews"]);
-    assert_exact_object_keys(
-        &review_list_json["reviews"][0],
-        &[
-            "review_id",
-            "title",
-            "summary",
-            "kind",
-            "finding_count",
-            "status_counts",
-        ],
-    );
+    assert_review_summary_keys(&review_list_json["reviews"][0]);
 
     let review_show = review_json_command("show", &root, &db, &["review/workflow/base"])?;
     assert!(review_show.status.success(), "{review_show:?}");
     let review_show_json: Value = serde_json::from_slice(&review_show.stdout)?;
     assert_exact_object_keys(&review_show_json, &["review"]);
+    assert_workflow_review_keys(&review_show_json["review"]);
     assert_exact_object_keys(
-        &review_show_json["review"],
-        &[
-            "review_id",
-            "title",
-            "summary",
-            "kind",
-            "workflow",
-            "inputs",
-            "step_ids",
-            "findings",
-        ],
+        &review_show_json["review"]["workflow"],
+        &["workflow_id", "title", "summary", "step_count"],
     );
-    assert_exact_object_keys(
-        &review_show_json["review"]["findings"][0],
-        &["finding_id", "status", "kind", "step"],
-    );
+    assert_review_finding_keys(&review_show_json["review"]["findings"][0], "step");
 
     let review_diff = review_json_command(
         "diff",
@@ -725,6 +780,8 @@ fn headless_commands_expose_stable_json_shapes() -> Result<()> {
         &review_diff_json["diff"]["status_changed"][0],
         &["finding_id", "from_status", "to_status", "base", "target"],
     );
+    assert_review_summary_keys(&review_diff_json["diff"]["base_review"]);
+    assert_review_summary_keys(&review_diff_json["diff"]["target_review"]);
 
     let review_mark = review_json_command(
         "mark",
@@ -743,6 +800,11 @@ fn headless_commands_expose_stable_json_shapes() -> Result<()> {
         &review_mark_json["transition"],
         &["review_id", "finding_id", "from_status", "to_status"],
     );
+
+    let review_delete = review_json_command("delete", &root, &db, &["review/workflow/target"])?;
+    assert!(review_delete.status.success(), "{review_delete:?}");
+    let review_delete_json: Value = serde_json::from_slice(&review_delete.stdout)?;
+    assert_exact_object_keys(&review_delete_json, &["review_id"]);
 
     Ok(())
 }
@@ -958,6 +1020,199 @@ fn workflow_discovery_and_report_outputs_expose_stable_json_shapes() -> Result<(
     let audit_lines = parse_jsonl_values(&audit_jsonl.stdout);
     assert_exact_object_keys(&audit_lines[0], &["kind", "audit"]);
     assert_exact_object_keys(&audit_lines[1], &["kind", "entry"]);
+
+    Ok(())
+}
+
+#[test]
+fn save_review_commands_expose_stable_json_shapes() -> Result<()> {
+    let (workspace, root, db, anonymous_anchor_key) = build_indexed_fixture()?;
+    seed_duplicate_title_audit_fixture(&root, &db)?;
+
+    let audit_save = audit_json_command(
+        "duplicate-titles",
+        &root,
+        &db,
+        &[
+            "--save-review",
+            "--review-id",
+            "review/audit/contracts/duplicates",
+            "--review-title",
+            "Duplicate Contract Review",
+            "--review-summary",
+            "Contract-level duplicate-title review.",
+        ],
+    )?;
+    assert!(audit_save.status.success(), "{audit_save:?}");
+    let audit_save_json: Value = serde_json::from_slice(&audit_save.stdout)?;
+    assert_exact_object_keys(&audit_save_json, &["result", "review"]);
+    assert_exact_object_keys(&audit_save_json["result"], &["audit", "entries"]);
+    assert_review_summary_keys(&audit_save_json["review"]);
+    assert_eq!(
+        audit_save_json["review"]["review_id"],
+        "review/audit/contracts/duplicates"
+    );
+
+    let audit_show =
+        review_json_command("show", &root, &db, &["review/audit/contracts/duplicates"])?;
+    assert!(audit_show.status.success(), "{audit_show:?}");
+    let audit_show_json: Value = serde_json::from_slice(&audit_show.stdout)?;
+    assert_exact_object_keys(&audit_show_json, &["review"]);
+    assert_audit_review_keys(&audit_show_json["review"]);
+    assert_review_finding_keys(&audit_show_json["review"]["findings"][0], "entry");
+    assert_exact_object_keys(
+        &audit_show_json["review"]["findings"][0]["entry"],
+        &["kind", "record"],
+    );
+
+    let workflow_save = workflow_json_command(
+        "run",
+        &root,
+        &db,
+        &[
+            BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
+            "--input",
+            &format!("focus=key:{anonymous_anchor_key}"),
+            "--save-review",
+            "--review-id",
+            "review/workflow/contracts/unresolved",
+            "--review-title",
+            "Unresolved Contract Review",
+        ],
+    )?;
+    assert!(workflow_save.status.success(), "{workflow_save:?}");
+    let workflow_save_json: Value = serde_json::from_slice(&workflow_save.stdout)?;
+    assert_exact_object_keys(&workflow_save_json, &["result", "review"]);
+    assert_exact_object_keys(&workflow_save_json["result"], &["workflow", "steps"]);
+    assert_review_summary_keys(&workflow_save_json["review"]);
+    assert_eq!(
+        workflow_save_json["review"]["review_id"],
+        "review/workflow/contracts/unresolved"
+    );
+
+    let workflow_report_path = workspace.path().join("workflow-save-review.jsonl");
+    let workflow_report = run_command(&[
+        "workflow".to_owned(),
+        "run".to_owned(),
+        "--root".to_owned(),
+        root.clone(),
+        "--db".to_owned(),
+        db.clone(),
+        "--server-program".to_owned(),
+        slipbox_binary().to_owned(),
+        "--jsonl".to_owned(),
+        "--output".to_owned(),
+        workflow_report_path
+            .to_str()
+            .expect("utf-8 path")
+            .to_owned(),
+        BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID.to_owned(),
+        "--input".to_owned(),
+        format!("focus=key:{anonymous_anchor_key}"),
+        "--save-review".to_owned(),
+        "--review-id".to_owned(),
+        "review/workflow/contracts/report".to_owned(),
+    ])?;
+    assert!(workflow_report.status.success(), "{workflow_report:?}");
+    let workflow_report_json: Value = serde_json::from_slice(&workflow_report.stdout)?;
+    assert_exact_object_keys(
+        &workflow_report_json,
+        &["workflow", "format", "output_path", "step_count", "review"],
+    );
+    assert_review_summary_keys(&workflow_report_json["review"]);
+    let workflow_lines = parse_jsonl_values(&fs::read(&workflow_report_path)?);
+    assert_exact_object_keys(&workflow_lines[0], &["kind", "workflow"]);
+    assert_exact_object_keys(&workflow_lines[1], &["kind", "step"]);
+
+    Ok(())
+}
+
+#[test]
+fn review_save_diff_mark_round_trip_through_binary_boundary() -> Result<()> {
+    let (_workspace, root, db, _anonymous_anchor_key) = build_indexed_fixture()?;
+    seed_duplicate_title_audit_fixture(&root, &db)?;
+
+    let base = audit_json_command(
+        "duplicate-titles",
+        &root,
+        &db,
+        &[
+            "--save-review",
+            "--review-id",
+            "review/audit/contracts/base",
+            "--review-title",
+            "Base Duplicate Review",
+        ],
+    )?;
+    assert!(base.status.success(), "{base:?}");
+    let base_json: Value = serde_json::from_slice(&base.stdout)?;
+    assert_eq!(base_json["review"]["finding_count"], 1);
+
+    let target = audit_json_command(
+        "duplicate-titles",
+        &root,
+        &db,
+        &[
+            "--save-review",
+            "--review-id",
+            "review/audit/contracts/target",
+            "--review-title",
+            "Target Duplicate Review",
+        ],
+    )?;
+    assert!(target.status.success(), "{target:?}");
+
+    let shown = review_json_command("show", &root, &db, &["review/audit/contracts/target"])?;
+    assert!(shown.status.success(), "{shown:?}");
+    let shown_json: Value = serde_json::from_slice(&shown.stdout)?;
+    assert_audit_review_keys(&shown_json["review"]);
+    let finding_id = shown_json["review"]["findings"][0]["finding_id"]
+        .as_str()
+        .expect("finding id should be a string")
+        .to_owned();
+
+    let diff = review_json_command(
+        "diff",
+        &root,
+        &db,
+        &[
+            "review/audit/contracts/base",
+            "review/audit/contracts/target",
+        ],
+    )?;
+    assert!(diff.status.success(), "{diff:?}");
+    let diff_json: Value = serde_json::from_slice(&diff.stdout)?;
+    assert_exact_object_keys(&diff_json, &["diff"]);
+    assert_eq!(
+        diff_json["diff"]["unchanged"].as_array().map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(diff_json["diff"]["added"].as_array().map(Vec::len), Some(0));
+    assert_eq!(
+        diff_json["diff"]["status_changed"].as_array().map(Vec::len),
+        Some(0)
+    );
+
+    let mark = review_json_command(
+        "mark",
+        &root,
+        &db,
+        &["review/audit/contracts/target", &finding_id, "reviewed"],
+    )?;
+    assert!(mark.status.success(), "{mark:?}");
+    let mark_json: Value = serde_json::from_slice(&mark.stdout)?;
+    assert_exact_object_keys(&mark_json, &["transition"]);
+    assert_eq!(mark_json["transition"]["from_status"], "open");
+    assert_eq!(mark_json["transition"]["to_status"], "reviewed");
+
+    let reopened = review_json_command("show", &root, &db, &["review/audit/contracts/target"])?;
+    assert!(reopened.status.success(), "{reopened:?}");
+    let reopened_json: Value = serde_json::from_slice(&reopened.stdout)?;
+    assert_eq!(reopened_json["review"]["findings"][0]["status"], "reviewed");
+    assert_eq!(
+        reopened_json["review"]["findings"][0]["finding_id"],
+        finding_id
+    );
 
     Ok(())
 }
@@ -1378,6 +1633,92 @@ fn live_save_commands_report_structured_json_failures() -> Result<()> {
         ],
     )?;
     assert_error_failure(&compare_missing_metadata, "--save requires --artifact-id");
+
+    Ok(())
+}
+
+#[test]
+fn review_commands_and_save_review_flows_report_structured_json_failures() -> Result<()> {
+    let (_workspace, root, db, anonymous_anchor_key) = build_indexed_fixture()?;
+
+    let show_missing = review_json_command("show", &root, &db, &["review/missing"])?;
+    assert_error_failure(&show_missing, "unknown review run: review/missing");
+
+    let diff_missing = review_json_command(
+        "diff",
+        &root,
+        &db,
+        &["review/workflow/base", "review/missing"],
+    )?;
+    assert_error_failure(&diff_missing, "unknown review run: review/missing");
+
+    let mark_invalid = review_json_command(
+        "mark",
+        &root,
+        &db,
+        &[
+            "review/workflow/base",
+            "workflow-step/resolve-focus",
+            "done",
+        ],
+    )?;
+    assert_error_failure(&mark_invalid, "invalid review finding status `done`");
+
+    let delete_invalid = review_json_command("delete", &root, &db, &[" review/workflow/base "])?;
+    assert_error_failure(
+        &delete_invalid,
+        "review_id must not have leading or trailing whitespace",
+    );
+
+    seed_duplicate_title_audit_fixture(&root, &db)?;
+    let initial = audit_json_command(
+        "duplicate-titles",
+        &root,
+        &db,
+        &[
+            "--save-review",
+            "--review-id",
+            "review/audit/contracts/conflict",
+        ],
+    )?;
+    assert!(initial.status.success(), "{initial:?}");
+
+    let conflict = audit_json_command(
+        "duplicate-titles",
+        &root,
+        &db,
+        &[
+            "--save-review",
+            "--review-id",
+            "review/audit/contracts/conflict",
+        ],
+    )?;
+    assert_error_failure(
+        &conflict,
+        "review run already exists: review/audit/contracts/conflict",
+    );
+
+    let audit_stray = audit_json_command(
+        "duplicate-titles",
+        &root,
+        &db,
+        &["--review-id", "review/audit/contracts/stray"],
+    )?;
+    assert_error_failure(&audit_stray, "--review-id require --save-review");
+
+    let workflow_stray = workflow_json_command(
+        "run",
+        &root,
+        &db,
+        &[
+            BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
+            "--input",
+            &format!("focus=key:{anonymous_anchor_key}"),
+            "--review-title",
+            "Stray Workflow Review",
+        ],
+    )?;
+    assert_error_failure(&workflow_stray, "--review-title require --save-review");
 
     Ok(())
 }
