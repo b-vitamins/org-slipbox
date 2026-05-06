@@ -9,7 +9,12 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use slipbox_core::{
-    CorpusAuditParams, CorpusAuditResult, ListWorkflowsResult, RunWorkflowParams, RunWorkflowResult,
+    CorpusAuditParams, CorpusAuditResult, ListReviewRunsResult, ListWorkflowsResult,
+    MarkReviewFindingParams, MarkReviewFindingResult, ReviewFindingRemediationPreviewParams,
+    ReviewFindingRemediationPreviewResult, ReviewRunDiffParams, ReviewRunDiffResult,
+    ReviewRunIdParams, ReviewRunResult, RunWorkflowParams, RunWorkflowResult,
+    SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult, SaveWorkflowReviewParams,
+    SaveWorkflowReviewResult,
 };
 use slipbox_index::DiscoveryPolicy;
 use slipbox_rpc::{JsonRpcErrorObject, JsonRpcResponse, read_framed_message, write_framed_message};
@@ -55,6 +60,74 @@ impl WorkbenchBench {
         let value = handlers::query::corpus_audit(&mut self.state, serde_json::to_value(params)?)
             .context("corpus audit benchmark request failed")?;
         serde_json::from_value(value).context("failed to decode corpus audit benchmark result")
+    }
+
+    pub(crate) fn list_review_runs(&mut self) -> Result<ListReviewRunsResult> {
+        let value = handlers::query::list_review_runs(&mut self.state, serde_json::json!({}))
+            .context("review list benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode review list benchmark result")
+    }
+
+    pub(crate) fn review_run(&mut self, params: &ReviewRunIdParams) -> Result<ReviewRunResult> {
+        let value = handlers::query::review_run(&mut self.state, serde_json::to_value(params)?)
+            .context("review show benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode review show benchmark result")
+    }
+
+    pub(crate) fn diff_review_runs(
+        &mut self,
+        params: &ReviewRunDiffParams,
+    ) -> Result<ReviewRunDiffResult> {
+        let value =
+            handlers::query::diff_review_runs(&mut self.state, serde_json::to_value(params)?)
+                .context("review diff benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode review diff benchmark result")
+    }
+
+    pub(crate) fn review_finding_remediation_preview(
+        &mut self,
+        params: &ReviewFindingRemediationPreviewParams,
+    ) -> Result<ReviewFindingRemediationPreviewResult> {
+        let value = handlers::query::review_finding_remediation_preview(
+            &mut self.state,
+            serde_json::to_value(params)?,
+        )
+        .context("review remediation preview benchmark request failed")?;
+        serde_json::from_value(value)
+            .context("failed to decode review remediation preview benchmark result")
+    }
+
+    pub(crate) fn mark_review_finding(
+        &mut self,
+        params: &MarkReviewFindingParams,
+    ) -> Result<MarkReviewFindingResult> {
+        let value =
+            handlers::query::mark_review_finding(&mut self.state, serde_json::to_value(params)?)
+                .context("review mark benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode review mark benchmark result")
+    }
+
+    pub(crate) fn save_corpus_audit_review(
+        &mut self,
+        params: &SaveCorpusAuditReviewParams,
+    ) -> Result<SaveCorpusAuditReviewResult> {
+        let value = handlers::query::save_corpus_audit_review(
+            &mut self.state,
+            serde_json::to_value(params)?,
+        )
+        .context("audit save-review benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode audit save-review benchmark result")
+    }
+
+    pub(crate) fn save_workflow_review(
+        &mut self,
+        params: &SaveWorkflowReviewParams,
+    ) -> Result<SaveWorkflowReviewResult> {
+        let value =
+            handlers::query::save_workflow_review(&mut self.state, serde_json::to_value(params)?)
+                .context("workflow save-review benchmark request failed")?;
+        serde_json::from_value(value)
+            .context("failed to decode workflow save-review benchmark result")
     }
 }
 

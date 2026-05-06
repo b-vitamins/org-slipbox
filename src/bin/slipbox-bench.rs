@@ -22,9 +22,12 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use slipbox_core::{
-    BacklinkRecord, CompareNotesParams, CorpusAuditKind, CorpusAuditParams, ExplorationEntry,
-    ExplorationLens, ExplorationSection, ExplorationSectionKind, ExploreResult, ForwardLinkRecord,
-    NodeRecord, NoteComparisonResult, RunWorkflowParams, SearchNodesSort, WorkflowExploreFocus,
+    AuditRemediationPreviewPayload, BacklinkRecord, CompareNotesParams, CorpusAuditKind,
+    CorpusAuditParams, ExplorationEntry, ExplorationLens, ExplorationSection,
+    ExplorationSectionKind, ExploreResult, ForwardLinkRecord, MarkReviewFindingParams, NodeRecord,
+    NoteComparisonResult, ReviewFindingRemediationPreviewParams, ReviewFindingStatus,
+    ReviewRunDiffParams, ReviewRunIdParams, RunWorkflowParams, SaveCorpusAuditReviewParams,
+    SaveWorkflowReviewParams, SearchNodesSort, WorkflowExecutionResult, WorkflowExploreFocus,
     WorkflowInputAssignment, WorkflowInputKind, WorkflowInputSpec, WorkflowMetadata,
     WorkflowResolveTarget, WorkflowResolveTarget as WorkflowSpecResolveTarget, WorkflowSpec,
     WorkflowStepPayload, WorkflowStepReportPayload, WorkflowStepSpec,
@@ -43,6 +46,9 @@ const EXPLORATION_SHARED_REF: &str = "cite:bench-explore2026";
 const EXPLORATION_FOCUS_REF: &str = "cite:bench-explore-focus2026";
 const WORKFLOW_DISCOVERY_DIR: &str = "workflows";
 const WORKFLOW_BENCHMARK_ID: &str = "workflow/discovered/benchmark-research-sweep";
+const AUDIT_REVIEW_BASE_ID: &str = "review/benchmark/audit/base";
+const AUDIT_REVIEW_TARGET_ID: &str = "review/benchmark/audit/target";
+const WORKFLOW_REVIEW_ID: &str = "review/benchmark/workflow/base";
 const AGENDA_START: &str = "2026-03-01";
 const AGENDA_END: &str = "2026-03-31";
 const DEDICATED_COMPARE_CANDIDATE_LIMIT: usize = 12;
@@ -124,6 +130,13 @@ struct IterationConfig {
     workflow_catalog: usize,
     workflow_run: usize,
     corpus_audit: usize,
+    review_list: usize,
+    review_show: usize,
+    review_diff: usize,
+    review_mark: usize,
+    audit_save_review: usize,
+    workflow_save_review: usize,
+    remediation_preview: usize,
     search_limit: usize,
     backlinks_limit: usize,
     reflinks_limit: usize,
@@ -152,6 +165,13 @@ struct ThresholdConfig {
     workflow_catalog_p95_ms: f64,
     workflow_run_p95_ms: f64,
     corpus_audit_p95_ms: f64,
+    review_list_p95_ms: f64,
+    review_show_p95_ms: f64,
+    review_diff_p95_ms: f64,
+    review_mark_p95_ms: f64,
+    audit_save_review_p95_ms: f64,
+    workflow_save_review_p95_ms: f64,
+    remediation_preview_p95_ms: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -176,6 +196,13 @@ struct BenchmarkReport {
     workflow_catalog: TimingReport,
     workflow_run: TimingReport,
     corpus_audit: TimingReport,
+    review_list: TimingReport,
+    review_show: TimingReport,
+    review_diff: TimingReport,
+    review_mark: TimingReport,
+    audit_save_review: TimingReport,
+    workflow_save_review: TimingReport,
+    remediation_preview: TimingReport,
 }
 
 #[derive(Debug, Serialize)]
@@ -243,6 +270,15 @@ struct DedicatedExplorationBufferFixture<'a> {
     node: &'a NodeRecord,
     lens: ExplorationLens,
     exploration_result: &'a ExploreResult,
+}
+
+#[derive(Debug, Clone)]
+struct ReviewBenchmarkFixture {
+    audit_base_review_id: String,
+    audit_target_review_id: String,
+    workflow_review_id: String,
+    remediation_finding_id: String,
+    mark_finding_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -404,6 +440,25 @@ fn run_profile(
         &workflow_focus_anchor.node_key,
     )?;
     let corpus_audit = benchmark_corpus_audit(&mut workbench, profile)?;
+    let review_fixture = prepare_review_benchmark_fixtures(
+        &mut workbench,
+        profile,
+        fixture,
+        &workflow_focus_anchor.node_key,
+    )?;
+    let review_list = benchmark_review_list(&mut workbench, profile, &review_fixture)?;
+    let review_show = benchmark_review_show(&mut workbench, profile, &review_fixture)?;
+    let review_diff = benchmark_review_diff(&mut workbench, profile, &review_fixture)?;
+    let remediation_preview =
+        benchmark_remediation_preview(&mut workbench, profile, &review_fixture)?;
+    let review_mark = benchmark_review_mark(&mut workbench, profile, &review_fixture)?;
+    let audit_save_review = benchmark_audit_save_review(&mut workbench, profile)?;
+    let workflow_save_review = benchmark_workflow_save_review(
+        &mut workbench,
+        profile,
+        fixture,
+        &workflow_focus_anchor.node_key,
+    )?;
     let (persistent_buffer, dedicated_buffer, dedicated_exploration_buffer) = if skip_elisp {
         (None, None, None)
     } else {
@@ -487,6 +542,13 @@ fn run_profile(
         workflow_catalog,
         workflow_run,
         corpus_audit,
+        review_list,
+        review_show,
+        review_diff,
+        review_mark,
+        audit_save_review,
+        workflow_save_review,
+        remediation_preview,
     })
 }
 
@@ -1208,6 +1270,238 @@ fn benchmark_corpus_audit(
     })
 }
 
+fn prepare_review_benchmark_fixtures(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &CorpusFixture,
+    focus_node_key: &str,
+) -> Result<ReviewBenchmarkFixture> {
+    let audit_base = workbench.save_corpus_audit_review(&SaveCorpusAuditReviewParams {
+        audit: CorpusAuditKind::DanglingLinks,
+        limit: profile.iterations.audit_limit,
+        review_id: Some(AUDIT_REVIEW_BASE_ID.to_owned()),
+        title: Some("Benchmark Dangling Link Review Base".to_owned()),
+        summary: Some("Stable base fixture for operational review benchmarks.".to_owned()),
+        overwrite: true,
+    })?;
+    assert_saved_audit_review_fixture(&audit_base, AUDIT_REVIEW_BASE_ID)?;
+
+    let audit_target = workbench.save_corpus_audit_review(&SaveCorpusAuditReviewParams {
+        audit: CorpusAuditKind::DanglingLinks,
+        limit: profile.iterations.audit_limit,
+        review_id: Some(AUDIT_REVIEW_TARGET_ID.to_owned()),
+        title: Some("Benchmark Dangling Link Review Target".to_owned()),
+        summary: Some("Mutable target fixture for review diff and mark benchmarks.".to_owned()),
+        overwrite: true,
+    })?;
+    assert_saved_audit_review_fixture(&audit_target, AUDIT_REVIEW_TARGET_ID)?;
+
+    let target_review = workbench.review_run(&ReviewRunIdParams {
+        review_id: AUDIT_REVIEW_TARGET_ID.to_owned(),
+    })?;
+    let mark_finding_id = target_review
+        .review
+        .findings
+        .first()
+        .context("benchmark target audit review produced no findings")?
+        .finding_id
+        .clone();
+    let remediation_finding_id = mark_finding_id.clone();
+    let transition = workbench.mark_review_finding(&MarkReviewFindingParams {
+        review_id: AUDIT_REVIEW_TARGET_ID.to_owned(),
+        finding_id: mark_finding_id.clone(),
+        status: ReviewFindingStatus::Reviewed,
+    })?;
+    if transition.transition.to_status != ReviewFindingStatus::Reviewed {
+        bail!("benchmark review mark fixture failed to enter reviewed status");
+    }
+
+    let diff = workbench.diff_review_runs(&ReviewRunDiffParams {
+        base_review_id: AUDIT_REVIEW_BASE_ID.to_owned(),
+        target_review_id: AUDIT_REVIEW_TARGET_ID.to_owned(),
+    })?;
+    assert_review_diff_fixture(&diff)?;
+
+    let preview =
+        workbench.review_finding_remediation_preview(&ReviewFindingRemediationPreviewParams {
+            review_id: AUDIT_REVIEW_TARGET_ID.to_owned(),
+            finding_id: remediation_finding_id.clone(),
+        })?;
+    assert_remediation_preview_fixture(&preview)?;
+
+    let workflow_review = workbench.save_workflow_review(&benchmark_workflow_review_params(
+        focus_node_key,
+        WORKFLOW_REVIEW_ID.to_owned(),
+        true,
+    ))?;
+    assert_benchmark_workflow_execution_result(&workflow_review.result, fixture, focus_node_key)?;
+    if workflow_review.review.metadata.review_id != WORKFLOW_REVIEW_ID {
+        bail!(
+            "workflow review fixture saved unexpected review id {}",
+            workflow_review.review.metadata.review_id
+        );
+    }
+    if workflow_review.review.finding_count != workflow_review.result.steps.len() {
+        bail!(
+            "workflow review fixture expected one finding per step, found {} findings for {} steps",
+            workflow_review.review.finding_count,
+            workflow_review.result.steps.len()
+        );
+    }
+
+    Ok(ReviewBenchmarkFixture {
+        audit_base_review_id: AUDIT_REVIEW_BASE_ID.to_owned(),
+        audit_target_review_id: AUDIT_REVIEW_TARGET_ID.to_owned(),
+        workflow_review_id: WORKFLOW_REVIEW_ID.to_owned(),
+        remediation_finding_id,
+        mark_finding_id,
+    })
+}
+
+fn benchmark_review_list(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &ReviewBenchmarkFixture,
+) -> Result<TimingReport> {
+    let sample = workbench.list_review_runs()?;
+    assert_review_list_fixture(&sample, fixture)?;
+    measure_iterations(profile.iterations.review_list, |_| {
+        let result = workbench.list_review_runs()?;
+        assert_review_list_fixture(&result, fixture)?;
+        black_box(result.reviews.len());
+        Ok(())
+    })
+}
+
+fn benchmark_review_show(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &ReviewBenchmarkFixture,
+) -> Result<TimingReport> {
+    let params = ReviewRunIdParams {
+        review_id: fixture.workflow_review_id.clone(),
+    };
+    let sample = workbench.review_run(&params)?;
+    assert_review_show_fixture(&sample)?;
+    measure_iterations(profile.iterations.review_show, |_| {
+        let result = workbench.review_run(&params)?;
+        assert_review_show_fixture(&result)?;
+        black_box(result.review.findings.len());
+        Ok(())
+    })
+}
+
+fn benchmark_review_diff(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &ReviewBenchmarkFixture,
+) -> Result<TimingReport> {
+    let params = ReviewRunDiffParams {
+        base_review_id: fixture.audit_base_review_id.clone(),
+        target_review_id: fixture.audit_target_review_id.clone(),
+    };
+    let sample = workbench.diff_review_runs(&params)?;
+    assert_review_diff_fixture(&sample)?;
+    measure_iterations(profile.iterations.review_diff, |_| {
+        let result = workbench.diff_review_runs(&params)?;
+        assert_review_diff_fixture(&result)?;
+        black_box(result.diff.status_changed.len());
+        Ok(())
+    })
+}
+
+fn benchmark_review_mark(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &ReviewBenchmarkFixture,
+) -> Result<TimingReport> {
+    measure_iterations(profile.iterations.review_mark, |iteration| {
+        let status = if iteration % 2 == 0 {
+            ReviewFindingStatus::Open
+        } else {
+            ReviewFindingStatus::Reviewed
+        };
+        let result = workbench.mark_review_finding(&MarkReviewFindingParams {
+            review_id: fixture.audit_target_review_id.clone(),
+            finding_id: fixture.mark_finding_id.clone(),
+            status,
+        })?;
+        if result.transition.to_status != status {
+            bail!(
+                "review mark benchmark returned {:?}, expected {:?}",
+                result.transition.to_status,
+                status
+            );
+        }
+        black_box(result.transition);
+        Ok(())
+    })
+}
+
+fn benchmark_audit_save_review(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+) -> Result<TimingReport> {
+    measure_iterations(profile.iterations.audit_save_review, |iteration| {
+        let review_id = format!("review/benchmark/audit-save/{iteration:04}");
+        let result = workbench.save_corpus_audit_review(&SaveCorpusAuditReviewParams {
+            audit: CorpusAuditKind::DanglingLinks,
+            limit: profile.iterations.audit_limit,
+            review_id: Some(review_id.clone()),
+            title: Some(format!("Benchmark Audit Save Review {iteration:04}")),
+            summary: Some("Per-iteration audit save-review benchmark fixture.".to_owned()),
+            overwrite: true,
+        })?;
+        assert_saved_audit_review_fixture(&result, &review_id)?;
+        black_box(result.review.finding_count);
+        Ok(())
+    })
+}
+
+fn benchmark_workflow_save_review(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &CorpusFixture,
+    focus_node_key: &str,
+) -> Result<TimingReport> {
+    measure_iterations(profile.iterations.workflow_save_review, |iteration| {
+        let review_id = format!("review/benchmark/workflow-save/{iteration:04}");
+        let result = workbench.save_workflow_review(&benchmark_workflow_review_params(
+            focus_node_key,
+            review_id.clone(),
+            true,
+        ))?;
+        assert_benchmark_workflow_execution_result(&result.result, fixture, focus_node_key)?;
+        if result.review.metadata.review_id != review_id {
+            bail!(
+                "workflow save-review benchmark returned unexpected review id {}",
+                result.review.metadata.review_id
+            );
+        }
+        black_box(result.review.finding_count);
+        Ok(())
+    })
+}
+
+fn benchmark_remediation_preview(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &ReviewBenchmarkFixture,
+) -> Result<TimingReport> {
+    let params = ReviewFindingRemediationPreviewParams {
+        review_id: fixture.audit_target_review_id.clone(),
+        finding_id: fixture.remediation_finding_id.clone(),
+    };
+    let sample = workbench.review_finding_remediation_preview(&params)?;
+    assert_remediation_preview_fixture(&sample)?;
+    measure_iterations(profile.iterations.remediation_preview, |_| {
+        let result = workbench.review_finding_remediation_preview(&params)?;
+        assert_remediation_preview_fixture(&result)?;
+        black_box(result.preview.finding_id.len());
+        Ok(())
+    })
+}
+
 fn benchmark_workflow_params(focus_node_key: &str) -> RunWorkflowParams {
     RunWorkflowParams {
         workflow_id: WORKFLOW_BENCHMARK_ID.to_owned(),
@@ -1217,6 +1511,21 @@ fn benchmark_workflow_params(focus_node_key: &str) -> RunWorkflowParams {
                 node_key: focus_node_key.to_owned(),
             },
         }],
+    }
+}
+
+fn benchmark_workflow_review_params(
+    focus_node_key: &str,
+    review_id: String,
+    overwrite: bool,
+) -> SaveWorkflowReviewParams {
+    SaveWorkflowReviewParams {
+        workflow_id: WORKFLOW_BENCHMARK_ID.to_owned(),
+        inputs: benchmark_workflow_params(focus_node_key).inputs,
+        review_id: Some(review_id),
+        title: Some("Benchmark Workflow Review".to_owned()),
+        summary: Some("Workflow save-review benchmark fixture.".to_owned()),
+        overwrite,
     }
 }
 
@@ -1258,21 +1567,28 @@ fn assert_benchmark_workflow_result(
     fixture: &CorpusFixture,
     focus_node_key: &str,
 ) -> Result<()> {
-    if workflow.result.workflow.metadata.workflow_id != WORKFLOW_BENCHMARK_ID {
+    assert_benchmark_workflow_execution_result(&workflow.result, fixture, focus_node_key)
+}
+
+fn assert_benchmark_workflow_execution_result(
+    workflow: &WorkflowExecutionResult,
+    fixture: &CorpusFixture,
+    focus_node_key: &str,
+) -> Result<()> {
+    if workflow.workflow.metadata.workflow_id != WORKFLOW_BENCHMARK_ID {
         bail!(
             "workflow benchmark returned unexpected workflow id {}",
-            workflow.result.workflow.metadata.workflow_id
+            workflow.workflow.metadata.workflow_id
         );
     }
-    if workflow.result.steps.len() != 5 {
+    if workflow.steps.len() != 5 {
         bail!(
             "workflow benchmark expected 5 steps, found {}",
-            workflow.result.steps.len()
+            workflow.steps.len()
         );
     }
 
     let refs_step = workflow
-        .result
         .steps
         .iter()
         .find(|step| step.step_id == "explore-refs")
@@ -1310,7 +1626,6 @@ fn assert_benchmark_workflow_result(
         ("explore-time", ExplorationLens::Time),
     ] {
         let step = workflow
-            .result
             .steps
             .iter()
             .find(|report| report.step_id == step_id)
@@ -1350,6 +1665,104 @@ fn assert_benchmark_workflow_result(
         bail!("workflow benchmark fixture did not record a focus point");
     }
 
+    Ok(())
+}
+
+fn assert_saved_audit_review_fixture(
+    result: &slipbox_core::SaveCorpusAuditReviewResult,
+    expected_review_id: &str,
+) -> Result<()> {
+    if result.result.audit != CorpusAuditKind::DanglingLinks {
+        bail!(
+            "audit save-review fixture returned {:?}, expected dangling links",
+            result.result.audit
+        );
+    }
+    if result.result.entries.is_empty() {
+        bail!("audit save-review fixture produced no audit entries");
+    }
+    if result.review.metadata.review_id != expected_review_id {
+        bail!(
+            "audit save-review fixture returned unexpected review id {}",
+            result.review.metadata.review_id
+        );
+    }
+    if result.review.finding_count != result.result.entries.len() {
+        bail!(
+            "audit save-review fixture expected {} findings, found {}",
+            result.result.entries.len(),
+            result.review.finding_count
+        );
+    }
+    Ok(())
+}
+
+fn assert_review_list_fixture(
+    result: &slipbox_core::ListReviewRunsResult,
+    fixture: &ReviewBenchmarkFixture,
+) -> Result<()> {
+    for review_id in [
+        &fixture.audit_base_review_id,
+        &fixture.audit_target_review_id,
+        &fixture.workflow_review_id,
+    ] {
+        if !result
+            .reviews
+            .iter()
+            .any(|review| review.metadata.review_id == *review_id)
+        {
+            bail!("review list benchmark omitted fixture review {review_id}");
+        }
+    }
+    Ok(())
+}
+
+fn assert_review_show_fixture(result: &slipbox_core::ReviewRunResult) -> Result<()> {
+    if result.review.findings.is_empty() {
+        bail!("review show benchmark returned a review with no findings");
+    }
+    if result.review.validation_error().is_some() {
+        bail!("review show benchmark returned an invalid review");
+    }
+    Ok(())
+}
+
+fn assert_review_diff_fixture(result: &slipbox_core::ReviewRunDiffResult) -> Result<()> {
+    if result.diff.status_changed.is_empty() {
+        bail!("review diff benchmark fixture produced no status changes");
+    }
+    if result.diff.added.len()
+        + result.diff.removed.len()
+        + result.diff.unchanged.len()
+        + result.diff.content_changed.len()
+        + result.diff.status_changed.len()
+        == 0
+    {
+        bail!("review diff benchmark produced an empty diff");
+    }
+    Ok(())
+}
+
+fn assert_remediation_preview_fixture(
+    result: &slipbox_core::ReviewFindingRemediationPreviewResult,
+) -> Result<()> {
+    match &result.preview.payload {
+        AuditRemediationPreviewPayload::DanglingLink {
+            missing_explicit_id,
+            suggestion,
+            ..
+        } => {
+            if missing_explicit_id.is_empty() || suggestion.is_empty() {
+                bail!("remediation preview benchmark returned incomplete dangling-link payload");
+            }
+        }
+        other => {
+            bail!(
+                "remediation preview benchmark returned unsupported payload {:?}",
+                other
+            );
+        }
+    }
     Ok(())
 }
 
@@ -1901,6 +2314,41 @@ fn enforce_thresholds(report: &BenchmarkReport, thresholds: &ThresholdConfig) ->
         report.corpus_audit.p95_ms,
         thresholds.corpus_audit_p95_ms,
     )?;
+    check_threshold(
+        "review_list",
+        report.review_list.p95_ms,
+        thresholds.review_list_p95_ms,
+    )?;
+    check_threshold(
+        "review_show",
+        report.review_show.p95_ms,
+        thresholds.review_show_p95_ms,
+    )?;
+    check_threshold(
+        "review_diff",
+        report.review_diff.p95_ms,
+        thresholds.review_diff_p95_ms,
+    )?;
+    check_threshold(
+        "review_mark",
+        report.review_mark.p95_ms,
+        thresholds.review_mark_p95_ms,
+    )?;
+    check_threshold(
+        "audit_save_review",
+        report.audit_save_review.p95_ms,
+        thresholds.audit_save_review_p95_ms,
+    )?;
+    check_threshold(
+        "workflow_save_review",
+        report.workflow_save_review.p95_ms,
+        thresholds.workflow_save_review_p95_ms,
+    )?;
+    check_threshold(
+        "remediation_preview",
+        report.remediation_preview.p95_ms,
+        thresholds.remediation_preview_p95_ms,
+    )?;
     Ok(())
 }
 
@@ -1948,6 +2396,13 @@ fn print_summary(report: &BenchmarkReport, check: bool, output_path: &Path) {
     print_metric("workflowCatalog", &report.workflow_catalog);
     print_metric("workflowRun", &report.workflow_run);
     print_metric("corpusAudit", &report.corpus_audit);
+    print_metric("reviewList", &report.review_list);
+    print_metric("reviewShow", &report.review_show);
+    print_metric("reviewDiff", &report.review_diff);
+    print_metric("reviewMark", &report.review_mark);
+    print_metric("auditSaveReview", &report.audit_save_review);
+    print_metric("workflowSaveReview", &report.workflow_save_review);
+    print_metric("remediationPreview", &report.remediation_preview);
 }
 
 fn print_metric(name: &str, report: &TimingReport) {
@@ -2106,6 +2561,13 @@ impl BenchmarkProfile {
             ("workflow_catalog", self.iterations.workflow_catalog),
             ("workflow_run", self.iterations.workflow_run),
             ("corpus_audit", self.iterations.corpus_audit),
+            ("review_list", self.iterations.review_list),
+            ("review_show", self.iterations.review_show),
+            ("review_diff", self.iterations.review_diff),
+            ("review_mark", self.iterations.review_mark),
+            ("audit_save_review", self.iterations.audit_save_review),
+            ("workflow_save_review", self.iterations.workflow_save_review),
+            ("remediation_preview", self.iterations.remediation_preview),
             ("search_limit", self.iterations.search_limit),
             ("backlinks_limit", self.iterations.backlinks_limit),
             ("reflinks_limit", self.iterations.reflinks_limit),
@@ -2261,6 +2723,93 @@ mod tests {
                 audit
             );
         }
+
+        let profile = BenchmarkProfile {
+            corpus: config,
+            iterations: IterationConfig {
+                full_index: 1,
+                index_file: 1,
+                search_nodes: 1,
+                search_nodes_sorted: 1,
+                search_files: 1,
+                search_occurrences: 1,
+                backlinks: 1,
+                forward_links: 1,
+                reflinks: 1,
+                unlinked_references: 1,
+                node_at_point: 1,
+                agenda: 1,
+                persistent_buffer_samples: 1,
+                persistent_buffer_iterations: 1,
+                dedicated_buffer_samples: 1,
+                dedicated_buffer_iterations: 1,
+                dedicated_exploration_buffer_samples: 1,
+                dedicated_exploration_buffer_iterations: 1,
+                workflow_catalog: 1,
+                workflow_run: 1,
+                corpus_audit: 1,
+                review_list: 1,
+                review_show: 1,
+                review_diff: 1,
+                review_mark: 2,
+                audit_save_review: 1,
+                workflow_save_review: 1,
+                remediation_preview: 1,
+                search_limit: 5,
+                backlinks_limit: 20,
+                reflinks_limit: 20,
+                unlinked_references_limit: 20,
+                agenda_limit: 20,
+                audit_limit: 20,
+            },
+            thresholds: ThresholdConfig {
+                full_index_p95_ms: 1.0,
+                index_file_p95_ms: 1.0,
+                search_nodes_p95_ms: 1.0,
+                search_nodes_sorted_p95_ms: 1.0,
+                search_files_p95_ms: 1.0,
+                search_occurrences_p95_ms: 1.0,
+                backlinks_p95_ms: 1.0,
+                forward_links_p95_ms: 1.0,
+                reflinks_p95_ms: 1.0,
+                unlinked_references_p95_ms: 1.0,
+                node_at_point_p95_ms: 1.0,
+                agenda_p95_ms: 1.0,
+                persistent_buffer_p95_ms: None,
+                dedicated_buffer_p95_ms: None,
+                dedicated_exploration_buffer_p95_ms: None,
+                workflow_catalog_p95_ms: 1.0,
+                workflow_run_p95_ms: 1.0,
+                corpus_audit_p95_ms: 1.0,
+                review_list_p95_ms: 1.0,
+                review_show_p95_ms: 1.0,
+                review_diff_p95_ms: 1.0,
+                review_mark_p95_ms: 1.0,
+                audit_save_review_p95_ms: 1.0,
+                workflow_save_review_p95_ms: 1.0,
+                remediation_preview_p95_ms: 1.0,
+            },
+        };
+        let review_fixture = prepare_review_benchmark_fixtures(
+            &mut workbench,
+            &profile,
+            &fixture,
+            &workflow_focus_anchor.node_key,
+        )?;
+        assert_review_list_fixture(&workbench.list_review_runs()?, &review_fixture)?;
+        assert_review_show_fixture(&workbench.review_run(&ReviewRunIdParams {
+            review_id: review_fixture.workflow_review_id.clone(),
+        })?)?;
+        assert_review_diff_fixture(&workbench.diff_review_runs(&ReviewRunDiffParams {
+            base_review_id: review_fixture.audit_base_review_id.clone(),
+            target_review_id: review_fixture.audit_target_review_id.clone(),
+        })?)?;
+        assert_remediation_preview_fixture(&workbench.review_finding_remediation_preview(
+            &ReviewFindingRemediationPreviewParams {
+                review_id: review_fixture.audit_target_review_id.clone(),
+                finding_id: review_fixture.remediation_finding_id.clone(),
+            },
+        )?)?;
 
         Ok(())
     }
