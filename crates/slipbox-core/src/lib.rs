@@ -1370,6 +1370,16 @@ pub enum WorkflowInputKind {
     FocusTarget,
 }
 
+impl WorkflowInputKind {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::NoteTarget => "note-target",
+            Self::FocusTarget => "focus-target",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowInputSpec {
     pub input_id: String,
@@ -3392,6 +3402,179 @@ impl ReviewRoutineCatalog {
     }
 }
 
+pub const WORKBENCH_PACK_MANIFEST_VERSION: u32 = 1;
+
+#[must_use]
+pub const fn default_workbench_pack_manifest_version() -> u32 {
+    WORKBENCH_PACK_MANIFEST_VERSION
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkbenchPackCompatibility {
+    #[serde(default = "default_workbench_pack_manifest_version")]
+    pub version: u32,
+}
+
+impl Default for WorkbenchPackCompatibility {
+    fn default() -> Self {
+        Self {
+            version: WORKBENCH_PACK_MANIFEST_VERSION,
+        }
+    }
+}
+
+impl WorkbenchPackCompatibility {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        if self.version == 0 {
+            return Some(
+                "workbench pack compatibility version must be greater than zero".to_owned(),
+            );
+        }
+        (self.version > WORKBENCH_PACK_MANIFEST_VERSION).then(|| {
+            format!(
+                "unsupported workbench pack compatibility version {}; supported version is {}",
+                self.version, WORKBENCH_PACK_MANIFEST_VERSION
+            )
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkbenchPackCompatibilityEnvelope {
+    #[serde(default)]
+    pub pack_id: Option<String>,
+    #[serde(default)]
+    pub compatibility: WorkbenchPackCompatibility,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkbenchPackMetadata {
+    pub pack_id: String,
+    pub title: String,
+    #[serde(default)]
+    pub summary: Option<String>,
+}
+
+impl WorkbenchPackMetadata {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_workbench_pack_id_field(&self.pack_id)
+            .or_else(|| validate_required_text_field(&self.title, "title"))
+            .or_else(|| validate_optional_text_field(self.summary.as_deref(), "summary"))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WorkbenchPackIssueKind {
+    InvalidMetadata,
+    UnsupportedVersion,
+    EmptyPack,
+    InvalidWorkflow,
+    InvalidReviewRoutine,
+    InvalidReportProfile,
+    DuplicateWorkflowId,
+    DuplicateReviewRoutineId,
+    DuplicateReportProfileId,
+    DuplicateReviewRoutineReference,
+    MissingWorkflowReference,
+    MissingReviewRoutineReference,
+    MissingReportProfileReference,
+    InvalidReviewRoutineReference,
+}
+
+impl WorkbenchPackIssueKind {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::InvalidMetadata => "invalid-metadata",
+            Self::UnsupportedVersion => "unsupported-version",
+            Self::EmptyPack => "empty-pack",
+            Self::InvalidWorkflow => "invalid-workflow",
+            Self::InvalidReviewRoutine => "invalid-review-routine",
+            Self::InvalidReportProfile => "invalid-report-profile",
+            Self::DuplicateWorkflowId => "duplicate-workflow-id",
+            Self::DuplicateReviewRoutineId => "duplicate-review-routine-id",
+            Self::DuplicateReportProfileId => "duplicate-report-profile-id",
+            Self::DuplicateReviewRoutineReference => "duplicate-review-routine-reference",
+            Self::MissingWorkflowReference => "missing-workflow-reference",
+            Self::MissingReviewRoutineReference => "missing-review-routine-reference",
+            Self::MissingReportProfileReference => "missing-report-profile-reference",
+            Self::InvalidReviewRoutineReference => "invalid-review-routine-reference",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkbenchPackIssue {
+    pub kind: WorkbenchPackIssueKind,
+    #[serde(default)]
+    pub asset_id: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkbenchPackSummary {
+    #[serde(flatten)]
+    pub metadata: WorkbenchPackMetadata,
+    pub compatibility: WorkbenchPackCompatibility,
+    pub workflow_count: usize,
+    pub review_routine_count: usize,
+    pub report_profile_count: usize,
+    #[serde(default)]
+    pub entrypoint_routine_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkbenchPackManifest {
+    #[serde(flatten)]
+    pub metadata: WorkbenchPackMetadata,
+    #[serde(default)]
+    pub compatibility: WorkbenchPackCompatibility,
+    #[serde(default)]
+    pub workflows: Vec<WorkflowSpec>,
+    #[serde(default)]
+    pub review_routines: Vec<ReviewRoutineSpec>,
+    #[serde(default)]
+    pub report_profiles: Vec<ReportProfileSpec>,
+    #[serde(default)]
+    pub entrypoint_routine_ids: Vec<String>,
+}
+
+impl WorkbenchPackManifest {
+    #[must_use]
+    pub fn summary(&self) -> WorkbenchPackSummary {
+        WorkbenchPackSummary::from(self)
+    }
+
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        self.validation_issues()
+            .into_iter()
+            .next()
+            .map(|issue| issue.message)
+    }
+
+    #[must_use]
+    pub fn validation_issues(&self) -> Vec<WorkbenchPackIssue> {
+        validate_workbench_pack_manifest(self)
+    }
+}
+
+impl From<&WorkbenchPackManifest> for WorkbenchPackSummary {
+    fn from(manifest: &WorkbenchPackManifest) -> Self {
+        Self {
+            metadata: manifest.metadata.clone(),
+            compatibility: manifest.compatibility,
+            workflow_count: manifest.workflows.len(),
+            review_routine_count: manifest.review_routines.len(),
+            report_profile_count: manifest.report_profiles.len(),
+            entrypoint_routine_ids: manifest.entrypoint_routine_ids.clone(),
+        }
+    }
+}
+
 fn validate_review_diff_compatibility(
     base: &ReviewRunPayload,
     target: &ReviewRunPayload,
@@ -4204,6 +4387,13 @@ fn validate_review_routine_id_field(value: &str) -> Option<String> {
     })
 }
 
+fn validate_workbench_pack_id_field(value: &str) -> Option<String> {
+    validate_required_text_field(value, "pack_id").or_else(|| {
+        (value.trim() != value)
+            .then(|| "pack_id must not have leading or trailing whitespace".to_owned())
+    })
+}
+
 fn validate_report_profile_id_field(value: &str) -> Option<String> {
     validate_required_text_field(value, "profile_id").or_else(|| {
         (value.trim() != value)
@@ -4437,6 +4627,300 @@ fn validate_review_routine_report_profiles(report_profile_ids: &[String]) -> Opt
     None
 }
 
+fn validate_workbench_pack_manifest(manifest: &WorkbenchPackManifest) -> Vec<WorkbenchPackIssue> {
+    let mut issues = Vec::new();
+
+    if let Some(error) = manifest.metadata.validation_error() {
+        issues.push(workbench_pack_issue(
+            WorkbenchPackIssueKind::InvalidMetadata,
+            Some(manifest.metadata.pack_id.clone()),
+            error,
+        ));
+    }
+    if let Some(error) = manifest.compatibility.validation_error() {
+        issues.push(workbench_pack_issue(
+            WorkbenchPackIssueKind::UnsupportedVersion,
+            Some(manifest.metadata.pack_id.clone()),
+            error,
+        ));
+    }
+    if manifest.workflows.is_empty()
+        && manifest.review_routines.is_empty()
+        && manifest.report_profiles.is_empty()
+    {
+        issues.push(workbench_pack_issue(
+            WorkbenchPackIssueKind::EmptyPack,
+            Some(manifest.metadata.pack_id.clone()),
+            "workbench packs must contain at least one workflow, review routine, or report profile",
+        ));
+    }
+
+    let built_in_workflows = built_in_workflows();
+    let mut workflow_inputs: Vec<(&str, &[WorkflowInputSpec])> = built_in_workflows
+        .iter()
+        .map(|workflow| {
+            (
+                workflow.metadata.workflow_id.as_str(),
+                workflow.inputs.as_slice(),
+            )
+        })
+        .collect();
+    let mut workflow_ids = Vec::with_capacity(manifest.workflows.len());
+    for (index, workflow) in manifest.workflows.iter().enumerate() {
+        let collides_with_built_in = built_in_workflows
+            .iter()
+            .any(|built_in| built_in.metadata.workflow_id == workflow.metadata.workflow_id);
+        if let Some(error) = workflow.validation_error() {
+            issues.push(workbench_pack_issue(
+                WorkbenchPackIssueKind::InvalidWorkflow,
+                Some(workflow.metadata.workflow_id.clone()),
+                format!("workbench pack workflow {index} is invalid: {error}"),
+            ));
+        } else if !collides_with_built_in {
+            workflow_inputs.push((
+                workflow.metadata.workflow_id.as_str(),
+                workflow.inputs.as_slice(),
+            ));
+        }
+        if collides_with_built_in {
+            issues.push(workbench_pack_issue(
+                WorkbenchPackIssueKind::DuplicateWorkflowId,
+                Some(workflow.metadata.workflow_id.clone()),
+                format!(
+                    "workbench pack workflow {index} collides with built-in workflow_id {}",
+                    workflow.metadata.workflow_id
+                ),
+            ));
+        }
+        if workflow_ids.contains(&workflow.metadata.workflow_id.as_str()) {
+            issues.push(workbench_pack_issue(
+                WorkbenchPackIssueKind::DuplicateWorkflowId,
+                Some(workflow.metadata.workflow_id.clone()),
+                format!(
+                    "workbench pack workflow {index} reuses duplicate workflow_id {}",
+                    workflow.metadata.workflow_id
+                ),
+            ));
+        }
+        workflow_ids.push(workflow.metadata.workflow_id.as_str());
+    }
+
+    let mut report_profile_ids = Vec::with_capacity(manifest.report_profiles.len());
+    for (index, profile) in manifest.report_profiles.iter().enumerate() {
+        if let Some(error) = profile.validation_error() {
+            issues.push(workbench_pack_issue(
+                WorkbenchPackIssueKind::InvalidReportProfile,
+                Some(profile.metadata.profile_id.clone()),
+                format!("workbench pack report profile {index} is invalid: {error}"),
+            ));
+        }
+        if report_profile_ids.contains(&profile.metadata.profile_id.as_str()) {
+            issues.push(workbench_pack_issue(
+                WorkbenchPackIssueKind::DuplicateReportProfileId,
+                Some(profile.metadata.profile_id.clone()),
+                format!(
+                    "workbench pack report profile {index} reuses duplicate profile_id {}",
+                    profile.metadata.profile_id
+                ),
+            ));
+        }
+        report_profile_ids.push(profile.metadata.profile_id.as_str());
+    }
+
+    let mut routine_ids = Vec::with_capacity(manifest.review_routines.len());
+    for (index, routine) in manifest.review_routines.iter().enumerate() {
+        if let Some(error) = routine.validation_error() {
+            issues.push(workbench_pack_issue(
+                WorkbenchPackIssueKind::InvalidReviewRoutine,
+                Some(routine.metadata.routine_id.clone()),
+                format!("workbench pack review routine {index} is invalid: {error}"),
+            ));
+        }
+        if routine_ids.contains(&routine.metadata.routine_id.as_str()) {
+            issues.push(workbench_pack_issue(
+                WorkbenchPackIssueKind::DuplicateReviewRoutineId,
+                Some(routine.metadata.routine_id.clone()),
+                format!(
+                    "workbench pack review routine {index} reuses duplicate routine_id {}",
+                    routine.metadata.routine_id
+                ),
+            ));
+        }
+        validate_workbench_pack_routine_references(
+            routine,
+            &workflow_inputs,
+            &report_profile_ids,
+            &mut issues,
+        );
+        routine_ids.push(routine.metadata.routine_id.as_str());
+    }
+
+    validate_workbench_pack_entrypoint_routine_references(
+        &manifest.entrypoint_routine_ids,
+        &routine_ids,
+        &mut issues,
+    );
+
+    issues
+}
+
+fn workbench_pack_issue(
+    kind: WorkbenchPackIssueKind,
+    asset_id: Option<String>,
+    message: impl Into<String>,
+) -> WorkbenchPackIssue {
+    WorkbenchPackIssue {
+        kind,
+        asset_id,
+        message: message.into(),
+    }
+}
+
+fn validate_workbench_pack_routine_references(
+    routine: &ReviewRoutineSpec,
+    workflow_inputs: &[(&str, &[WorkflowInputSpec])],
+    report_profile_ids: &[&str],
+    issues: &mut Vec<WorkbenchPackIssue>,
+) {
+    if let ReviewRoutineSource::Workflow { workflow_id } = &routine.source {
+        match workflow_inputs
+            .iter()
+            .find(|(candidate_id, _)| *candidate_id == workflow_id.as_str())
+            .map(|(_, inputs)| *inputs)
+        {
+            Some(inputs) => {
+                if let Some(error) = validate_workbench_pack_routine_inputs(routine, inputs) {
+                    issues.push(workbench_pack_issue(
+                        WorkbenchPackIssueKind::InvalidReviewRoutineReference,
+                        Some(routine.metadata.routine_id.clone()),
+                        error,
+                    ));
+                }
+            }
+            None => issues.push(workbench_pack_issue(
+                WorkbenchPackIssueKind::MissingWorkflowReference,
+                Some(routine.metadata.routine_id.clone()),
+                format!(
+                    "review routine {} references missing workflow_id {workflow_id}",
+                    routine.metadata.routine_id
+                ),
+            )),
+        }
+    }
+
+    if let Some(compare) = &routine.compare {
+        if let Some(profile_id) = &compare.report_profile_id {
+            validate_workbench_pack_report_profile_reference(
+                &routine.metadata.routine_id,
+                profile_id,
+                report_profile_ids,
+                issues,
+            );
+        }
+    }
+    for profile_id in &routine.report_profile_ids {
+        validate_workbench_pack_report_profile_reference(
+            &routine.metadata.routine_id,
+            profile_id,
+            report_profile_ids,
+            issues,
+        );
+    }
+}
+
+fn validate_workbench_pack_routine_inputs(
+    routine: &ReviewRoutineSpec,
+    workflow_inputs: &[WorkflowInputSpec],
+) -> Option<String> {
+    for input in &routine.inputs {
+        let Some(workflow_input) = workflow_inputs
+            .iter()
+            .find(|workflow_input| workflow_input.input_id == input.input_id)
+        else {
+            return Some(format!(
+                "review routine {} declares input_id {} that referenced workflow does not accept",
+                routine.metadata.routine_id, input.input_id
+            ));
+        };
+        if workflow_input.kind != input.kind {
+            return Some(format!(
+                "review routine {} declares input_id {} as {}, but referenced workflow requires {}",
+                routine.metadata.routine_id,
+                input.input_id,
+                input.kind.label(),
+                workflow_input.kind.label()
+            ));
+        }
+    }
+
+    workflow_inputs
+        .iter()
+        .find(|workflow_input| {
+            !routine
+                .inputs
+                .iter()
+                .any(|input| input.input_id == workflow_input.input_id)
+        })
+        .map(|workflow_input| {
+            format!(
+                "review routine {} is missing input_id {} required by referenced workflow",
+                routine.metadata.routine_id, workflow_input.input_id
+            )
+        })
+}
+
+fn validate_workbench_pack_report_profile_reference(
+    routine_id: &str,
+    profile_id: &str,
+    report_profile_ids: &[&str],
+    issues: &mut Vec<WorkbenchPackIssue>,
+) {
+    if !report_profile_ids.contains(&profile_id) {
+        issues.push(workbench_pack_issue(
+            WorkbenchPackIssueKind::MissingReportProfileReference,
+            Some(routine_id.to_owned()),
+            format!("review routine {routine_id} references missing profile_id {profile_id}"),
+        ));
+    }
+}
+
+fn validate_workbench_pack_entrypoint_routine_references(
+    entrypoint_routine_ids: &[String],
+    routine_ids: &[&str],
+    issues: &mut Vec<WorkbenchPackIssue>,
+) {
+    let mut seen = Vec::with_capacity(entrypoint_routine_ids.len());
+    for (index, routine_id) in entrypoint_routine_ids.iter().enumerate() {
+        if let Some(error) = validate_review_routine_id_field(routine_id) {
+            issues.push(workbench_pack_issue(
+                WorkbenchPackIssueKind::InvalidReviewRoutineReference,
+                Some(routine_id.clone()),
+                format!("workbench pack entrypoint_routine_ids entry {index} is invalid: {error}"),
+            ));
+            continue;
+        }
+        if seen.contains(&routine_id.as_str()) {
+            issues.push(workbench_pack_issue(
+                WorkbenchPackIssueKind::DuplicateReviewRoutineReference,
+                Some(routine_id.clone()),
+                format!(
+                    "workbench pack entrypoint_routine_ids entry {index} is duplicate: {routine_id}"
+                ),
+            ));
+        }
+        if !routine_ids.contains(&routine_id.as_str()) {
+            issues.push(workbench_pack_issue(
+                WorkbenchPackIssueKind::MissingReviewRoutineReference,
+                Some(routine_id.clone()),
+                format!(
+                    "workbench pack entrypoint_routine_ids entry {index} references missing routine_id {routine_id}"
+                ),
+            ));
+        }
+        seen.push(routine_id.as_str());
+    }
+}
+
 fn workflow_step_kind_for_reference(
     seen: &[(&str, WorkflowStepKind)],
     step_id: &str,
@@ -4647,7 +5131,9 @@ mod tests {
         SaveWorkflowReviewParams, SaveWorkflowReviewResult, SavedComparisonArtifact,
         SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep,
         SearchNodesParams, SearchNodesSort, TrailReplayResult, TrailReplayStepResult,
-        UnlinkedReferencesParams, UpdateNodeMetadataParams, WorkflowArtifactSaveSource,
+        UnlinkedReferencesParams, UpdateNodeMetadataParams, WorkbenchPackCompatibility,
+        WorkbenchPackCompatibilityEnvelope, WorkbenchPackIssueKind, WorkbenchPackManifest,
+        WorkbenchPackMetadata, WorkbenchPackSummary, WorkflowArtifactSaveSource,
         WorkflowExecutionResult, WorkflowExploreFocus, WorkflowInputAssignment, WorkflowInputKind,
         WorkflowInputSpec, WorkflowMetadata, WorkflowReportLine, WorkflowResolveTarget,
         WorkflowSpec, WorkflowSpecCompatibility, WorkflowSpecCompatibilityEnvelope,
@@ -4700,6 +5186,135 @@ mod tests {
             file_mtime_ns: 0,
             backlink_count: 0,
             forward_link_count: 0,
+        }
+    }
+
+    fn sample_pack_workflow() -> WorkflowSpec {
+        WorkflowSpec {
+            metadata: WorkflowMetadata {
+                workflow_id: "workflow/pack/context-review".to_owned(),
+                title: "Pack Context Review".to_owned(),
+                summary: Some("Collect context for a reusable routine".to_owned()),
+            },
+            compatibility: WorkflowSpecCompatibility::default(),
+            inputs: vec![WorkflowInputSpec {
+                input_id: "focus".to_owned(),
+                title: "Focus".to_owned(),
+                summary: None,
+                kind: WorkflowInputKind::FocusTarget,
+            }],
+            steps: vec![WorkflowStepSpec {
+                step_id: "explore-context".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::Input {
+                        input_id: "focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Bridges,
+                    limit: 25,
+                    unique: false,
+                },
+            }],
+        }
+    }
+
+    fn sample_pack_report_profiles() -> Vec<ReportProfileSpec> {
+        vec![
+            ReportProfileSpec {
+                metadata: ReportProfileMetadata {
+                    profile_id: "profile/routine-detail".to_owned(),
+                    title: "Routine Detail".to_owned(),
+                    summary: None,
+                },
+                subjects: vec![ReportProfileSubject::Routine, ReportProfileSubject::Review],
+                mode: ReportProfileMode::Detail,
+                status_filters: Some(vec![ReviewFindingStatus::Open]),
+                diff_buckets: None,
+                jsonl_line_kinds: Some(vec![
+                    ReportJsonlLineKind::Routine,
+                    ReportJsonlLineKind::Review,
+                    ReportJsonlLineKind::Finding,
+                ]),
+            },
+            ReportProfileSpec {
+                metadata: ReportProfileMetadata {
+                    profile_id: "profile/diff-focus".to_owned(),
+                    title: "Diff Focus".to_owned(),
+                    summary: None,
+                },
+                subjects: vec![ReportProfileSubject::Diff],
+                mode: ReportProfileMode::Detail,
+                status_filters: None,
+                diff_buckets: Some(vec![
+                    ReviewRunDiffBucket::Added,
+                    ReviewRunDiffBucket::ContentChanged,
+                ]),
+                jsonl_line_kinds: Some(vec![
+                    ReportJsonlLineKind::Diff,
+                    ReportJsonlLineKind::Added,
+                    ReportJsonlLineKind::ContentChanged,
+                ]),
+            },
+        ]
+    }
+
+    fn sample_pack_workflow_routine() -> ReviewRoutineSpec {
+        ReviewRoutineSpec {
+            metadata: ReviewRoutineMetadata {
+                routine_id: "routine/pack/context-review".to_owned(),
+                title: "Pack Context Review".to_owned(),
+                summary: None,
+            },
+            source: ReviewRoutineSource::Workflow {
+                workflow_id: "workflow/pack/context-review".to_owned(),
+            },
+            inputs: vec![WorkflowInputSpec {
+                input_id: "focus".to_owned(),
+                title: "Focus".to_owned(),
+                summary: None,
+                kind: WorkflowInputKind::FocusTarget,
+            }],
+            save_review: ReviewRoutineSaveReviewPolicy::default(),
+            compare: Some(ReviewRoutineComparePolicy {
+                target: ReviewRoutineCompareTarget::LatestCompatibleReview,
+                report_profile_id: Some("profile/diff-focus".to_owned()),
+            }),
+            report_profile_ids: vec!["profile/routine-detail".to_owned()],
+        }
+    }
+
+    fn sample_pack_audit_routine() -> ReviewRoutineSpec {
+        ReviewRoutineSpec {
+            metadata: ReviewRoutineMetadata {
+                routine_id: "routine/pack/duplicate-title-review".to_owned(),
+                title: "Duplicate Title Review".to_owned(),
+                summary: None,
+            },
+            source: ReviewRoutineSource::Audit {
+                audit: CorpusAuditKind::DuplicateTitles,
+                limit: 100,
+            },
+            inputs: Vec::new(),
+            save_review: ReviewRoutineSaveReviewPolicy::default(),
+            compare: None,
+            report_profile_ids: vec!["profile/routine-detail".to_owned()],
+        }
+    }
+
+    fn sample_workbench_pack_manifest() -> WorkbenchPackManifest {
+        WorkbenchPackManifest {
+            metadata: WorkbenchPackMetadata {
+                pack_id: "pack/research-review".to_owned(),
+                title: "Research Review Pack".to_owned(),
+                summary: Some("Reusable review routines and output profiles".to_owned()),
+            },
+            compatibility: WorkbenchPackCompatibility::default(),
+            workflows: vec![sample_pack_workflow()],
+            review_routines: vec![sample_pack_workflow_routine(), sample_pack_audit_routine()],
+            report_profiles: sample_pack_report_profiles(),
+            entrypoint_routine_ids: vec![
+                "routine/pack/context-review".to_owned(),
+                "routine/pack/duplicate-title-review".to_owned(),
+            ],
         }
     }
 
@@ -6880,6 +7495,238 @@ mod tests {
         assert_eq!(
             catalog.validation_error().as_deref(),
             Some("review routine 1 reuses duplicate routine_id routine/workflow/context-review")
+        );
+    }
+
+    #[test]
+    fn workbench_pack_manifests_round_trip_with_bundled_assets() {
+        let manifest = sample_workbench_pack_manifest();
+
+        assert_eq!(manifest.validation_error(), None);
+        assert!(manifest.validation_issues().is_empty());
+        let summary = manifest.summary();
+        assert_eq!(
+            summary,
+            WorkbenchPackSummary {
+                metadata: manifest.metadata.clone(),
+                compatibility: WorkbenchPackCompatibility::default(),
+                workflow_count: 1,
+                review_routine_count: 2,
+                report_profile_count: 2,
+                entrypoint_routine_ids: manifest.entrypoint_routine_ids.clone(),
+            }
+        );
+
+        let serialized = serde_json::to_value(&manifest).expect("pack should serialize");
+        assert_eq!(serialized["pack_id"], json!("pack/research-review"));
+        assert_eq!(serialized["compatibility"]["version"], json!(1));
+        assert_eq!(
+            serialized["workflows"][0]["workflow_id"],
+            json!("workflow/pack/context-review")
+        );
+        assert_eq!(
+            serialized["review_routines"][0]["routine_id"],
+            json!("routine/pack/context-review")
+        );
+        assert_eq!(
+            serialized["report_profiles"][0]["profile_id"],
+            json!("profile/routine-detail")
+        );
+        assert_eq!(
+            serialized["entrypoint_routine_ids"],
+            json!([
+                "routine/pack/context-review",
+                "routine/pack/duplicate-title-review"
+            ])
+        );
+
+        let round_trip: WorkbenchPackManifest =
+            serde_json::from_value(serialized).expect("pack should deserialize");
+        assert_eq!(round_trip, manifest);
+
+        let envelope: WorkbenchPackCompatibilityEnvelope = serde_json::from_value(json!({
+            "pack_id": "pack/future",
+            "compatibility": {
+                "version": 2
+            },
+            "future_assets": [{
+                "kind": "unknown"
+            }]
+        }))
+        .expect("compatibility envelope should deserialize independently of future assets");
+        assert_eq!(envelope.pack_id.as_deref(), Some("pack/future"));
+        assert_eq!(
+            envelope.compatibility.validation_error().as_deref(),
+            Some("unsupported workbench pack compatibility version 2; supported version is 1")
+        );
+    }
+
+    #[test]
+    fn workbench_pack_manifests_report_malformed_assets_and_references() {
+        let valid = sample_workbench_pack_manifest();
+        assert_eq!(valid.validation_error(), None);
+
+        let mut unsupported_version = valid.clone();
+        unsupported_version.compatibility = WorkbenchPackCompatibility { version: 2 };
+        let issues = unsupported_version.validation_issues();
+        assert_eq!(issues[0].kind, WorkbenchPackIssueKind::UnsupportedVersion);
+        assert_eq!(
+            issues[0].message,
+            "unsupported workbench pack compatibility version 2; supported version is 1"
+        );
+
+        let mut malformed_metadata = valid.clone();
+        malformed_metadata.metadata.pack_id = " pack/research-review".to_owned();
+        let issues = malformed_metadata.validation_issues();
+        assert_eq!(issues[0].kind, WorkbenchPackIssueKind::InvalidMetadata);
+        assert_eq!(
+            issues[0].message,
+            "pack_id must not have leading or trailing whitespace"
+        );
+
+        let empty_pack = WorkbenchPackManifest {
+            metadata: WorkbenchPackMetadata {
+                pack_id: "pack/empty".to_owned(),
+                title: "Empty".to_owned(),
+                summary: None,
+            },
+            compatibility: WorkbenchPackCompatibility::default(),
+            workflows: Vec::new(),
+            review_routines: Vec::new(),
+            report_profiles: Vec::new(),
+            entrypoint_routine_ids: Vec::new(),
+        };
+        let issues = empty_pack.validation_issues();
+        assert_eq!(issues[0].kind, WorkbenchPackIssueKind::EmptyPack);
+
+        let mut invalid_workflow = valid.clone();
+        invalid_workflow.workflows[0].steps.clear();
+        let issues = invalid_workflow.validation_issues();
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.kind == WorkbenchPackIssueKind::InvalidWorkflow)
+        );
+
+        let mut invalid_routine = valid.clone();
+        invalid_routine.review_routines[0]
+            .inputs
+            .push(WorkflowInputSpec {
+                input_id: "focus".to_owned(),
+                title: "Duplicate Focus".to_owned(),
+                summary: None,
+                kind: WorkflowInputKind::FocusTarget,
+            });
+        let issues = invalid_routine.validation_issues();
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.kind == WorkbenchPackIssueKind::InvalidReviewRoutine)
+        );
+
+        let mut invalid_profile = valid.clone();
+        invalid_profile.report_profiles[0].subjects.clear();
+        let issues = invalid_profile.validation_issues();
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.kind == WorkbenchPackIssueKind::InvalidReportProfile)
+        );
+
+        let mut duplicate_ids = valid.clone();
+        duplicate_ids
+            .workflows
+            .push(duplicate_ids.workflows[0].clone());
+        duplicate_ids
+            .review_routines
+            .push(duplicate_ids.review_routines[0].clone());
+        duplicate_ids
+            .report_profiles
+            .push(duplicate_ids.report_profiles[0].clone());
+        let issues = duplicate_ids.validation_issues();
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.kind == WorkbenchPackIssueKind::DuplicateWorkflowId)
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.kind == WorkbenchPackIssueKind::DuplicateReviewRoutineId)
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.kind == WorkbenchPackIssueKind::DuplicateReportProfileId)
+        );
+
+        let mut built_in_collision = valid.clone();
+        built_in_collision.workflows[0].metadata.workflow_id =
+            BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID.to_owned();
+        built_in_collision.review_routines[0].source = ReviewRoutineSource::Workflow {
+            workflow_id: BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID.to_owned(),
+        };
+        built_in_collision.review_routines[0].inputs[0].kind = WorkflowInputKind::NoteTarget;
+        let issues = built_in_collision.validation_issues();
+        assert!(issues.iter().any(|issue| {
+            issue.kind == WorkbenchPackIssueKind::DuplicateWorkflowId
+                && issue.message
+                    == format!(
+                        "workbench pack workflow 0 collides with built-in workflow_id {BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID}"
+                    )
+        }));
+        assert!(issues.iter().any(|issue| {
+            issue.kind == WorkbenchPackIssueKind::InvalidReviewRoutineReference
+                && issue
+                    .message
+                    .contains("but referenced workflow requires focus-target")
+        }));
+
+        let mut missing_workflow = valid.clone();
+        missing_workflow.review_routines[0].source = ReviewRoutineSource::Workflow {
+            workflow_id: "workflow/missing".to_owned(),
+        };
+        let issues = missing_workflow.validation_issues();
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.kind == WorkbenchPackIssueKind::MissingWorkflowReference)
+        );
+
+        let mut mismatched_inputs = valid.clone();
+        mismatched_inputs.review_routines[0].inputs[0].kind = WorkflowInputKind::NoteTarget;
+        let issues = mismatched_inputs.validation_issues();
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.kind == WorkbenchPackIssueKind::InvalidReviewRoutineReference)
+        );
+
+        let mut missing_profile = valid.clone();
+        missing_profile.review_routines[0].report_profile_ids = vec!["profile/missing".to_owned()];
+        let issues = missing_profile.validation_issues();
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.kind == WorkbenchPackIssueKind::MissingReportProfileReference)
+        );
+
+        let mut missing_entrypoint = valid.clone();
+        missing_entrypoint.entrypoint_routine_ids = vec![
+            "routine/pack/context-review".to_owned(),
+            "routine/pack/context-review".to_owned(),
+            "routine/pack/missing".to_owned(),
+        ];
+        let issues = missing_entrypoint.validation_issues();
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.kind == WorkbenchPackIssueKind::DuplicateReviewRoutineReference)
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.kind == WorkbenchPackIssueKind::MissingReviewRoutineReference)
         );
     }
 

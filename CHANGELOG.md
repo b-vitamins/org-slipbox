@@ -16,6 +16,9 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Added core review routine specs for declarative recurring audit/workflow
   review loops, including typed workflow inputs, save-review policy,
   latest-compatible comparison policy, and report profile references.
+- Added core workbench pack manifests for bundling workflows, review routines,
+  report profiles, entrypoint routine references, summaries, and validation
+  issues as declarative portable assets.
 
 ### Changed
 - Defined the `0.10.x` release band as declarative workbench extension through
