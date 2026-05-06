@@ -1416,6 +1416,9 @@ impl WorkflowInputAssignment {
 
 pub const BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID: &str = "workflow/builtin/context-sweep";
 pub const BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID: &str = "workflow/builtin/unresolved-sweep";
+pub const BUILT_IN_WORKFLOW_PERIODIC_REVIEW_ID: &str = "workflow/builtin/periodic-review";
+pub const BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID: &str =
+    "workflow/builtin/weak-integration-review";
 pub const BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID: &str =
     "workflow/builtin/comparison-tension-review";
 
@@ -1734,6 +1737,8 @@ pub fn built_in_workflows() -> Vec<WorkflowSpec> {
     vec![
         built_in_context_sweep_workflow(),
         built_in_unresolved_sweep_workflow(),
+        built_in_periodic_review_workflow(),
+        built_in_weak_integration_review_workflow(),
         built_in_comparison_tension_workflow(),
     ]
 }
@@ -1870,6 +1875,154 @@ fn built_in_unresolved_sweep_workflow() -> WorkflowSpec {
                     },
                     lens: ExplorationLens::Time,
                     limit: 25,
+                    unique: false,
+                },
+            },
+        ],
+    }
+}
+
+fn built_in_periodic_review_workflow() -> WorkflowSpec {
+    WorkflowSpec {
+        metadata: WorkflowMetadata {
+            workflow_id: BUILT_IN_WORKFLOW_PERIODIC_REVIEW_ID.to_owned(),
+            title: "Periodic Review".to_owned(),
+            summary: Some(
+                "Run a recurring review around a focus target across unresolved work, planning, references, and dormant context."
+                    .to_owned(),
+            ),
+        },
+        inputs: vec![WorkflowInputSpec {
+            input_id: "focus".to_owned(),
+            title: "Review focus".to_owned(),
+            summary: Some("Note or anchor target anchoring the recurring review".to_owned()),
+            kind: WorkflowInputKind::FocusTarget,
+        }],
+        steps: vec![
+            WorkflowStepSpec {
+                step_id: "resolve-focus".to_owned(),
+                payload: WorkflowStepPayload::Resolve {
+                    target: WorkflowResolveTarget::Input {
+                        input_id: "focus".to_owned(),
+                    },
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "review-unresolved".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::ResolvedStep {
+                        step_id: "resolve-focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Unresolved,
+                    limit: 50,
+                    unique: false,
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "review-time".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::Input {
+                        input_id: "focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Time,
+                    limit: 50,
+                    unique: false,
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "review-tasks".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::Input {
+                        input_id: "focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Tasks,
+                    limit: 50,
+                    unique: false,
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "review-refs".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::Input {
+                        input_id: "focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Refs,
+                    limit: 50,
+                    unique: false,
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "review-dormant".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::ResolvedStep {
+                        step_id: "resolve-focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Dormant,
+                    limit: 50,
+                    unique: false,
+                },
+            },
+        ],
+    }
+}
+
+fn built_in_weak_integration_review_workflow() -> WorkflowSpec {
+    WorkflowSpec {
+        metadata: WorkflowMetadata {
+            workflow_id: BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID.to_owned(),
+            title: "Weak Integration Review".to_owned(),
+            summary: Some(
+                "Review weakly integrated, dormant, and bridgeable material around a focus note."
+                    .to_owned(),
+            ),
+        },
+        inputs: vec![WorkflowInputSpec {
+            input_id: "focus".to_owned(),
+            title: "Integration focus".to_owned(),
+            summary: Some(
+                "Note or anchor target whose surrounding integration should be reviewed".to_owned(),
+            ),
+            kind: WorkflowInputKind::FocusTarget,
+        }],
+        steps: vec![
+            WorkflowStepSpec {
+                step_id: "resolve-focus".to_owned(),
+                payload: WorkflowStepPayload::Resolve {
+                    target: WorkflowResolveTarget::Input {
+                        input_id: "focus".to_owned(),
+                    },
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "review-weak-integration".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::ResolvedStep {
+                        step_id: "resolve-focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Unresolved,
+                    limit: 50,
+                    unique: false,
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "review-dormant".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::ResolvedStep {
+                        step_id: "resolve-focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Dormant,
+                    limit: 50,
+                    unique: false,
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "review-bridges".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::ResolvedStep {
+                        step_id: "resolve-focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Bridges,
+                    limit: 50,
                     unique: false,
                 },
             },
@@ -3552,7 +3705,8 @@ fn validate_review_finding_matches_run(
 mod tests {
     use super::{
         AnchorRecord, BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
-        BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID, BacklinkRecord, BridgeEvidenceRecord,
+        BUILT_IN_WORKFLOW_PERIODIC_REVIEW_ID, BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
+        BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID, BacklinkRecord, BridgeEvidenceRecord,
         CaptureNodeParams, CaptureTemplatePreviewResult, CompareNotesParams,
         ComparisonConnectorDirection, ComparisonPlanningRecord, ComparisonReferenceRecord,
         ComparisonTaskStateRecord, CorpusAuditEntry, CorpusAuditKind, CorpusAuditParams,
@@ -6361,7 +6515,7 @@ mod tests {
     #[test]
     fn built_in_workflows_are_valid_named_specs() {
         let workflows = built_in_workflows();
-        assert_eq!(workflows.len(), 3);
+        assert_eq!(workflows.len(), 5);
 
         let ids: Vec<&str> = workflows
             .iter()
@@ -6372,6 +6526,8 @@ mod tests {
             vec![
                 BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
                 BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
+                BUILT_IN_WORKFLOW_PERIODIC_REVIEW_ID,
+                BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID,
                 BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID,
             ]
         );
@@ -6386,7 +6542,9 @@ mod tests {
         }
         assert_eq!(workflows[0].inputs[0].kind, WorkflowInputKind::FocusTarget);
         assert_eq!(workflows[1].inputs[0].kind, WorkflowInputKind::FocusTarget);
-        assert_eq!(workflows[2].inputs[0].kind, WorkflowInputKind::NoteTarget);
+        assert_eq!(workflows[2].inputs[0].kind, WorkflowInputKind::FocusTarget);
+        assert_eq!(workflows[3].inputs[0].kind, WorkflowInputKind::FocusTarget);
+        assert_eq!(workflows[4].inputs[0].kind, WorkflowInputKind::NoteTarget);
 
         assert_eq!(
             built_in_workflow(BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID),
@@ -6398,7 +6556,7 @@ mod tests {
         assert_eq!(summaries.len(), workflows.len());
         assert_eq!(summaries[0].step_count, workflows[0].steps.len());
         assert_eq!(
-            summaries[2].metadata.workflow_id,
+            summaries[4].metadata.workflow_id,
             BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID
         );
     }
@@ -6420,6 +6578,19 @@ mod tests {
         let round_trip: WorkflowSpec =
             serde_json::from_value(serialized).expect("built-in workflow should deserialize");
         assert_eq!(round_trip, workflow);
+
+        let periodic = built_in_workflow(BUILT_IN_WORKFLOW_PERIODIC_REVIEW_ID)
+            .expect("periodic review workflow should exist");
+        assert_eq!(periodic.steps.len(), 6);
+        assert_eq!(periodic.steps[1].step_id, "review-unresolved");
+        assert_eq!(periodic.steps[4].step_id, "review-refs");
+        assert_eq!(periodic.validation_error(), None);
+
+        let weak = built_in_workflow(BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID)
+            .expect("weak integration review workflow should exist");
+        assert_eq!(weak.steps.len(), 4);
+        assert_eq!(weak.steps[1].step_id, "review-weak-integration");
+        assert_eq!(weak.validation_error(), None);
     }
 
     #[test]

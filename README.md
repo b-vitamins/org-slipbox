@@ -713,7 +713,13 @@ The built-in workflow IDs are:
 
 - `workflow/builtin/context-sweep`
 - `workflow/builtin/unresolved-sweep`
+- `workflow/builtin/periodic-review`
+- `workflow/builtin/weak-integration-review`
 - `workflow/builtin/comparison-tension-review`
+
+The periodic and weak-integration workflows are intended for recurring saved
+workflow reviews. Dangling-link cleanup remains an audit/review flow rather
+than a named workflow until audits are part of the workflow step model.
 
 Examples:
 

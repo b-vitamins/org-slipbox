@@ -4,7 +4,8 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result};
 use slipbox_core::{
-    AnchorRecord, BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, CompareNotesParams, CorpusAuditEntry,
+    AnchorRecord, BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID,
+    BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID, CompareNotesParams, CorpusAuditEntry,
     CorpusAuditKind, DanglingLinkAuditRecord, ExecuteExplorationArtifactResult,
     ExplorationArtifactIdParams, ExplorationArtifactMetadata, ExplorationArtifactPayload,
     ExplorationLens, ExploreParams, NodeFromIdParams, NodeFromRefParams,
@@ -55,6 +56,17 @@ SCHEDULED: <2026-05-03 Sun>
 
 * TODO Anonymous Follow Up
 SCHEDULED: <2026-05-04 Mon>
+"#,
+    )?;
+    fs::write(
+        root.join("weak.org"),
+        r#":PROPERTIES:
+:ID: weak-id
+:ROAM_REFS: cite:shared2024
+:END:
+#+title: Weak
+
+Weakly integrated peer with shared references and no direct links.
 "#,
     )?;
 
@@ -129,8 +141,8 @@ fn daemon_client_queries_spawned_daemon_and_round_trips_artifacts() -> Result<()
     assert_eq!(ping.db, db.display().to_string());
 
     let status = client.status()?;
-    assert_eq!(status.files_indexed, 2);
-    assert_eq!(status.nodes_indexed, 4);
+    assert_eq!(status.files_indexed, 3);
+    assert_eq!(status.nodes_indexed, 5);
 
     let alpha = client
         .search_nodes(&SearchNodesParams {
@@ -199,7 +211,7 @@ fn daemon_client_queries_spawned_daemon_and_round_trips_artifacts() -> Result<()
     );
 
     let workflows = client.list_workflows()?;
-    assert_eq!(workflows.workflows.len(), 3);
+    assert_eq!(workflows.workflows.len(), 5);
 
     let comparison_workflow: WorkflowResult = client.workflow(&WorkflowIdParams {
         workflow_id: BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID.to_owned(),
@@ -399,21 +411,21 @@ fn daemon_client_queries_spawned_daemon_and_round_trips_artifacts() -> Result<()
     );
 
     let workflow_review = client.save_workflow_review(&SaveWorkflowReviewParams {
-        workflow_id: slipbox_core::BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID.to_owned(),
+        workflow_id: BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID.to_owned(),
         inputs: vec![WorkflowInputAssignment {
             input_id: "focus".to_owned(),
             target: slipbox_core::WorkflowResolveTarget::NodeKey {
                 node_key: anonymous_anchor_key,
             },
         }],
-        review_id: Some("review/workflow/unresolved-sweep".to_owned()),
-        title: Some("Unresolved Sweep Review".to_owned()),
+        review_id: Some("review/workflow/weak-integration".to_owned()),
+        title: Some("Weak Integration Review".to_owned()),
         summary: None,
         overwrite: true,
     })?;
     assert_eq!(
         workflow_review.result.workflow.metadata.workflow_id,
-        slipbox_core::BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID
+        BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID
     );
     assert_eq!(
         workflow_review.review.finding_count,
@@ -421,7 +433,7 @@ fn daemon_client_queries_spawned_daemon_and_round_trips_artifacts() -> Result<()
     );
 
     let loaded_workflow_review = client.review_run(&ReviewRunIdParams {
-        review_id: "review/workflow/unresolved-sweep".to_owned(),
+        review_id: "review/workflow/weak-integration".to_owned(),
     })?;
     match loaded_workflow_review.review.payload {
         ReviewRunPayload::Workflow {
@@ -431,10 +443,11 @@ fn daemon_client_queries_spawned_daemon_and_round_trips_artifacts() -> Result<()
         } => {
             assert_eq!(
                 workflow.metadata.workflow_id,
-                slipbox_core::BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID
+                BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID
             );
             assert_eq!(inputs.len(), 1);
             assert_eq!(step_ids.len(), workflow_review.result.steps.len());
+            assert!(step_ids.contains(&"review-weak-integration".to_owned()));
         }
         other => panic!("expected workflow review payload, got {:?}", other.kind()),
     }

@@ -1237,7 +1237,7 @@ fn assert_workflow_catalog_fixture(
             benchmark_workflow.step_count
         );
     }
-    let expected_workflow_count = 3 + fixture.workflow_specs;
+    let expected_workflow_count = slipbox_core::built_in_workflows().len() + fixture.workflow_specs;
     if catalog.workflows.len() != expected_workflow_count {
         bail!(
             "benchmark workflow discovery catalog expected {expected_workflow_count} workflows, found {}",

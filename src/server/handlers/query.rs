@@ -1764,22 +1764,23 @@ mod tests {
     use serde_json::json;
     use slipbox_core::{
         AnchorRecord, BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
-        BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID, CompareNotesParams, ComparisonConnectorDirection,
-        CorpusAuditEntry, CorpusAuditKind, CorpusAuditResult, DanglingLinkAuditRecord,
-        DeleteExplorationArtifactResult, DeleteReviewRunResult, ExecuteExplorationArtifactResult,
-        ExecutedExplorationArtifactPayload, ExplorationArtifactMetadata,
-        ExplorationArtifactPayload, ExplorationArtifactResult, ExplorationEntry,
-        ExplorationExplanation, ExplorationLens, ExplorationSectionKind, ExploreParams,
-        ExploreResult, ListExplorationArtifactsResult, ListReviewRunsResult, ListWorkflowsResult,
-        MarkReviewFindingResult, NodeKind, NoteComparisonEntry, NoteComparisonExplanation,
-        NoteComparisonGroup, NoteComparisonResult, NoteComparisonSectionKind, ReviewFinding,
-        ReviewFindingPayload, ReviewFindingStatus, ReviewRun, ReviewRunDiffResult,
-        ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, RunWorkflowResult,
-        SaveCorpusAuditReviewResult, SaveExplorationArtifactResult, SaveReviewRunResult,
-        SaveWorkflowReviewResult, SavedComparisonArtifact, SavedExplorationArtifact,
-        SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, TrailReplayStepResult,
-        WorkflowInputAssignment, WorkflowResolveTarget, WorkflowResult, WorkflowSpec,
-        WorkflowStepReport, WorkflowStepReportPayload,
+        BUILT_IN_WORKFLOW_PERIODIC_REVIEW_ID, BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
+        BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID, CompareNotesParams,
+        ComparisonConnectorDirection, CorpusAuditEntry, CorpusAuditKind, CorpusAuditResult,
+        DanglingLinkAuditRecord, DeleteExplorationArtifactResult, DeleteReviewRunResult,
+        ExecuteExplorationArtifactResult, ExecutedExplorationArtifactPayload,
+        ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
+        ExplorationEntry, ExplorationExplanation, ExplorationLens, ExplorationSectionKind,
+        ExploreParams, ExploreResult, ListExplorationArtifactsResult, ListReviewRunsResult,
+        ListWorkflowsResult, MarkReviewFindingResult, NodeKind, NoteComparisonEntry,
+        NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
+        NoteComparisonSectionKind, ReviewFinding, ReviewFindingPayload, ReviewFindingStatus,
+        ReviewRun, ReviewRunDiffResult, ReviewRunMetadata, ReviewRunPayload, ReviewRunResult,
+        RunWorkflowResult, SaveCorpusAuditReviewResult, SaveExplorationArtifactResult,
+        SaveReviewRunResult, SaveWorkflowReviewResult, SavedComparisonArtifact,
+        SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep,
+        TrailReplayStepResult, WorkflowInputAssignment, WorkflowResolveTarget, WorkflowResult,
+        WorkflowSpec, WorkflowStepReport, WorkflowStepReportPayload,
     };
     use slipbox_index::{DiscoveryPolicy, scan_root_with_policy};
     use tempfile::TempDir;
@@ -3735,13 +3736,21 @@ mod tests {
             list_workflows(&mut state, json!({})).expect("list workflows RPC should succeed"),
         )
         .expect("list workflows result should decode");
-        assert_eq!(listed.workflows.len(), 3);
+        assert_eq!(listed.workflows.len(), 5);
         assert_eq!(
             listed.workflows[0].metadata.workflow_id,
             BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID
         );
         assert_eq!(
             listed.workflows[2].metadata.workflow_id,
+            BUILT_IN_WORKFLOW_PERIODIC_REVIEW_ID
+        );
+        assert_eq!(
+            listed.workflows[3].metadata.workflow_id,
+            BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID
+        );
+        assert_eq!(
+            listed.workflows[4].metadata.workflow_id,
             BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID
         );
 
@@ -3798,6 +3807,38 @@ mod tests {
                 assert_eq!(result.lens, ExplorationLens::Tasks);
             }
             other => panic!("expected tasks explore report, got {:?}", other.kind()),
+        }
+
+        let weak: RunWorkflowResult = serde_json::from_value(
+            run_workflow(
+                &mut state,
+                json!({
+                    "workflow_id": BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID,
+                    "inputs": [
+                        {
+                            "input_id": "focus",
+                            "kind": "node-key",
+                            "node_key": executed_anchor_key,
+                        }
+                    ]
+                }),
+            )
+            .expect("weak integration review workflow should run"),
+        )
+        .expect("weak integration workflow result should decode");
+        assert_eq!(
+            weak.result.workflow.metadata.workflow_id,
+            BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID
+        );
+        assert_eq!(weak.result.steps.len(), 4);
+        match &weak.result.steps[1].payload {
+            WorkflowStepReportPayload::Explore { result, .. } => {
+                assert_eq!(result.lens, ExplorationLens::Unresolved);
+            }
+            other => panic!(
+                "expected weak integration explore report, got {:?}",
+                other.kind()
+            ),
         }
     }
 

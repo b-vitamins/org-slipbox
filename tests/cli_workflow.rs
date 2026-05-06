@@ -7,8 +7,9 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use slipbox_core::{
     BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
-    BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID, ExplorationLens, ListWorkflowsResult, RunWorkflowResult,
-    WorkflowResult, WorkflowSpec, built_in_workflow,
+    BUILT_IN_WORKFLOW_PERIODIC_REVIEW_ID, BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
+    BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID, ExplorationLens, ListWorkflowsResult,
+    RunWorkflowResult, WorkflowResult, WorkflowSpec, built_in_workflow,
 };
 use slipbox_index::scan_root;
 use slipbox_store::Database;
@@ -60,6 +61,17 @@ SCHEDULED: <2026-05-03 Sun>
 
 * TODO Anonymous Follow Up
 SCHEDULED: <2026-05-04 Mon>
+"#,
+    )?;
+    fs::write(
+        root.join("weak.org"),
+        r#":PROPERTIES:
+:ID: weak-id
+:ROAM_REFS: cite:shared2024
+:END:
+#+title: Weak
+
+Weakly integrated peer with shared references and no direct links.
 "#,
     )?;
 
@@ -148,7 +160,7 @@ fn workflow_list_command_lists_built_ins_as_summaries() -> Result<()> {
 
     assert!(output.status.success(), "{output:?}");
     let parsed: ListWorkflowsResult = serde_json::from_slice(&output.stdout)?;
-    assert_eq!(parsed.workflows.len(), 3);
+    assert_eq!(parsed.workflows.len(), 5);
     let workflow_ids: Vec<&str> = parsed
         .workflows
         .iter()
@@ -156,7 +168,9 @@ fn workflow_list_command_lists_built_ins_as_summaries() -> Result<()> {
         .collect();
     assert!(workflow_ids.contains(&BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID));
     assert!(workflow_ids.contains(&BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID));
+    assert!(workflow_ids.contains(&BUILT_IN_WORKFLOW_PERIODIC_REVIEW_ID));
     assert!(workflow_ids.contains(&BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID));
+    assert!(workflow_ids.contains(&BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID));
     assert!(output.stderr.is_empty());
 
     Ok(())
@@ -173,8 +187,10 @@ fn workflow_list_command_prints_human_summaries() -> Result<()> {
     assert!(
         stdout.contains("Comparison Tension Review [workflow/builtin/comparison-tension-review]")
     );
+    assert!(stdout.contains("Periodic Review [workflow/builtin/periodic-review]"));
+    assert!(stdout.contains("Weak Integration Review [workflow/builtin/weak-integration-review]"));
     assert!(stdout.contains("Context Sweep [workflow/builtin/context-sweep]"));
-    assert!(stdout.contains("steps: 4"));
+    assert!(stdout.contains("steps: 6"));
     assert!(output.stderr.is_empty());
 
     Ok(())
@@ -311,6 +327,75 @@ fn workflow_run_command_prints_human_execution_reports() -> Result<()> {
     assert!(stdout.contains("[step explore-tasks]"));
     assert!(stdout.contains(&format!("focus node key: {anchor_key}")));
     assert!(output.stderr.is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn workflow_run_command_executes_operational_review_built_ins() -> Result<()> {
+    let (_workspace, root, db, anchor_key) = build_indexed_fixture()?;
+
+    let periodic = workflow_command(
+        &root,
+        &db,
+        &[
+            "run",
+            BUILT_IN_WORKFLOW_PERIODIC_REVIEW_ID,
+            "--input",
+            &format!("focus=key:{anchor_key}"),
+            "--json",
+        ],
+    )?;
+
+    assert!(periodic.status.success(), "{periodic:?}");
+    let periodic: RunWorkflowResult = serde_json::from_slice(&periodic.stdout)?;
+    assert_eq!(
+        periodic.result.workflow.metadata.workflow_id,
+        BUILT_IN_WORKFLOW_PERIODIC_REVIEW_ID
+    );
+    assert_eq!(periodic.result.steps.len(), 6);
+    match &periodic.result.steps[4].payload {
+        slipbox_core::WorkflowStepReportPayload::Explore {
+            focus_node_key,
+            result,
+        } => {
+            assert_eq!(focus_node_key, &anchor_key);
+            assert_eq!(result.lens, ExplorationLens::Refs);
+        }
+        other => panic!("expected refs review step, got {:?}", other.kind()),
+    }
+
+    let weak = workflow_command(
+        &root,
+        &db,
+        &[
+            "run",
+            BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID,
+            "--input",
+            &format!("focus=key:{anchor_key}"),
+            "--json",
+        ],
+    )?;
+
+    assert!(weak.status.success(), "{weak:?}");
+    let weak: RunWorkflowResult = serde_json::from_slice(&weak.stdout)?;
+    assert_eq!(
+        weak.result.workflow.metadata.workflow_id,
+        BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID
+    );
+    assert_eq!(weak.result.steps.len(), 4);
+    match &weak.result.steps[1].payload {
+        slipbox_core::WorkflowStepReportPayload::Explore { result, .. } => {
+            assert_eq!(result.lens, ExplorationLens::Unresolved);
+            assert!(result.sections.iter().any(|section| {
+                section.kind == slipbox_core::ExplorationSectionKind::WeaklyIntegratedNotes
+            }));
+        }
+        other => panic!(
+            "expected weak integration review step, got {:?}",
+            other.kind()
+        ),
+    }
 
     Ok(())
 }
