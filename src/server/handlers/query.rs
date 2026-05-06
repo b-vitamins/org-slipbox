@@ -15,16 +15,17 @@ use slipbox_core::{
     NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
     NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonGroup, NoteComparisonResult, PingInfo,
     RandomNodeResult, ReflinksParams, ReflinksResult, ReviewFinding, ReviewFindingPayload,
-    ReviewFindingStatus, ReviewFindingStatusTransition, ReviewRun, ReviewRunDiff,
-    ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunMetadata,
-    ReviewRunPayload, ReviewRunResult, ReviewRunSummary, RunWorkflowParams, RunWorkflowResult,
-    SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult, SaveExplorationArtifactParams,
-    SaveExplorationArtifactResult, SaveReviewRunParams, SaveReviewRunResult,
-    SaveWorkflowReviewParams, SaveWorkflowReviewResult, SavedComparisonArtifact,
-    SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailStep, SearchFilesParams,
-    SearchFilesResult, SearchNodesParams, SearchNodesResult, SearchOccurrencesParams,
-    SearchOccurrencesResult, SearchRefsParams, SearchRefsResult, SearchTagsParams,
-    SearchTagsResult, StatusInfo, TrailReplayResult, TrailReplayStepResult,
+    ReviewFindingRemediationPreview, ReviewFindingRemediationPreviewParams,
+    ReviewFindingRemediationPreviewResult, ReviewFindingStatus, ReviewFindingStatusTransition,
+    ReviewRun, ReviewRunDiff, ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams,
+    ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, ReviewRunSummary, RunWorkflowParams,
+    RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
+    SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
+    SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
+    SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailStep,
+    SearchFilesParams, SearchFilesResult, SearchNodesParams, SearchNodesResult,
+    SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams, SearchRefsResult,
+    SearchTagsParams, SearchTagsResult, StatusInfo, TrailReplayResult, TrailReplayStepResult,
     UnlinkedReferencesParams, UnlinkedReferencesResult, WorkflowExecutionResult, WorkflowIdParams,
     WorkflowInputAssignment, WorkflowResolveTarget, WorkflowResult, WorkflowSpec,
     WorkflowStepPayload, WorkflowStepReport, WorkflowStepReportPayload,
@@ -1476,6 +1477,30 @@ pub(crate) fn diff_review_runs(
     to_value(ReviewRunDiffResult { diff })
 }
 
+pub(crate) fn review_finding_remediation_preview(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: ReviewFindingRemediationPreviewParams = parse_params(params)?;
+    if let Some(message) = params.validation_error() {
+        return Err(invalid_request(message));
+    }
+    let review = known_review_run(state, &params.review_id)?;
+    let finding = review
+        .findings
+        .iter()
+        .find(|finding| finding.finding_id == params.finding_id)
+        .ok_or_else(|| {
+            invalid_request(format!(
+                "unknown review finding {} in review run {}",
+                params.finding_id, params.review_id
+            ))
+        })?;
+    let preview = ReviewFindingRemediationPreview::from_review_finding(&params.review_id, finding)
+        .map_err(invalid_request)?;
+    to_value(ReviewFindingRemediationPreviewResult { preview })
+}
+
 pub(crate) fn list_review_runs(
     state: &mut ServerState,
     params: serde_json::Value,
@@ -1763,7 +1788,8 @@ mod tests {
 
     use serde_json::json;
     use slipbox_core::{
-        AnchorRecord, BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
+        AnchorRecord, AuditRemediationConfidence, AuditRemediationPreviewPayload,
+        BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
         BUILT_IN_WORKFLOW_PERIODIC_REVIEW_ID, BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
         BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID, CompareNotesParams,
         ComparisonConnectorDirection, CorpusAuditEntry, CorpusAuditKind, CorpusAuditResult,
@@ -1774,13 +1800,14 @@ mod tests {
         ExploreParams, ExploreResult, ListExplorationArtifactsResult, ListReviewRunsResult,
         ListWorkflowsResult, MarkReviewFindingResult, NodeKind, NoteComparisonEntry,
         NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
-        NoteComparisonSectionKind, ReviewFinding, ReviewFindingPayload, ReviewFindingStatus,
-        ReviewRun, ReviewRunDiffResult, ReviewRunMetadata, ReviewRunPayload, ReviewRunResult,
-        RunWorkflowResult, SaveCorpusAuditReviewResult, SaveExplorationArtifactResult,
-        SaveReviewRunResult, SaveWorkflowReviewResult, SavedComparisonArtifact,
-        SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep,
-        TrailReplayStepResult, WorkflowInputAssignment, WorkflowResolveTarget, WorkflowResult,
-        WorkflowSpec, WorkflowStepReport, WorkflowStepReportPayload,
+        NoteComparisonSectionKind, ReviewFinding, ReviewFindingPayload,
+        ReviewFindingRemediationPreviewResult, ReviewFindingStatus, ReviewRun, ReviewRunDiffResult,
+        ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, RunWorkflowResult,
+        SaveCorpusAuditReviewResult, SaveExplorationArtifactResult, SaveReviewRunResult,
+        SaveWorkflowReviewResult, SavedComparisonArtifact, SavedExplorationArtifact,
+        SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, TrailReplayStepResult,
+        WorkflowInputAssignment, WorkflowResolveTarget, WorkflowResult, WorkflowSpec,
+        WorkflowStepReport, WorkflowStepReportPayload,
     };
     use slipbox_index::{DiscoveryPolicy, scan_root_with_policy};
     use tempfile::TempDir;
@@ -1791,8 +1818,8 @@ mod tests {
         execute_explore_query, execute_saved_exploration_artifact,
         execute_saved_exploration_artifact_by_id, execute_workflow_spec, exploration_artifact,
         explore, list_exploration_artifacts, list_review_runs, list_workflows, mark_review_finding,
-        review_run, run_workflow, save_corpus_audit_review, save_exploration_artifact,
-        save_review_run, save_workflow_review, workflow,
+        review_finding_remediation_preview, review_run, run_workflow, save_corpus_audit_review,
+        save_exploration_artifact, save_review_run, save_workflow_review, workflow,
     };
     use crate::server::state::ServerState;
 
@@ -3141,6 +3168,174 @@ mod tests {
         )
         .expect_err("incompatible review diff should be rejected");
         assert!(error.into_inner().message.contains("different audit kinds"));
+    }
+
+    #[test]
+    fn review_finding_remediation_preview_reports_supported_audit_evidence_without_mutation() {
+        let (_workspace, mut state) = audit_state();
+        let source_path = state.root.join("dangling-source.org");
+        let source_before = fs::read_to_string(&source_path).expect("source file should read");
+
+        let _: SaveCorpusAuditReviewResult = serde_json::from_value(
+            save_corpus_audit_review(
+                &mut state,
+                json!({
+                    "audit": "dangling-links",
+                    "limit": 20,
+                    "review_id": "review/audit/dangling-links/custom",
+                    "overwrite": true
+                }),
+            )
+            .expect("save audit review RPC should succeed"),
+        )
+        .expect("save audit review result should decode");
+        let stored_before: ReviewRunResult = serde_json::from_value(
+            review_run(
+                &mut state,
+                json!({ "review_id": "review/audit/dangling-links/custom" }),
+            )
+            .expect("saved audit review should load"),
+        )
+        .expect("review result should decode");
+        let dangling_finding_id = stored_before.review.findings[0].finding_id.clone();
+
+        let preview: ReviewFindingRemediationPreviewResult = serde_json::from_value(
+            review_finding_remediation_preview(
+                &mut state,
+                json!({
+                    "review_id": "review/audit/dangling-links/custom",
+                    "finding_id": dangling_finding_id
+                }),
+            )
+            .expect("dangling-link preview should succeed"),
+        )
+        .expect("preview result should decode");
+        assert_eq!(
+            preview.preview.review_id,
+            "review/audit/dangling-links/custom"
+        );
+        assert_eq!(preview.preview.status, ReviewFindingStatus::Open);
+        match preview.preview.payload {
+            AuditRemediationPreviewPayload::DanglingLink {
+                source,
+                missing_explicit_id,
+                file_path,
+                line,
+                column,
+                preview,
+                suggestion,
+                confidence,
+                reason,
+            } => {
+                assert_eq!(source.explicit_id.as_deref(), Some("dangling-source-id"));
+                assert_eq!(missing_explicit_id, "missing-id");
+                assert_eq!(file_path, "dangling-source.org");
+                assert_eq!(line, 6);
+                assert!(column > 0);
+                assert!(preview.contains("missing-id"));
+                assert!(suggestion.contains("id:missing-id"));
+                assert_eq!(confidence, AuditRemediationConfidence::Medium);
+                assert!(reason.contains("dangling-source.org"));
+            }
+            other => panic!("expected dangling-link preview, got {other:?}"),
+        }
+
+        let stored_after: ReviewRunResult = serde_json::from_value(
+            review_run(
+                &mut state,
+                json!({ "review_id": "review/audit/dangling-links/custom" }),
+            )
+            .expect("saved audit review should still load"),
+        )
+        .expect("review result should decode");
+        assert_eq!(stored_after.review, stored_before.review);
+        assert_eq!(
+            fs::read_to_string(&source_path).expect("source file should still read"),
+            source_before
+        );
+
+        let _: SaveCorpusAuditReviewResult = serde_json::from_value(
+            save_corpus_audit_review(
+                &mut state,
+                json!({
+                    "audit": "duplicate-titles",
+                    "limit": 20,
+                    "review_id": "review/audit/duplicate-titles/custom",
+                    "overwrite": true
+                }),
+            )
+            .expect("save duplicate-title review RPC should succeed"),
+        )
+        .expect("duplicate-title review result should decode");
+        let duplicate_review: ReviewRunResult = serde_json::from_value(
+            review_run(
+                &mut state,
+                json!({ "review_id": "review/audit/duplicate-titles/custom" }),
+            )
+            .expect("duplicate-title review should load"),
+        )
+        .expect("duplicate-title review result should decode");
+        let duplicate_preview: ReviewFindingRemediationPreviewResult = serde_json::from_value(
+            review_finding_remediation_preview(
+                &mut state,
+                json!({
+                    "review_id": "review/audit/duplicate-titles/custom",
+                    "finding_id": duplicate_review.review.findings[0].finding_id
+                }),
+            )
+            .expect("duplicate-title preview should succeed"),
+        )
+        .expect("duplicate-title preview result should decode");
+        match duplicate_preview.preview.payload {
+            AuditRemediationPreviewPayload::DuplicateTitle {
+                title,
+                notes,
+                suggestion,
+                confidence,
+                reason,
+            } => {
+                assert_eq!(title, "Shared Title");
+                assert_eq!(notes.len(), 2);
+                assert!(suggestion.contains("Disambiguate"));
+                assert_eq!(confidence, AuditRemediationConfidence::High);
+                assert!(reason.contains("2 notes"));
+            }
+            other => panic!("expected duplicate-title preview, got {other:?}"),
+        }
+
+        let _: SaveCorpusAuditReviewResult = serde_json::from_value(
+            save_corpus_audit_review(
+                &mut state,
+                json!({
+                    "audit": "orphan-notes",
+                    "limit": 20,
+                    "review_id": "review/audit/orphan-notes/custom",
+                    "overwrite": true
+                }),
+            )
+            .expect("save orphan review RPC should succeed"),
+        )
+        .expect("orphan review result should decode");
+        let orphan_review: ReviewRunResult = serde_json::from_value(
+            review_run(
+                &mut state,
+                json!({ "review_id": "review/audit/orphan-notes/custom" }),
+            )
+            .expect("orphan review should load"),
+        )
+        .expect("orphan review result should decode");
+        let unsupported = review_finding_remediation_preview(
+            &mut state,
+            json!({
+                "review_id": "review/audit/orphan-notes/custom",
+                "finding_id": orphan_review.review.findings[0].finding_id
+            }),
+        )
+        .expect_err("orphan preview should be rejected");
+        assert_eq!(
+            unsupported.into_inner().message,
+            "review finding has no remediation preview for orphan-note evidence"
+        );
     }
 
     #[test]

@@ -2566,6 +2566,117 @@ impl ReviewFindingStatusTransition {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AuditRemediationConfidence {
+    High,
+    Medium,
+    Low,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum AuditRemediationPreviewPayload {
+    DanglingLink {
+        source: Box<AnchorRecord>,
+        missing_explicit_id: String,
+        file_path: String,
+        line: u32,
+        column: u32,
+        preview: String,
+        suggestion: String,
+        confidence: AuditRemediationConfidence,
+        reason: String,
+    },
+    DuplicateTitle {
+        title: String,
+        notes: Vec<NodeRecord>,
+        suggestion: String,
+        confidence: AuditRemediationConfidence,
+        reason: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewFindingRemediationPreview {
+    pub review_id: String,
+    pub finding_id: String,
+    pub status: ReviewFindingStatus,
+    #[serde(flatten)]
+    pub payload: AuditRemediationPreviewPayload,
+}
+
+impl ReviewFindingRemediationPreview {
+    pub fn from_review_finding(review_id: &str, finding: &ReviewFinding) -> Result<Self, String> {
+        let payload = match &finding.payload {
+            ReviewFindingPayload::Audit { entry } => match entry.as_ref() {
+                CorpusAuditEntry::DanglingLink { record } => {
+                    AuditRemediationPreviewPayload::DanglingLink {
+                        source: record.source.clone().into(),
+                        missing_explicit_id: record.missing_explicit_id.clone(),
+                        file_path: record.source.file_path.clone(),
+                        line: record.line,
+                        column: record.column,
+                        preview: record.preview.clone(),
+                        suggestion: format!(
+                            "Inspect the link to id:{} and either restore/create that target or update the link to an existing note ID.",
+                            record.missing_explicit_id
+                        ),
+                        confidence: AuditRemediationConfidence::Medium,
+                        reason: format!(
+                            "Indexed link evidence points to missing explicit ID {} from {}:{}:{}.",
+                            record.missing_explicit_id,
+                            record.source.file_path,
+                            record.line,
+                            record.column
+                        ),
+                    }
+                }
+                CorpusAuditEntry::DuplicateTitle { record } => {
+                    AuditRemediationPreviewPayload::DuplicateTitle {
+                        title: record.title.clone(),
+                        notes: record.notes.clone(),
+                        suggestion:
+                            "Disambiguate one or more duplicate titles so exact-title resolution is no longer ambiguous."
+                                .to_owned(),
+                        confidence: AuditRemediationConfidence::High,
+                        reason: format!(
+                            "Indexed title evidence found {} notes with the title {:?}.",
+                            record.notes.len(),
+                            record.title
+                        ),
+                    }
+                }
+                CorpusAuditEntry::OrphanNote { .. } => {
+                    return Err(
+                        "review finding has no remediation preview for orphan-note evidence"
+                            .to_owned(),
+                    );
+                }
+                CorpusAuditEntry::WeaklyIntegratedNote { .. } => {
+                    return Err(
+                        "review finding has no remediation preview for weakly-integrated-note evidence"
+                            .to_owned(),
+                    );
+                }
+            },
+            ReviewFindingPayload::WorkflowStep { .. } => {
+                return Err(
+                    "review finding has no remediation preview for workflow-step evidence"
+                        .to_owned(),
+                );
+            }
+        };
+
+        Ok(Self {
+            review_id: review_id.to_owned(),
+            finding_id: finding.finding_id.clone(),
+            status: finding.status,
+            payload,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReviewRun {
     #[serde(flatten)]
@@ -2839,6 +2950,20 @@ impl ReviewRunDiffParams {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewFindingRemediationPreviewParams {
+    pub review_id: String,
+    pub finding_id: String,
+}
+
+impl ReviewFindingRemediationPreviewParams {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_review_id_field(&self.review_id)
+            .or_else(|| validate_review_finding_id_field(&self.finding_id))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ListReviewRunsParams {}
 
@@ -2981,6 +3106,11 @@ pub struct ReviewRunResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReviewRunDiffResult {
     pub diff: ReviewRunDiff,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewFindingRemediationPreviewResult {
+    pub preview: ReviewFindingRemediationPreview,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -3722,20 +3852,22 @@ mod tests {
         NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
         NoteComparisonSection, NoteComparisonSectionKind, NoteConnectivityAuditRecord,
         PlanningField, PlanningRelationRecord, PreviewNodeRecord, ReviewFinding,
-        ReviewFindingPayload, ReviewFindingStatus, ReviewFindingStatusTransition, ReviewRun,
-        ReviewRunDiff, ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams,
-        ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, ReviewRunSummary,
-        SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult, SaveExplorationArtifactParams,
-        SaveExplorationArtifactResult, SaveReviewRunParams, SaveReviewRunResult,
-        SaveWorkflowReviewParams, SaveWorkflowReviewResult, SavedComparisonArtifact,
-        SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep,
-        SearchNodesParams, SearchNodesSort, TrailReplayResult, TrailReplayStepResult,
-        UnlinkedReferencesParams, UpdateNodeMetadataParams, WorkflowArtifactSaveSource,
-        WorkflowExecutionResult, WorkflowExploreFocus, WorkflowInputAssignment, WorkflowInputKind,
-        WorkflowInputSpec, WorkflowMetadata, WorkflowReportLine, WorkflowResolveTarget,
-        WorkflowSpec, WorkflowStepPayload, WorkflowStepRef, WorkflowStepReport,
-        WorkflowStepReportPayload, WorkflowStepSpec, WorkflowSummary, built_in_workflow,
-        built_in_workflow_summaries, built_in_workflows, normalize_reference,
+        ReviewFindingPayload, ReviewFindingRemediationPreview,
+        ReviewFindingRemediationPreviewParams, ReviewFindingRemediationPreviewResult,
+        ReviewFindingStatus, ReviewFindingStatusTransition, ReviewRun, ReviewRunDiff,
+        ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunMetadata,
+        ReviewRunPayload, ReviewRunResult, ReviewRunSummary, SaveCorpusAuditReviewParams,
+        SaveCorpusAuditReviewResult, SaveExplorationArtifactParams, SaveExplorationArtifactResult,
+        SaveReviewRunParams, SaveReviewRunResult, SaveWorkflowReviewParams,
+        SaveWorkflowReviewResult, SavedComparisonArtifact, SavedExplorationArtifact,
+        SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, SearchNodesParams,
+        SearchNodesSort, TrailReplayResult, TrailReplayStepResult, UnlinkedReferencesParams,
+        UpdateNodeMetadataParams, WorkflowArtifactSaveSource, WorkflowExecutionResult,
+        WorkflowExploreFocus, WorkflowInputAssignment, WorkflowInputKind, WorkflowInputSpec,
+        WorkflowMetadata, WorkflowReportLine, WorkflowResolveTarget, WorkflowSpec,
+        WorkflowStepPayload, WorkflowStepRef, WorkflowStepReport, WorkflowStepReportPayload,
+        WorkflowStepSpec, WorkflowSummary, built_in_workflow, built_in_workflow_summaries,
+        built_in_workflows, normalize_reference,
     };
     use serde_json::json;
 
@@ -5625,6 +5757,10 @@ mod tests {
             finding_id: "workflow-step/explore-focus".to_owned(),
             status: ReviewFindingStatus::Accepted,
         };
+        let preview_params = ReviewFindingRemediationPreviewParams {
+            review_id: "review/audit/dangling-links/2026-05-05".to_owned(),
+            finding_id: "audit/dangling-links/source/missing-id".to_owned(),
+        };
         let diff_params = ReviewRunDiffParams {
             base_review_id: "review/audit/dangling-links/2026-05-04".to_owned(),
             target_review_id: "review/audit/dangling-links/2026-05-05".to_owned(),
@@ -5672,6 +5808,13 @@ mod tests {
         let diff_result = ReviewRunDiffResult {
             diff: ReviewRunDiff::between(&audit_review, &audit_review)
                 .expect("same audit review should diff"),
+        };
+        let preview_result = ReviewFindingRemediationPreviewResult {
+            preview: ReviewFindingRemediationPreview::from_review_finding(
+                "review/audit/dangling-links/2026-05-05",
+                &audit_review.findings[0],
+            )
+            .expect("dangling-link finding should have a preview"),
         };
 
         assert_eq!(
@@ -5731,6 +5874,13 @@ mod tests {
             diff_params
         );
         assert_eq!(
+            serde_json::from_value::<ReviewFindingRemediationPreviewParams>(
+                serde_json::to_value(&preview_params).expect("preview params should serialize"),
+            )
+            .expect("preview params should deserialize"),
+            preview_params
+        );
+        assert_eq!(
             serde_json::from_value::<SaveCorpusAuditReviewParams>(
                 serde_json::to_value(&audit_review_params)
                     .expect("audit review params should serialize"),
@@ -5769,12 +5919,133 @@ mod tests {
             .expect("diff result should deserialize"),
             diff_result
         );
+        assert_eq!(
+            serde_json::from_value::<ReviewFindingRemediationPreviewResult>(
+                serde_json::to_value(&preview_result).expect("preview result should serialize"),
+            )
+            .expect("preview result should deserialize"),
+            preview_result
+        );
 
         let default_save_params: SaveReviewRunParams = serde_json::from_value(json!({
             "review": audit_review
         }))
         .expect("save params should default overwrite");
         assert!(default_save_params.overwrite);
+    }
+
+    #[test]
+    fn review_finding_remediation_previews_cover_supported_audit_findings() {
+        let dangling_finding = ReviewFinding {
+            finding_id: "audit/dangling-links/source/missing-id".to_owned(),
+            status: ReviewFindingStatus::Open,
+            payload: ReviewFindingPayload::Audit {
+                entry: Box::new(CorpusAuditEntry::DanglingLink {
+                    record: Box::new(DanglingLinkAuditRecord {
+                        source: sample_anchor("file:source.org", "Source"),
+                        missing_explicit_id: "missing-id".to_owned(),
+                        line: 12,
+                        column: 7,
+                        preview: "[[id:missing-id][Missing]]".to_owned(),
+                    }),
+                }),
+            },
+        };
+        let dangling_preview = ReviewFindingRemediationPreview::from_review_finding(
+            "review/audit/dangling-links",
+            &dangling_finding,
+        )
+        .expect("dangling link should be previewable");
+        assert_eq!(dangling_preview.review_id, "review/audit/dangling-links");
+        assert_eq!(
+            dangling_preview.finding_id,
+            "audit/dangling-links/source/missing-id"
+        );
+        assert_eq!(dangling_preview.status, ReviewFindingStatus::Open);
+        match dangling_preview.payload {
+            super::AuditRemediationPreviewPayload::DanglingLink {
+                source,
+                missing_explicit_id,
+                file_path,
+                line,
+                column,
+                preview,
+                suggestion,
+                confidence,
+                reason,
+            } => {
+                assert_eq!(source.node_key, "file:source.org");
+                assert_eq!(missing_explicit_id, "missing-id");
+                assert_eq!(file_path, "sample.org");
+                assert_eq!(line, 12);
+                assert_eq!(column, 7);
+                assert_eq!(preview, "[[id:missing-id][Missing]]");
+                assert!(suggestion.contains("id:missing-id"));
+                assert_eq!(confidence, super::AuditRemediationConfidence::Medium);
+                assert!(reason.contains("missing-id"));
+            }
+            other => panic!("expected dangling-link preview, got {other:?}"),
+        }
+
+        let duplicate_finding = ReviewFinding {
+            finding_id: "audit/duplicate-titles/shared-title".to_owned(),
+            status: ReviewFindingStatus::Reviewed,
+            payload: ReviewFindingPayload::Audit {
+                entry: Box::new(CorpusAuditEntry::DuplicateTitle {
+                    record: Box::new(DuplicateTitleAuditRecord {
+                        title: "Shared Title".to_owned(),
+                        notes: vec![
+                            sample_node("file:a.org", "Shared Title"),
+                            sample_node("file:b.org", "Shared Title"),
+                        ],
+                    }),
+                }),
+            },
+        };
+        let duplicate_preview = ReviewFindingRemediationPreview::from_review_finding(
+            "review/audit/duplicate-titles",
+            &duplicate_finding,
+        )
+        .expect("duplicate title should be previewable");
+        match duplicate_preview.payload {
+            super::AuditRemediationPreviewPayload::DuplicateTitle {
+                title,
+                notes,
+                suggestion,
+                confidence,
+                reason,
+            } => {
+                assert_eq!(title, "Shared Title");
+                assert_eq!(notes.len(), 2);
+                assert!(suggestion.contains("Disambiguate"));
+                assert_eq!(confidence, super::AuditRemediationConfidence::High);
+                assert!(reason.contains("2 notes"));
+            }
+            other => panic!("expected duplicate-title preview, got {other:?}"),
+        }
+
+        let unsupported = ReviewFinding {
+            finding_id: "audit/orphan-notes/source".to_owned(),
+            status: ReviewFindingStatus::Open,
+            payload: ReviewFindingPayload::Audit {
+                entry: Box::new(CorpusAuditEntry::OrphanNote {
+                    record: Box::new(NoteConnectivityAuditRecord {
+                        note: sample_node("file:orphan.org", "Orphan"),
+                        reference_count: 0,
+                        backlink_count: 0,
+                        forward_link_count: 0,
+                    }),
+                }),
+            },
+        };
+        assert_eq!(
+            ReviewFindingRemediationPreview::from_review_finding(
+                "review/audit/orphan-notes",
+                &unsupported,
+            )
+            .expect_err("orphan finding should not be previewable"),
+            "review finding has no remediation preview for orphan-note evidence"
+        );
     }
 
     #[test]

@@ -4,16 +4,17 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result};
 use slipbox_core::{
-    AnchorRecord, BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID,
-    BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID, CompareNotesParams, CorpusAuditEntry,
-    CorpusAuditKind, DanglingLinkAuditRecord, ExecuteExplorationArtifactResult,
-    ExplorationArtifactIdParams, ExplorationArtifactMetadata, ExplorationArtifactPayload,
-    ExplorationLens, ExploreParams, NodeFromIdParams, NodeFromRefParams,
-    NodeFromTitleOrAliasParams, NodeKind, ReviewFinding, ReviewFindingPayload, ReviewFindingStatus,
-    ReviewRun, ReviewRunDiffParams, ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload,
-    RunWorkflowParams, SaveCorpusAuditReviewParams, SaveExplorationArtifactParams,
-    SaveReviewRunParams, SaveWorkflowReviewParams, SavedExplorationArtifact, SavedLensViewArtifact,
-    SearchNodesParams, WorkflowIdParams, WorkflowInputAssignment, WorkflowResult,
+    AnchorRecord, AuditRemediationConfidence, AuditRemediationPreviewPayload,
+    BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID,
+    CompareNotesParams, CorpusAuditEntry, CorpusAuditKind, DanglingLinkAuditRecord,
+    ExecuteExplorationArtifactResult, ExplorationArtifactIdParams, ExplorationArtifactMetadata,
+    ExplorationArtifactPayload, ExplorationLens, ExploreParams, NodeFromIdParams,
+    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeKind, ReviewFinding, ReviewFindingPayload,
+    ReviewFindingRemediationPreviewParams, ReviewFindingStatus, ReviewRun, ReviewRunDiffParams,
+    ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload, RunWorkflowParams,
+    SaveCorpusAuditReviewParams, SaveExplorationArtifactParams, SaveReviewRunParams,
+    SaveWorkflowReviewParams, SavedExplorationArtifact, SavedLensViewArtifact, SearchNodesParams,
+    WorkflowIdParams, WorkflowInputAssignment, WorkflowResult,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonServeConfig};
 use slipbox_index::scan_root;
@@ -339,6 +340,26 @@ fn daemon_client_queries_spawned_daemon_and_round_trips_artifacts() -> Result<()
         review_id: "review/audit/dangling-links".to_owned(),
     })?;
     assert_eq!(loaded_review.review, review);
+
+    let preview =
+        client.review_finding_remediation_preview(&ReviewFindingRemediationPreviewParams {
+            review_id: "review/audit/dangling-links".to_owned(),
+            finding_id: "audit/dangling-links/source/missing-id".to_owned(),
+        })?;
+    assert_eq!(preview.preview.review_id, "review/audit/dangling-links");
+    match preview.preview.payload {
+        AuditRemediationPreviewPayload::DanglingLink {
+            missing_explicit_id,
+            confidence,
+            suggestion,
+            ..
+        } => {
+            assert_eq!(missing_explicit_id, "missing-id");
+            assert_eq!(confidence, AuditRemediationConfidence::Medium);
+            assert!(suggestion.contains("id:missing-id"));
+        }
+        other => panic!("expected dangling-link remediation preview, got {other:?}"),
+    }
 
     let mut target_review = review.clone();
     target_review.metadata.review_id = "review/audit/dangling-links/target".to_owned();

@@ -13,6 +13,7 @@ use slipbox_core::{
     ListReviewRunsResult, ListWorkflowsParams, ListWorkflowsResult, MarkReviewFindingParams,
     MarkReviewFindingResult, NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams,
     NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, PingInfo,
+    ReviewFindingRemediationPreviewParams, ReviewFindingRemediationPreviewResult,
     ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunResult,
     RunWorkflowParams, RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
     SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
@@ -25,10 +26,11 @@ use slipbox_rpc::{
     METHOD_EXECUTE_EXPLORATION_ARTIFACT, METHOD_EXPLORATION_ARTIFACT, METHOD_EXPLORE,
     METHOD_LIST_EXPLORATION_ARTIFACTS, METHOD_LIST_REVIEW_RUNS, METHOD_LIST_WORKFLOWS,
     METHOD_MARK_REVIEW_FINDING, METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY,
-    METHOD_NODE_FROM_REF, METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_REVIEW_RUN,
-    METHOD_RUN_WORKFLOW, METHOD_SAVE_CORPUS_AUDIT_REVIEW, METHOD_SAVE_EXPLORATION_ARTIFACT,
-    METHOD_SAVE_REVIEW_RUN, METHOD_SAVE_WORKFLOW_REVIEW, METHOD_SEARCH_NODES, METHOD_STATUS,
-    METHOD_WORKFLOW, read_framed_message, write_framed_message,
+    METHOD_NODE_FROM_REF, METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING,
+    METHOD_REVIEW_FINDING_REMEDIATION_PREVIEW, METHOD_REVIEW_RUN, METHOD_RUN_WORKFLOW,
+    METHOD_SAVE_CORPUS_AUDIT_REVIEW, METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SAVE_REVIEW_RUN,
+    METHOD_SAVE_WORKFLOW_REVIEW, METHOD_SEARCH_NODES, METHOD_STATUS, METHOD_WORKFLOW,
+    read_framed_message, write_framed_message,
 };
 use thiserror::Error;
 
@@ -334,6 +336,13 @@ where
         params: &ReviewRunDiffParams,
     ) -> Result<ReviewRunDiffResult, DaemonClientError> {
         self.request(METHOD_DIFF_REVIEW_RUNS, params)
+    }
+
+    fn review_finding_remediation_preview(
+        &mut self,
+        params: &ReviewFindingRemediationPreviewParams,
+    ) -> Result<ReviewFindingRemediationPreviewResult, DaemonClientError> {
+        self.request(METHOD_REVIEW_FINDING_REMEDIATION_PREVIEW, params)
     }
 
     fn list_review_runs(&mut self) -> Result<ListReviewRunsResult, DaemonClientError> {
@@ -642,6 +651,13 @@ impl DaemonClient {
         params: &ReviewRunDiffParams,
     ) -> Result<ReviewRunDiffResult, DaemonClientError> {
         self.rpc.diff_review_runs(params)
+    }
+
+    pub fn review_finding_remediation_preview(
+        &mut self,
+        params: &ReviewFindingRemediationPreviewParams,
+    ) -> Result<ReviewFindingRemediationPreviewResult, DaemonClientError> {
+        self.rpc.review_finding_remediation_preview(params)
     }
 
     pub fn list_review_runs(&mut self) -> Result<ListReviewRunsResult, DaemonClientError> {

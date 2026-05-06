@@ -41,6 +41,8 @@ pub const METHOD_EXECUTE_EXPLORATION_ARTIFACT: &str = "slipbox/executeExploratio
 pub const METHOD_SAVE_REVIEW_RUN: &str = "slipbox/saveReviewRun";
 pub const METHOD_REVIEW_RUN: &str = "slipbox/reviewRun";
 pub const METHOD_DIFF_REVIEW_RUNS: &str = "slipbox/diffReviewRuns";
+pub const METHOD_REVIEW_FINDING_REMEDIATION_PREVIEW: &str =
+    "slipbox/reviewFindingRemediationPreview";
 pub const METHOD_LIST_REVIEW_RUNS: &str = "slipbox/listReviewRuns";
 pub const METHOD_DELETE_REVIEW_RUN: &str = "slipbox/deleteReviewRun";
 pub const METHOD_MARK_REVIEW_FINDING: &str = "slipbox/markReviewFinding";
