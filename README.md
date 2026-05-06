@@ -13,7 +13,7 @@ side owns commands, session state, and presentation.
 
 ## Status
 
-Current development starts from the released `0.8.0` foundation.
+Current development starts from the released `0.9.0` foundation.
 
 The documented workflow surface is intended to remain complete enough for
 day-to-day replacement use while the project deepens its exploratory model.

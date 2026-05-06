@@ -6,6 +6,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-05-06
+
 ### Added
 - Added operational built-in review workflows for periodic review and weak
   integration review, expanding the workflow catalog with routines suited for
