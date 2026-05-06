@@ -3175,6 +3175,223 @@ impl ReportProfileCatalog {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewRoutineMetadata {
+    pub routine_id: String,
+    pub title: String,
+    #[serde(default)]
+    pub summary: Option<String>,
+}
+
+impl ReviewRoutineMetadata {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_review_routine_id_field(&self.routine_id)
+            .or_else(|| validate_required_text_field(&self.title, "title"))
+            .or_else(|| validate_optional_text_field(self.summary.as_deref(), "summary"))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReviewRoutineSourceKind {
+    Audit,
+    Workflow,
+    Unsupported,
+}
+
+impl ReviewRoutineSourceKind {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Audit => "audit",
+            Self::Workflow => "workflow",
+            Self::Unsupported => "unsupported",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum ReviewRoutineSource {
+    Audit {
+        audit: CorpusAuditKind,
+        #[serde(default = "default_audit_limit")]
+        limit: usize,
+    },
+    Workflow {
+        workflow_id: String,
+    },
+    #[serde(other)]
+    Unsupported,
+}
+
+impl ReviewRoutineSource {
+    #[must_use]
+    pub const fn kind(&self) -> ReviewRoutineSourceKind {
+        match self {
+            Self::Audit { .. } => ReviewRoutineSourceKind::Audit,
+            Self::Workflow { .. } => ReviewRoutineSourceKind::Workflow,
+            Self::Unsupported => ReviewRoutineSourceKind::Unsupported,
+        }
+    }
+
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        match self {
+            Self::Audit { .. } => None,
+            Self::Workflow { workflow_id } => validate_workflow_id_field(workflow_id),
+            Self::Unsupported => Some("review routine source kind is unsupported".to_owned()),
+        }
+    }
+}
+
+#[must_use]
+pub const fn default_review_routine_save_review_enabled() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewRoutineSaveReviewPolicy {
+    #[serde(default = "default_review_routine_save_review_enabled")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub review_id: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub overwrite: bool,
+}
+
+impl Default for ReviewRoutineSaveReviewPolicy {
+    fn default() -> Self {
+        Self {
+            enabled: default_review_routine_save_review_enabled(),
+            review_id: None,
+            title: None,
+            summary: None,
+            overwrite: false,
+        }
+    }
+}
+
+impl ReviewRoutineSaveReviewPolicy {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_optional_review_id_field(self.review_id.as_deref(), "review_id")
+            .or_else(|| validate_optional_text_field(self.title.as_deref(), "title"))
+            .or_else(|| validate_optional_text_field(self.summary.as_deref(), "summary"))
+            .or_else(|| {
+                (!self.enabled
+                    && (self.review_id.is_some()
+                        || self.title.is_some()
+                        || self.summary.is_some()
+                        || self.overwrite))
+                .then(|| {
+                    "disabled save_review policy cannot set review_id, title, summary, or overwrite"
+                        .to_owned()
+                })
+            })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReviewRoutineCompareTarget {
+    #[default]
+    LatestCompatibleReview,
+    #[serde(other)]
+    Unsupported,
+}
+
+impl ReviewRoutineCompareTarget {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::LatestCompatibleReview => "latest-compatible-review",
+            Self::Unsupported => "unsupported",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewRoutineComparePolicy {
+    #[serde(default)]
+    pub target: ReviewRoutineCompareTarget,
+    #[serde(default)]
+    pub report_profile_id: Option<String>,
+}
+
+impl ReviewRoutineComparePolicy {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        matches!(self.target, ReviewRoutineCompareTarget::Unsupported)
+            .then(|| "review routine compare target is unsupported".to_owned())
+            .or_else(|| {
+                validate_optional_report_profile_id_field(
+                    self.report_profile_id.as_deref(),
+                    "report_profile_id",
+                )
+            })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewRoutineSpec {
+    #[serde(flatten)]
+    pub metadata: ReviewRoutineMetadata,
+    pub source: ReviewRoutineSource,
+    #[serde(default)]
+    pub inputs: Vec<WorkflowInputSpec>,
+    #[serde(default)]
+    pub save_review: ReviewRoutineSaveReviewPolicy,
+    #[serde(default)]
+    pub compare: Option<ReviewRoutineComparePolicy>,
+    #[serde(default)]
+    pub report_profile_ids: Vec<String>,
+}
+
+impl ReviewRoutineSpec {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        self.metadata
+            .validation_error()
+            .or_else(|| self.source.validation_error())
+            .or_else(|| validate_review_routine_inputs(self))
+            .or_else(|| self.save_review.validation_error())
+            .or_else(|| validate_review_routine_compare_policy(self))
+            .or_else(|| validate_review_routine_report_profiles(&self.report_profile_ids))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ReviewRoutineCatalog {
+    #[serde(default)]
+    pub routines: Vec<ReviewRoutineSpec>,
+}
+
+impl ReviewRoutineCatalog {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        let mut seen: Vec<&str> = Vec::with_capacity(self.routines.len());
+        for (index, routine) in self.routines.iter().enumerate() {
+            if let Some(error) = routine.validation_error() {
+                return Some(format!("review routine {index} is invalid: {error}"));
+            }
+            if seen.contains(&routine.metadata.routine_id.as_str()) {
+                return Some(format!(
+                    "review routine {index} reuses duplicate routine_id {}",
+                    routine.metadata.routine_id
+                ));
+            }
+            seen.push(routine.metadata.routine_id.as_str());
+        }
+        None
+    }
+}
+
 fn validate_review_diff_compatibility(
     base: &ReviewRunPayload,
     target: &ReviewRunPayload,
@@ -3964,6 +4181,15 @@ fn validate_review_id_field(value: &str) -> Option<String> {
     })
 }
 
+fn validate_optional_review_id_field(value: Option<&str>, field: &str) -> Option<String> {
+    value.and_then(|review_id| {
+        validate_required_text_field(review_id, field).or_else(|| {
+            (review_id.trim() != review_id)
+                .then(|| format!("{field} must not have leading or trailing whitespace"))
+        })
+    })
+}
+
 fn validate_review_finding_id_field(value: &str) -> Option<String> {
     validate_required_text_field(value, "finding_id").or_else(|| {
         (value.trim() != value)
@@ -3971,10 +4197,26 @@ fn validate_review_finding_id_field(value: &str) -> Option<String> {
     })
 }
 
+fn validate_review_routine_id_field(value: &str) -> Option<String> {
+    validate_required_text_field(value, "routine_id").or_else(|| {
+        (value.trim() != value)
+            .then(|| "routine_id must not have leading or trailing whitespace".to_owned())
+    })
+}
+
 fn validate_report_profile_id_field(value: &str) -> Option<String> {
     validate_required_text_field(value, "profile_id").or_else(|| {
         (value.trim() != value)
             .then(|| "profile_id must not have leading or trailing whitespace".to_owned())
+    })
+}
+
+fn validate_optional_report_profile_id_field(value: Option<&str>, field: &str) -> Option<String> {
+    value.and_then(|profile_id| {
+        validate_required_text_field(profile_id, field).or_else(|| {
+            (profile_id.trim() != profile_id)
+                .then(|| format!("{field} must not have leading or trailing whitespace"))
+        })
     })
 }
 
@@ -4144,6 +4386,55 @@ const fn report_profile_subject_supports_line_kind(
                 | ReportJsonlLineKind::StatusChanged
         ),
     }
+}
+
+fn validate_review_routine_inputs(routine: &ReviewRoutineSpec) -> Option<String> {
+    if matches!(routine.source, ReviewRoutineSource::Audit { .. }) && !routine.inputs.is_empty() {
+        return Some("audit review routines cannot declare workflow inputs".to_owned());
+    }
+
+    let mut seen: Vec<&str> = Vec::with_capacity(routine.inputs.len());
+    for (index, input) in routine.inputs.iter().enumerate() {
+        if let Some(error) = input.validation_error() {
+            return Some(format!("review routine input {index} is invalid: {error}"));
+        }
+        if seen.contains(&input.input_id.as_str()) {
+            return Some(format!(
+                "review routine input {index} reuses duplicate input_id {}",
+                input.input_id
+            ));
+        }
+        seen.push(input.input_id.as_str());
+    }
+    None
+}
+
+fn validate_review_routine_compare_policy(routine: &ReviewRoutineSpec) -> Option<String> {
+    let Some(compare) = &routine.compare else {
+        return None;
+    };
+    if !routine.save_review.enabled {
+        return Some("review routine compare policy requires save_review to be enabled".to_owned());
+    }
+    compare.validation_error()
+}
+
+fn validate_review_routine_report_profiles(report_profile_ids: &[String]) -> Option<String> {
+    let mut seen: Vec<&str> = Vec::with_capacity(report_profile_ids.len());
+    for (index, profile_id) in report_profile_ids.iter().enumerate() {
+        if let Some(error) = validate_report_profile_id_field(profile_id) {
+            return Some(format!(
+                "review routine report_profile_ids entry {index} is invalid: {error}"
+            ));
+        }
+        if seen.contains(&profile_id.as_str()) {
+            return Some(format!(
+                "review routine report_profile_ids entry {index} is duplicate: {profile_id}"
+            ));
+        }
+        seen.push(profile_id.as_str());
+    }
+    None
 }
 
 fn workflow_step_kind_for_reference(
@@ -4346,9 +4637,11 @@ mod tests {
         ReportProfileCatalog, ReportProfileMetadata, ReportProfileMode, ReportProfileSpec,
         ReportProfileSubject, ReviewFinding, ReviewFindingPayload, ReviewFindingRemediationPreview,
         ReviewFindingRemediationPreviewParams, ReviewFindingRemediationPreviewResult,
-        ReviewFindingStatus, ReviewFindingStatusTransition, ReviewRun, ReviewRunDiff,
-        ReviewRunDiffBucket, ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams,
-        ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, ReviewRunSummary,
+        ReviewFindingStatus, ReviewFindingStatusTransition, ReviewRoutineCatalog,
+        ReviewRoutineComparePolicy, ReviewRoutineCompareTarget, ReviewRoutineMetadata,
+        ReviewRoutineSaveReviewPolicy, ReviewRoutineSource, ReviewRoutineSpec, ReviewRun,
+        ReviewRunDiff, ReviewRunDiffBucket, ReviewRunDiffParams, ReviewRunDiffResult,
+        ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, ReviewRunSummary,
         SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult, SaveExplorationArtifactParams,
         SaveExplorationArtifactResult, SaveReviewRunParams, SaveReviewRunResult,
         SaveWorkflowReviewParams, SaveWorkflowReviewResult, SavedComparisonArtifact,
@@ -6331,6 +6624,262 @@ mod tests {
         assert_eq!(
             catalog.validation_error().as_deref(),
             Some("report profile 1 reuses duplicate profile_id profile/review-open")
+        );
+    }
+
+    #[test]
+    fn review_routine_specs_round_trip_over_audit_and_workflow_sources() {
+        let audit_routine = ReviewRoutineSpec {
+            metadata: ReviewRoutineMetadata {
+                routine_id: "routine/audit/duplicate-title-review".to_owned(),
+                title: "Duplicate Title Review".to_owned(),
+                summary: Some("Review title collisions and compare to the last run".to_owned()),
+            },
+            source: ReviewRoutineSource::Audit {
+                audit: CorpusAuditKind::DuplicateTitles,
+                limit: 100,
+            },
+            inputs: Vec::new(),
+            save_review: ReviewRoutineSaveReviewPolicy {
+                enabled: true,
+                review_id: Some("review/routine/duplicate-title-review".to_owned()),
+                title: Some("Duplicate Title Review".to_owned()),
+                summary: Some("Generated by a declarative routine".to_owned()),
+                overwrite: false,
+            },
+            compare: Some(ReviewRoutineComparePolicy {
+                target: ReviewRoutineCompareTarget::LatestCompatibleReview,
+                report_profile_id: Some("profile/diff-focus".to_owned()),
+            }),
+            report_profile_ids: vec![
+                "profile/audit-detail".to_owned(),
+                "profile/diff-focus".to_owned(),
+            ],
+        };
+        assert_eq!(audit_routine.validation_error(), None);
+        let serialized =
+            serde_json::to_value(&audit_routine).expect("audit routine should serialize");
+        assert_eq!(
+            serialized["routine_id"],
+            json!("routine/audit/duplicate-title-review")
+        );
+        assert_eq!(serialized["source"]["kind"], json!("audit"));
+        assert_eq!(serialized["source"]["audit"], json!("duplicate-titles"));
+        assert_eq!(
+            serialized["compare"]["target"],
+            json!("latest-compatible-review")
+        );
+        let round_trip: ReviewRoutineSpec =
+            serde_json::from_value(serialized).expect("audit routine should deserialize");
+        assert_eq!(round_trip, audit_routine);
+
+        let workflow_routine = ReviewRoutineSpec {
+            metadata: ReviewRoutineMetadata {
+                routine_id: "routine/workflow/periodic-review".to_owned(),
+                title: "Periodic Workflow Review".to_owned(),
+                summary: None,
+            },
+            source: ReviewRoutineSource::Workflow {
+                workflow_id: BUILT_IN_WORKFLOW_PERIODIC_REVIEW_ID.to_owned(),
+            },
+            inputs: vec![WorkflowInputSpec {
+                input_id: "focus".to_owned(),
+                title: "Review focus".to_owned(),
+                summary: Some("Note or anchor focus for the review".to_owned()),
+                kind: WorkflowInputKind::FocusTarget,
+            }],
+            save_review: ReviewRoutineSaveReviewPolicy::default(),
+            compare: None,
+            report_profile_ids: vec!["profile/workflow-summary".to_owned()],
+        };
+        assert_eq!(workflow_routine.validation_error(), None);
+
+        let catalog = ReviewRoutineCatalog {
+            routines: vec![audit_routine, workflow_routine],
+        };
+        assert_eq!(catalog.validation_error(), None);
+        let catalog_round_trip: ReviewRoutineCatalog = serde_json::from_value(
+            serde_json::to_value(&catalog).expect("routine catalog should serialize"),
+        )
+        .expect("routine catalog should deserialize");
+        assert_eq!(catalog_round_trip, catalog);
+    }
+
+    #[test]
+    fn review_routine_specs_reject_invalid_references_and_policy_conflicts() {
+        let valid = ReviewRoutineSpec {
+            metadata: ReviewRoutineMetadata {
+                routine_id: "routine/workflow/context-review".to_owned(),
+                title: "Context Review".to_owned(),
+                summary: None,
+            },
+            source: ReviewRoutineSource::Workflow {
+                workflow_id: BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID.to_owned(),
+            },
+            inputs: vec![WorkflowInputSpec {
+                input_id: "focus".to_owned(),
+                title: "Focus".to_owned(),
+                summary: None,
+                kind: WorkflowInputKind::FocusTarget,
+            }],
+            save_review: ReviewRoutineSaveReviewPolicy::default(),
+            compare: Some(ReviewRoutineComparePolicy {
+                target: ReviewRoutineCompareTarget::LatestCompatibleReview,
+                report_profile_id: Some("profile/diff-focus".to_owned()),
+            }),
+            report_profile_ids: vec!["profile/workflow-detail".to_owned()],
+        };
+        assert_eq!(valid.validation_error(), None);
+
+        let mut padded_routine_id = valid.clone();
+        padded_routine_id.metadata.routine_id = " routine/workflow/context-review".to_owned();
+        assert_eq!(
+            padded_routine_id.validation_error().as_deref(),
+            Some("routine_id must not have leading or trailing whitespace")
+        );
+
+        let unsupported_source: ReviewRoutineSpec = serde_json::from_value(json!({
+            "routine_id": "routine/future/source",
+            "title": "Future Source",
+            "source": {
+                "kind": "script",
+                "command": "external"
+            }
+        }))
+        .expect("unsupported source kind should deserialize for validation");
+        assert_eq!(
+            unsupported_source.validation_error().as_deref(),
+            Some("review routine source kind is unsupported")
+        );
+
+        let mut missing_workflow_reference = valid.clone();
+        missing_workflow_reference.source = ReviewRoutineSource::Workflow {
+            workflow_id: " ".to_owned(),
+        };
+        assert_eq!(
+            missing_workflow_reference.validation_error().as_deref(),
+            Some("workflow_id must not be empty")
+        );
+
+        let mut audit_with_inputs = valid.clone();
+        audit_with_inputs.source = ReviewRoutineSource::Audit {
+            audit: CorpusAuditKind::OrphanNotes,
+            limit: 25,
+        };
+        assert_eq!(
+            audit_with_inputs.validation_error().as_deref(),
+            Some("audit review routines cannot declare workflow inputs")
+        );
+
+        let mut duplicate_inputs = valid.clone();
+        duplicate_inputs.inputs.push(WorkflowInputSpec {
+            input_id: "focus".to_owned(),
+            title: "Duplicate Focus".to_owned(),
+            summary: None,
+            kind: WorkflowInputKind::FocusTarget,
+        });
+        assert_eq!(
+            duplicate_inputs.validation_error().as_deref(),
+            Some("review routine input 1 reuses duplicate input_id focus")
+        );
+
+        let mut disabled_save_with_metadata = valid.clone();
+        disabled_save_with_metadata.save_review = ReviewRoutineSaveReviewPolicy {
+            enabled: false,
+            review_id: Some("review/routine/context".to_owned()),
+            title: None,
+            summary: None,
+            overwrite: false,
+        };
+        disabled_save_with_metadata.compare = None;
+        assert_eq!(
+            disabled_save_with_metadata.validation_error().as_deref(),
+            Some("disabled save_review policy cannot set review_id, title, summary, or overwrite")
+        );
+
+        let mut compare_without_save = valid.clone();
+        compare_without_save.save_review = ReviewRoutineSaveReviewPolicy {
+            enabled: false,
+            review_id: None,
+            title: None,
+            summary: None,
+            overwrite: false,
+        };
+        assert_eq!(
+            compare_without_save.validation_error().as_deref(),
+            Some("review routine compare policy requires save_review to be enabled")
+        );
+
+        let unsupported_compare: ReviewRoutineSpec = serde_json::from_value(json!({
+            "routine_id": "routine/future/compare",
+            "title": "Future Compare",
+            "source": {
+                "kind": "workflow",
+                "workflow_id": BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID
+            },
+            "inputs": [],
+            "compare": {
+                "target": "scripted-baseline"
+            }
+        }))
+        .expect("unsupported compare target should deserialize for validation");
+        assert_eq!(
+            unsupported_compare.validation_error().as_deref(),
+            Some("review routine compare target is unsupported")
+        );
+
+        let mut padded_compare_profile = valid.clone();
+        padded_compare_profile.compare = Some(ReviewRoutineComparePolicy {
+            target: ReviewRoutineCompareTarget::LatestCompatibleReview,
+            report_profile_id: Some(" profile/diff-focus".to_owned()),
+        });
+        assert_eq!(
+            padded_compare_profile.validation_error().as_deref(),
+            Some("report_profile_id must not have leading or trailing whitespace")
+        );
+
+        let mut padded_report_profile_ref = valid.clone();
+        padded_report_profile_ref.report_profile_ids = vec![" profile/workflow-detail".to_owned()];
+        assert_eq!(
+            padded_report_profile_ref.validation_error().as_deref(),
+            Some(
+                "review routine report_profile_ids entry 0 is invalid: profile_id must not have leading or trailing whitespace"
+            )
+        );
+
+        let mut duplicate_report_profile_ref = valid.clone();
+        duplicate_report_profile_ref.report_profile_ids = vec![
+            "profile/workflow-detail".to_owned(),
+            "profile/workflow-detail".to_owned(),
+        ];
+        assert_eq!(
+            duplicate_report_profile_ref.validation_error().as_deref(),
+            Some("review routine report_profile_ids entry 1 is duplicate: profile/workflow-detail")
+        );
+
+        let catalog = ReviewRoutineCatalog {
+            routines: vec![
+                valid.clone(),
+                ReviewRoutineSpec {
+                    metadata: ReviewRoutineMetadata {
+                        routine_id: valid.metadata.routine_id.clone(),
+                        title: "Duplicate Routine".to_owned(),
+                        summary: None,
+                    },
+                    source: ReviewRoutineSource::Audit {
+                        audit: CorpusAuditKind::DanglingLinks,
+                        limit: 200,
+                    },
+                    inputs: Vec::new(),
+                    save_review: ReviewRoutineSaveReviewPolicy::default(),
+                    compare: None,
+                    report_profile_ids: Vec::new(),
+                },
+            ],
+        };
+        assert_eq!(
+            catalog.validation_error().as_deref(),
+            Some("review routine 1 reuses duplicate routine_id routine/workflow/context-review")
         );
     }
 

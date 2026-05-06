@@ -13,6 +13,9 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Added core report profile specs for bounded review, routine, audit,
   workflow, and diff output presets with status filters, diff buckets,
   summary/detail mode, and JSONL line-kind selections.
+- Added core review routine specs for declarative recurring audit/workflow
+  review loops, including typed workflow inputs, save-review policy,
+  latest-compatible comparison policy, and report profile references.
 
 ### Changed
 - Defined the `0.10.x` release band as declarative workbench extension through
