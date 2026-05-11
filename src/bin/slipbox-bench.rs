@@ -24,13 +24,18 @@ use serde::{Deserialize, Serialize};
 use slipbox_core::{
     AuditRemediationPreviewPayload, BacklinkRecord, CompareNotesParams, CorpusAuditKind,
     CorpusAuditParams, ExplorationEntry, ExplorationLens, ExplorationSection,
-    ExplorationSectionKind, ExploreResult, ForwardLinkRecord, MarkReviewFindingParams, NodeRecord,
-    NoteComparisonResult, ReviewFindingRemediationPreviewParams, ReviewFindingStatus,
-    ReviewRunDiffParams, ReviewRunIdParams, RunWorkflowParams, SaveCorpusAuditReviewParams,
-    SaveWorkflowReviewParams, SearchNodesSort, WorkflowExecutionResult, WorkflowExploreFocus,
-    WorkflowInputAssignment, WorkflowInputKind, WorkflowInputSpec, WorkflowMetadata,
-    WorkflowResolveTarget, WorkflowResolveTarget as WorkflowSpecResolveTarget, WorkflowSpec,
-    WorkflowSpecCompatibility, WorkflowStepPayload, WorkflowStepReportPayload, WorkflowStepSpec,
+    ExplorationSectionKind, ExploreResult, ForwardLinkRecord, ImportWorkbenchPackParams,
+    MarkReviewFindingParams, NodeRecord, NoteComparisonResult, ReportJsonlLineKind,
+    ReportProfileMetadata, ReportProfileMode, ReportProfileSpec, ReportProfileSubject,
+    ReviewFindingRemediationPreviewParams, ReviewFindingStatus, ReviewRoutineMetadata,
+    ReviewRoutineSaveReviewPolicy, ReviewRoutineSource, ReviewRoutineSpec, ReviewRunDiffParams,
+    ReviewRunIdParams, RunReviewRoutineParams, RunWorkflowParams, SaveCorpusAuditReviewParams,
+    SaveWorkflowReviewParams, SearchNodesSort, ValidateWorkbenchPackParams,
+    WorkbenchPackCompatibility, WorkbenchPackIssueKind, WorkbenchPackManifest,
+    WorkbenchPackMetadata, WorkflowExecutionResult, WorkflowExploreFocus, WorkflowInputAssignment,
+    WorkflowInputKind, WorkflowInputSpec, WorkflowMetadata, WorkflowResolveTarget,
+    WorkflowResolveTarget as WorkflowSpecResolveTarget, WorkflowSpec, WorkflowSpecCompatibility,
+    WorkflowStepPayload, WorkflowStepReportPayload, WorkflowStepSpec,
 };
 use slipbox_index::{DiscoveryPolicy, scan_path_with_policy, scan_root_with_policy};
 use slipbox_store::Database;
@@ -46,6 +51,10 @@ const EXPLORATION_SHARED_REF: &str = "cite:bench-explore2026";
 const EXPLORATION_FOCUS_REF: &str = "cite:bench-explore-focus2026";
 const WORKFLOW_DISCOVERY_DIR: &str = "workflows";
 const WORKFLOW_BENCHMARK_ID: &str = "workflow/discovered/benchmark-research-sweep";
+const BENCHMARK_PACK_ID: &str = "pack/benchmark/declarative-extension";
+const BENCHMARK_PACK_AUDIT_ROUTINE_ID: &str = "routine/pack/benchmark-audit-review";
+const BENCHMARK_PACK_REPORT_ROUTINE_ID: &str = "routine/pack/benchmark-report-review";
+const BENCHMARK_PACK_REPORT_PROFILE_ID: &str = "profile/pack/benchmark-routine-detail";
 const AUDIT_REVIEW_BASE_ID: &str = "review/benchmark/audit/base";
 const AUDIT_REVIEW_TARGET_ID: &str = "review/benchmark/audit/target";
 const WORKFLOW_REVIEW_ID: &str = "review/benchmark/workflow/base";
@@ -137,6 +146,11 @@ struct IterationConfig {
     audit_save_review: usize,
     workflow_save_review: usize,
     remediation_preview: usize,
+    pack_catalog: usize,
+    pack_validation: usize,
+    pack_import: usize,
+    routine_run: usize,
+    report_profile_rendering: usize,
     search_limit: usize,
     backlinks_limit: usize,
     reflinks_limit: usize,
@@ -172,6 +186,11 @@ struct ThresholdConfig {
     audit_save_review_p95_ms: f64,
     workflow_save_review_p95_ms: f64,
     remediation_preview_p95_ms: f64,
+    pack_catalog_p95_ms: f64,
+    pack_validation_p95_ms: f64,
+    pack_import_p95_ms: f64,
+    routine_run_p95_ms: f64,
+    report_profile_rendering_p95_ms: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -203,6 +222,11 @@ struct BenchmarkReport {
     audit_save_review: TimingReport,
     workflow_save_review: TimingReport,
     remediation_preview: TimingReport,
+    pack_catalog: TimingReport,
+    pack_validation: TimingReport,
+    pack_import: TimingReport,
+    routine_run: TimingReport,
+    report_profile_rendering: TimingReport,
 }
 
 #[derive(Debug, Serialize)]
@@ -279,6 +303,16 @@ struct ReviewBenchmarkFixture {
     workflow_review_id: String,
     remediation_finding_id: String,
     mark_finding_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct DeclarativeExtensionBenchmarkFixture {
+    pack: WorkbenchPackManifest,
+    invalid_pack: WorkbenchPackManifest,
+    pack_id: String,
+    audit_routine_id: String,
+    report_routine_id: String,
+    report_profile_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -459,6 +493,17 @@ fn run_profile(
         fixture,
         &workflow_focus_anchor.node_key,
     )?;
+    let declarative_fixture = prepare_declarative_extension_benchmark_fixture(&mut workbench)?;
+    let pack_catalog = benchmark_pack_catalog(&mut workbench, profile, &declarative_fixture)?;
+    let pack_validation = benchmark_pack_validation(&mut workbench, profile, &declarative_fixture)?;
+    let routine_run = benchmark_routine_run(&mut workbench, profile, &declarative_fixture)?;
+    let report_profile_rendering = benchmark_report_profile_rendering(
+        &mut workbench,
+        profile,
+        &declarative_fixture,
+        &workflow_focus_anchor.node_key,
+    )?;
+    let pack_import = benchmark_pack_import(&mut workbench, profile)?;
     let (persistent_buffer, dedicated_buffer, dedicated_exploration_buffer) = if skip_elisp {
         (None, None, None)
     } else {
@@ -549,6 +594,11 @@ fn run_profile(
         audit_save_review,
         workflow_save_review,
         remediation_preview,
+        pack_catalog,
+        pack_validation,
+        pack_import,
+        routine_run,
+        report_profile_rendering,
     })
 }
 
@@ -1502,6 +1552,175 @@ fn benchmark_remediation_preview(
     })
 }
 
+fn prepare_declarative_extension_benchmark_fixture(
+    workbench: &mut server::WorkbenchBench,
+) -> Result<DeclarativeExtensionBenchmarkFixture> {
+    let pack = benchmark_pack_manifest(
+        BENCHMARK_PACK_ID,
+        "workflow/pack/benchmark-report-context",
+        BENCHMARK_PACK_AUDIT_ROUTINE_ID,
+        BENCHMARK_PACK_REPORT_ROUTINE_ID,
+        BENCHMARK_PACK_REPORT_PROFILE_ID,
+        "review/benchmark/pack-report",
+    );
+    let invalid_pack = invalid_benchmark_pack_manifest();
+    let fixture = DeclarativeExtensionBenchmarkFixture {
+        pack_id: pack.metadata.pack_id.clone(),
+        audit_routine_id: BENCHMARK_PACK_AUDIT_ROUTINE_ID.to_owned(),
+        report_routine_id: BENCHMARK_PACK_REPORT_ROUTINE_ID.to_owned(),
+        report_profile_id: BENCHMARK_PACK_REPORT_PROFILE_ID.to_owned(),
+        pack,
+        invalid_pack,
+    };
+
+    let imported = workbench.import_workbench_pack(&ImportWorkbenchPackParams {
+        pack: fixture.pack.clone(),
+        overwrite: true,
+    })?;
+    if imported.pack.metadata.pack_id != fixture.pack_id {
+        bail!(
+            "pack import fixture returned unexpected pack id {}",
+            imported.pack.metadata.pack_id
+        );
+    }
+    if imported.pack.workflow_count == 0
+        || imported.pack.review_routine_count < 2
+        || imported.pack.report_profile_count == 0
+    {
+        bail!("pack import fixture omitted workflow, routine, or report profile assets");
+    }
+
+    assert_pack_catalog_fixture(&workbench.list_workbench_packs()?, &fixture)?;
+    assert_review_routine_catalog_fixture(&workbench.list_review_routines()?, &fixture)?;
+    assert_pack_validation_fixture(
+        &workbench.validate_workbench_pack(&ValidateWorkbenchPackParams {
+            pack: fixture.pack.clone(),
+        })?,
+        true,
+    )?;
+    assert_pack_validation_fixture(
+        &workbench.validate_workbench_pack(&ValidateWorkbenchPackParams {
+            pack: fixture.invalid_pack.clone(),
+        })?,
+        false,
+    )?;
+
+    Ok(fixture)
+}
+
+fn benchmark_pack_catalog(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &DeclarativeExtensionBenchmarkFixture,
+) -> Result<TimingReport> {
+    let sample = workbench.list_workbench_packs()?;
+    assert_pack_catalog_fixture(&sample, fixture)?;
+    measure_iterations(profile.iterations.pack_catalog, |_| {
+        let result = workbench.list_workbench_packs()?;
+        assert_pack_catalog_fixture(&result, fixture)?;
+        black_box(result.packs.len());
+        Ok(())
+    })
+}
+
+fn benchmark_pack_validation(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &DeclarativeExtensionBenchmarkFixture,
+) -> Result<TimingReport> {
+    measure_iterations(profile.iterations.pack_validation, |iteration| {
+        let expect_valid = iteration % 2 == 0;
+        let pack = if expect_valid {
+            fixture.pack.clone()
+        } else {
+            fixture.invalid_pack.clone()
+        };
+        let result = workbench.validate_workbench_pack(&ValidateWorkbenchPackParams { pack })?;
+        assert_pack_validation_fixture(&result, expect_valid)?;
+        black_box(result.issues.len());
+        Ok(())
+    })
+}
+
+fn benchmark_routine_run(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &DeclarativeExtensionBenchmarkFixture,
+) -> Result<TimingReport> {
+    let params = RunReviewRoutineParams {
+        routine_id: fixture.audit_routine_id.clone(),
+        inputs: Vec::new(),
+    };
+    let sample = workbench.run_review_routine(&params)?;
+    assert_routine_run_fixture(&sample)?;
+    measure_iterations(profile.iterations.routine_run, |_| {
+        let result = workbench.run_review_routine(&params)?;
+        assert_routine_run_fixture(&result)?;
+        black_box(result.result.routine.metadata.routine_id.len());
+        Ok(())
+    })
+}
+
+fn benchmark_report_profile_rendering(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &DeclarativeExtensionBenchmarkFixture,
+    focus_node_key: &str,
+) -> Result<TimingReport> {
+    let params = RunReviewRoutineParams {
+        routine_id: fixture.report_routine_id.clone(),
+        inputs: vec![WorkflowInputAssignment {
+            input_id: "focus".to_owned(),
+            target: WorkflowResolveTarget::NodeKey {
+                node_key: focus_node_key.to_owned(),
+            },
+        }],
+    };
+    let sample = workbench.run_review_routine(&params)?;
+    assert_report_profile_rendering_fixture(&sample, fixture)?;
+    measure_iterations(profile.iterations.report_profile_rendering, |_| {
+        let result = workbench.run_review_routine(&params)?;
+        assert_report_profile_rendering_fixture(&result, fixture)?;
+        black_box(result.result.reports[0].lines.len());
+        Ok(())
+    })
+}
+
+fn benchmark_pack_import(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+) -> Result<TimingReport> {
+    measure_iterations(profile.iterations.pack_import, |iteration| {
+        let suffix = format!("import-{iteration:04}");
+        let pack = benchmark_pack_manifest(
+            &format!("pack/benchmark/{suffix}"),
+            &format!("workflow/pack/benchmark-report-context-{suffix}"),
+            &format!("routine/pack/benchmark-audit-review-{suffix}"),
+            &format!("routine/pack/benchmark-report-review-{suffix}"),
+            &format!("profile/pack/benchmark-routine-detail-{suffix}"),
+            &format!("review/benchmark/pack-report/{suffix}"),
+        );
+        let result = workbench.import_workbench_pack(&ImportWorkbenchPackParams {
+            pack,
+            overwrite: false,
+        })?;
+        if result.pack.metadata.pack_id != format!("pack/benchmark/{suffix}") {
+            bail!(
+                "pack import benchmark returned unexpected pack id {}",
+                result.pack.metadata.pack_id
+            );
+        }
+        if result.pack.workflow_count == 0
+            || result.pack.review_routine_count < 2
+            || result.pack.report_profile_count == 0
+        {
+            bail!("pack import benchmark omitted workflow, routine, or profile assets");
+        }
+        black_box(result.pack.review_routine_count);
+        Ok(())
+    })
+}
+
 fn benchmark_workflow_params(focus_node_key: &str) -> RunWorkflowParams {
     RunWorkflowParams {
         workflow_id: WORKFLOW_BENCHMARK_ID.to_owned(),
@@ -1764,6 +1983,334 @@ fn assert_remediation_preview_fixture(
         }
     }
     Ok(())
+}
+
+fn assert_pack_catalog_fixture(
+    result: &slipbox_core::ListWorkbenchPacksResult,
+    fixture: &DeclarativeExtensionBenchmarkFixture,
+) -> Result<()> {
+    let pack = result
+        .packs
+        .iter()
+        .find(|pack| pack.metadata.pack_id == fixture.pack_id)
+        .context("pack catalog benchmark omitted imported benchmark pack")?;
+    if pack.workflow_count == 0 || pack.review_routine_count < 2 || pack.report_profile_count == 0 {
+        bail!("pack catalog benchmark returned an incomplete benchmark pack summary");
+    }
+    if !result.issues.is_empty() {
+        bail!(
+            "pack catalog benchmark expected no catalog issues before import churn, found {}",
+            result.issues.len()
+        );
+    }
+    Ok(())
+}
+
+fn assert_review_routine_catalog_fixture(
+    result: &slipbox_core::ListReviewRoutinesResult,
+    fixture: &DeclarativeExtensionBenchmarkFixture,
+) -> Result<()> {
+    for routine_id in [&fixture.audit_routine_id, &fixture.report_routine_id] {
+        if !result
+            .routines
+            .iter()
+            .any(|routine| routine.metadata.routine_id == *routine_id)
+        {
+            bail!("routine catalog benchmark omitted imported routine {routine_id}");
+        }
+    }
+    if !result.issues.is_empty() {
+        bail!(
+            "routine catalog benchmark expected no catalog issues before import churn, found {}",
+            result.issues.len()
+        );
+    }
+    Ok(())
+}
+
+fn assert_pack_validation_fixture(
+    result: &slipbox_core::ValidateWorkbenchPackResult,
+    expect_valid: bool,
+) -> Result<()> {
+    if result.valid != expect_valid {
+        bail!(
+            "pack validation benchmark expected valid={expect_valid}, got {}",
+            result.valid
+        );
+    }
+    if expect_valid {
+        if result.pack.is_none() || !result.issues.is_empty() {
+            bail!("pack validation benchmark returned issues for a valid pack");
+        }
+    } else if !result
+        .issues
+        .iter()
+        .any(|issue| issue.kind == WorkbenchPackIssueKind::MissingWorkflowReference)
+    {
+        bail!("pack validation benchmark invalid fixture did not report a missing workflow");
+    }
+    Ok(())
+}
+
+fn assert_routine_run_fixture(result: &slipbox_core::RunReviewRoutineResult) -> Result<()> {
+    if result.result.routine.metadata.routine_id != BENCHMARK_PACK_AUDIT_ROUTINE_ID {
+        bail!(
+            "routine benchmark returned unexpected routine id {}",
+            result.result.routine.metadata.routine_id
+        );
+    }
+    match &result.result.source {
+        slipbox_core::ReviewRoutineSourceExecutionResult::Audit { result } => {
+            if result.audit != CorpusAuditKind::DuplicateTitles || result.entries.is_empty() {
+                bail!("routine benchmark audit source did not return duplicate-title entries");
+            }
+        }
+        other => {
+            bail!("routine benchmark returned unexpected source kind {other:?}");
+        }
+    }
+    if result.result.saved_review.is_some() || !result.result.reports.is_empty() {
+        bail!("routine benchmark expected the audit fixture to avoid review/report side effects");
+    }
+    Ok(())
+}
+
+fn assert_report_profile_rendering_fixture(
+    result: &slipbox_core::RunReviewRoutineResult,
+    fixture: &DeclarativeExtensionBenchmarkFixture,
+) -> Result<()> {
+    if result.result.routine.metadata.routine_id != fixture.report_routine_id {
+        bail!(
+            "report-profile benchmark returned unexpected routine id {}",
+            result.result.routine.metadata.routine_id
+        );
+    }
+    if result.result.saved_review.is_none() {
+        bail!("report-profile benchmark did not save a review for report rendering");
+    }
+    let report = result
+        .result
+        .reports
+        .iter()
+        .find(|report| report.profile.metadata.profile_id == fixture.report_profile_id)
+        .context("report-profile benchmark omitted the configured report profile")?;
+    if report.lines.is_empty() {
+        bail!("report-profile benchmark rendered no report lines");
+    }
+    for expected in [
+        ReportJsonlLineKind::Routine,
+        ReportJsonlLineKind::Step,
+        ReportJsonlLineKind::Review,
+        ReportJsonlLineKind::Finding,
+    ] {
+        if !report.lines.iter().any(|line| line.line_kind() == expected) {
+            bail!(
+                "report-profile benchmark omitted expected {} lines",
+                expected.label()
+            );
+        }
+    }
+    Ok(())
+}
+
+fn benchmark_pack_manifest(
+    pack_id: &str,
+    workflow_id: &str,
+    audit_routine_id: &str,
+    report_routine_id: &str,
+    report_profile_id: &str,
+    report_review_id: &str,
+) -> WorkbenchPackManifest {
+    WorkbenchPackManifest {
+        metadata: WorkbenchPackMetadata {
+            pack_id: pack_id.to_owned(),
+            title: "Benchmark Declarative Extension Pack".to_owned(),
+            summary: Some(
+                "Imported fixture covering workflows, routines, and report profiles.".to_owned(),
+            ),
+        },
+        compatibility: WorkbenchPackCompatibility::default(),
+        workflows: vec![benchmark_pack_workflow_spec(workflow_id)],
+        review_routines: vec![
+            benchmark_pack_audit_routine(audit_routine_id),
+            benchmark_pack_report_routine(
+                report_routine_id,
+                workflow_id,
+                report_profile_id,
+                report_review_id,
+            ),
+        ],
+        report_profiles: vec![benchmark_pack_report_profile(report_profile_id)],
+        entrypoint_routine_ids: vec![audit_routine_id.to_owned(), report_routine_id.to_owned()],
+    }
+}
+
+fn invalid_benchmark_pack_manifest() -> WorkbenchPackManifest {
+    let routine_id = "routine/pack/benchmark-invalid-missing-workflow";
+    WorkbenchPackManifest {
+        metadata: WorkbenchPackMetadata {
+            pack_id: "pack/benchmark/invalid-missing-workflow".to_owned(),
+            title: "Invalid Benchmark Pack".to_owned(),
+            summary: Some("Invalid fixture for pack validation benchmark paths.".to_owned()),
+        },
+        compatibility: WorkbenchPackCompatibility::default(),
+        workflows: Vec::new(),
+        review_routines: vec![ReviewRoutineSpec {
+            metadata: ReviewRoutineMetadata {
+                routine_id: routine_id.to_owned(),
+                title: "Invalid Missing Workflow Routine".to_owned(),
+                summary: Some("References a workflow that is intentionally absent.".to_owned()),
+            },
+            source: ReviewRoutineSource::Workflow {
+                workflow_id: "workflow/pack/benchmark-missing".to_owned(),
+            },
+            inputs: vec![WorkflowInputSpec {
+                input_id: "focus".to_owned(),
+                title: "Focus target".to_owned(),
+                summary: Some("Focus target for the missing workflow.".to_owned()),
+                kind: WorkflowInputKind::FocusTarget,
+            }],
+            save_review: ReviewRoutineSaveReviewPolicy::default(),
+            compare: None,
+            report_profile_ids: Vec::new(),
+        }],
+        report_profiles: Vec::new(),
+        entrypoint_routine_ids: vec![routine_id.to_owned()],
+    }
+}
+
+fn benchmark_pack_workflow_spec(workflow_id: &str) -> WorkflowSpec {
+    WorkflowSpec {
+        metadata: WorkflowMetadata {
+            workflow_id: workflow_id.to_owned(),
+            title: "Pack Benchmark Context Review".to_owned(),
+            summary: Some("Pack-provided workflow for report-profile benchmark paths.".to_owned()),
+        },
+        compatibility: WorkflowSpecCompatibility::default(),
+        inputs: vec![WorkflowInputSpec {
+            input_id: "focus".to_owned(),
+            title: "Focus target".to_owned(),
+            summary: Some("Note or anchor target to review.".to_owned()),
+            kind: WorkflowInputKind::FocusTarget,
+        }],
+        steps: vec![
+            WorkflowStepSpec {
+                step_id: "resolve-focus".to_owned(),
+                payload: WorkflowStepPayload::Resolve {
+                    target: WorkflowSpecResolveTarget::Input {
+                        input_id: "focus".to_owned(),
+                    },
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "pack-review-refs".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::Input {
+                        input_id: "focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Refs,
+                    limit: 25,
+                    unique: false,
+                },
+            },
+            WorkflowStepSpec {
+                step_id: "pack-review-time".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: WorkflowExploreFocus::Input {
+                        input_id: "focus".to_owned(),
+                    },
+                    lens: ExplorationLens::Time,
+                    limit: 25,
+                    unique: false,
+                },
+            },
+        ],
+    }
+}
+
+fn benchmark_pack_audit_routine(routine_id: &str) -> ReviewRoutineSpec {
+    ReviewRoutineSpec {
+        metadata: ReviewRoutineMetadata {
+            routine_id: routine_id.to_owned(),
+            title: "Pack Duplicate Title Audit".to_owned(),
+            summary: Some("Pack-provided audit routine for benchmark execution.".to_owned()),
+        },
+        source: ReviewRoutineSource::Audit {
+            audit: CorpusAuditKind::DuplicateTitles,
+            limit: 25,
+        },
+        inputs: Vec::new(),
+        save_review: ReviewRoutineSaveReviewPolicy {
+            enabled: false,
+            review_id: None,
+            title: None,
+            summary: None,
+            overwrite: false,
+        },
+        compare: None,
+        report_profile_ids: Vec::new(),
+    }
+}
+
+fn benchmark_pack_report_routine(
+    routine_id: &str,
+    workflow_id: &str,
+    report_profile_id: &str,
+    review_id: &str,
+) -> ReviewRoutineSpec {
+    ReviewRoutineSpec {
+        metadata: ReviewRoutineMetadata {
+            routine_id: routine_id.to_owned(),
+            title: "Pack Report Profile Routine".to_owned(),
+            summary: Some(
+                "Pack-provided workflow routine with report-profile rendering.".to_owned(),
+            ),
+        },
+        source: ReviewRoutineSource::Workflow {
+            workflow_id: workflow_id.to_owned(),
+        },
+        inputs: vec![WorkflowInputSpec {
+            input_id: "focus".to_owned(),
+            title: "Focus target".to_owned(),
+            summary: Some("Note or anchor target to review.".to_owned()),
+            kind: WorkflowInputKind::FocusTarget,
+        }],
+        save_review: ReviewRoutineSaveReviewPolicy {
+            enabled: true,
+            review_id: Some(review_id.to_owned()),
+            title: Some("Pack Benchmark Report Review".to_owned()),
+            summary: Some(
+                "Saved review fixture for report-profile benchmark rendering.".to_owned(),
+            ),
+            overwrite: true,
+        },
+        compare: None,
+        report_profile_ids: vec![report_profile_id.to_owned()],
+    }
+}
+
+fn benchmark_pack_report_profile(profile_id: &str) -> ReportProfileSpec {
+    ReportProfileSpec {
+        metadata: ReportProfileMetadata {
+            profile_id: profile_id.to_owned(),
+            title: "Pack Routine Detail Report".to_owned(),
+            summary: Some("Detail report for routine, step, review, and finding lines.".to_owned()),
+        },
+        subjects: vec![
+            ReportProfileSubject::Routine,
+            ReportProfileSubject::Workflow,
+            ReportProfileSubject::Review,
+        ],
+        mode: ReportProfileMode::Detail,
+        status_filters: None,
+        diff_buckets: None,
+        jsonl_line_kinds: Some(vec![
+            ReportJsonlLineKind::Routine,
+            ReportJsonlLineKind::Step,
+            ReportJsonlLineKind::Review,
+            ReportJsonlLineKind::Finding,
+        ]),
+    }
 }
 
 fn measure_iterations(
@@ -2351,6 +2898,31 @@ fn enforce_thresholds(report: &BenchmarkReport, thresholds: &ThresholdConfig) ->
         report.remediation_preview.p95_ms,
         thresholds.remediation_preview_p95_ms,
     )?;
+    check_threshold(
+        "pack_catalog",
+        report.pack_catalog.p95_ms,
+        thresholds.pack_catalog_p95_ms,
+    )?;
+    check_threshold(
+        "pack_validation",
+        report.pack_validation.p95_ms,
+        thresholds.pack_validation_p95_ms,
+    )?;
+    check_threshold(
+        "pack_import",
+        report.pack_import.p95_ms,
+        thresholds.pack_import_p95_ms,
+    )?;
+    check_threshold(
+        "routine_run",
+        report.routine_run.p95_ms,
+        thresholds.routine_run_p95_ms,
+    )?;
+    check_threshold(
+        "report_profile_rendering",
+        report.report_profile_rendering.p95_ms,
+        thresholds.report_profile_rendering_p95_ms,
+    )?;
     Ok(())
 }
 
@@ -2405,6 +2977,11 @@ fn print_summary(report: &BenchmarkReport, check: bool, output_path: &Path) {
     print_metric("auditSaveReview", &report.audit_save_review);
     print_metric("workflowSaveReview", &report.workflow_save_review);
     print_metric("remediationPreview", &report.remediation_preview);
+    print_metric("packCatalog", &report.pack_catalog);
+    print_metric("packValidation", &report.pack_validation);
+    print_metric("packImport", &report.pack_import);
+    print_metric("routineRun", &report.routine_run);
+    print_metric("reportProfileRendering", &report.report_profile_rendering);
 }
 
 fn print_metric(name: &str, report: &TimingReport) {
@@ -2570,6 +3147,14 @@ impl BenchmarkProfile {
             ("audit_save_review", self.iterations.audit_save_review),
             ("workflow_save_review", self.iterations.workflow_save_review),
             ("remediation_preview", self.iterations.remediation_preview),
+            ("pack_catalog", self.iterations.pack_catalog),
+            ("pack_validation", self.iterations.pack_validation),
+            ("pack_import", self.iterations.pack_import),
+            ("routine_run", self.iterations.routine_run),
+            (
+                "report_profile_rendering",
+                self.iterations.report_profile_rendering,
+            ),
             ("search_limit", self.iterations.search_limit),
             ("backlinks_limit", self.iterations.backlinks_limit),
             ("reflinks_limit", self.iterations.reflinks_limit),
@@ -2757,6 +3342,11 @@ mod tests {
                 audit_save_review: 1,
                 workflow_save_review: 1,
                 remediation_preview: 1,
+                pack_catalog: 1,
+                pack_validation: 2,
+                pack_import: 1,
+                routine_run: 1,
+                report_profile_rendering: 1,
                 search_limit: 5,
                 backlinks_limit: 20,
                 reflinks_limit: 20,
@@ -2790,6 +3380,11 @@ mod tests {
                 audit_save_review_p95_ms: 1.0,
                 workflow_save_review_p95_ms: 1.0,
                 remediation_preview_p95_ms: 1.0,
+                pack_catalog_p95_ms: 1.0,
+                pack_validation_p95_ms: 1.0,
+                pack_import_p95_ms: 1.0,
+                routine_run_p95_ms: 1.0,
+                report_profile_rendering_p95_ms: 1.0,
             },
         };
         let review_fixture = prepare_review_benchmark_fixtures(
@@ -2812,6 +3407,153 @@ mod tests {
                 finding_id: review_fixture.remediation_finding_id.clone(),
             },
         )?)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn generated_corpus_guarantees_declarative_extension_benchmark_fixtures() -> Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let config = CorpusConfig {
+            files: 3,
+            headings_per_file: 4,
+            workflow_specs: 4,
+            hot_link_stride: 2,
+            ref_stride: 2,
+            scheduled_stride: 2,
+            deadline_stride: 3,
+            query_count: 4,
+        };
+        let fixture = generate_corpus(tempdir.path(), &config)?;
+        let files = scan_root_with_policy(&fixture.root, &DiscoveryPolicy::default())?;
+        let mut database = Database::open(&baseline_db_path(&fixture))?;
+        database.sync_index(&files)?;
+        let workflow_focus_anchor = database
+            .anchor_at_point(
+                &fixture.workflow_focus_point.file_path,
+                fixture.workflow_focus_point.line,
+            )?
+            .context("workflow focus anchor should exist")?;
+
+        let mut workbench = server::WorkbenchBench::new(
+            fixture.root.clone(),
+            baseline_db_path(&fixture),
+            fixture.workflow_dirs.clone(),
+            DiscoveryPolicy::default(),
+        )?;
+        let profile = BenchmarkProfile {
+            corpus: config,
+            iterations: IterationConfig {
+                full_index: 1,
+                index_file: 1,
+                search_nodes: 1,
+                search_nodes_sorted: 1,
+                search_files: 1,
+                search_occurrences: 1,
+                backlinks: 1,
+                forward_links: 1,
+                reflinks: 1,
+                unlinked_references: 1,
+                node_at_point: 1,
+                agenda: 1,
+                persistent_buffer_samples: 1,
+                persistent_buffer_iterations: 1,
+                dedicated_buffer_samples: 1,
+                dedicated_buffer_iterations: 1,
+                dedicated_exploration_buffer_samples: 1,
+                dedicated_exploration_buffer_iterations: 1,
+                workflow_catalog: 1,
+                workflow_run: 1,
+                corpus_audit: 1,
+                review_list: 1,
+                review_show: 1,
+                review_diff: 1,
+                review_mark: 2,
+                audit_save_review: 1,
+                workflow_save_review: 1,
+                remediation_preview: 1,
+                pack_catalog: 1,
+                pack_validation: 2,
+                pack_import: 1,
+                routine_run: 1,
+                report_profile_rendering: 1,
+                search_limit: 5,
+                backlinks_limit: 20,
+                reflinks_limit: 20,
+                unlinked_references_limit: 20,
+                agenda_limit: 20,
+                audit_limit: 20,
+            },
+            thresholds: ThresholdConfig {
+                full_index_p95_ms: 1.0,
+                index_file_p95_ms: 1.0,
+                search_nodes_p95_ms: 1.0,
+                search_nodes_sorted_p95_ms: 1.0,
+                search_files_p95_ms: 1.0,
+                search_occurrences_p95_ms: 1.0,
+                backlinks_p95_ms: 1.0,
+                forward_links_p95_ms: 1.0,
+                reflinks_p95_ms: 1.0,
+                unlinked_references_p95_ms: 1.0,
+                node_at_point_p95_ms: 1.0,
+                agenda_p95_ms: 1.0,
+                persistent_buffer_p95_ms: None,
+                dedicated_buffer_p95_ms: None,
+                dedicated_exploration_buffer_p95_ms: None,
+                workflow_catalog_p95_ms: 1.0,
+                workflow_run_p95_ms: 1.0,
+                corpus_audit_p95_ms: 1.0,
+                review_list_p95_ms: 1.0,
+                review_show_p95_ms: 1.0,
+                review_diff_p95_ms: 1.0,
+                review_mark_p95_ms: 1.0,
+                audit_save_review_p95_ms: 1.0,
+                workflow_save_review_p95_ms: 1.0,
+                remediation_preview_p95_ms: 1.0,
+                pack_catalog_p95_ms: 1.0,
+                pack_validation_p95_ms: 1.0,
+                pack_import_p95_ms: 1.0,
+                routine_run_p95_ms: 1.0,
+                report_profile_rendering_p95_ms: 1.0,
+            },
+        };
+
+        let declarative_fixture = prepare_declarative_extension_benchmark_fixture(&mut workbench)?;
+        assert_eq!(
+            benchmark_pack_catalog(&mut workbench, &profile, &declarative_fixture)?
+                .samples_ms
+                .len(),
+            1
+        );
+        assert_eq!(
+            benchmark_pack_validation(&mut workbench, &profile, &declarative_fixture)?
+                .samples_ms
+                .len(),
+            2
+        );
+        assert_eq!(
+            benchmark_routine_run(&mut workbench, &profile, &declarative_fixture)?
+                .samples_ms
+                .len(),
+            1
+        );
+        assert_eq!(
+            benchmark_report_profile_rendering(
+                &mut workbench,
+                &profile,
+                &declarative_fixture,
+                &workflow_focus_anchor.node_key,
+            )?
+            .samples_ms
+            .len(),
+            1
+        );
+        assert_eq!(
+            benchmark_pack_import(&mut workbench, &profile)?
+                .samples_ms
+                .len(),
+            1
+        );
 
         Ok(())
     }

@@ -39,6 +39,9 @@ The format follows Keep a Changelog, and this project follows SemVer.
   workflow compatibility, review routines, report profiles, and packs, while
   keeping plugin runtime, MCP, agent adapters, raw-RPC sprawl, broad mutation,
   notes, review runs, and saved exploration artifacts out of that asset model.
+- Broadened benchmark gates for declarative extension paths, covering imported
+  pack list, validation, import, routine execution, and report-profile
+  rendering over non-empty server-backed fixtures.
 
 ### Fixed
 - Hardened pack and routine CLI JSON contracts for wrapper shapes, import/export

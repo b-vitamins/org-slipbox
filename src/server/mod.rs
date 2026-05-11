@@ -9,12 +9,14 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use slipbox_core::{
-    CorpusAuditParams, CorpusAuditResult, ListReviewRunsResult, ListWorkflowsResult,
+    CorpusAuditParams, CorpusAuditResult, ImportWorkbenchPackParams, ImportWorkbenchPackResult,
+    ListReviewRoutinesResult, ListReviewRunsResult, ListWorkbenchPacksResult, ListWorkflowsResult,
     MarkReviewFindingParams, MarkReviewFindingResult, ReviewFindingRemediationPreviewParams,
     ReviewFindingRemediationPreviewResult, ReviewRunDiffParams, ReviewRunDiffResult,
-    ReviewRunIdParams, ReviewRunResult, RunWorkflowParams, RunWorkflowResult,
-    SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult, SaveWorkflowReviewParams,
-    SaveWorkflowReviewResult,
+    ReviewRunIdParams, ReviewRunResult, RunReviewRoutineParams, RunReviewRoutineResult,
+    RunWorkflowParams, RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
+    SaveWorkflowReviewParams, SaveWorkflowReviewResult, ValidateWorkbenchPackParams,
+    ValidateWorkbenchPackResult,
 };
 use slipbox_index::DiscoveryPolicy;
 use slipbox_rpc::{JsonRpcErrorObject, JsonRpcResponse, read_framed_message, write_framed_message};
@@ -128,6 +130,51 @@ impl WorkbenchBench {
                 .context("workflow save-review benchmark request failed")?;
         serde_json::from_value(value)
             .context("failed to decode workflow save-review benchmark result")
+    }
+
+    pub(crate) fn list_review_routines(&mut self) -> Result<ListReviewRoutinesResult> {
+        let value = handlers::query::list_review_routines(&mut self.state, serde_json::json!({}))
+            .context("review routine catalog benchmark request failed")?;
+        serde_json::from_value(value)
+            .context("failed to decode review routine catalog benchmark result")
+    }
+
+    pub(crate) fn run_review_routine(
+        &mut self,
+        params: &RunReviewRoutineParams,
+    ) -> Result<RunReviewRoutineResult> {
+        let value =
+            handlers::query::run_review_routine(&mut self.state, serde_json::to_value(params)?)
+                .context("review routine benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode review routine benchmark result")
+    }
+
+    pub(crate) fn import_workbench_pack(
+        &mut self,
+        params: &ImportWorkbenchPackParams,
+    ) -> Result<ImportWorkbenchPackResult> {
+        let value =
+            handlers::query::import_workbench_pack(&mut self.state, serde_json::to_value(params)?)
+                .context("workbench pack import benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode workbench pack import result")
+    }
+
+    pub(crate) fn validate_workbench_pack(
+        &mut self,
+        params: &ValidateWorkbenchPackParams,
+    ) -> Result<ValidateWorkbenchPackResult> {
+        let value = handlers::query::validate_workbench_pack(
+            &mut self.state,
+            serde_json::to_value(params)?,
+        )
+        .context("workbench pack validation benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode workbench pack validation result")
+    }
+
+    pub(crate) fn list_workbench_packs(&mut self) -> Result<ListWorkbenchPacksResult> {
+        let value = handlers::query::list_workbench_packs(&mut self.state, serde_json::json!({}))
+            .context("workbench pack catalog benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode workbench pack catalog result")
     }
 }
 

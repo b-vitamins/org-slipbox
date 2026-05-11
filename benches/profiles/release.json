@@ -38,6 +38,11 @@
     "audit_save_review": 20,
     "workflow_save_review": 20,
     "remediation_preview": 60,
+    "pack_catalog": 60,
+    "pack_validation": 60,
+    "pack_import": 20,
+    "routine_run": 60,
+    "report_profile_rendering": 20,
     "search_limit": 25,
     "backlinks_limit": 200,
     "reflinks_limit": 200,
@@ -70,6 +75,11 @@
     "review_mark_p95_ms": 150.0,
     "audit_save_review_p95_ms": 300.0,
     "workflow_save_review_p95_ms": 25000.0,
-    "remediation_preview_p95_ms": 100.0
+    "remediation_preview_p95_ms": 100.0,
+    "pack_catalog_p95_ms": 100.0,
+    "pack_validation_p95_ms": 100.0,
+    "pack_import_p95_ms": 300.0,
+    "routine_run_p95_ms": 300.0,
+    "report_profile_rendering_p95_ms": 25000.0
   }
 }
