@@ -27,8 +27,11 @@ exploration artifacts. The `0.10.x` line is declarative workbench extension:
 versioned workflow specs, review routines, report profiles, and portable packs
 as data assets rather than executable plugins. Imported declarative workbench
 assets stay separate from notes, review runs, and saved exploration artifacts.
-Raw-RPC sprawl, plugin-runtime ambitions, MCP, agent-adapter claims, and broad
-automated mutation remain deferred.
+The `0.11.x` line turns the CLI into a first-class everyday surface for the
+ordinary slipbox operations already modeled by the daemon: sync, search, files,
+nodes, refs, agenda, graph export, note creation, capture, dailies, identity,
+and metadata. Raw-RPC sprawl, plugin-runtime ambitions, MCP, agent-adapter
+claims, structural rewrite flows, and broad automated mutation remain deferred.
 
 ## Requirements
 
@@ -277,6 +280,10 @@ versioned workflow specs, review routines, report profiles, and packs that can
 be validated, imported, exported, cataloged, and run without becoming notes,
 review runs, saved exploration artifacts, or executable plugin code. Broader
 platform maturity, extension APIs, and agent-adapter work remain later work.
+`0.11.x` extends the same one-model line to everyday operations: the CLI should
+cover safe ordinary work over `slipbox serve` without becoming a raw transport
+mirror, while structural editing and broader stability hardening remain the
+`0.12.x` line.
 
 When the current node record includes indexed metadata, the node summary also
 renders file modification time plus backlink and forward-link counts without
@@ -670,8 +677,13 @@ that the whole programmable platform is done.
   review routine specs, report profile specs, and portable packs for bundling
   workbench assets as data. Imported pack contents are not notes, review runs,
   saved exploration artifacts, executable plugins, or raw RPC wrappers.
-- Broad CLI families, extension APIs, MCP surfaces, and agent adapters are
-  still deferred.
+- `0.11.x` is the everyday CLI parity step: the CLI becomes a first-class
+  second surface for ordinary slipbox work such as sync, search, files, nodes,
+  refs, agenda, graph export, note creation, capture, dailies, identity, and
+  metadata, while still routing daemon-backed work through task-shaped commands
+  over `slipbox serve`.
+- Structural rewrite flows, extension APIs, MCP surfaces, agent adapters, raw
+  RPC mirroring, and broad automated mutation remain deferred.
 
 ## Headless Workbench
 
@@ -680,8 +692,12 @@ that surface into named workflows, corpus-health audits, bounded workflow
 discovery, and report outputs. `0.9.x` makes repeated workflow and audit loops
 durable, reviewable, and diffable. `0.10.x` extends the workbench
 declaratively through compatible specs, routines, profiles, and packs rather
-than through a plugin runtime. The CLI stays on the same architectural line as
-the rest of the project:
+than through a plugin runtime. `0.11.x` makes the CLI an everyday companion to
+the Emacs surface for safe ordinary slipbox operations, not a separate product
+model. That work comes before MCP or agent-adapter surfaces because ordinary
+sync, lookup, search, and write operations need a dependable scriptable house
+before external automation has a stable target. The CLI stays on the same
+architectural line as the rest of the project:
 
 - daemon-backed headless commands talk to the daemon over canonical JSON-RPC
   stdio
@@ -689,6 +705,8 @@ the rest of the project:
   executable unless you override it with `--server-program`
 - `--json` is first-class for machine use
 - the command surface is task-shaped rather than a thin wrapper over every RPC
+- file mutation remains Rust-owned behind daemon operations; structural
+  rewrites and broad apply-style automation remain later explicit product work
 
 The shipped headless commands are:
 

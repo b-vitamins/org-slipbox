@@ -61,7 +61,9 @@ explanations, factual comparison, and explicit trails. It should support:
   turning review records into notes, saved exploration artifacts, or broad
   automated mutation, and `0.10.x` packaging workflows, review routines,
   report profiles, and packs as declarative workbench assets rather than as a
-  plugin runtime
+  plugin runtime, and `0.11.x` giving ordinary sync, lookup, search, capture,
+  daily, graph, identity, and metadata operations a first-class CLI surface
+  over the same daemon-owned model
 - clear explanations for why a node or section is being shown
 - controlled discovery of non-obvious but relevant material through indexed
   evidence over refs, tasks, time, and local graph structure
@@ -69,7 +71,7 @@ explanations, factual comparison, and explicit trails. It should support:
 * One Exploratory Model, Two Surfaces
 
 `org-slipbox` should not grow one model for the Emacs cockpit and another for
-headless or programmable use.
+headless, CLI, or programmable use.
 
 The dedicated buffer is the interactive realization of the exploratory model.
 The native programmable workbench is the task-shaped, non-UI realization of
@@ -101,8 +103,17 @@ presets, not templates or renderer plugins. Packs bundle those assets for
 validation, cataloging, sharing, import/export, and routine execution without
 turning imported assets into notes, review runs, saved exploration artifacts,
 or executable code.
-Broader extension, plugin-runtime, MCP, and platform surfaces still come
-later.
+`0.11.x` turns the CLI into a first-class everyday operations surface over that
+same daemon-owned model. Sync, file search, node lookup, refs, tags,
+occurrences, agenda, graph export, note creation, capture, dailies, identity,
+and metadata should be available outside Emacs without bypassing `slipbox
+serve`, inventing CLI-local write semantics, or mirroring raw transport
+methods. Emacs remains the richer interactive editing and cockpit surface; the
+CLI becomes the scriptable ordinary-work surface for the same slipbox.
+That CLI parity work comes before MCP, agent adapters, or plugin-runtime
+surfaces because ordinary daemon-owned operations need to be dependable before
+external automation has a stable target. Broader extension, plugin-runtime,
+MCP, agent-adapter, and platform surfaces still come later.
 
 This implies:
 
@@ -115,6 +126,8 @@ This implies:
 - declarative workflows, routines, report profiles, and packs are durable
   workbench assets, but remain distinct from notes, review records, saved
   exploration artifacts, and executable plugins
+- everyday CLI operations reuse the same daemon-owned read/write semantics as
+  Emacs; the product has two surfaces, not two slipboxes
 - programmable surfaces expose meaningful operations rather than transport guts
 - the workbench should be extracted from a proven exploratory model, not
   invented in parallel and allowed to drift

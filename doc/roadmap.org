@@ -75,7 +75,8 @@ Focus:
 - dedicated-cockpit save, load, and replay over those artifacts
 - first narrow task-shaped machine operations around those artifacts:
   save, inspect, list, execute, and delete
-- keep broad CLI families, extension APIs, and agent adapters deferred
+- keep everyday CLI parity, extension APIs, and agent adapters deferred until
+  the artifact surface has proven the daemon boundary
 
 Watchpoints:
 
@@ -207,6 +208,70 @@ Watchpoints:
   broad mutation flows
 - keep declarative extension compatible with the one exploratory model across
   cockpit, daemon, CLI, workflows, audits, and reviews
+
+* 0.11.x
+
+Theme: everyday CLI parity.
+
+Focus:
+
+- make the CLI a first-class second surface for ordinary slipbox operations,
+  not just research-workbench orchestration
+- typed daemon-client coverage for existing everyday read and write RPCs so
+  command implementations do not hand-roll transport calls
+- task-shaped sync, file, node, ref, tag, occurrence, agenda, and graph export
+  commands over canonical daemon semantics
+- safe constructive write commands for note creation, append flows, capture,
+  dailies, identity, and metadata through Rust-owned mutation paths
+- read-your-writes integration coverage across daemon restarts and follow-up
+  query surfaces
+- JSON contract coverage for the everyday CLI families without snapshot bloat
+- benchmark gates for the underlying everyday engine paths over non-empty
+  deterministic fixtures
+- documentation that treats Emacs and CLI as two first-class surfaces over one
+  slipbox, one derived index, and one daemon-owned model
+- prioritize CLI parity over MCP or agent-adapter work because external
+  automation needs stable everyday operations to target
+
+Watchpoints:
+
+- do not bypass `slipbox serve` or add in-process shortcuts for the CLI
+- do not turn the CLI into a raw JSON-RPC mirror; commands must remain
+  meaningful product operations
+- do not rebuild parsing, indexing, query, or write semantics in CLI glue
+- keep exact target resolution explicit; no fallback guessing that creates
+  hidden correctness rules
+- keep file mutation behind Rust RPCs with read-your-writes behavior
+- keep structural rewrites such as refile, extract, promote, and demote out of
+  this band
+- keep Emacs-specific draft-buffer, completion, calendar, viewer-hook, and
+  live-buffer coordination UX out of the CLI claim
+- keep MCP, agent adapters, plugin runtimes, schedulers, and broad automated
+  remediation out of this band
+
+* 0.12.x
+
+Theme: structural editing and stability.
+
+Focus:
+
+- structural write surfaces only after everyday CLI operations have proven the
+  daemon-owned write model
+- explicit product shapes for refile, extraction, promote/demote, and related
+  structural edits rather than incidental command growth
+- stronger compatibility, migration, and stability expectations around the
+  expanded Emacs and CLI surfaces
+- performance and correctness hardening for write-heavy workflows
+
+Watchpoints:
+
+- do not treat structural editing as a thin wrapper over low-level file
+  operations
+- do not introduce broad remediation apply flows without explicit previews,
+  user intent, and Rust-owned mutation semantics
+- do not collapse CLI parity into platform or extension-runtime claims
+- keep the project below `1.0.0` until the public surfaces are genuinely
+  dependable
 
 * 1.0.x
 

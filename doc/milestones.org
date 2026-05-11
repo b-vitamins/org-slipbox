@@ -96,6 +96,9 @@ Outcomes:
   workbench packs that package reusable workbench assets as data rather than
   executable plugin code
 - stronger CLI and headless workflows built from that same exploratory model
+- first-class everyday CLI operations for sync, search, files, nodes, refs,
+  agenda, graph export, safe note creation, capture, dailies, identity, and
+  metadata over the canonical daemon boundary
 - stable hooks and extension points around exploration only after the first
   composed workbench has proven its shape
 - richer task, ref, and citation-driven navigation
@@ -131,6 +134,13 @@ Exit criteria:
 - pack validation, import/export, cataloging, and routine execution are
   documented as the declarative workbench extension surface, not as executable
   plugin or raw transport guidance
+- everyday CLI operations cover ordinary slipbox work without bypassing
+  `slipbox serve`, rebuilding semantics in the CLI, or widening into raw RPC
+  wrappers
+- Emacs and CLI are documented as two first-class surfaces over one source of
+  truth and one daemon-owned read/write model
+- structural rewrite and remediation-apply flows remain outside this milestone
+  until they have a separate product surface and stability line
 - users can script and automate meaningful exploratory workflows
 - buffer and query surfaces compose without reaching into unstable internals
 - headless surfaces reuse the exploratory model already proven in the cockpit
