@@ -7,36 +7,51 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use slipbox_core::{
-    CompareNotesParams, CorpusAuditParams, CorpusAuditResult, ExecuteExplorationArtifactResult,
+    AgendaParams, AgendaResult, AnchorRecord, AppendHeadingAtOutlinePathParams,
+    AppendHeadingParams, AppendHeadingToNodeParams, BacklinksParams, BacklinksResult,
+    CaptureNodeParams, CaptureTemplateParams, CaptureTemplatePreviewParams,
+    CaptureTemplatePreviewResult, CompareNotesParams, CorpusAuditParams, CorpusAuditResult,
+    EnsureFileNodeParams, EnsureNodeIdParams, ExecuteExplorationArtifactResult,
     ExplorationArtifactIdParams, ExplorationArtifactResult, ExploreParams, ExploreResult,
-    ImportWorkbenchPackParams, ImportWorkbenchPackResult, ListExplorationArtifactsParams,
-    ListExplorationArtifactsResult, ListReviewRoutinesParams, ListReviewRoutinesResult,
-    ListReviewRunsParams, ListReviewRunsResult, ListWorkbenchPacksParams, ListWorkbenchPacksResult,
-    ListWorkflowsParams, ListWorkflowsResult, MarkReviewFindingParams, MarkReviewFindingResult,
-    NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
-    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, PingInfo,
-    ReviewFindingRemediationPreviewParams, ReviewFindingRemediationPreviewResult,
-    ReviewRoutineIdParams, ReviewRoutineResult, ReviewRunDiffParams, ReviewRunDiffResult,
-    ReviewRunIdParams, ReviewRunResult, RunReviewRoutineParams, RunReviewRoutineResult,
-    RunWorkflowParams, RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
-    SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
-    SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult, SearchNodesParams,
-    SearchNodesResult, StatusInfo, ValidateWorkbenchPackParams, ValidateWorkbenchPackResult,
-    WorkbenchPackIdParams, WorkbenchPackManifest, WorkbenchPackResult, WorkflowIdParams,
-    WorkflowResult,
+    ForwardLinksParams, ForwardLinksResult, GraphParams, GraphResult, ImportWorkbenchPackParams,
+    ImportWorkbenchPackResult, IndexFileParams, IndexFileResult, IndexStats, IndexedFilesResult,
+    ListExplorationArtifactsParams, ListExplorationArtifactsResult, ListReviewRoutinesParams,
+    ListReviewRoutinesResult, ListReviewRunsParams, ListReviewRunsResult, ListWorkbenchPacksParams,
+    ListWorkbenchPacksResult, ListWorkflowsParams, ListWorkflowsResult, MarkReviewFindingParams,
+    MarkReviewFindingResult, NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams,
+    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, PingInfo,
+    RandomNodeResult, ReflinksParams, ReflinksResult, ReviewFindingRemediationPreviewParams,
+    ReviewFindingRemediationPreviewResult, ReviewRoutineIdParams, ReviewRoutineResult,
+    ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunResult,
+    RunReviewRoutineParams, RunReviewRoutineResult, RunWorkflowParams, RunWorkflowResult,
+    SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult, SaveExplorationArtifactParams,
+    SaveExplorationArtifactResult, SaveReviewRunParams, SaveReviewRunResult,
+    SaveWorkflowReviewParams, SaveWorkflowReviewResult, SearchFilesParams, SearchFilesResult,
+    SearchNodesParams, SearchNodesResult, SearchOccurrencesParams, SearchOccurrencesResult,
+    SearchRefsParams, SearchRefsResult, SearchTagsParams, SearchTagsResult, StatusInfo,
+    UnlinkedReferencesParams, UnlinkedReferencesResult, UpdateNodeMetadataParams,
+    ValidateWorkbenchPackParams, ValidateWorkbenchPackResult, WorkbenchPackIdParams,
+    WorkbenchPackManifest, WorkbenchPackResult, WorkflowIdParams, WorkflowResult,
 };
 use slipbox_rpc::{
-    JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_COMPARE_NOTES, METHOD_CORPUS_AUDIT,
+    JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_AGENDA, METHOD_ANCHOR_AT_POINT,
+    METHOD_APPEND_HEADING, METHOD_APPEND_HEADING_AT_OUTLINE_PATH, METHOD_APPEND_HEADING_TO_NODE,
+    METHOD_BACKLINKS, METHOD_CAPTURE_NODE, METHOD_CAPTURE_TEMPLATE,
+    METHOD_CAPTURE_TEMPLATE_PREVIEW, METHOD_COMPARE_NOTES, METHOD_CORPUS_AUDIT,
     METHOD_DELETE_EXPLORATION_ARTIFACT, METHOD_DELETE_REVIEW_RUN, METHOD_DELETE_WORKBENCH_PACK,
-    METHOD_DIFF_REVIEW_RUNS, METHOD_EXECUTE_EXPLORATION_ARTIFACT, METHOD_EXPLORATION_ARTIFACT,
-    METHOD_EXPLORE, METHOD_EXPORT_WORKBENCH_PACK, METHOD_IMPORT_WORKBENCH_PACK,
+    METHOD_DIFF_REVIEW_RUNS, METHOD_ENSURE_FILE_NODE, METHOD_ENSURE_NODE_ID,
+    METHOD_EXECUTE_EXPLORATION_ARTIFACT, METHOD_EXPLORATION_ARTIFACT, METHOD_EXPLORE,
+    METHOD_EXPORT_WORKBENCH_PACK, METHOD_FORWARD_LINKS, METHOD_GRAPH_DOT,
+    METHOD_IMPORT_WORKBENCH_PACK, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_INDEXED_FILES,
     METHOD_LIST_EXPLORATION_ARTIFACTS, METHOD_LIST_REVIEW_ROUTINES, METHOD_LIST_REVIEW_RUNS,
     METHOD_LIST_WORKBENCH_PACKS, METHOD_LIST_WORKFLOWS, METHOD_MARK_REVIEW_FINDING,
     METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_NODE_FROM_REF,
-    METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_REVIEW_FINDING_REMEDIATION_PREVIEW,
-    METHOD_REVIEW_ROUTINE, METHOD_REVIEW_RUN, METHOD_RUN_REVIEW_ROUTINE, METHOD_RUN_WORKFLOW,
-    METHOD_SAVE_CORPUS_AUDIT_REVIEW, METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SAVE_REVIEW_RUN,
-    METHOD_SAVE_WORKFLOW_REVIEW, METHOD_SEARCH_NODES, METHOD_STATUS,
+    METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_RANDOM_NODE, METHOD_REFLINKS,
+    METHOD_REVIEW_FINDING_REMEDIATION_PREVIEW, METHOD_REVIEW_ROUTINE, METHOD_REVIEW_RUN,
+    METHOD_RUN_REVIEW_ROUTINE, METHOD_RUN_WORKFLOW, METHOD_SAVE_CORPUS_AUDIT_REVIEW,
+    METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SAVE_REVIEW_RUN, METHOD_SAVE_WORKFLOW_REVIEW,
+    METHOD_SEARCH_FILES, METHOD_SEARCH_NODES, METHOD_SEARCH_OCCURRENCES, METHOD_SEARCH_REFS,
+    METHOD_SEARCH_TAGS, METHOD_STATUS, METHOD_UNLINKED_REFERENCES, METHOD_UPDATE_NODE_METADATA,
     METHOD_VALIDATE_WORKBENCH_PACK, METHOD_WORKBENCH_PACK, METHOD_WORKFLOW, read_framed_message,
     write_framed_message,
 };
@@ -213,11 +228,55 @@ where
         self.request(METHOD_STATUS, &Value::Null)
     }
 
+    fn index(&mut self) -> Result<IndexStats, DaemonClientError> {
+        self.request(METHOD_INDEX, &Value::Null)
+    }
+
+    fn index_file(
+        &mut self,
+        params: &IndexFileParams,
+    ) -> Result<IndexFileResult, DaemonClientError> {
+        self.request(METHOD_INDEX_FILE, params)
+    }
+
+    fn indexed_files(&mut self) -> Result<IndexedFilesResult, DaemonClientError> {
+        self.request(METHOD_INDEXED_FILES, &Value::Null)
+    }
+
+    fn search_files(
+        &mut self,
+        params: &SearchFilesParams,
+    ) -> Result<SearchFilesResult, DaemonClientError> {
+        self.request(METHOD_SEARCH_FILES, params)
+    }
+
+    fn search_occurrences(
+        &mut self,
+        params: &SearchOccurrencesParams,
+    ) -> Result<SearchOccurrencesResult, DaemonClientError> {
+        self.request(METHOD_SEARCH_OCCURRENCES, params)
+    }
+
+    fn graph_dot(&mut self, params: &GraphParams) -> Result<GraphResult, DaemonClientError> {
+        self.request(METHOD_GRAPH_DOT, params)
+    }
+
     fn search_nodes(
         &mut self,
         params: &SearchNodesParams,
     ) -> Result<SearchNodesResult, DaemonClientError> {
         self.request(METHOD_SEARCH_NODES, params)
+    }
+
+    fn random_node(&mut self) -> Result<RandomNodeResult, DaemonClientError> {
+        self.request(METHOD_RANDOM_NODE, &Value::Null)
+    }
+
+    fn search_tags(
+        &mut self,
+        params: &SearchTagsParams,
+    ) -> Result<SearchTagsResult, DaemonClientError> {
+        self.request(METHOD_SEARCH_TAGS, params)
     }
 
     fn node_from_id(
@@ -255,8 +314,51 @@ where
         self.request(METHOD_NODE_AT_POINT, params)
     }
 
+    fn anchor_at_point(
+        &mut self,
+        params: &NodeAtPointParams,
+    ) -> Result<Option<AnchorRecord>, DaemonClientError> {
+        self.request(METHOD_ANCHOR_AT_POINT, params)
+    }
+
+    fn backlinks(
+        &mut self,
+        params: &BacklinksParams,
+    ) -> Result<BacklinksResult, DaemonClientError> {
+        self.request(METHOD_BACKLINKS, params)
+    }
+
+    fn forward_links(
+        &mut self,
+        params: &ForwardLinksParams,
+    ) -> Result<ForwardLinksResult, DaemonClientError> {
+        self.request(METHOD_FORWARD_LINKS, params)
+    }
+
+    fn reflinks(&mut self, params: &ReflinksParams) -> Result<ReflinksResult, DaemonClientError> {
+        self.request(METHOD_REFLINKS, params)
+    }
+
+    fn unlinked_references(
+        &mut self,
+        params: &UnlinkedReferencesParams,
+    ) -> Result<UnlinkedReferencesResult, DaemonClientError> {
+        self.request(METHOD_UNLINKED_REFERENCES, params)
+    }
+
     fn explore(&mut self, params: &ExploreParams) -> Result<ExploreResult, DaemonClientError> {
         self.request(METHOD_EXPLORE, params)
+    }
+
+    fn agenda(&mut self, params: &AgendaParams) -> Result<AgendaResult, DaemonClientError> {
+        self.request(METHOD_AGENDA, params)
+    }
+
+    fn search_refs(
+        &mut self,
+        params: &SearchRefsParams,
+    ) -> Result<SearchRefsResult, DaemonClientError> {
+        self.request(METHOD_SEARCH_REFS, params)
     }
 
     fn compare_notes(
@@ -264,6 +366,69 @@ where
         params: &CompareNotesParams,
     ) -> Result<NoteComparisonResult, DaemonClientError> {
         self.request(METHOD_COMPARE_NOTES, params)
+    }
+
+    fn capture_node(
+        &mut self,
+        params: &CaptureNodeParams,
+    ) -> Result<NodeRecord, DaemonClientError> {
+        self.request(METHOD_CAPTURE_NODE, params)
+    }
+
+    fn capture_template(
+        &mut self,
+        params: &CaptureTemplateParams,
+    ) -> Result<AnchorRecord, DaemonClientError> {
+        self.request(METHOD_CAPTURE_TEMPLATE, params)
+    }
+
+    fn capture_template_preview(
+        &mut self,
+        params: &CaptureTemplatePreviewParams,
+    ) -> Result<CaptureTemplatePreviewResult, DaemonClientError> {
+        self.request(METHOD_CAPTURE_TEMPLATE_PREVIEW, params)
+    }
+
+    fn ensure_file_node(
+        &mut self,
+        params: &EnsureFileNodeParams,
+    ) -> Result<NodeRecord, DaemonClientError> {
+        self.request(METHOD_ENSURE_FILE_NODE, params)
+    }
+
+    fn append_heading(
+        &mut self,
+        params: &AppendHeadingParams,
+    ) -> Result<AnchorRecord, DaemonClientError> {
+        self.request(METHOD_APPEND_HEADING, params)
+    }
+
+    fn append_heading_to_node(
+        &mut self,
+        params: &AppendHeadingToNodeParams,
+    ) -> Result<AnchorRecord, DaemonClientError> {
+        self.request(METHOD_APPEND_HEADING_TO_NODE, params)
+    }
+
+    fn append_heading_at_outline_path(
+        &mut self,
+        params: &AppendHeadingAtOutlinePathParams,
+    ) -> Result<AnchorRecord, DaemonClientError> {
+        self.request(METHOD_APPEND_HEADING_AT_OUTLINE_PATH, params)
+    }
+
+    fn ensure_node_id(
+        &mut self,
+        params: &EnsureNodeIdParams,
+    ) -> Result<AnchorRecord, DaemonClientError> {
+        self.request(METHOD_ENSURE_NODE_ID, params)
+    }
+
+    fn update_node_metadata(
+        &mut self,
+        params: &UpdateNodeMetadataParams,
+    ) -> Result<NodeRecord, DaemonClientError> {
+        self.request(METHOD_UPDATE_NODE_METADATA, params)
     }
 
     fn list_workflows(&mut self) -> Result<ListWorkflowsResult, DaemonClientError> {
@@ -591,11 +756,55 @@ impl DaemonClient {
         self.rpc.status()
     }
 
+    pub fn index(&mut self) -> Result<IndexStats, DaemonClientError> {
+        self.rpc.index()
+    }
+
+    pub fn index_file(
+        &mut self,
+        params: &IndexFileParams,
+    ) -> Result<IndexFileResult, DaemonClientError> {
+        self.rpc.index_file(params)
+    }
+
+    pub fn indexed_files(&mut self) -> Result<IndexedFilesResult, DaemonClientError> {
+        self.rpc.indexed_files()
+    }
+
+    pub fn search_files(
+        &mut self,
+        params: &SearchFilesParams,
+    ) -> Result<SearchFilesResult, DaemonClientError> {
+        self.rpc.search_files(params)
+    }
+
+    pub fn search_occurrences(
+        &mut self,
+        params: &SearchOccurrencesParams,
+    ) -> Result<SearchOccurrencesResult, DaemonClientError> {
+        self.rpc.search_occurrences(params)
+    }
+
+    pub fn graph_dot(&mut self, params: &GraphParams) -> Result<GraphResult, DaemonClientError> {
+        self.rpc.graph_dot(params)
+    }
+
     pub fn search_nodes(
         &mut self,
         params: &SearchNodesParams,
     ) -> Result<SearchNodesResult, DaemonClientError> {
         self.rpc.search_nodes(params)
+    }
+
+    pub fn random_node(&mut self) -> Result<RandomNodeResult, DaemonClientError> {
+        self.rpc.random_node()
+    }
+
+    pub fn search_tags(
+        &mut self,
+        params: &SearchTagsParams,
+    ) -> Result<SearchTagsResult, DaemonClientError> {
+        self.rpc.search_tags(params)
     }
 
     pub fn node_from_id(
@@ -633,8 +842,54 @@ impl DaemonClient {
         self.rpc.node_at_point(params)
     }
 
+    pub fn anchor_at_point(
+        &mut self,
+        params: &NodeAtPointParams,
+    ) -> Result<Option<AnchorRecord>, DaemonClientError> {
+        self.rpc.anchor_at_point(params)
+    }
+
+    pub fn backlinks(
+        &mut self,
+        params: &BacklinksParams,
+    ) -> Result<BacklinksResult, DaemonClientError> {
+        self.rpc.backlinks(params)
+    }
+
+    pub fn forward_links(
+        &mut self,
+        params: &ForwardLinksParams,
+    ) -> Result<ForwardLinksResult, DaemonClientError> {
+        self.rpc.forward_links(params)
+    }
+
+    pub fn reflinks(
+        &mut self,
+        params: &ReflinksParams,
+    ) -> Result<ReflinksResult, DaemonClientError> {
+        self.rpc.reflinks(params)
+    }
+
+    pub fn unlinked_references(
+        &mut self,
+        params: &UnlinkedReferencesParams,
+    ) -> Result<UnlinkedReferencesResult, DaemonClientError> {
+        self.rpc.unlinked_references(params)
+    }
+
     pub fn explore(&mut self, params: &ExploreParams) -> Result<ExploreResult, DaemonClientError> {
         self.rpc.explore(params)
+    }
+
+    pub fn agenda(&mut self, params: &AgendaParams) -> Result<AgendaResult, DaemonClientError> {
+        self.rpc.agenda(params)
+    }
+
+    pub fn search_refs(
+        &mut self,
+        params: &SearchRefsParams,
+    ) -> Result<SearchRefsResult, DaemonClientError> {
+        self.rpc.search_refs(params)
     }
 
     pub fn compare_notes(
@@ -642,6 +897,69 @@ impl DaemonClient {
         params: &CompareNotesParams,
     ) -> Result<NoteComparisonResult, DaemonClientError> {
         self.rpc.compare_notes(params)
+    }
+
+    pub fn capture_node(
+        &mut self,
+        params: &CaptureNodeParams,
+    ) -> Result<NodeRecord, DaemonClientError> {
+        self.rpc.capture_node(params)
+    }
+
+    pub fn capture_template(
+        &mut self,
+        params: &CaptureTemplateParams,
+    ) -> Result<AnchorRecord, DaemonClientError> {
+        self.rpc.capture_template(params)
+    }
+
+    pub fn capture_template_preview(
+        &mut self,
+        params: &CaptureTemplatePreviewParams,
+    ) -> Result<CaptureTemplatePreviewResult, DaemonClientError> {
+        self.rpc.capture_template_preview(params)
+    }
+
+    pub fn ensure_file_node(
+        &mut self,
+        params: &EnsureFileNodeParams,
+    ) -> Result<NodeRecord, DaemonClientError> {
+        self.rpc.ensure_file_node(params)
+    }
+
+    pub fn append_heading(
+        &mut self,
+        params: &AppendHeadingParams,
+    ) -> Result<AnchorRecord, DaemonClientError> {
+        self.rpc.append_heading(params)
+    }
+
+    pub fn append_heading_to_node(
+        &mut self,
+        params: &AppendHeadingToNodeParams,
+    ) -> Result<AnchorRecord, DaemonClientError> {
+        self.rpc.append_heading_to_node(params)
+    }
+
+    pub fn append_heading_at_outline_path(
+        &mut self,
+        params: &AppendHeadingAtOutlinePathParams,
+    ) -> Result<AnchorRecord, DaemonClientError> {
+        self.rpc.append_heading_at_outline_path(params)
+    }
+
+    pub fn ensure_node_id(
+        &mut self,
+        params: &EnsureNodeIdParams,
+    ) -> Result<AnchorRecord, DaemonClientError> {
+        self.rpc.ensure_node_id(params)
+    }
+
+    pub fn update_node_metadata(
+        &mut self,
+        params: &UpdateNodeMetadataParams,
+    ) -> Result<NodeRecord, DaemonClientError> {
+        self.rpc.update_node_metadata(params)
     }
 
     pub fn list_workflows(&mut self) -> Result<ListWorkflowsResult, DaemonClientError> {

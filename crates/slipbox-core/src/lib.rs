@@ -4561,6 +4561,11 @@ pub struct IndexFileParams {
     pub file_path: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IndexFileResult {
+    pub file_path: String,
+}
+
 const fn default_search_limit() -> usize {
     50
 }

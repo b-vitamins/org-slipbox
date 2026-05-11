@@ -10,24 +10,24 @@ use slipbox_core::{
     ExplorationArtifactResult, ExplorationArtifactSummary, ExplorationEntry, ExplorationLens,
     ExplorationSection, ExplorationSectionKind, ExploreParams, ExploreResult, ForwardLinksParams,
     ForwardLinksResult, GraphParams, GraphResult, ImportWorkbenchPackParams,
-    ImportWorkbenchPackResult, IndexFileParams, IndexedFilesResult, ListExplorationArtifactsParams,
-    ListExplorationArtifactsResult, ListReviewRoutinesParams, ListReviewRoutinesResult,
-    ListReviewRunsParams, ListReviewRunsResult, ListWorkbenchPacksParams, ListWorkbenchPacksResult,
-    ListWorkflowsParams, ListWorkflowsResult, MarkReviewFindingParams, MarkReviewFindingResult,
-    NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
-    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonGroup, NoteComparisonResult, PingInfo,
-    RandomNodeResult, ReflinksParams, ReflinksResult, ReportProfileMode, ReportProfileSpec,
-    ReviewFinding, ReviewFindingPayload, ReviewFindingRemediationPreview,
-    ReviewFindingRemediationPreviewParams, ReviewFindingRemediationPreviewResult,
-    ReviewFindingStatus, ReviewFindingStatusTransition, ReviewRoutineCompareResult,
-    ReviewRoutineExecutionResult, ReviewRoutineIdParams, ReviewRoutineReportLine,
-    ReviewRoutineResult, ReviewRoutineSource, ReviewRoutineSourceExecutionResult,
-    ReviewRoutineSpec, ReviewRun, ReviewRunDiff, ReviewRunDiffBucket, ReviewRunDiffParams,
-    ReviewRunDiffResult, ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload, ReviewRunResult,
-    ReviewRunSummary, RunReviewRoutineParams, RunReviewRoutineResult, RunWorkflowParams,
-    RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
-    SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
-    SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
+    ImportWorkbenchPackResult, IndexFileParams, IndexFileResult, IndexedFilesResult,
+    ListExplorationArtifactsParams, ListExplorationArtifactsResult, ListReviewRoutinesParams,
+    ListReviewRoutinesResult, ListReviewRunsParams, ListReviewRunsResult, ListWorkbenchPacksParams,
+    ListWorkbenchPacksResult, ListWorkflowsParams, ListWorkflowsResult, MarkReviewFindingParams,
+    MarkReviewFindingResult, NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams,
+    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonGroup,
+    NoteComparisonResult, PingInfo, RandomNodeResult, ReflinksParams, ReflinksResult,
+    ReportProfileMode, ReportProfileSpec, ReviewFinding, ReviewFindingPayload,
+    ReviewFindingRemediationPreview, ReviewFindingRemediationPreviewParams,
+    ReviewFindingRemediationPreviewResult, ReviewFindingStatus, ReviewFindingStatusTransition,
+    ReviewRoutineCompareResult, ReviewRoutineExecutionResult, ReviewRoutineIdParams,
+    ReviewRoutineReportLine, ReviewRoutineResult, ReviewRoutineSource,
+    ReviewRoutineSourceExecutionResult, ReviewRoutineSpec, ReviewRun, ReviewRunDiff,
+    ReviewRunDiffBucket, ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams,
+    ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, ReviewRunSummary, RunReviewRoutineParams,
+    RunReviewRoutineResult, RunWorkflowParams, RunWorkflowResult, SaveCorpusAuditReviewParams,
+    SaveCorpusAuditReviewResult, SaveExplorationArtifactParams, SaveExplorationArtifactResult,
+    SaveReviewRunParams, SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
     SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailStep,
     SearchFilesParams, SearchFilesResult, SearchNodesParams, SearchNodesResult,
     SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams, SearchRefsResult,
@@ -2405,7 +2405,9 @@ pub(crate) fn index_file(
                 internal_error(error.context("failed to remove file from SQLite index"))
             })?;
     }
-    to_value(serde_json::json!({ "file_path": relative_path }))
+    to_value(IndexFileResult {
+        file_path: relative_path,
+    })
 }
 
 #[cfg(test)]

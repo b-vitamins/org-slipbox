@@ -4,22 +4,26 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result};
 use slipbox_core::{
-    AnchorRecord, AuditRemediationConfidence, AuditRemediationPreviewPayload,
+    AgendaParams, AnchorRecord, AppendHeadingAtOutlinePathParams, AppendHeadingParams,
+    AppendHeadingToNodeParams, AuditRemediationConfidence, AuditRemediationPreviewPayload,
     BUILT_IN_REVIEW_ROUTINE_DUPLICATE_TITLE_ID, BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID,
-    BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID, CompareNotesParams, CorpusAuditEntry,
-    CorpusAuditKind, DanglingLinkAuditRecord, ExecuteExplorationArtifactResult,
-    ExplorationArtifactIdParams, ExplorationArtifactMetadata, ExplorationArtifactPayload,
-    ExplorationLens, ExploreParams, ImportWorkbenchPackParams, NodeFromIdParams, NodeFromRefParams,
-    NodeFromTitleOrAliasParams, NodeKind, ReportProfileMetadata, ReportProfileMode,
-    ReportProfileSpec, ReportProfileSubject, ReviewFinding, ReviewFindingPayload,
-    ReviewFindingRemediationPreviewParams, ReviewFindingStatus, ReviewRoutineIdParams, ReviewRun,
-    ReviewRunDiffParams, ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload,
-    RunReviewRoutineParams, RunWorkflowParams, SaveCorpusAuditReviewParams,
+    BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID, BacklinksParams, CaptureContentType,
+    CaptureNodeParams, CaptureTemplateParams, CaptureTemplatePreviewParams, CompareNotesParams,
+    CorpusAuditEntry, CorpusAuditKind, DanglingLinkAuditRecord, EnsureFileNodeParams,
+    EnsureNodeIdParams, ExecuteExplorationArtifactResult, ExplorationArtifactIdParams,
+    ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationLens, ExploreParams,
+    ForwardLinksParams, GraphParams, ImportWorkbenchPackParams, IndexFileParams, NodeFromIdParams,
+    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeKind, ReflinksParams, ReportProfileMetadata,
+    ReportProfileMode, ReportProfileSpec, ReportProfileSubject, ReviewFinding,
+    ReviewFindingPayload, ReviewFindingRemediationPreviewParams, ReviewFindingStatus,
+    ReviewRoutineIdParams, ReviewRun, ReviewRunDiffParams, ReviewRunIdParams, ReviewRunMetadata,
+    ReviewRunPayload, RunReviewRoutineParams, RunWorkflowParams, SaveCorpusAuditReviewParams,
     SaveExplorationArtifactParams, SaveReviewRunParams, SaveWorkflowReviewParams,
-    SavedExplorationArtifact, SavedLensViewArtifact, SearchNodesParams,
-    ValidateWorkbenchPackParams, WorkbenchPackCompatibility, WorkbenchPackIdParams,
-    WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackMetadata, WorkflowIdParams,
-    WorkflowInputAssignment, WorkflowResult,
+    SavedExplorationArtifact, SavedLensViewArtifact, SearchFilesParams, SearchNodesParams,
+    SearchOccurrencesParams, SearchRefsParams, SearchTagsParams, UnlinkedReferencesParams,
+    UpdateNodeMetadataParams, ValidateWorkbenchPackParams, WorkbenchPackCompatibility,
+    WorkbenchPackIdParams, WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackMetadata,
+    WorkflowIdParams, WorkflowInputAssignment, WorkflowResult,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonServeConfig};
 use slipbox_index::scan_root;
@@ -42,6 +46,7 @@ fn build_indexed_fixture() -> Result<(TempDir, PathBuf, PathBuf, String)> {
 :ROAM_REFS: cite:shared2024 cite:alpha2024
 :END:
 #+title: Alpha
+#+filetags: :alpha:shared:
 
 See [[id:beta-id][Beta]].
 "#,
@@ -73,6 +78,7 @@ SCHEDULED: <2026-05-04 Mon>
 #+title: Weak
 
 Weakly integrated peer with shared references and no direct links.
+Alpha appears here as unlinked text.
 "#,
     )?;
 
@@ -160,6 +166,297 @@ fn sample_workbench_pack() -> WorkbenchPackManifest {
         }],
         entrypoint_routine_ids: Vec::new(),
     }
+}
+
+#[test]
+fn daemon_client_exposes_everyday_read_operations() -> Result<()> {
+    let (_workspace, root, db, _anonymous_anchor_key) = build_indexed_fixture()?;
+    let mut client = DaemonClient::spawn(daemon_binary(), &DaemonServeConfig::new(&root, &db))?;
+
+    let stats = client.index()?;
+    assert_eq!(stats.files_indexed, 3);
+    assert_eq!(stats.nodes_indexed, 5);
+
+    let indexed_file = client.index_file(&IndexFileParams {
+        file_path: root.join("alpha.org").display().to_string(),
+    })?;
+    assert_eq!(indexed_file.file_path, "alpha.org");
+
+    let files = client.indexed_files()?;
+    assert_eq!(
+        files.files,
+        vec![
+            "alpha.org".to_owned(),
+            "beta.org".to_owned(),
+            "weak.org".to_owned()
+        ]
+    );
+
+    let file_search = client.search_files(&SearchFilesParams {
+        query: "Alpha".to_owned(),
+        limit: 10,
+    })?;
+    assert_eq!(file_search.files.len(), 1);
+    assert_eq!(file_search.files[0].file_path, "alpha.org");
+
+    let occurrence_search = client.search_occurrences(&SearchOccurrencesParams {
+        query: "unlinked text".to_owned(),
+        limit: 10,
+    })?;
+    assert_eq!(occurrence_search.occurrences.len(), 1);
+    assert_eq!(occurrence_search.occurrences[0].file_path, "weak.org");
+
+    let tag_search = client.search_tags(&SearchTagsParams {
+        query: "sha".to_owned(),
+        limit: 10,
+    })?;
+    assert_eq!(tag_search.tags, vec!["shared".to_owned()]);
+
+    let random = client.random_node()?;
+    assert!(random.node.is_some());
+
+    let alpha = client
+        .node_from_id(&NodeFromIdParams {
+            id: "alpha-id".to_owned(),
+        })?
+        .context("Alpha should resolve by ID")?;
+    let beta = client
+        .node_from_id(&NodeFromIdParams {
+            id: "beta-id".to_owned(),
+        })?
+        .context("Beta should resolve by ID")?;
+
+    let beta_anchor = client
+        .anchor_at_point(&slipbox_core::NodeAtPointParams {
+            file_path: root.join("beta.org").display().to_string(),
+            line: 13,
+        })?
+        .context("anonymous heading anchor should resolve at point")?;
+    assert_eq!(beta_anchor.title, "Anonymous Follow Up");
+
+    let backlinks = client.backlinks(&BacklinksParams {
+        node_key: beta.node_key.clone(),
+        limit: 10,
+        unique: false,
+    })?;
+    assert_eq!(backlinks.backlinks.len(), 1);
+    assert_eq!(backlinks.backlinks[0].source_note.title, "Alpha");
+
+    let forward_links = client.forward_links(&ForwardLinksParams {
+        node_key: alpha.node_key.clone(),
+        limit: 10,
+        unique: false,
+    })?;
+    assert_eq!(forward_links.forward_links.len(), 1);
+    assert_eq!(
+        forward_links.forward_links[0].destination_note.title,
+        "Beta"
+    );
+
+    let reflinks = client.reflinks(&ReflinksParams {
+        node_key: alpha.node_key.clone(),
+        limit: 10,
+    })?;
+    assert!(
+        reflinks
+            .reflinks
+            .iter()
+            .any(|record| record.source_anchor.title == "Weak")
+    );
+
+    let unlinked = client.unlinked_references(&UnlinkedReferencesParams {
+        node_key: alpha.node_key.clone(),
+        limit: 10,
+    })?;
+    assert!(
+        unlinked
+            .unlinked_references
+            .iter()
+            .any(|record| record.source_anchor.title == "Weak")
+    );
+
+    let agenda = client.agenda(&AgendaParams {
+        start: "2026-05-03T00:00:00".to_owned(),
+        end: "2026-05-03T23:59:59".to_owned(),
+        limit: 10,
+    })?;
+    assert_eq!(agenda.nodes.len(), 1);
+    assert_eq!(agenda.nodes[0].title, "Follow Up");
+
+    let refs = client.search_refs(&SearchRefsParams {
+        query: "beta2024".to_owned(),
+        limit: 10,
+    })?;
+    assert_eq!(refs.refs.len(), 1);
+    assert_eq!(refs.refs[0].node.title, "Beta");
+
+    let graph = client.graph_dot(&GraphParams {
+        root_node_key: None,
+        max_distance: None,
+        include_orphans: true,
+        hidden_link_types: Vec::new(),
+        max_title_length: 100,
+        shorten_titles: None,
+        node_url_prefix: None,
+    })?;
+    assert!(
+        graph
+            .dot
+            .contains("\"file:alpha.org\" -> \"file:beta.org\";")
+    );
+
+    client.shutdown()?;
+    Ok(())
+}
+
+#[test]
+fn daemon_client_exposes_everyday_write_operations_with_read_your_writes() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let db = workspace.path().join("slipbox.sqlite");
+    let mut client = DaemonClient::spawn(daemon_binary(), &DaemonServeConfig::new(&root, &db))?;
+
+    let initial = client.index()?;
+    assert_eq!(initial.files_indexed, 0);
+    assert_eq!(initial.nodes_indexed, 0);
+
+    let captured = client.capture_node(&CaptureNodeParams {
+        title: "Captured Client Note".to_owned(),
+        file_path: Some("captured.org".to_owned()),
+        head: None,
+        refs: vec!["cite:captured2026".to_owned()],
+    })?;
+    assert_eq!(captured.title, "Captured Client Note");
+    assert!(captured.explicit_id.is_some());
+
+    let captured_by_ref = client
+        .node_from_ref(&NodeFromRefParams {
+            reference: "cite:captured2026".to_owned(),
+        })?
+        .context("captured note should be immediately ref-resolvable")?;
+    assert_eq!(captured_by_ref.node_key, captured.node_key);
+
+    let updated = client.update_node_metadata(&UpdateNodeMetadataParams {
+        node_key: captured.node_key.clone(),
+        aliases: Some(vec!["Captured Alias".to_owned()]),
+        refs: Some(vec![
+            "cite:captured2026".to_owned(),
+            "cite:updated2026".to_owned(),
+        ]),
+        tags: Some(vec!["client".to_owned(), "updated".to_owned()]),
+    })?;
+    assert_eq!(updated.aliases, vec!["Captured Alias".to_owned()]);
+    assert_eq!(
+        updated.refs,
+        vec!["@captured2026".to_owned(), "@updated2026".to_owned()]
+    );
+    assert_eq!(
+        updated.tags,
+        vec!["client".to_owned(), "updated".to_owned()]
+    );
+
+    let alias_resolved = client
+        .node_from_title_or_alias(&NodeFromTitleOrAliasParams {
+            title_or_alias: "Captured Alias".to_owned(),
+            nocase: false,
+        })?
+        .context("updated alias should resolve immediately")?;
+    assert_eq!(alias_resolved.node_key, captured.node_key);
+
+    let ensured = client.ensure_file_node(&EnsureFileNodeParams {
+        file_path: "daily/2026-05-12.org".to_owned(),
+        title: "2026-05-12".to_owned(),
+    })?;
+    assert_eq!(ensured.file_path, "daily/2026-05-12.org");
+    assert!(ensured.explicit_id.is_some());
+
+    let appended = client.append_heading(&AppendHeadingParams {
+        file_path: "daily/2026-05-12.org".to_owned(),
+        title: "2026-05-12".to_owned(),
+        heading: "Standup".to_owned(),
+        level: 2,
+    })?;
+    assert_eq!(appended.title, "Standup");
+    assert_eq!(appended.kind, NodeKind::Heading);
+
+    let appended_at_point = client
+        .anchor_at_point(&slipbox_core::NodeAtPointParams {
+            file_path: root.join("daily/2026-05-12.org").display().to_string(),
+            line: appended.line,
+        })?
+        .context("appended heading should be immediately point-resolvable")?;
+    assert_eq!(appended_at_point.node_key, appended.node_key);
+
+    let identified_heading = client.ensure_node_id(&EnsureNodeIdParams {
+        node_key: appended.node_key.clone(),
+    })?;
+    assert_eq!(identified_heading.node_key, appended.node_key);
+    assert!(identified_heading.explicit_id.is_some());
+
+    let child = client.append_heading_to_node(&AppendHeadingToNodeParams {
+        node_key: captured.node_key.clone(),
+        heading: "Captured Child".to_owned(),
+    })?;
+    assert_eq!(child.title, "Captured Child");
+    assert_eq!(child.file_path, "captured.org");
+
+    let outline = client.append_heading_at_outline_path(&AppendHeadingAtOutlinePathParams {
+        file_path: "projects/review.org".to_owned(),
+        heading: "Nested Finding".to_owned(),
+        outline_path: vec!["Inbox".to_owned(), "Reviews".to_owned()],
+        head: Some("#+title: Review".to_owned()),
+    })?;
+    assert_eq!(outline.title, "Nested Finding");
+    assert_eq!(outline.outline_path, "Inbox / Reviews / Nested Finding");
+
+    let preview = client.capture_template_preview(&CaptureTemplatePreviewParams {
+        capture: CaptureTemplateParams {
+            title: "Preview".to_owned(),
+            file_path: Some("preview.org".to_owned()),
+            node_key: None,
+            head: None,
+            outline_path: Vec::new(),
+            capture_type: CaptureContentType::Plain,
+            content: "Preview body".to_owned(),
+            refs: Vec::new(),
+            prepend: false,
+            empty_lines_before: 0,
+            empty_lines_after: 0,
+            table_line_pos: None,
+        },
+        source_override: None,
+        ensure_node_id: false,
+    })?;
+    assert_eq!(preview.file_path, "preview.org");
+    assert!(!root.join("preview.org").exists());
+
+    let templated = client.capture_template(&CaptureTemplateParams {
+        title: "Template".to_owned(),
+        file_path: Some("template.org".to_owned()),
+        node_key: None,
+        head: None,
+        outline_path: Vec::new(),
+        capture_type: CaptureContentType::Plain,
+        content: "Template body".to_owned(),
+        refs: vec!["cite:template2026".to_owned()],
+        prepend: false,
+        empty_lines_before: 0,
+        empty_lines_after: 0,
+        table_line_pos: None,
+    })?;
+    assert_eq!(templated.title, "Template");
+    assert_eq!(templated.file_path, "template.org");
+
+    let occurrences = client.search_occurrences(&SearchOccurrencesParams {
+        query: "Template body".to_owned(),
+        limit: 10,
+    })?;
+    assert_eq!(occurrences.occurrences.len(), 1);
+    assert_eq!(occurrences.occurrences[0].file_path, "template.org");
+
+    client.shutdown()?;
+    Ok(())
 }
 
 #[test]

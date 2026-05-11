@@ -57,7 +57,7 @@ pub(crate) fn capture_template(
     };
     let captured = slipbox_write::capture_template(&state.root, target.as_ref(), &params)
         .map_err(|error| internal_error(error.context("failed to capture template")))?;
-    to_value(state.sync_capture(&captured, "captured template")?)
+    to_value(state.sync_capture_anchor(&captured, "captured template")?)
 }
 
 pub(crate) fn capture_template_preview(
@@ -109,7 +109,7 @@ pub(crate) fn append_heading(
         params.normalized_level(),
     )
     .map_err(|error| internal_error(error.context("failed to append heading")))?;
-    to_value(state.sync_capture(&captured, "captured heading")?)
+    to_value(state.sync_capture_anchor(&captured, "captured heading")?)
 }
 
 pub(crate) fn append_heading_to_node(
@@ -120,7 +120,7 @@ pub(crate) fn append_heading_to_node(
     let target = state.known_note(&params.node_key, "node")?;
     let captured = slipbox_write::append_heading_to_node(&state.root, &target, &params.heading)
         .map_err(|error| internal_error(error.context("failed to append heading to node")))?;
-    to_value(state.sync_capture(&captured, "captured heading")?)
+    to_value(state.sync_capture_anchor(&captured, "captured heading")?)
 }
 
 pub(crate) fn append_heading_at_outline_path(
@@ -136,7 +136,7 @@ pub(crate) fn append_heading_at_outline_path(
         params.head.as_deref(),
     )
     .map_err(|error| internal_error(error.context("failed to append heading at outline path")))?;
-    to_value(state.sync_capture(&captured, "captured heading")?)
+    to_value(state.sync_capture_anchor(&captured, "captured heading")?)
 }
 
 pub(crate) fn ensure_node_id(

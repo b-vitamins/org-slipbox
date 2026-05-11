@@ -236,6 +236,15 @@ impl ServerState {
         self.require_note(&outcome.node_key, description)
     }
 
+    pub(super) fn sync_capture_anchor(
+        &mut self,
+        outcome: &CaptureOutcome,
+        description: &str,
+    ) -> Result<AnchorRecord, JsonRpcError> {
+        self.sync_path(&outcome.absolute_path)?;
+        self.require_anchor(&outcome.node_key, description)
+    }
+
     pub(super) fn sync_path_and_read_node(
         &mut self,
         path: &Path,
