@@ -37,6 +37,8 @@ enum Command {
     Search(cli::SearchArgs),
     /// Query agenda entries over the canonical headless connection path.
     Agenda(cli::AgendaArgs),
+    /// Export graph DOT over the canonical headless connection path.
+    Graph(cli::GraphArgs),
     /// Resolve an exact note target over the canonical headless connection path.
     ResolveNode(cli::ResolveNodeArgs),
     /// Run live declared-lens exploration over the canonical headless connection path.
@@ -83,6 +85,7 @@ fn run() -> Result<(), cli::CliCommandError> {
         Command::Tag(args) => cli::run_tag(&args),
         Command::Search(args) => cli::run_search(&args),
         Command::Agenda(args) => cli::run_agenda(&args),
+        Command::Graph(args) => cli::run_graph(&args),
         Command::ResolveNode(args) => cli::run_resolve_node(&args),
         Command::Explore(args) => cli::run_explore(&args),
         Command::Compare(args) => cli::run_compare(&args),
