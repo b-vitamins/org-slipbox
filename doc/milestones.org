@@ -128,6 +128,9 @@ Exit criteria:
 - workflows, review routines, report profiles, and packs can be shared and
   validated without implying a plugin runtime, MCP surface, agent adapter, or
   raw RPC wrapper layer
+- pack validation, import/export, cataloging, and routine execution are
+  documented as the declarative workbench extension surface, not as executable
+  plugin or raw transport guidance
 - users can script and automate meaningful exploratory workflows
 - buffer and query surfaces compose without reaching into unstable internals
 - headless surfaces reuse the exploratory model already proven in the cockpit

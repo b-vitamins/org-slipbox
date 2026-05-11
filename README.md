@@ -272,11 +272,11 @@ discovery, report outputs, and scale gates. `0.9.x` makes those recurring
 workbench loops reviewable and operational through durable review records,
 status, diffs, and read-only remediation previews for supported audit
 findings, while keeping review state distinct from notes and saved exploration
-artifacts. `0.10.x` should make that workbench extensible through declarative
-assets: versioned workflow specs, review routines, report profiles, and packs
-that can be validated and shared without becoming notes, review runs, saved
-exploration artifacts, or executable plugin code. Broader platform maturity,
-extension APIs, and agent-adapter work remain later work.
+artifacts. `0.10.x` makes that workbench extensible through declarative assets:
+versioned workflow specs, review routines, report profiles, and packs that can
+be validated, imported, exported, cataloged, and run without becoming notes,
+review runs, saved exploration artifacts, or executable plugin code. Broader
+platform maturity, extension APIs, and agent-adapter work remain later work.
 
 When the current node record includes indexed metadata, the node summary also
 renders file modification time plus backlink and forward-link counts without
@@ -630,13 +630,14 @@ These stay opt-in and isolated from startup:
 `org-slipbox` ships with an explicit corpus benchmark harness instead of
 relying on anecdotal scale claims.
 
-- `cargo run --bin slipbox-bench -- check --profile ci` generates a deterministic corpus, measures full indexing, single-file incremental indexing, indexed search, backlinks, node-at-point lookup, agenda queries, workflow catalog discovery, discovered workflow execution, corpus-health audits, operational review paths, and batch Emacs benchmarks for the persistent tracking buffer, the dedicated comparison render path, and a guaranteed non-structure dedicated exploration render path rooted in the unresolved lens with trail state.
+- `cargo run --bin slipbox-bench -- check --profile ci` generates a deterministic corpus, measures full indexing, single-file incremental indexing, indexed search, backlinks, node-at-point lookup, agenda queries, workflow catalog discovery, discovered workflow execution, corpus-health audits, operational review paths, declarative extension paths, and batch Emacs benchmarks for the persistent tracking buffer, the dedicated comparison render path, and a guaranteed non-structure dedicated exploration render path rooted in the unresolved lens with trail state.
 - `cargo run --bin slipbox-bench -- run --profile release --keep-corpus` runs the larger local profile and keeps the generated corpus under `target/bench/` for inspection.
 - Benchmark profiles live in [`benches/profiles/ci.json`](/home/b/projects/org-slipbox/benches/profiles/ci.json) and [`benches/profiles/release.json`](/home/b/projects/org-slipbox/benches/profiles/release.json). Reports are written to `target/bench/`.
 - The benchmark corpus includes discovered workflow specs, explicit audit
-  fixtures, and persisted review fixtures, so workflow, audit, and operational
-  review gates measure real workbench behavior rather than empty catalog scans
-  or cheap fallback paths.
+  fixtures, persisted review fixtures, and imported pack/routine/report-profile
+  fixtures, so workflow, audit, operational review, and declarative extension
+  gates measure real workbench behavior rather than empty catalog scans or
+  cheap fallback paths.
 
 This is an intentional divergence from the `org-roam` manual's performance
 guidance. `org-slipbox` does not expose GC-tuning knobs for cache builds,
@@ -682,9 +683,10 @@ declaratively through compatible specs, routines, profiles, and packs rather
 than through a plugin runtime. The CLI stays on the same architectural line as
 the rest of the project:
 
-- every headless command talks to the daemon over canonical JSON-RPC stdio
-- the CLI auto-spawns `slipbox serve` from the current executable unless you
-  override it with `--server-program`
+- daemon-backed headless commands talk to the daemon over canonical JSON-RPC
+  stdio
+- daemon-backed commands auto-spawn `slipbox serve` from the current
+  executable unless you override it with `--server-program`
 - `--json` is first-class for machine use
 - the command surface is task-shaped rather than a thin wrapper over every RPC
 
@@ -706,6 +708,15 @@ The shipped headless commands are:
 - `slipbox review diff`
 - `slipbox review mark`
 - `slipbox review delete`
+- `slipbox routine list`
+- `slipbox routine show`
+- `slipbox routine run`
+- `slipbox pack list`
+- `slipbox pack show`
+- `slipbox pack validate`
+- `slipbox pack import`
+- `slipbox pack export`
+- `slipbox pack delete`
 - `slipbox artifact list`
 - `slipbox artifact show`
 - `slipbox artifact run`
@@ -713,7 +724,7 @@ The shipped headless commands are:
 - `slipbox artifact import`
 - `slipbox artifact delete`
 
-All headless commands share the same scope arguments:
+Daemon-backed headless commands share the same scope arguments:
 
 ```bash
 slipbox <command> \
@@ -722,8 +733,10 @@ slipbox <command> \
   --json
 ```
 
-Workflow commands also accept repeatable `--workflow-dir` arguments. Discovery is
-deliberately narrow:
+Local inspection commands, such as `slipbox workflow show --spec` and
+`slipbox pack validate`, do not require daemon scope. Workflow, routine, and
+daemon-backed pack commands also accept repeatable `--workflow-dir` arguments.
+Discovery is deliberately narrow:
 
 - only top-level JSON workflow spec files are considered
 - built-in workflows win over discovered ones
@@ -742,6 +755,153 @@ The built-in workflow IDs are:
 The periodic and weak-integration workflows are intended for recurring saved
 workflow reviews. Dangling-link cleanup remains an audit/review flow rather
 than a named workflow until audits are part of the workflow step model.
+
+### Declarative Extension Assets
+
+`0.10.x` adds a declarative extension layer made of workflow specs, review
+routines, report profiles, and workbench packs. These are portable JSON data
+assets. They are not notes, review runs, saved exploration artifacts,
+executable plugins, Emacs Lisp hooks, MCP servers, agent adapters, or raw RPC
+wrappers.
+
+Workflow specs and workbench packs carry explicit compatibility metadata. The
+current supported version is `1`. Missing workflow compatibility defaults to
+legacy version `1`; future versions such as `{ "version": 2 }` are rejected as
+unsupported before the loader tries to interpret future syntax.
+
+A workbench pack bundles assets under one durable `pack_id`:
+
+```json
+{
+  "pack_id": "pack/research-review",
+  "title": "Research Review Pack",
+  "summary": "Reusable review routine and report profile assets.",
+  "compatibility": { "version": 1 },
+  "workflows": [
+    {
+      "workflow_id": "workflow/pack/context-review",
+      "title": "Pack Context Review",
+      "compatibility": { "version": 1 },
+      "inputs": [
+        {
+          "input_id": "focus",
+          "title": "Focus target",
+          "kind": "focus-target"
+        }
+      ],
+      "steps": [
+        {
+          "step_id": "resolve-focus",
+          "kind": "resolve",
+          "target": { "kind": "input", "input_id": "focus" }
+        },
+        {
+          "step_id": "review-unresolved",
+          "kind": "explore",
+          "focus": { "kind": "resolved-step", "step_id": "resolve-focus" },
+          "lens": "unresolved",
+          "limit": 50
+        }
+      ]
+    }
+  ],
+  "review_routines": [
+    {
+      "routine_id": "routine/pack/context-review",
+      "title": "Pack Context Review",
+      "source": {
+        "kind": "workflow",
+        "workflow_id": "workflow/pack/context-review"
+      },
+      "inputs": [
+        {
+          "input_id": "focus",
+          "title": "Focus target",
+          "kind": "focus-target"
+        }
+      ],
+      "save_review": {
+        "enabled": true,
+        "review_id": "review/pack/context-review/current",
+        "title": "Pack Context Review",
+        "overwrite": true
+      },
+      "report_profile_ids": ["profile/pack/routine-detail"]
+    }
+  ],
+  "report_profiles": [
+    {
+      "profile_id": "profile/pack/routine-detail",
+      "title": "Routine Detail",
+      "subjects": ["routine", "workflow", "review"],
+      "mode": "detail",
+      "jsonl_line_kinds": ["routine", "step", "review", "finding"]
+    }
+  ],
+  "entrypoint_routine_ids": ["routine/pack/context-review"]
+}
+```
+
+Validate a local pack file without connecting to the daemon:
+
+```bash
+slipbox pack validate ~/.config/org-slipbox/packs/research-review.json --json
+```
+
+Import persists a pack through the daemon. It refuses to replace an existing
+pack by default; pass `--overwrite` when replacement is intentional:
+
+```bash
+slipbox pack import \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  ~/.config/org-slipbox/packs/research-review.json \
+  --json
+```
+
+Manage imported packs:
+
+```bash
+slipbox pack list --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox pack show pack/research-review --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox pack export pack/research-review --root ~/notes --db ~/.cache/org-slipbox.sqlite --json --output research-review.json
+slipbox pack import --root ~/notes --db ~/.cache/org-slipbox.sqlite --overwrite --json research-review.json
+slipbox pack delete pack/research-review --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+```
+
+Imported pack assets are merged into the same workflow, routine, and report
+catalogs used by built-ins and configured workflow directories. Built-ins and
+configured workflow directories keep deterministic precedence; invalid or
+shadowed pack entries are reported as catalog issues without hiding valid
+assets.
+
+Review routines are reusable audit or workflow review loops. They execute
+through the daemon, can save a durable review, can compare against the latest
+compatible review, and can apply report profiles:
+
+```bash
+slipbox routine list \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --json
+
+slipbox routine show routine/pack/context-review \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --json
+
+slipbox routine run routine/pack/context-review \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --input 'focus=title:Project X' \
+  --json
+```
+
+Report profiles are bounded output presets. They select subjects such as
+`routine`, `workflow`, `audit`, `review`, or `diff`; choose `summary` or
+`detail` mode; and can filter JSONL line kinds, finding statuses, or diff
+buckets. They do not define a template language and do not plug in custom
+renderers.
 
 Examples:
 
@@ -964,15 +1124,22 @@ The JSON contracts are intentionally different where the semantics differ:
 - `slipbox review show --json` returns `{ "review": ... }`, `review diff`
   returns `{ "diff": ... }`, and `review mark` returns `{ "transition": ... }`
 - `slipbox review delete --json` returns `{ "review_id": ... }`
+- `slipbox pack validate --json` returns `{ "pack": ..., "valid": ...,
+  "issues": ... }`; `pack import/show/list/delete --json` return task-shaped
+  wrappers; `pack export --json` emits raw pack manifest JSON unless
+  `--output` is used
+- `slipbox routine run --json` returns `{ "result": ... }`, including routine
+  source execution, optional saved review, optional compare result, and applied
+  reports
 
 This is now a broader composed research workbench surface, not the whole
-platform. Named workflows, audits, and reviews compose the settled live
-explore/compare/artifact model. The next extension layer should remain
-declarative: workflows, review routines, report profiles, and packs are
-portable assets to validate, import, and catalog, not executable plugins or raw
-transport wrappers. Review status is explicit triage state for durable review
-runs, not a general task manager. Remediation previews describe possible safe
-actions; they do not apply writes.
+platform. Named workflows, audits, reviews, routines, report profiles, and
+packs compose the settled live explore/compare/artifact model. The extension
+layer is declarative: workflows, review routines, report profiles, and packs
+are portable assets to validate, import, run, and catalog, not executable
+plugins or raw transport wrappers. Review status is explicit triage state for
+durable review runs, not a general task manager. Remediation previews describe
+possible safe actions; they do not apply writes.
 
 ## FAQ
 

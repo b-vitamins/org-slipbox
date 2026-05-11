@@ -42,6 +42,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Broadened benchmark gates for declarative extension paths, covering imported
   pack list, validation, import, routine execution, and report-profile
   rendering over non-empty server-backed fixtures.
+- Documented the declarative workbench extension surface, including pack
+  authoring, validation, import/export, routine execution, report profiles,
+  compatibility behavior, overwrite policy, and the boundary against plugin
+  runtimes, MCP, agent adapters, and raw-RPC wrapper sprawl.
 
 ### Fixed
 - Hardened pack and routine CLI JSON contracts for wrapper shapes, import/export

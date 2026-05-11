@@ -186,8 +186,12 @@ Focus:
   profiles, and metadata as declarative assets
 - imported declarative assets that remain distinct from ordinary notes, review
   runs, and saved exploration artifacts
-- deterministic cataloging, validation, and lifecycle semantics for packaged
-  assets without making packs executable code
+- deterministic cataloging, local validation, daemon-backed import/export, and
+  lifecycle semantics for packaged assets without making packs executable code
+- routine list, show, and run commands over daemon-owned audit, workflow,
+  save-review, compare, and report-profile semantics
+- benchmark and contract coverage that proves pack, routine, and report
+  profile paths run over non-empty real fixtures
 
 Watchpoints:
 

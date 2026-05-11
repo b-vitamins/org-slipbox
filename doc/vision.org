@@ -94,11 +94,11 @@ status, review diffs, and read-only remediation previews for supported audit
 findings. Review state is a distinct domain concept. It must not collapse into
 ordinary note identity, saved exploration-artifact identity, task-manager
 sprawl, or broad write automation.
-`0.10.x` should extend that operational workbench declaratively. Workflow
-specs should carry compatibility expectations. Review routines should describe
-recurring audit or workflow loops without becoming schedulers. Report profiles
-should be bounded output presets, not templates or renderer plugins. Packs
-should bundle those assets for validation, cataloging, and sharing without
+`0.10.x` extends that operational workbench declaratively. Workflow specs carry
+compatibility expectations. Review routines describe recurring audit or
+workflow loops without becoming schedulers. Report profiles are bounded output
+presets, not templates or renderer plugins. Packs bundle those assets for
+validation, cataloging, sharing, import/export, and routine execution without
 turning imported assets into notes, review runs, saved exploration artifacts,
 or executable code.
 Broader extension, plugin-runtime, MCP, and platform surfaces still come
