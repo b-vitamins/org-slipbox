@@ -29,6 +29,14 @@ enum Command {
     File(cli::FileArgs),
     /// Inspect nodes and node neighborhoods over the canonical headless connection path.
     Node(cli::NodeArgs),
+    /// Search and resolve indexed references over the canonical headless connection path.
+    Ref(cli::RefArgs),
+    /// Search indexed tags over the canonical headless connection path.
+    Tag(cli::TagArgs),
+    /// Search indexed note text over the canonical headless connection path.
+    Search(cli::SearchArgs),
+    /// Query agenda entries over the canonical headless connection path.
+    Agenda(cli::AgendaArgs),
     /// Resolve an exact note target over the canonical headless connection path.
     ResolveNode(cli::ResolveNodeArgs),
     /// Run live declared-lens exploration over the canonical headless connection path.
@@ -71,6 +79,10 @@ fn run() -> Result<(), cli::CliCommandError> {
         Command::Sync(args) => cli::run_sync(&args),
         Command::File(args) => cli::run_file(&args),
         Command::Node(args) => cli::run_node(&args),
+        Command::Ref(args) => cli::run_ref(&args),
+        Command::Tag(args) => cli::run_tag(&args),
+        Command::Search(args) => cli::run_search(&args),
+        Command::Agenda(args) => cli::run_agenda(&args),
         Command::ResolveNode(args) => cli::run_resolve_node(&args),
         Command::Explore(args) => cli::run_explore(&args),
         Command::Compare(args) => cli::run_compare(&args),

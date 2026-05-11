@@ -5,38 +5,41 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
+use chrono::{Local, NaiveDate};
 use clap::{ArgGroup, Args, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use slipbox_core::{
-    AnchorRecord, AppliedReportProfile, BacklinksParams, BacklinksResult, CompareNotesParams,
-    ComparisonConnectorDirection, CorpusAuditEntry, CorpusAuditKind, CorpusAuditParams,
-    CorpusAuditResult, DeleteExplorationArtifactResult, DeleteReviewRunResult,
-    DeleteWorkbenchPackResult, ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
-    ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactKind,
-    ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
-    ExplorationArtifactSummary, ExplorationEntry, ExplorationExplanation, ExplorationLens,
-    ExplorationSectionKind, ExploreParams, ExploreResult, FileRecord, ForwardLinksParams,
-    ForwardLinksResult, ImportWorkbenchPackParams, IndexFileParams, IndexFileResult, IndexStats,
-    IndexedFilesResult, ListExplorationArtifactsResult, ListReviewRoutinesResult,
-    ListReviewRunsResult, ListWorkbenchPacksResult, ListWorkflowsResult, MarkReviewFindingParams,
-    MarkReviewFindingResult, NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams,
-    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonEntry,
-    NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
-    NoteComparisonSectionKind, PlanningField, PlanningRelationRecord, RandomNodeResult,
-    ReviewFinding, ReviewFindingKind, ReviewFindingPair, ReviewFindingPayload, ReviewFindingStatus,
-    ReviewFindingStatusDiff, ReviewRoutineCompareResult, ReviewRoutineExecutionResult,
-    ReviewRoutineIdParams, ReviewRoutineReportLine, ReviewRoutineResult, ReviewRoutineSource,
-    ReviewRoutineSourceExecutionResult, ReviewRoutineSpec, ReviewRoutineSummary, ReviewRun,
-    ReviewRunDiff, ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunKind,
-    ReviewRunPayload, ReviewRunResult, ReviewRunSummary, RunReviewRoutineParams,
-    RunReviewRoutineResult, RunWorkflowParams, RunWorkflowResult, SaveCorpusAuditReviewParams,
-    SaveCorpusAuditReviewResult, SaveExplorationArtifactParams, SaveWorkflowReviewParams,
-    SaveWorkflowReviewResult, SavedComparisonArtifact, SavedExplorationArtifact,
-    SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, SearchFilesParams,
-    SearchFilesResult, SearchNodesParams, SearchNodesResult, StatusInfo, TrailReplayResult,
-    TrailReplayStepResult, ValidateWorkbenchPackResult, WorkbenchPackCompatibilityEnvelope,
-    WorkbenchPackIdParams, WorkbenchPackIssue, WorkbenchPackIssueKind, WorkbenchPackManifest,
-    WorkbenchPackResult, WorkbenchPackSummary, WorkflowArtifactSaveSource, WorkflowCatalogIssue,
+    AgendaParams, AgendaResult, AnchorRecord, AppliedReportProfile, BacklinksParams,
+    BacklinksResult, CompareNotesParams, ComparisonConnectorDirection, CorpusAuditEntry,
+    CorpusAuditKind, CorpusAuditParams, CorpusAuditResult, DeleteExplorationArtifactResult,
+    DeleteReviewRunResult, DeleteWorkbenchPackResult, ExecuteExplorationArtifactResult,
+    ExecutedExplorationArtifact, ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams,
+    ExplorationArtifactKind, ExplorationArtifactMetadata, ExplorationArtifactPayload,
+    ExplorationArtifactResult, ExplorationArtifactSummary, ExplorationEntry,
+    ExplorationExplanation, ExplorationLens, ExplorationSectionKind, ExploreParams, ExploreResult,
+    FileRecord, ForwardLinksParams, ForwardLinksResult, ImportWorkbenchPackParams, IndexFileParams,
+    IndexFileResult, IndexStats, IndexedFilesResult, ListExplorationArtifactsResult,
+    ListReviewRoutinesResult, ListReviewRunsResult, ListWorkbenchPacksResult, ListWorkflowsResult,
+    MarkReviewFindingParams, MarkReviewFindingResult, NodeAtPointParams, NodeFromIdParams,
+    NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
+    NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
+    NoteComparisonSectionKind, OccurrenceRecord, PlanningField, PlanningRelationRecord,
+    RandomNodeResult, RefRecord, ReviewFinding, ReviewFindingKind, ReviewFindingPair,
+    ReviewFindingPayload, ReviewFindingStatus, ReviewFindingStatusDiff, ReviewRoutineCompareResult,
+    ReviewRoutineExecutionResult, ReviewRoutineIdParams, ReviewRoutineReportLine,
+    ReviewRoutineResult, ReviewRoutineSource, ReviewRoutineSourceExecutionResult,
+    ReviewRoutineSpec, ReviewRoutineSummary, ReviewRun, ReviewRunDiff, ReviewRunDiffParams,
+    ReviewRunDiffResult, ReviewRunIdParams, ReviewRunKind, ReviewRunPayload, ReviewRunResult,
+    ReviewRunSummary, RunReviewRoutineParams, RunReviewRoutineResult, RunWorkflowParams,
+    RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
+    SaveExplorationArtifactParams, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
+    SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact,
+    SavedTrailStep, SearchFilesParams, SearchFilesResult, SearchNodesParams, SearchNodesResult,
+    SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams, SearchRefsResult,
+    SearchTagsParams, SearchTagsResult, StatusInfo, TrailReplayResult, TrailReplayStepResult,
+    ValidateWorkbenchPackResult, WorkbenchPackCompatibilityEnvelope, WorkbenchPackIdParams,
+    WorkbenchPackIssue, WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackResult,
+    WorkbenchPackSummary, WorkflowArtifactSaveSource, WorkflowCatalogIssue,
     WorkflowExecutionResult, WorkflowExploreFocus, WorkflowIdParams, WorkflowInputAssignment,
     WorkflowInputKind, WorkflowInputSpec, WorkflowResolveTarget, WorkflowSpec,
     WorkflowSpecCompatibilityEnvelope, WorkflowStepPayload, WorkflowStepReport,
@@ -319,6 +322,136 @@ pub(crate) struct NodeAtPointArgs {
     /// 1-based line number.
     #[arg(long)]
     pub(crate) line: u32,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct RefArgs {
+    #[command(subcommand)]
+    pub(crate) command: RefCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum RefCommand {
+    /// Search indexed references.
+    Search(RefSearchArgs),
+    /// Resolve one reference to its note.
+    Show(RefShowArgs),
+    /// Resolve one reference to its note.
+    Resolve(RefShowArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct RefSearchArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// Reference query.
+    pub(crate) query: String,
+    /// Maximum reference records to return.
+    #[arg(long, default_value_t = 50)]
+    pub(crate) limit: usize,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct RefShowArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// Reference to resolve.
+    pub(crate) reference: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct TagArgs {
+    #[command(subcommand)]
+    pub(crate) command: TagCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum TagCommand {
+    /// Search indexed tags.
+    Search(TagSearchArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct TagSearchArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// Tag query.
+    pub(crate) query: String,
+    /// Maximum tags to return.
+    #[arg(long, default_value_t = 50)]
+    pub(crate) limit: usize,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct SearchArgs {
+    #[command(subcommand)]
+    pub(crate) command: SearchCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum SearchCommand {
+    /// Search raw indexed note text occurrences.
+    Occurrences(OccurrencesSearchArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct OccurrencesSearchArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// Text query.
+    pub(crate) query: String,
+    /// Maximum occurrences to return.
+    #[arg(long, default_value_t = 50)]
+    pub(crate) limit: usize,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct AgendaArgs {
+    #[command(subcommand)]
+    pub(crate) command: AgendaCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum AgendaCommand {
+    /// Query entries for the current local date.
+    Today(AgendaTodayArgs),
+    /// Query entries for one ISO date, YYYY-MM-DD.
+    Date(AgendaDateArgs),
+    /// Query entries for an inclusive ISO date range, YYYY-MM-DD YYYY-MM-DD.
+    Range(AgendaRangeArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct AgendaTodayArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// Maximum agenda entries to return.
+    #[arg(long, default_value_t = 200)]
+    pub(crate) limit: usize,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct AgendaDateArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// ISO date to query, YYYY-MM-DD.
+    pub(crate) date: String,
+    /// Maximum agenda entries to return.
+    #[arg(long, default_value_t = 200)]
+    pub(crate) limit: usize,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct AgendaRangeArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// Inclusive ISO start date, YYYY-MM-DD.
+    pub(crate) start: String,
+    /// Inclusive ISO end date, YYYY-MM-DD.
+    pub(crate) end: String,
+    /// Maximum agenda entries to return.
+    #[arg(long, default_value_t = 200)]
+    pub(crate) limit: usize,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1057,6 +1190,33 @@ pub(crate) fn run_node(args: &NodeArgs) -> Result<(), CliCommandError> {
         NodeCommand::Backlinks(command) => run_headless_command(command),
         NodeCommand::ForwardLinks(command) => run_headless_command(command),
         NodeCommand::AtPoint(command) => run_headless_command(command),
+    }
+}
+
+pub(crate) fn run_ref(args: &RefArgs) -> Result<(), CliCommandError> {
+    match &args.command {
+        RefCommand::Search(command) => run_headless_command(command),
+        RefCommand::Show(command) | RefCommand::Resolve(command) => run_headless_command(command),
+    }
+}
+
+pub(crate) fn run_tag(args: &TagArgs) -> Result<(), CliCommandError> {
+    match &args.command {
+        TagCommand::Search(command) => run_headless_command(command),
+    }
+}
+
+pub(crate) fn run_search(args: &SearchArgs) -> Result<(), CliCommandError> {
+    match &args.command {
+        SearchCommand::Occurrences(command) => run_headless_command(command),
+    }
+}
+
+pub(crate) fn run_agenda(args: &AgendaArgs) -> Result<(), CliCommandError> {
+    match &args.command {
+        AgendaCommand::Today(command) => run_headless_command(command),
+        AgendaCommand::Date(command) => run_headless_command(command),
+        AgendaCommand::Range(command) => run_headless_command(command),
     }
 }
 
@@ -2106,6 +2266,136 @@ impl HeadlessCommand for NodeAtPointArgs {
     }
 }
 
+impl HeadlessCommand for RefSearchArgs {
+    type Output = SearchRefsResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.search_refs(&SearchRefsParams {
+            query: self.query.clone(),
+            limit: self.limit,
+        })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_ref_search_result(output)
+    }
+}
+
+impl HeadlessCommand for RefShowArgs {
+    type Output = NodeRecord;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        require_resolved_node(
+            client.node_from_ref(&NodeFromRefParams {
+                reference: self.reference.clone(),
+            })?,
+            format!("unknown node ref: {}", self.reference),
+        )
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_node_summary(output)
+    }
+}
+
+impl HeadlessCommand for TagSearchArgs {
+    type Output = SearchTagsResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.search_tags(&SearchTagsParams {
+            query: self.query.clone(),
+            limit: self.limit,
+        })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_tag_search_result(output)
+    }
+}
+
+impl HeadlessCommand for OccurrencesSearchArgs {
+    type Output = SearchOccurrencesResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.search_occurrences(&SearchOccurrencesParams {
+            query: self.query.clone(),
+            limit: self.limit,
+        })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_occurrence_search_result(output)
+    }
+}
+
+impl HeadlessCommand for AgendaTodayArgs {
+    type Output = AgendaResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        let today = today_local_date();
+        client.agenda(&agenda_params(today, today, self.limit)?)
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_agenda_result(output)
+    }
+}
+
+impl HeadlessCommand for AgendaDateArgs {
+    type Output = AgendaResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        let date = parse_agenda_date(&self.date)?;
+        client.agenda(&agenda_params(date, date, self.limit)?)
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_agenda_result(output)
+    }
+}
+
+impl HeadlessCommand for AgendaRangeArgs {
+    type Output = AgendaResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        let start = parse_agenda_date(&self.start)?;
+        let end = parse_agenda_date(&self.end)?;
+        client.agenda(&agenda_params(start, end, self.limit)?)
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_agenda_result(output)
+    }
+}
+
 impl HeadlessCommand for ResolveNodeArgs {
     type Output = NodeRecord;
 
@@ -2610,6 +2900,41 @@ fn require_resolved_anchor(
     error_message: String,
 ) -> Result<AnchorRecord, DaemonClientError> {
     anchor.ok_or_else(|| DaemonClientError::Rpc(JsonRpcErrorObject::invalid_request(error_message)))
+}
+
+fn invalid_request_error(message: impl Into<String>) -> DaemonClientError {
+    DaemonClientError::Rpc(JsonRpcErrorObject::invalid_request(message.into()))
+}
+
+fn parse_agenda_date(value: &str) -> Result<NaiveDate, DaemonClientError> {
+    NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| {
+        invalid_request_error(format!(
+            "invalid agenda date {value:?}: expected ISO date YYYY-MM-DD"
+        ))
+    })
+}
+
+fn today_local_date() -> NaiveDate {
+    Local::now().date_naive()
+}
+
+fn agenda_params(
+    start: NaiveDate,
+    end: NaiveDate,
+    limit: usize,
+) -> Result<AgendaParams, DaemonClientError> {
+    if end < start {
+        return Err(invalid_request_error(format!(
+            "agenda range end {} is before start {}",
+            end.format("%Y-%m-%d"),
+            start.format("%Y-%m-%d")
+        )));
+    }
+    Ok(AgendaParams {
+        start: format!("{}T00:00:00", start.format("%Y-%m-%d")),
+        end: format!("{}T23:59:59", end.format("%Y-%m-%d")),
+        limit,
+    })
 }
 
 fn run_audit_command(kind: CorpusAuditKind, args: &AuditRunArgs) -> Result<(), CliCommandError> {
@@ -4039,6 +4364,68 @@ fn render_forward_links_result(result: &ForwardLinksResult) -> String {
             record.col
         ));
         output.push_str(&format!("  preview: {}\n", record.preview));
+    }
+    output
+}
+
+fn render_ref_search_result(result: &SearchRefsResult) -> String {
+    let mut output = format!("refs: {}\n", result.refs.len());
+    for record in &result.refs {
+        output.push_str(&render_ref_record(record));
+    }
+    output
+}
+
+fn render_ref_record(record: &RefRecord) -> String {
+    format!(
+        "- {} -> {}\n",
+        record.reference,
+        render_node_identity(&record.node)
+    )
+}
+
+fn render_tag_search_result(result: &SearchTagsResult) -> String {
+    let mut output = format!("tags: {}\n", result.tags.len());
+    for tag in &result.tags {
+        output.push_str(&format!("- {tag}\n"));
+    }
+    output
+}
+
+fn render_occurrence_search_result(result: &SearchOccurrencesResult) -> String {
+    let mut output = format!("occurrences: {}\n", result.occurrences.len());
+    for record in &result.occurrences {
+        output.push_str(&render_occurrence_record(record));
+    }
+    output
+}
+
+fn render_occurrence_record(record: &OccurrenceRecord) -> String {
+    let mut output = format!("- {}:{}:{}\n", record.file_path, record.row, record.col);
+    if let Some(anchor) = &record.owning_anchor {
+        output.push_str(&format!("  anchor: {}\n", render_anchor_identity(anchor)));
+    }
+    output.push_str(&format!("  matched text: {}\n", record.matched_text));
+    output.push_str(&format!("  preview: {}\n", record.preview));
+    output
+}
+
+fn render_agenda_result(result: &AgendaResult) -> String {
+    let mut output = format!("agenda entries: {}\n", result.nodes.len());
+    for node in &result.nodes {
+        output.push_str(&format!("- {}\n", render_anchor_identity(node)));
+        if let Some(todo_keyword) = &node.todo_keyword {
+            output.push_str(&format!("  todo: {todo_keyword}\n"));
+        }
+        if let Some(scheduled_for) = &node.scheduled_for {
+            output.push_str(&format!("  scheduled: {scheduled_for}\n"));
+        }
+        if let Some(deadline_for) = &node.deadline_for {
+            output.push_str(&format!("  deadline: {deadline_for}\n"));
+        }
+        if let Some(closed_at) = &node.closed_at {
+            output.push_str(&format!("  closed: {closed_at}\n"));
+        }
     }
     output
 }
