@@ -29,6 +29,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
   invalid-entry issues.
 - Added daemon-owned review routine execution over canonical audit, workflow,
   save-review, diff, and report-profile semantics.
+- Added task-shaped `slipbox pack` commands for list, show, validate, import,
+  export, and delete over the canonical daemon pack boundary.
 
 ### Changed
 - Defined the `0.10.x` release band as declarative workbench extension through

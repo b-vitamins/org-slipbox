@@ -10,26 +10,31 @@ use serde::{Deserialize, Serialize};
 use slipbox_core::{
     AnchorRecord, CompareNotesParams, ComparisonConnectorDirection, CorpusAuditEntry,
     CorpusAuditKind, CorpusAuditParams, CorpusAuditResult, DeleteExplorationArtifactResult,
-    DeleteReviewRunResult, ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
-    ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactKind,
-    ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
-    ExplorationArtifactSummary, ExplorationEntry, ExplorationExplanation, ExplorationLens,
-    ExplorationSectionKind, ExploreParams, ExploreResult, ListExplorationArtifactsResult,
-    ListReviewRunsResult, ListWorkflowsResult, MarkReviewFindingParams, MarkReviewFindingResult,
-    NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
-    NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
-    NoteComparisonSectionKind, PlanningField, PlanningRelationRecord, ReviewFinding,
-    ReviewFindingKind, ReviewFindingPair, ReviewFindingPayload, ReviewFindingStatus,
-    ReviewFindingStatusDiff, ReviewRun, ReviewRunDiff, ReviewRunDiffParams, ReviewRunDiffResult,
-    ReviewRunIdParams, ReviewRunKind, ReviewRunPayload, ReviewRunResult, ReviewRunSummary,
-    RunWorkflowParams, RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
-    SaveExplorationArtifactParams, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
-    SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact,
-    SavedTrailStep, StatusInfo, TrailReplayResult, TrailReplayStepResult,
-    WorkflowArtifactSaveSource, WorkflowExecutionResult, WorkflowExploreFocus, WorkflowIdParams,
-    WorkflowInputAssignment, WorkflowInputKind, WorkflowInputSpec, WorkflowResolveTarget,
-    WorkflowSpec, WorkflowSpecCompatibilityEnvelope, WorkflowStepPayload, WorkflowStepReport,
-    WorkflowStepReportPayload, WorkflowStepSpec, WorkflowSummary,
+    DeleteReviewRunResult, DeleteWorkbenchPackResult, ExecuteExplorationArtifactResult,
+    ExecutedExplorationArtifact, ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams,
+    ExplorationArtifactKind, ExplorationArtifactMetadata, ExplorationArtifactPayload,
+    ExplorationArtifactResult, ExplorationArtifactSummary, ExplorationEntry,
+    ExplorationExplanation, ExplorationLens, ExplorationSectionKind, ExploreParams, ExploreResult,
+    ImportWorkbenchPackParams, ListExplorationArtifactsResult, ListReviewRunsResult,
+    ListWorkbenchPacksResult, ListWorkflowsResult, MarkReviewFindingParams,
+    MarkReviewFindingResult, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
+    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonEntry, NoteComparisonExplanation,
+    NoteComparisonGroup, NoteComparisonResult, NoteComparisonSectionKind, PlanningField,
+    PlanningRelationRecord, ReviewFinding, ReviewFindingKind, ReviewFindingPair,
+    ReviewFindingPayload, ReviewFindingStatus, ReviewFindingStatusDiff, ReviewRun, ReviewRunDiff,
+    ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunKind, ReviewRunPayload,
+    ReviewRunResult, ReviewRunSummary, RunWorkflowParams, RunWorkflowResult,
+    SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult, SaveExplorationArtifactParams,
+    SaveWorkflowReviewParams, SaveWorkflowReviewResult, SavedComparisonArtifact,
+    SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep,
+    StatusInfo, TrailReplayResult, TrailReplayStepResult, ValidateWorkbenchPackResult,
+    WorkbenchPackCompatibilityEnvelope, WorkbenchPackIdParams, WorkbenchPackIssue,
+    WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackResult, WorkbenchPackSummary,
+    WorkflowArtifactSaveSource, WorkflowCatalogIssue, WorkflowExecutionResult,
+    WorkflowExploreFocus, WorkflowIdParams, WorkflowInputAssignment, WorkflowInputKind,
+    WorkflowInputSpec, WorkflowResolveTarget, WorkflowSpec, WorkflowSpecCompatibilityEnvelope,
+    WorkflowStepPayload, WorkflowStepReport, WorkflowStepReportPayload, WorkflowStepSpec,
+    WorkflowSummary,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonClientError, DaemonServeConfig};
 use slipbox_index::DiscoveryPolicy;
@@ -662,6 +667,96 @@ pub(crate) struct ArtifactImportArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+pub(crate) struct PackArgs {
+    #[command(subcommand)]
+    pub(crate) command: PackCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum PackCommand {
+    /// List imported workbench packs and catalog issues.
+    List(PackListArgs),
+    /// Show an imported workbench pack manifest.
+    Show(PackShowArgs),
+    /// Validate a local workbench pack JSON file/stdin without daemon state.
+    Validate(PackValidateArgs),
+    /// Import a workbench pack manifest through the daemon.
+    Import(PackImportArgs),
+    /// Export an imported workbench pack manifest as stable JSON.
+    Export(PackExportArgs),
+    /// Delete an imported workbench pack by durable identifier.
+    Delete(PackDeleteArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct PackListArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct PackIdArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// Durable workbench pack identifier.
+    pub(crate) pack_id: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct PackShowArgs {
+    #[command(flatten)]
+    pub(crate) pack: PackIdArgs,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct PackValidateArgs {
+    /// Read workbench pack JSON from this path, or `-` for stdin.
+    #[arg(default_value = "-")]
+    pub(crate) input: String,
+    /// Emit structured JSON to stdout and structured errors to stderr.
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+impl PackValidateArgs {
+    #[must_use]
+    fn output_mode(&self) -> OutputMode {
+        if self.json {
+            OutputMode::Json
+        } else {
+            OutputMode::Human
+        }
+    }
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct PackImportArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// Read imported workbench pack JSON from this path, or `-` for stdin.
+    #[arg(default_value = "-")]
+    pub(crate) input: String,
+    /// Replace an existing pack with the same durable identifier.
+    #[arg(long)]
+    pub(crate) overwrite: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct PackExportArgs {
+    #[command(flatten)]
+    pub(crate) pack: PackIdArgs,
+    /// Write exported JSON to this path instead of stdout. Use `-` for stdout.
+    #[arg(long)]
+    pub(crate) output: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct PackDeleteArgs {
+    #[command(flatten)]
+    pub(crate) pack: PackIdArgs,
+}
+
+#[derive(Debug, Clone, Args)]
 pub(crate) struct ReviewArgs {
     #[command(subcommand)]
     pub(crate) command: ReviewCommand,
@@ -885,6 +980,17 @@ pub(crate) fn run_artifact(args: &ArtifactArgs) -> Result<(), CliCommandError> {
     }
 }
 
+pub(crate) fn run_pack(args: &PackArgs) -> Result<(), CliCommandError> {
+    match &args.command {
+        PackCommand::List(command) => run_headless_command(command),
+        PackCommand::Show(command) => run_headless_command(command),
+        PackCommand::Validate(command) => run_pack_validate(command),
+        PackCommand::Import(command) => run_pack_import(command),
+        PackCommand::Export(command) => run_pack_export(command),
+        PackCommand::Delete(command) => run_headless_command(command),
+    }
+}
+
 pub(crate) fn run_review(args: &ReviewArgs) -> Result<(), CliCommandError> {
     match &args.command {
         ReviewCommand::List(command) => run_headless_command(command),
@@ -905,6 +1011,12 @@ pub(crate) fn report_error(error: &CliCommandError) -> ExitCode {
 #[derive(Debug, Serialize)]
 struct ArtifactExportFileResult {
     artifact: ExplorationArtifactSummary,
+    output_path: String,
+}
+
+#[derive(Debug, Serialize)]
+struct PackExportFileResult {
+    pack: WorkbenchPackSummary,
     output_path: String,
 }
 
@@ -1229,6 +1341,117 @@ fn run_artifact_import(command: &ArtifactImportArgs) -> Result<(), CliCommandErr
     .map_err(|error| CliCommandError::new(output_mode, error))
 }
 
+fn run_pack_validate(command: &PackValidateArgs) -> Result<(), CliCommandError> {
+    let output_mode = command.output_mode();
+    let validation = validate_local_workbench_pack(&command.input)
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+
+    let stdout = io::stdout();
+    let mut writer = stdout.lock();
+    write_output(&mut writer, output_mode, &validation, |value| {
+        render_workbench_pack_validation(value)
+    })
+    .map_err(|error| CliCommandError::new(output_mode, error))
+}
+
+fn run_pack_import(command: &PackImportArgs) -> Result<(), CliCommandError> {
+    let output_mode = command.headless.output_mode();
+    let pack = read_workbench_pack_manifest(&command.input)
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    let mut client = command.headless.connect()?;
+    let imported = client
+        .import_workbench_pack(&ImportWorkbenchPackParams {
+            pack,
+            overwrite: command.overwrite,
+        })
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    client
+        .shutdown()
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+
+    let stdout = io::stdout();
+    let mut writer = stdout.lock();
+    write_output(&mut writer, output_mode, &imported, |value| {
+        format!(
+            "imported pack: {} (workflows: {}, routines: {}, profiles: {})\n",
+            value.pack.metadata.pack_id,
+            value.pack.workflow_count,
+            value.pack.review_routine_count,
+            value.pack.report_profile_count
+        )
+    })
+    .map_err(|error| CliCommandError::new(output_mode, error))
+}
+
+fn run_pack_export(command: &PackExportArgs) -> Result<(), CliCommandError> {
+    let output_mode = command.pack.headless.output_mode();
+    let mut client = command.pack.headless.connect()?;
+    let pack = client
+        .export_workbench_pack(&WorkbenchPackIdParams {
+            pack_id: command.pack.pack_id.clone(),
+        })
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    client
+        .shutdown()
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+
+    if let Some(output_path) = &command.output
+        && output_path != Path::new("-")
+    {
+        let serialized = serde_json::to_vec_pretty(&pack)
+            .context("failed to serialize workbench pack")
+            .map_err(|error| CliCommandError::new(output_mode, error))?;
+        fs::write(output_path, serialized)
+            .with_context(|| {
+                format!(
+                    "failed to write exported workbench pack {}",
+                    output_path.display()
+                )
+            })
+            .map_err(|error| CliCommandError::new(output_mode, error))?;
+
+        let stdout = io::stdout();
+        let mut writer = stdout.lock();
+        let result = PackExportFileResult {
+            pack: WorkbenchPackSummary::from(&pack),
+            output_path: output_path.display().to_string(),
+        };
+        write_output(&mut writer, output_mode, &result, |value| {
+            format!(
+                "exported pack: {} -> {}\n",
+                value.pack.metadata.pack_id, value.output_path
+            )
+        })
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+        return Ok(());
+    }
+
+    let stdout = io::stdout();
+    let mut writer = stdout.lock();
+    match output_mode {
+        OutputMode::Human => {
+            serde_json::to_writer_pretty(&mut writer, &pack)
+                .context("failed to serialize workbench pack")
+                .map_err(|error| CliCommandError::new(output_mode, error))?;
+            writer
+                .write_all(b"\n")
+                .map_err(|error| CliCommandError::new(output_mode, error))?;
+        }
+        OutputMode::Json => {
+            serde_json::to_writer(&mut writer, &pack)
+                .context("failed to serialize workbench pack")
+                .map_err(|error| CliCommandError::new(output_mode, error))?;
+            writer
+                .write_all(b"\n")
+                .map_err(|error| CliCommandError::new(output_mode, error))?;
+        }
+    }
+    writer
+        .flush()
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    Ok(())
+}
+
 fn run_workflow_show(command: &WorkflowShowArgs) -> Result<(), CliCommandError> {
     let output_mode = command.output_mode();
     let workflow = if let Some(spec_input) = &command.spec {
@@ -1304,6 +1527,62 @@ fn read_artifact_json_input(input: &str) -> Result<Vec<u8>> {
 
     fs::read(input)
         .with_context(|| format!("failed to read saved exploration artifact JSON from {input}"))
+}
+
+fn read_pack_json_input(input: &str) -> Result<Vec<u8>> {
+    if input == "-" {
+        let mut bytes = Vec::new();
+        io::stdin()
+            .read_to_end(&mut bytes)
+            .context("failed to read workbench pack JSON from stdin")?;
+        return Ok(bytes);
+    }
+
+    fs::read(input).with_context(|| format!("failed to read workbench pack JSON from {input}"))
+}
+
+fn pack_json_parse_context(input: &str) -> String {
+    if input == "-" {
+        "failed to parse workbench pack JSON from stdin".to_owned()
+    } else {
+        format!("failed to parse workbench pack JSON from {input}")
+    }
+}
+
+fn validate_local_workbench_pack(input: &str) -> Result<ValidateWorkbenchPackResult> {
+    let bytes = read_pack_json_input(input)?;
+    let compatibility: WorkbenchPackCompatibilityEnvelope =
+        serde_json::from_slice(&bytes).with_context(|| pack_json_parse_context(input))?;
+    if let Some(message) = compatibility.compatibility.validation_error() {
+        return Ok(ValidateWorkbenchPackResult {
+            pack: None,
+            valid: false,
+            issues: vec![WorkbenchPackIssue {
+                kind: WorkbenchPackIssueKind::UnsupportedVersion,
+                asset_id: compatibility.pack_id,
+                message,
+            }],
+        });
+    }
+
+    let pack: WorkbenchPackManifest =
+        serde_json::from_slice(&bytes).with_context(|| pack_json_parse_context(input))?;
+    let issues = pack.validation_issues();
+    Ok(ValidateWorkbenchPackResult {
+        pack: issues.is_empty().then(|| WorkbenchPackSummary::from(&pack)),
+        valid: issues.is_empty(),
+        issues,
+    })
+}
+
+fn read_workbench_pack_manifest(input: &str) -> Result<WorkbenchPackManifest> {
+    let bytes = read_pack_json_input(input)?;
+    let compatibility: WorkbenchPackCompatibilityEnvelope =
+        serde_json::from_slice(&bytes).with_context(|| pack_json_parse_context(input))?;
+    if let Some(message) = compatibility.compatibility.validation_error() {
+        anyhow::bail!("invalid workbench pack: {message}");
+    }
+    serde_json::from_slice(&bytes).with_context(|| pack_json_parse_context(input))
 }
 
 fn read_workflow_json_input(input: &str) -> Result<Vec<u8>> {
@@ -1554,6 +1833,58 @@ impl HeadlessCommand for ArtifactDeleteArgs {
 
     fn render_human(&self, output: &Self::Output) -> String {
         format!("deleted artifact: {}\n", output.artifact_id)
+    }
+}
+
+impl HeadlessCommand for PackListArgs {
+    type Output = ListWorkbenchPacksResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.list_workbench_packs()
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_workbench_pack_list(output)
+    }
+}
+
+impl HeadlessCommand for PackShowArgs {
+    type Output = WorkbenchPackResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.pack.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.workbench_pack(&WorkbenchPackIdParams {
+            pack_id: self.pack.pack_id.clone(),
+        })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_workbench_pack_manifest(&output.pack)
+    }
+}
+
+impl HeadlessCommand for PackDeleteArgs {
+    type Output = DeleteWorkbenchPackResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.pack.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.delete_workbench_pack(&WorkbenchPackIdParams {
+            pack_id: self.pack.pack_id.clone(),
+        })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        format!("deleted pack: {}\n", output.pack_id)
     }
 }
 
@@ -2144,27 +2475,167 @@ fn render_workflow_list(result: &ListWorkflowsResult) -> String {
         if !output.is_empty() {
             output.push('\n');
         }
-        output.push_str("[issues]\n");
-        for issue in &result.issues {
-            output.push_str(&format!("- path: {}\n", issue.path));
-            output.push_str(&format!("  kind: {}\n", issue.kind.label()));
-            if let Some(pack_id) = &issue.pack_id {
-                output.push_str(&format!("  pack id: {pack_id}\n"));
+        render_workflow_catalog_issues(&mut output, &result.issues);
+    }
+
+    output
+}
+
+fn render_workflow_catalog_issues(output: &mut String, issues: &[WorkflowCatalogIssue]) {
+    output.push_str("[issues]\n");
+    for issue in issues {
+        output.push_str(&format!("- path: {}\n", issue.path));
+        output.push_str(&format!("  kind: {}\n", issue.kind.label()));
+        if let Some(pack_id) = &issue.pack_id {
+            output.push_str(&format!("  pack id: {pack_id}\n"));
+        }
+        if let Some(workflow_id) = &issue.workflow_id {
+            output.push_str(&format!("  workflow id: {workflow_id}\n"));
+        }
+        if let Some(routine_id) = &issue.routine_id {
+            output.push_str(&format!("  routine id: {routine_id}\n"));
+        }
+        if let Some(profile_id) = &issue.profile_id {
+            output.push_str(&format!("  profile id: {profile_id}\n"));
+        }
+        output.push_str(&format!("  message: {}\n", issue.message));
+    }
+}
+
+fn render_workbench_pack_list(result: &ListWorkbenchPacksResult) -> String {
+    let mut output = String::new();
+    if result.packs.is_empty() {
+        output.push_str("(none)\n");
+    } else {
+        for pack in &result.packs {
+            output.push_str(&format!(
+                "- {} [{}]\n",
+                pack.metadata.title, pack.metadata.pack_id
+            ));
+            output.push_str(&format!(
+                "  workflows/routines/profiles: {}/{}/{}\n",
+                pack.workflow_count, pack.review_routine_count, pack.report_profile_count
+            ));
+            output.push_str(&format!(
+                "  compatibility: workbench-pack/v{}\n",
+                pack.compatibility.version
+            ));
+            if !pack.entrypoint_routine_ids.is_empty() {
+                output.push_str(&format!(
+                    "  entrypoint routines: {}\n",
+                    pack.entrypoint_routine_ids.join(", ")
+                ));
             }
-            if let Some(workflow_id) = &issue.workflow_id {
-                output.push_str(&format!("  workflow id: {workflow_id}\n"));
+            if let Some(summary) = &pack.metadata.summary {
+                output.push_str(&format!("  summary: {summary}\n"));
             }
-            if let Some(routine_id) = &issue.routine_id {
-                output.push_str(&format!("  routine id: {routine_id}\n"));
-            }
-            if let Some(profile_id) = &issue.profile_id {
-                output.push_str(&format!("  profile id: {profile_id}\n"));
-            }
-            output.push_str(&format!("  message: {}\n", issue.message));
+        }
+    }
+
+    if !result.issues.is_empty() {
+        if !output.is_empty() {
+            output.push('\n');
+        }
+        render_workflow_catalog_issues(&mut output, &result.issues);
+    }
+
+    output
+}
+
+fn render_workbench_pack_manifest(pack: &WorkbenchPackManifest) -> String {
+    let mut output = String::new();
+    output.push_str(&format!("pack id: {}\n", pack.metadata.pack_id));
+    output.push_str(&format!("title: {}\n", pack.metadata.title));
+    output.push_str(&format!(
+        "compatibility: workbench-pack/v{}\n",
+        pack.compatibility.version
+    ));
+    if let Some(summary) = &pack.metadata.summary {
+        output.push_str(&format!("summary: {summary}\n"));
+    }
+    output.push_str(&format!("workflows: {}\n", pack.workflows.len()));
+    output.push_str(&format!(
+        "review routines: {}\n",
+        pack.review_routines.len()
+    ));
+    output.push_str(&format!(
+        "report profiles: {}\n",
+        pack.report_profiles.len()
+    ));
+    if !pack.entrypoint_routine_ids.is_empty() {
+        output.push_str(&format!(
+            "entrypoint routines: {}\n",
+            pack.entrypoint_routine_ids.join(", ")
+        ));
+    }
+
+    if !pack.workflows.is_empty() {
+        output.push_str("\n[workflows]\n");
+        for workflow in &pack.workflows {
+            output.push_str(&format!(
+                "- {} [{}]\n",
+                workflow.metadata.title, workflow.metadata.workflow_id
+            ));
+            output.push_str(&format!("  steps: {}\n", workflow.steps.len()));
+        }
+    }
+    if !pack.review_routines.is_empty() {
+        output.push_str("\n[review-routines]\n");
+        for routine in &pack.review_routines {
+            output.push_str(&format!(
+                "- {} [{}]\n",
+                routine.metadata.title, routine.metadata.routine_id
+            ));
+            output.push_str(&format!("  source: {}\n", routine.source.kind().label()));
+        }
+    }
+    if !pack.report_profiles.is_empty() {
+        output.push_str("\n[report-profiles]\n");
+        for profile in &pack.report_profiles {
+            output.push_str(&format!(
+                "- {} [{}]\n",
+                profile.metadata.title, profile.metadata.profile_id
+            ));
         }
     }
 
     output
+}
+
+fn render_workbench_pack_validation(result: &ValidateWorkbenchPackResult) -> String {
+    let mut output = String::new();
+    if result.valid {
+        if let Some(pack) = &result.pack {
+            output.push_str(&format!(
+                "valid pack: {} (workflows: {}, routines: {}, profiles: {})\n",
+                pack.metadata.pack_id,
+                pack.workflow_count,
+                pack.review_routine_count,
+                pack.report_profile_count
+            ));
+        } else {
+            output.push_str("valid pack\n");
+        }
+        return output;
+    }
+
+    output.push_str("invalid pack\n");
+    render_workbench_pack_issues(&mut output, &result.issues);
+    output
+}
+
+fn render_workbench_pack_issues(output: &mut String, issues: &[WorkbenchPackIssue]) {
+    if issues.is_empty() {
+        return;
+    }
+    output.push_str("[issues]\n");
+    for issue in issues {
+        output.push_str(&format!("- kind: {}\n", issue.kind.label()));
+        if let Some(asset_id) = &issue.asset_id {
+            output.push_str(&format!("  asset id: {asset_id}\n"));
+        }
+        output.push_str(&format!("  message: {}\n", issue.message));
+    }
 }
 
 fn render_workflow_spec(workflow: &WorkflowSpec) -> String {

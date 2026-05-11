@@ -2275,8 +2275,10 @@ pub(crate) fn list_workbench_packs(
         .database
         .list_workbench_packs()
         .map_err(|error| internal_error(error.context("failed to list workbench packs")))?;
+    let catalog = discover_workflow_catalog(&state.root, &state.workflow_dirs, &packs);
     to_value(ListWorkbenchPacksResult {
         packs: packs.iter().map(WorkbenchPackSummary::from).collect(),
+        issues: catalog.issues().to_vec(),
     })
 }
 

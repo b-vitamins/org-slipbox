@@ -3862,6 +3862,8 @@ pub struct ValidateWorkbenchPackResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListWorkbenchPacksResult {
     pub packs: Vec<WorkbenchPackSummary>,
+    #[serde(default)]
+    pub issues: Vec<WorkflowCatalogIssue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -7860,6 +7862,7 @@ mod tests {
         };
         let list_result = ListWorkbenchPacksResult {
             packs: vec![summary.clone()],
+            issues: Vec::new(),
         };
         let delete_result = DeleteWorkbenchPackResult {
             pack_id: manifest.metadata.pack_id.clone(),
