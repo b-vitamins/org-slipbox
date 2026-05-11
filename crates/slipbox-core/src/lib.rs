@@ -1431,6 +1431,9 @@ pub const BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID: &str =
     "workflow/builtin/weak-integration-review";
 pub const BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID: &str =
     "workflow/builtin/comparison-tension-review";
+pub const BUILT_IN_REVIEW_ROUTINE_CONTEXT_SWEEP_ID: &str = "routine/builtin/context-sweep-review";
+pub const BUILT_IN_REVIEW_ROUTINE_DUPLICATE_TITLE_ID: &str =
+    "routine/builtin/duplicate-title-review";
 pub const WORKFLOW_SPEC_COMPATIBILITY_VERSION: u32 = 1;
 
 #[must_use]
@@ -3476,6 +3479,98 @@ impl From<&ReviewRoutineSpec> for ReviewRoutineSummary {
     }
 }
 
+#[must_use]
+pub fn built_in_review_routines() -> Vec<ReviewRoutineSpec> {
+    vec![
+        built_in_context_sweep_review_routine(),
+        built_in_duplicate_title_review_routine(),
+    ]
+}
+
+#[must_use]
+pub fn built_in_review_routine(routine_id: &str) -> Option<ReviewRoutineSpec> {
+    built_in_review_routines()
+        .into_iter()
+        .find(|routine| routine.metadata.routine_id == routine_id)
+}
+
+#[must_use]
+pub fn built_in_review_routine_summaries() -> Vec<ReviewRoutineSummary> {
+    built_in_review_routines()
+        .into_iter()
+        .map(|routine| ReviewRoutineSummary::from(&routine))
+        .collect()
+}
+
+fn built_in_context_sweep_review_routine() -> ReviewRoutineSpec {
+    ReviewRoutineSpec {
+        metadata: ReviewRoutineMetadata {
+            routine_id: BUILT_IN_REVIEW_ROUTINE_CONTEXT_SWEEP_ID.to_owned(),
+            title: "Context Sweep Review".to_owned(),
+            summary: Some(
+                "Run the built-in context sweep workflow as a durable review routine.".to_owned(),
+            ),
+        },
+        source: ReviewRoutineSource::Workflow {
+            workflow_id: BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID.to_owned(),
+        },
+        inputs: vec![WorkflowInputSpec {
+            input_id: "focus".to_owned(),
+            title: "Focus target".to_owned(),
+            summary: Some("Note or anchor target to review for contextual pressure".to_owned()),
+            kind: WorkflowInputKind::FocusTarget,
+        }],
+        save_review: ReviewRoutineSaveReviewPolicy::default(),
+        compare: None,
+        report_profile_ids: Vec::new(),
+    }
+}
+
+fn built_in_duplicate_title_review_routine() -> ReviewRoutineSpec {
+    ReviewRoutineSpec {
+        metadata: ReviewRoutineMetadata {
+            routine_id: BUILT_IN_REVIEW_ROUTINE_DUPLICATE_TITLE_ID.to_owned(),
+            title: "Duplicate Title Review".to_owned(),
+            summary: Some("Run the duplicate-title audit as a durable review routine.".to_owned()),
+        },
+        source: ReviewRoutineSource::Audit {
+            audit: CorpusAuditKind::DuplicateTitles,
+            limit: 200,
+        },
+        inputs: Vec::new(),
+        save_review: ReviewRoutineSaveReviewPolicy::default(),
+        compare: None,
+        report_profile_ids: Vec::new(),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewRoutineIdParams {
+    pub routine_id: String,
+}
+
+impl ReviewRoutineIdParams {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_review_routine_id_field(&self.routine_id)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ListReviewRoutinesParams {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewRoutineResult {
+    pub routine: ReviewRoutineSpec,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListReviewRoutinesResult {
+    pub routines: Vec<ReviewRoutineSummary>,
+    #[serde(default)]
+    pub issues: Vec<WorkflowCatalogIssue>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunReviewRoutineParams {
     pub routine_id: String,
@@ -4919,6 +5014,7 @@ fn validate_workbench_pack_manifest(manifest: &WorkbenchPackManifest) -> Vec<Wor
     }
 
     let built_in_workflows = built_in_workflows();
+    let built_in_routines = built_in_review_routines();
     let mut workflow_inputs: Vec<(&str, &[WorkflowInputSpec])> = built_in_workflows
         .iter()
         .map(|workflow| {
@@ -4992,11 +5088,24 @@ fn validate_workbench_pack_manifest(manifest: &WorkbenchPackManifest) -> Vec<Wor
 
     let mut routine_ids = Vec::with_capacity(manifest.review_routines.len());
     for (index, routine) in manifest.review_routines.iter().enumerate() {
+        let collides_with_built_in = built_in_routines
+            .iter()
+            .any(|built_in| built_in.metadata.routine_id == routine.metadata.routine_id);
         if let Some(error) = routine.validation_error() {
             issues.push(workbench_pack_issue(
                 WorkbenchPackIssueKind::InvalidReviewRoutine,
                 Some(routine.metadata.routine_id.clone()),
                 format!("workbench pack review routine {index} is invalid: {error}"),
+            ));
+        }
+        if collides_with_built_in {
+            issues.push(workbench_pack_issue(
+                WorkbenchPackIssueKind::DuplicateReviewRoutineId,
+                Some(routine.metadata.routine_id.clone()),
+                format!(
+                    "workbench pack review routine {index} collides with built-in routine_id {}",
+                    routine.metadata.routine_id
+                ),
             ));
         }
         if routine_ids.contains(&routine.metadata.routine_id.as_str()) {
@@ -5363,13 +5472,14 @@ fn validate_review_finding_matches_run(
 #[cfg(test)]
 mod tests {
     use super::{
-        AnchorRecord, BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
-        BUILT_IN_WORKFLOW_PERIODIC_REVIEW_ID, BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
-        BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID, BacklinkRecord, BridgeEvidenceRecord,
-        CaptureNodeParams, CaptureTemplatePreviewResult, CompareNotesParams,
-        ComparisonConnectorDirection, ComparisonPlanningRecord, ComparisonReferenceRecord,
-        ComparisonTaskStateRecord, CorpusAuditEntry, CorpusAuditKind, CorpusAuditParams,
-        CorpusAuditReportLine, CorpusAuditResult, DanglingLinkAuditRecord,
+        AnchorRecord, BUILT_IN_REVIEW_ROUTINE_CONTEXT_SWEEP_ID,
+        BUILT_IN_REVIEW_ROUTINE_DUPLICATE_TITLE_ID, BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID,
+        BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID, BUILT_IN_WORKFLOW_PERIODIC_REVIEW_ID,
+        BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID, BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID,
+        BacklinkRecord, BridgeEvidenceRecord, CaptureNodeParams, CaptureTemplatePreviewResult,
+        CompareNotesParams, ComparisonConnectorDirection, ComparisonPlanningRecord,
+        ComparisonReferenceRecord, ComparisonTaskStateRecord, CorpusAuditEntry, CorpusAuditKind,
+        CorpusAuditParams, CorpusAuditReportLine, CorpusAuditResult, DanglingLinkAuditRecord,
         DeleteExplorationArtifactResult, DeleteWorkbenchPackResult, DuplicateTitleAuditRecord,
         ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
         ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactKind,
@@ -5404,6 +5514,7 @@ mod tests {
         WorkflowReportLine, WorkflowResolveTarget, WorkflowSpec, WorkflowSpecCompatibility,
         WorkflowSpecCompatibilityEnvelope, WorkflowStepPayload, WorkflowStepRef,
         WorkflowStepReport, WorkflowStepReportPayload, WorkflowStepSpec, WorkflowSummary,
+        built_in_review_routine, built_in_review_routine_summaries, built_in_review_routines,
         built_in_workflow, built_in_workflow_summaries, built_in_workflows, normalize_reference,
     };
     use serde_json::json;
@@ -7764,6 +7875,46 @@ mod tests {
     }
 
     #[test]
+    fn built_in_review_routines_are_valid_named_specs() {
+        let routines = built_in_review_routines();
+        assert_eq!(routines.len(), 2);
+        assert!(
+            routines
+                .iter()
+                .all(|routine| routine.validation_error().is_none())
+        );
+        assert!(routines.iter().any(|routine| {
+            routine.metadata.routine_id == BUILT_IN_REVIEW_ROUTINE_CONTEXT_SWEEP_ID
+                && routine.source
+                    == ReviewRoutineSource::Workflow {
+                        workflow_id: BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID.to_owned(),
+                    }
+                && routine.inputs.len() == 1
+        }));
+        assert!(routines.iter().any(|routine| {
+            routine.metadata.routine_id == BUILT_IN_REVIEW_ROUTINE_DUPLICATE_TITLE_ID
+                && routine.source
+                    == ReviewRoutineSource::Audit {
+                        audit: CorpusAuditKind::DuplicateTitles,
+                        limit: 200,
+                    }
+                && routine.inputs.is_empty()
+        }));
+
+        let context = built_in_review_routine(BUILT_IN_REVIEW_ROUTINE_CONTEXT_SWEEP_ID)
+            .expect("context routine should exist");
+        assert_eq!(context.metadata.title, "Context Sweep Review");
+        assert!(built_in_review_routine("routine/builtin/missing").is_none());
+
+        let summaries = built_in_review_routine_summaries();
+        assert_eq!(summaries.len(), routines.len());
+        assert!(summaries.iter().any(|summary| {
+            summary.metadata.routine_id == BUILT_IN_REVIEW_ROUTINE_CONTEXT_SWEEP_ID
+                && summary.input_count == 1
+        }));
+    }
+
+    #[test]
     fn workbench_pack_manifests_round_trip_with_bundled_assets() {
         let manifest = sample_workbench_pack_manifest();
 
@@ -8042,6 +8193,19 @@ mod tests {
                 && issue
                     .message
                     .contains("but referenced workflow requires focus-target")
+        }));
+
+        let mut built_in_routine_collision = valid.clone();
+        built_in_routine_collision.review_routines[0]
+            .metadata
+            .routine_id = BUILT_IN_REVIEW_ROUTINE_CONTEXT_SWEEP_ID.to_owned();
+        let issues = built_in_routine_collision.validation_issues();
+        assert!(issues.iter().any(|issue| {
+            issue.kind == WorkbenchPackIssueKind::DuplicateReviewRoutineId
+                && issue.message
+                    == format!(
+                        "workbench pack review routine 0 collides with built-in routine_id {BUILT_IN_REVIEW_ROUTINE_CONTEXT_SWEEP_ID}"
+                    )
         }));
 
         let mut missing_workflow = valid.clone();

@@ -10,12 +10,13 @@ use slipbox_core::{
     CompareNotesParams, CorpusAuditParams, CorpusAuditResult, ExecuteExplorationArtifactResult,
     ExplorationArtifactIdParams, ExplorationArtifactResult, ExploreParams, ExploreResult,
     ImportWorkbenchPackParams, ImportWorkbenchPackResult, ListExplorationArtifactsParams,
-    ListExplorationArtifactsResult, ListReviewRunsParams, ListReviewRunsResult,
-    ListWorkbenchPacksParams, ListWorkbenchPacksResult, ListWorkflowsParams, ListWorkflowsResult,
-    MarkReviewFindingParams, MarkReviewFindingResult, NodeAtPointParams, NodeFromIdParams,
-    NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
-    NoteComparisonResult, PingInfo, ReviewFindingRemediationPreviewParams,
-    ReviewFindingRemediationPreviewResult, ReviewRunDiffParams, ReviewRunDiffResult,
+    ListExplorationArtifactsResult, ListReviewRoutinesParams, ListReviewRoutinesResult,
+    ListReviewRunsParams, ListReviewRunsResult, ListWorkbenchPacksParams, ListWorkbenchPacksResult,
+    ListWorkflowsParams, ListWorkflowsResult, MarkReviewFindingParams, MarkReviewFindingResult,
+    NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
+    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, PingInfo,
+    ReviewFindingRemediationPreviewParams, ReviewFindingRemediationPreviewResult,
+    ReviewRoutineIdParams, ReviewRoutineResult, ReviewRunDiffParams, ReviewRunDiffResult,
     ReviewRunIdParams, ReviewRunResult, RunReviewRoutineParams, RunReviewRoutineResult,
     RunWorkflowParams, RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
     SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
@@ -29,12 +30,13 @@ use slipbox_rpc::{
     METHOD_DELETE_EXPLORATION_ARTIFACT, METHOD_DELETE_REVIEW_RUN, METHOD_DELETE_WORKBENCH_PACK,
     METHOD_DIFF_REVIEW_RUNS, METHOD_EXECUTE_EXPLORATION_ARTIFACT, METHOD_EXPLORATION_ARTIFACT,
     METHOD_EXPLORE, METHOD_EXPORT_WORKBENCH_PACK, METHOD_IMPORT_WORKBENCH_PACK,
-    METHOD_LIST_EXPLORATION_ARTIFACTS, METHOD_LIST_REVIEW_RUNS, METHOD_LIST_WORKBENCH_PACKS,
-    METHOD_LIST_WORKFLOWS, METHOD_MARK_REVIEW_FINDING, METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID,
-    METHOD_NODE_FROM_KEY, METHOD_NODE_FROM_REF, METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING,
-    METHOD_REVIEW_FINDING_REMEDIATION_PREVIEW, METHOD_REVIEW_RUN, METHOD_RUN_REVIEW_ROUTINE,
-    METHOD_RUN_WORKFLOW, METHOD_SAVE_CORPUS_AUDIT_REVIEW, METHOD_SAVE_EXPLORATION_ARTIFACT,
-    METHOD_SAVE_REVIEW_RUN, METHOD_SAVE_WORKFLOW_REVIEW, METHOD_SEARCH_NODES, METHOD_STATUS,
+    METHOD_LIST_EXPLORATION_ARTIFACTS, METHOD_LIST_REVIEW_ROUTINES, METHOD_LIST_REVIEW_RUNS,
+    METHOD_LIST_WORKBENCH_PACKS, METHOD_LIST_WORKFLOWS, METHOD_MARK_REVIEW_FINDING,
+    METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_NODE_FROM_REF,
+    METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_REVIEW_FINDING_REMEDIATION_PREVIEW,
+    METHOD_REVIEW_ROUTINE, METHOD_REVIEW_RUN, METHOD_RUN_REVIEW_ROUTINE, METHOD_RUN_WORKFLOW,
+    METHOD_SAVE_CORPUS_AUDIT_REVIEW, METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SAVE_REVIEW_RUN,
+    METHOD_SAVE_WORKFLOW_REVIEW, METHOD_SEARCH_NODES, METHOD_STATUS,
     METHOD_VALIDATE_WORKBENCH_PACK, METHOD_WORKBENCH_PACK, METHOD_WORKFLOW, read_framed_message,
     write_framed_message,
 };
@@ -277,6 +279,20 @@ where
         params: &RunWorkflowParams,
     ) -> Result<RunWorkflowResult, DaemonClientError> {
         self.request(METHOD_RUN_WORKFLOW, params)
+    }
+
+    fn list_review_routines(&mut self) -> Result<ListReviewRoutinesResult, DaemonClientError> {
+        self.request(
+            METHOD_LIST_REVIEW_ROUTINES,
+            &ListReviewRoutinesParams::default(),
+        )
+    }
+
+    fn review_routine(
+        &mut self,
+        params: &ReviewRoutineIdParams,
+    ) -> Result<ReviewRoutineResult, DaemonClientError> {
+        self.request(METHOD_REVIEW_ROUTINE, params)
     }
 
     fn run_review_routine(
@@ -644,6 +660,17 @@ impl DaemonClient {
         params: &RunWorkflowParams,
     ) -> Result<RunWorkflowResult, DaemonClientError> {
         self.rpc.run_workflow(params)
+    }
+
+    pub fn list_review_routines(&mut self) -> Result<ListReviewRoutinesResult, DaemonClientError> {
+        self.rpc.list_review_routines()
+    }
+
+    pub fn review_routine(
+        &mut self,
+        params: &ReviewRoutineIdParams,
+    ) -> Result<ReviewRoutineResult, DaemonClientError> {
+        self.rpc.review_routine(params)
     }
 
     pub fn run_review_routine(

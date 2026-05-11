@@ -33,6 +33,8 @@ enum Command {
     Audit(cli::AuditArgs),
     /// Discover, inspect, and run named workflows over the canonical headless connection path.
     Workflow(cli::WorkflowArgs),
+    /// Discover, inspect, and run review routines over the canonical headless connection path.
+    Routine(cli::RoutineArgs),
     /// Manage durable exploration artifacts over the canonical headless connection path.
     Artifact(cli::ArtifactArgs),
     /// Manage declarative workbench packs over the canonical headless connection path.
@@ -65,6 +67,7 @@ fn run() -> Result<(), cli::CliCommandError> {
         Command::Compare(args) => cli::run_compare(&args),
         Command::Audit(args) => cli::run_audit(&args),
         Command::Workflow(args) => cli::run_workflow(&args),
+        Command::Routine(args) => cli::run_routine(&args),
         Command::Artifact(args) => cli::run_artifact(&args),
         Command::Pack(args) => cli::run_pack(&args),
         Command::Review(args) => cli::run_review(&args),

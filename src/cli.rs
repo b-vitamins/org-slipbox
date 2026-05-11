@@ -8,33 +8,37 @@ use anyhow::{Context, Result};
 use clap::{ArgGroup, Args, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use slipbox_core::{
-    AnchorRecord, CompareNotesParams, ComparisonConnectorDirection, CorpusAuditEntry,
-    CorpusAuditKind, CorpusAuditParams, CorpusAuditResult, DeleteExplorationArtifactResult,
-    DeleteReviewRunResult, DeleteWorkbenchPackResult, ExecuteExplorationArtifactResult,
-    ExecutedExplorationArtifact, ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams,
-    ExplorationArtifactKind, ExplorationArtifactMetadata, ExplorationArtifactPayload,
-    ExplorationArtifactResult, ExplorationArtifactSummary, ExplorationEntry,
-    ExplorationExplanation, ExplorationLens, ExplorationSectionKind, ExploreParams, ExploreResult,
-    ImportWorkbenchPackParams, ListExplorationArtifactsResult, ListReviewRunsResult,
+    AnchorRecord, AppliedReportProfile, CompareNotesParams, ComparisonConnectorDirection,
+    CorpusAuditEntry, CorpusAuditKind, CorpusAuditParams, CorpusAuditResult,
+    DeleteExplorationArtifactResult, DeleteReviewRunResult, DeleteWorkbenchPackResult,
+    ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
+    ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactKind,
+    ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
+    ExplorationArtifactSummary, ExplorationEntry, ExplorationExplanation, ExplorationLens,
+    ExplorationSectionKind, ExploreParams, ExploreResult, ImportWorkbenchPackParams,
+    ListExplorationArtifactsResult, ListReviewRoutinesResult, ListReviewRunsResult,
     ListWorkbenchPacksResult, ListWorkflowsResult, MarkReviewFindingParams,
     MarkReviewFindingResult, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
     NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonEntry, NoteComparisonExplanation,
     NoteComparisonGroup, NoteComparisonResult, NoteComparisonSectionKind, PlanningField,
     PlanningRelationRecord, ReviewFinding, ReviewFindingKind, ReviewFindingPair,
-    ReviewFindingPayload, ReviewFindingStatus, ReviewFindingStatusDiff, ReviewRun, ReviewRunDiff,
-    ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunKind, ReviewRunPayload,
-    ReviewRunResult, ReviewRunSummary, RunWorkflowParams, RunWorkflowResult,
-    SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult, SaveExplorationArtifactParams,
-    SaveWorkflowReviewParams, SaveWorkflowReviewResult, SavedComparisonArtifact,
-    SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep,
-    StatusInfo, TrailReplayResult, TrailReplayStepResult, ValidateWorkbenchPackResult,
-    WorkbenchPackCompatibilityEnvelope, WorkbenchPackIdParams, WorkbenchPackIssue,
-    WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackResult, WorkbenchPackSummary,
-    WorkflowArtifactSaveSource, WorkflowCatalogIssue, WorkflowExecutionResult,
-    WorkflowExploreFocus, WorkflowIdParams, WorkflowInputAssignment, WorkflowInputKind,
-    WorkflowInputSpec, WorkflowResolveTarget, WorkflowSpec, WorkflowSpecCompatibilityEnvelope,
-    WorkflowStepPayload, WorkflowStepReport, WorkflowStepReportPayload, WorkflowStepSpec,
-    WorkflowSummary,
+    ReviewFindingPayload, ReviewFindingStatus, ReviewFindingStatusDiff, ReviewRoutineCompareResult,
+    ReviewRoutineExecutionResult, ReviewRoutineIdParams, ReviewRoutineReportLine,
+    ReviewRoutineResult, ReviewRoutineSource, ReviewRoutineSourceExecutionResult,
+    ReviewRoutineSpec, ReviewRoutineSummary, ReviewRun, ReviewRunDiff, ReviewRunDiffParams,
+    ReviewRunDiffResult, ReviewRunIdParams, ReviewRunKind, ReviewRunPayload, ReviewRunResult,
+    ReviewRunSummary, RunReviewRoutineParams, RunReviewRoutineResult, RunWorkflowParams,
+    RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
+    SaveExplorationArtifactParams, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
+    SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact,
+    SavedTrailStep, StatusInfo, TrailReplayResult, TrailReplayStepResult,
+    ValidateWorkbenchPackResult, WorkbenchPackCompatibilityEnvelope, WorkbenchPackIdParams,
+    WorkbenchPackIssue, WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackResult,
+    WorkbenchPackSummary, WorkflowArtifactSaveSource, WorkflowCatalogIssue,
+    WorkflowExecutionResult, WorkflowExploreFocus, WorkflowIdParams, WorkflowInputAssignment,
+    WorkflowInputKind, WorkflowInputSpec, WorkflowResolveTarget, WorkflowSpec,
+    WorkflowSpecCompatibilityEnvelope, WorkflowStepPayload, WorkflowStepReport,
+    WorkflowStepReportPayload, WorkflowStepSpec, WorkflowSummary,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonClientError, DaemonServeConfig};
 use slipbox_index::DiscoveryPolicy;
@@ -521,6 +525,53 @@ pub(crate) struct WorkflowRunArgs {
     pub(crate) save_review: SaveReviewArgs,
 }
 
+#[derive(Debug, Clone, Args)]
+pub(crate) struct RoutineArgs {
+    #[command(subcommand)]
+    pub(crate) command: RoutineCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum RoutineCommand {
+    /// List available review routines.
+    List(RoutineListArgs),
+    /// Show a review routine definition.
+    Show(RoutineShowArgs),
+    /// Run a review routine through daemon-owned semantics.
+    Run(RoutineRunArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct RoutineListArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct RoutineIdArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// Durable review routine identifier.
+    pub(crate) routine_id: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct RoutineShowArgs {
+    #[command(flatten)]
+    pub(crate) routine: RoutineIdArgs,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct RoutineRunArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// Review routine identifier to run.
+    pub(crate) routine_id: String,
+    /// Routine input assignment as `input-id=kind:value` where kind is `id`, `title`, `ref`, or `key`.
+    #[arg(long = "input")]
+    pub(crate) inputs: Vec<String>,
+}
+
 #[derive(Debug, Clone, Args, Default)]
 pub(crate) struct ReportOutputArgs {
     /// Write the rendered report to this path instead of stdout. Use `-` for stdout.
@@ -966,6 +1017,14 @@ pub(crate) fn run_workflow(args: &WorkflowArgs) -> Result<(), CliCommandError> {
         WorkflowCommand::List(command) => run_headless_command(command),
         WorkflowCommand::Show(command) => run_workflow_show(command),
         WorkflowCommand::Run(command) => run_workflow_command(command),
+    }
+}
+
+pub(crate) fn run_routine(args: &RoutineArgs) -> Result<(), CliCommandError> {
+    match &args.command {
+        RoutineCommand::List(command) => run_headless_command(command),
+        RoutineCommand::Show(command) => run_headless_command(command),
+        RoutineCommand::Run(command) => run_headless_command(command),
     }
 }
 
@@ -1763,6 +1822,59 @@ impl HeadlessCommand for WorkflowRunArgs {
 
     fn render_human(&self, output: &Self::Output) -> String {
         render_workflow_execution_result(&output.result)
+    }
+}
+
+impl HeadlessCommand for RoutineListArgs {
+    type Output = ListReviewRoutinesResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.list_review_routines()
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_review_routine_list(output)
+    }
+}
+
+impl HeadlessCommand for RoutineShowArgs {
+    type Output = ReviewRoutineResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.routine.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.review_routine(&ReviewRoutineIdParams {
+            routine_id: self.routine.routine_id.clone(),
+        })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_review_routine_spec(&output.routine)
+    }
+}
+
+impl HeadlessCommand for RoutineRunArgs {
+    type Output = RunReviewRoutineResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.run_review_routine(&RunReviewRoutineParams {
+            routine_id: self.routine_id.clone(),
+            inputs: parse_workflow_input_assignments(&self.inputs)?,
+        })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_review_routine_execution_result(&output.result)
     }
 }
 
@@ -2636,6 +2748,236 @@ fn render_workbench_pack_issues(output: &mut String, issues: &[WorkbenchPackIssu
         }
         output.push_str(&format!("  message: {}\n", issue.message));
     }
+}
+
+fn render_review_routine_list(result: &ListReviewRoutinesResult) -> String {
+    let mut output = String::new();
+    if result.routines.is_empty() {
+        output.push_str("(none)\n");
+    } else {
+        for routine in &result.routines {
+            render_review_routine_summary(&mut output, routine);
+        }
+    }
+
+    if !result.issues.is_empty() {
+        if !output.is_empty() {
+            output.push('\n');
+        }
+        render_workflow_catalog_issues(&mut output, &result.issues);
+    }
+
+    output
+}
+
+fn render_review_routine_summary(output: &mut String, routine: &ReviewRoutineSummary) {
+    output.push_str(&format!(
+        "- {} [{}]\n",
+        routine.metadata.title, routine.metadata.routine_id
+    ));
+    output.push_str(&format!("  source: {}\n", routine.source_kind.label()));
+    output.push_str(&format!("  inputs: {}\n", routine.input_count));
+    output.push_str(&format!(
+        "  report profiles: {}\n",
+        routine.report_profile_count
+    ));
+    if let Some(summary) = &routine.metadata.summary {
+        output.push_str(&format!("  summary: {summary}\n"));
+    }
+}
+
+fn render_review_routine_spec(routine: &ReviewRoutineSpec) -> String {
+    let mut output = String::new();
+    output.push_str(&format!("routine id: {}\n", routine.metadata.routine_id));
+    output.push_str(&format!("title: {}\n", routine.metadata.title));
+    output.push_str(&format!("source: {}\n", routine.source.kind().label()));
+    if let Some(summary) = &routine.metadata.summary {
+        output.push_str(&format!("summary: {summary}\n"));
+    }
+    render_review_routine_source(&mut output, &routine.source);
+    output.push_str(&format!("save review: {}\n", routine.save_review.enabled));
+    if let Some(review_id) = &routine.save_review.review_id {
+        output.push_str(&format!("review id: {review_id}\n"));
+    }
+    if let Some(title) = &routine.save_review.title {
+        output.push_str(&format!("review title: {title}\n"));
+    }
+    if let Some(summary) = &routine.save_review.summary {
+        output.push_str(&format!("review summary: {summary}\n"));
+    }
+    output.push_str(&format!("overwrite: {}\n", routine.save_review.overwrite));
+    if let Some(compare) = &routine.compare {
+        output.push_str(&format!("compare: {}\n", compare.target.label()));
+        if let Some(profile_id) = &compare.report_profile_id {
+            output.push_str(&format!("compare report profile: {profile_id}\n"));
+        }
+    }
+    if !routine.report_profile_ids.is_empty() {
+        output.push_str(&format!(
+            "report profiles: {}\n",
+            routine.report_profile_ids.join(", ")
+        ));
+    }
+    if !routine.inputs.is_empty() {
+        output.push_str("\n[inputs]\n");
+        for input in &routine.inputs {
+            render_workflow_input_spec(&mut output, input);
+        }
+    }
+    output
+}
+
+fn render_review_routine_source(output: &mut String, source: &ReviewRoutineSource) {
+    match source {
+        ReviewRoutineSource::Audit { audit, limit } => {
+            output.push_str(&format!("audit: {}\n", render_corpus_audit_kind(*audit)));
+            output.push_str(&format!("limit: {limit}\n"));
+        }
+        ReviewRoutineSource::Workflow { workflow_id } => {
+            output.push_str(&format!("workflow id: {workflow_id}\n"));
+        }
+        ReviewRoutineSource::Unsupported => {
+            output.push_str("unsupported source\n");
+        }
+    }
+}
+
+fn render_review_routine_execution_result(result: &ReviewRoutineExecutionResult) -> String {
+    let mut output = String::new();
+    output.push_str(&format!(
+        "routine: {} [{}]\n",
+        result.routine.metadata.title, result.routine.metadata.routine_id
+    ));
+    output.push_str(&format!("source: {}\n", result.routine.source_kind.label()));
+    if let Some(summary) = &result.routine.metadata.summary {
+        output.push_str(&format!("summary: {summary}\n"));
+    }
+    match &result.source {
+        ReviewRoutineSourceExecutionResult::Audit { result } => {
+            output.push('\n');
+            output.push_str(&render_corpus_audit_result(result));
+        }
+        ReviewRoutineSourceExecutionResult::Workflow { result } => {
+            output.push('\n');
+            output.push_str(&render_workflow_execution_result(result));
+        }
+    }
+    if let Some(saved_review) = &result.saved_review {
+        output.push('\n');
+        output.push_str(&render_saved_review_summary(saved_review));
+        output.push_str(&format!("{}\n", render_review_status_counts(saved_review)));
+    }
+    if let Some(compare) = &result.compare {
+        output.push('\n');
+        output.push_str(&render_review_routine_compare(compare));
+    }
+    if !result.reports.is_empty() {
+        output.push('\n');
+        output.push_str("[reports]\n");
+        for report in &result.reports {
+            render_applied_report_profile(&mut output, report);
+        }
+    }
+    output
+}
+
+fn render_review_routine_compare(compare: &ReviewRoutineCompareResult) -> String {
+    let mut output = String::new();
+    output.push_str(&format!("compare: {}\n", compare.target.label()));
+    if let Some(base_review) = &compare.base_review {
+        output.push_str(&format!(
+            "base review: {} [{}]\n",
+            base_review.metadata.title, base_review.metadata.review_id
+        ));
+    } else {
+        output.push_str("base review: none\n");
+    }
+    if let Some(diff) = &compare.diff {
+        output.push_str(&render_review_diff(diff));
+    }
+    if let Some(report) = &compare.report {
+        output.push_str("\n[compare-report]\n");
+        render_applied_report_profile(&mut output, report);
+    }
+    output
+}
+
+fn render_applied_report_profile(output: &mut String, report: &AppliedReportProfile) {
+    output.push_str(&format!(
+        "- {} [{}]\n",
+        report.profile.metadata.title, report.profile.metadata.profile_id
+    ));
+    if report.lines.is_empty() {
+        output.push_str("  (no lines)\n");
+        return;
+    }
+    for line in &report.lines {
+        let rendered = render_review_routine_report_line(line);
+        push_indented(output, &rendered, "  ");
+    }
+}
+
+fn render_review_routine_report_line(line: &ReviewRoutineReportLine) -> String {
+    let mut output = String::new();
+    match line {
+        ReviewRoutineReportLine::Routine { routine } => {
+            output.push_str(&format!(
+                "routine: {} [{}]\n",
+                routine.metadata.title, routine.metadata.routine_id
+            ));
+        }
+        ReviewRoutineReportLine::Workflow { workflow } => {
+            output.push_str(&format!(
+                "workflow: {} [{}]\n",
+                workflow.metadata.title, workflow.metadata.workflow_id
+            ));
+        }
+        ReviewRoutineReportLine::Step { step } => {
+            render_workflow_step_report(&mut output, step);
+        }
+        ReviewRoutineReportLine::Audit { audit } => {
+            output.push_str(&format!("audit: {}\n", render_corpus_audit_kind(*audit)));
+        }
+        ReviewRoutineReportLine::Entry { entry } => {
+            render_review_audit_entry(&mut output, entry);
+        }
+        ReviewRoutineReportLine::Review { review } => {
+            output.push_str(&render_saved_review_summary(review));
+            output.push_str(&format!("{}\n", render_review_status_counts(review)));
+        }
+        ReviewRoutineReportLine::Finding { finding }
+        | ReviewRoutineReportLine::Added { finding }
+        | ReviewRoutineReportLine::Removed { finding } => {
+            render_review_finding(&mut output, finding, "");
+        }
+        ReviewRoutineReportLine::Diff {
+            base_review,
+            target_review,
+        } => {
+            output.push_str(&format!(
+                "diff: {} -> {}\n",
+                base_review.metadata.review_id, target_review.metadata.review_id
+            ));
+        }
+        ReviewRoutineReportLine::Unchanged { finding }
+        | ReviewRoutineReportLine::ContentChanged { finding } => {
+            output.push_str(&format!("finding pair: {}\n", finding.finding_id));
+            output.push_str("base:\n");
+            render_review_finding(&mut output, &finding.base, "  ");
+            output.push_str("target:\n");
+            render_review_finding(&mut output, &finding.target, "  ");
+        }
+        ReviewRoutineReportLine::StatusChanged { change } => {
+            output.push_str(&format!("status changed: {}\n", change.finding_id));
+            output.push_str(&format!(
+                "status: {} -> {}\n",
+                render_review_finding_status(change.from_status),
+                render_review_finding_status(change.to_status)
+            ));
+            render_review_finding(&mut output, &change.target, "");
+        }
+    }
+    output
 }
 
 fn render_workflow_spec(workflow: &WorkflowSpec) -> String {

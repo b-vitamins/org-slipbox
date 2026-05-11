@@ -11,26 +11,27 @@ use slipbox_core::{
     ExplorationSection, ExplorationSectionKind, ExploreParams, ExploreResult, ForwardLinksParams,
     ForwardLinksResult, GraphParams, GraphResult, ImportWorkbenchPackParams,
     ImportWorkbenchPackResult, IndexFileParams, IndexedFilesResult, ListExplorationArtifactsParams,
-    ListExplorationArtifactsResult, ListReviewRunsParams, ListReviewRunsResult,
-    ListWorkbenchPacksParams, ListWorkbenchPacksResult, ListWorkflowsParams, ListWorkflowsResult,
-    MarkReviewFindingParams, MarkReviewFindingResult, NodeAtPointParams, NodeFromIdParams,
-    NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
-    NoteComparisonGroup, NoteComparisonResult, PingInfo, RandomNodeResult, ReflinksParams,
-    ReflinksResult, ReportProfileMode, ReportProfileSpec, ReviewFinding, ReviewFindingPayload,
-    ReviewFindingRemediationPreview, ReviewFindingRemediationPreviewParams,
-    ReviewFindingRemediationPreviewResult, ReviewFindingStatus, ReviewFindingStatusTransition,
-    ReviewRoutineCompareResult, ReviewRoutineExecutionResult, ReviewRoutineReportLine,
-    ReviewRoutineSource, ReviewRoutineSourceExecutionResult, ReviewRoutineSpec, ReviewRun,
-    ReviewRunDiff, ReviewRunDiffBucket, ReviewRunDiffParams, ReviewRunDiffResult,
-    ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, ReviewRunSummary,
-    RunReviewRoutineParams, RunReviewRoutineResult, RunWorkflowParams, RunWorkflowResult,
-    SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult, SaveExplorationArtifactParams,
-    SaveExplorationArtifactResult, SaveReviewRunParams, SaveReviewRunResult,
-    SaveWorkflowReviewParams, SaveWorkflowReviewResult, SavedComparisonArtifact,
-    SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailStep, SearchFilesParams,
-    SearchFilesResult, SearchNodesParams, SearchNodesResult, SearchOccurrencesParams,
-    SearchOccurrencesResult, SearchRefsParams, SearchRefsResult, SearchTagsParams,
-    SearchTagsResult, StatusInfo, TrailReplayResult, TrailReplayStepResult,
+    ListExplorationArtifactsResult, ListReviewRoutinesParams, ListReviewRoutinesResult,
+    ListReviewRunsParams, ListReviewRunsResult, ListWorkbenchPacksParams, ListWorkbenchPacksResult,
+    ListWorkflowsParams, ListWorkflowsResult, MarkReviewFindingParams, MarkReviewFindingResult,
+    NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
+    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonGroup, NoteComparisonResult, PingInfo,
+    RandomNodeResult, ReflinksParams, ReflinksResult, ReportProfileMode, ReportProfileSpec,
+    ReviewFinding, ReviewFindingPayload, ReviewFindingRemediationPreview,
+    ReviewFindingRemediationPreviewParams, ReviewFindingRemediationPreviewResult,
+    ReviewFindingStatus, ReviewFindingStatusTransition, ReviewRoutineCompareResult,
+    ReviewRoutineExecutionResult, ReviewRoutineIdParams, ReviewRoutineReportLine,
+    ReviewRoutineResult, ReviewRoutineSource, ReviewRoutineSourceExecutionResult,
+    ReviewRoutineSpec, ReviewRun, ReviewRunDiff, ReviewRunDiffBucket, ReviewRunDiffParams,
+    ReviewRunDiffResult, ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload, ReviewRunResult,
+    ReviewRunSummary, RunReviewRoutineParams, RunReviewRoutineResult, RunWorkflowParams,
+    RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
+    SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
+    SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
+    SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailStep,
+    SearchFilesParams, SearchFilesResult, SearchNodesParams, SearchNodesResult,
+    SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams, SearchRefsResult,
+    SearchTagsParams, SearchTagsResult, StatusInfo, TrailReplayResult, TrailReplayStepResult,
     UnlinkedReferencesParams, UnlinkedReferencesResult, ValidateWorkbenchPackParams,
     ValidateWorkbenchPackResult, WorkbenchPackCompatibilityEnvelope, WorkbenchPackIdParams,
     WorkbenchPackIssue, WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackResult,
@@ -667,6 +668,13 @@ fn validate_pack_id_params(params: &WorkbenchPackIdParams) -> Result<(), JsonRpc
 }
 
 fn validate_workflow_id_params(params: &WorkflowIdParams) -> Result<(), JsonRpcError> {
+    if let Some(message) = params.validation_error() {
+        return Err(invalid_request(message));
+    }
+    Ok(())
+}
+
+fn validate_review_routine_id_params(params: &ReviewRoutineIdParams) -> Result<(), JsonRpcError> {
     if let Some(message) = params.validation_error() {
         return Err(invalid_request(message));
     }
@@ -2092,6 +2100,30 @@ pub(crate) fn run_workflow(
         .ok_or_else(|| invalid_request(format!("unknown workflow: {}", params.workflow_id)))?;
     let result = execute_workflow_spec(state, &workflow, &params.inputs)?;
     to_value(RunWorkflowResult { result })
+}
+
+pub(crate) fn list_review_routines(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let _params: ListReviewRoutinesParams = parse_params(params)?;
+    let catalog = discover_server_workflow_catalog(state)?;
+    to_value(ListReviewRoutinesResult {
+        routines: catalog.review_routine_summaries(),
+        issues: catalog.issues().to_vec(),
+    })
+}
+
+pub(crate) fn review_routine(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: ReviewRoutineIdParams = parse_params(params)?;
+    validate_review_routine_id_params(&params)?;
+    let routine = discover_server_workflow_catalog(state)?
+        .review_routine(&params.routine_id)
+        .ok_or_else(|| invalid_request(format!("unknown review routine: {}", params.routine_id)))?;
+    to_value(ReviewRoutineResult { routine })
 }
 
 pub(crate) fn run_review_routine(

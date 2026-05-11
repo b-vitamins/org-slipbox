@@ -5,15 +5,16 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result};
 use slipbox_core::{
     AnchorRecord, AuditRemediationConfidence, AuditRemediationPreviewPayload,
-    BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID,
-    CompareNotesParams, CorpusAuditEntry, CorpusAuditKind, DanglingLinkAuditRecord,
-    ExecuteExplorationArtifactResult, ExplorationArtifactIdParams, ExplorationArtifactMetadata,
-    ExplorationArtifactPayload, ExplorationLens, ExploreParams, ImportWorkbenchPackParams,
-    NodeFromIdParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeKind,
-    ReportProfileMetadata, ReportProfileMode, ReportProfileSpec, ReportProfileSubject,
-    ReviewFinding, ReviewFindingPayload, ReviewFindingRemediationPreviewParams,
-    ReviewFindingStatus, ReviewRun, ReviewRunDiffParams, ReviewRunIdParams, ReviewRunMetadata,
-    ReviewRunPayload, RunWorkflowParams, SaveCorpusAuditReviewParams,
+    BUILT_IN_REVIEW_ROUTINE_DUPLICATE_TITLE_ID, BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID,
+    BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID, CompareNotesParams, CorpusAuditEntry,
+    CorpusAuditKind, DanglingLinkAuditRecord, ExecuteExplorationArtifactResult,
+    ExplorationArtifactIdParams, ExplorationArtifactMetadata, ExplorationArtifactPayload,
+    ExplorationLens, ExploreParams, ImportWorkbenchPackParams, NodeFromIdParams, NodeFromRefParams,
+    NodeFromTitleOrAliasParams, NodeKind, ReportProfileMetadata, ReportProfileMode,
+    ReportProfileSpec, ReportProfileSubject, ReviewFinding, ReviewFindingPayload,
+    ReviewFindingRemediationPreviewParams, ReviewFindingStatus, ReviewRoutineIdParams, ReviewRun,
+    ReviewRunDiffParams, ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload,
+    RunReviewRoutineParams, RunWorkflowParams, SaveCorpusAuditReviewParams,
     SaveExplorationArtifactParams, SaveReviewRunParams, SaveWorkflowReviewParams,
     SavedExplorationArtifact, SavedLensViewArtifact, SearchNodesParams,
     ValidateWorkbenchPackParams, WorkbenchPackCompatibility, WorkbenchPackIdParams,
@@ -399,6 +400,49 @@ fn daemon_client_queries_spawned_daemon_and_round_trips_artifacts() -> Result<()
         pack_id: "pack/daemon-client".to_owned(),
     })?;
     assert_eq!(exported_pack, loaded_pack.pack);
+
+    let routines = client.list_review_routines()?;
+    assert!(routines.routines.iter().any(|routine| {
+        routine.metadata.routine_id == BUILT_IN_REVIEW_ROUTINE_DUPLICATE_TITLE_ID
+    }));
+    let routine = client.review_routine(&ReviewRoutineIdParams {
+        routine_id: BUILT_IN_REVIEW_ROUTINE_DUPLICATE_TITLE_ID.to_owned(),
+    })?;
+    assert_eq!(
+        routine.routine.metadata.routine_id,
+        BUILT_IN_REVIEW_ROUTINE_DUPLICATE_TITLE_ID
+    );
+    let routine_run = client.run_review_routine(&RunReviewRoutineParams {
+        routine_id: BUILT_IN_REVIEW_ROUTINE_DUPLICATE_TITLE_ID.to_owned(),
+        inputs: Vec::new(),
+    })?;
+    assert_eq!(
+        routine_run.result.routine.metadata.routine_id,
+        BUILT_IN_REVIEW_ROUTINE_DUPLICATE_TITLE_ID
+    );
+    assert!(matches!(
+        routine_run.result.source,
+        slipbox_core::ReviewRoutineSourceExecutionResult::Audit { .. }
+    ));
+    let routine_review_id = routine_run
+        .result
+        .saved_review
+        .as_ref()
+        .expect("built-in routine should save a review")
+        .metadata
+        .review_id
+        .clone();
+    assert_eq!(
+        routine_review_id,
+        "review/routine/builtin/duplicate-title-review"
+    );
+    let deleted_routine_review = client.delete_review_run(&ReviewRunIdParams {
+        review_id: routine_review_id,
+    })?;
+    assert_eq!(
+        deleted_routine_review.review_id,
+        "review/routine/builtin/duplicate-title-review"
+    );
 
     let mut unsupported_pack = exported_pack.clone();
     unsupported_pack.compatibility = WorkbenchPackCompatibility { version: 2 };

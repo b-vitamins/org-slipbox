@@ -6,7 +6,8 @@ use slipbox_core::{
     ReportProfileCatalog, ReportProfileSpec, ReviewRoutineCatalog, ReviewRoutineSource,
     ReviewRoutineSpec, WORKFLOW_SPEC_COMPATIBILITY_VERSION, WorkbenchPackManifest,
     WorkflowCatalogIssue, WorkflowCatalogIssueKind, WorkflowInputSpec, WorkflowSpec,
-    WorkflowSpecCompatibilityEnvelope, WorkflowSummary, built_in_workflows,
+    WorkflowSpecCompatibilityEnvelope, WorkflowSummary, built_in_review_routines,
+    built_in_workflows,
 };
 
 pub(super) struct WorkflowCatalog {
@@ -50,6 +51,13 @@ impl WorkflowCatalog {
             .cloned()
     }
 
+    pub(super) fn review_routine_summaries(&self) -> Vec<slipbox_core::ReviewRoutineSummary> {
+        self.review_routines
+            .iter()
+            .map(slipbox_core::ReviewRoutineSummary::from)
+            .collect::<Vec<_>>()
+    }
+
     pub(super) fn report_profile(&self, profile_id: &str) -> Option<ReportProfileSpec> {
         self.report_profiles
             .iter()
@@ -82,7 +90,7 @@ pub(super) fn discover_workflow_catalog(
     packs: &[WorkbenchPackManifest],
 ) -> WorkflowCatalog {
     let mut workflows = built_in_workflows();
-    let mut review_routines = Vec::new();
+    let mut review_routines = built_in_review_routines();
     let mut report_profiles = Vec::new();
     let mut issues = Vec::new();
     let mut workflow_sources: HashMap<String, String> = workflows
@@ -94,7 +102,15 @@ pub(super) fn discover_workflow_catalog(
             )
         })
         .collect();
-    let mut routine_sources: HashMap<String, String> = HashMap::new();
+    let mut routine_sources: HashMap<String, String> = review_routines
+        .iter()
+        .map(|routine| {
+            (
+                routine.metadata.routine_id.clone(),
+                "built-in routine".to_owned(),
+            )
+        })
+        .collect();
     let mut profile_sources: HashMap<String, String> = HashMap::new();
 
     for workflow_dir in workflow_dirs {
@@ -823,10 +839,23 @@ mod tests {
         );
 
         let routine_catalog = catalog.review_routine_catalog();
-        assert_eq!(routine_catalog.routines.len(), 1);
-        assert_eq!(
-            routine_catalog.routines[0].metadata.routine_id,
-            "routine/pack/valid"
+        assert!(
+            routine_catalog
+                .routines
+                .iter()
+                .any(|routine| routine.metadata.routine_id == "routine/pack/valid")
+        );
+        assert!(
+            !routine_catalog
+                .routines
+                .iter()
+                .any(|routine| routine.metadata.routine_id == "routine/pack/missing-workflow")
+        );
+        assert!(
+            !routine_catalog
+                .routines
+                .iter()
+                .any(|routine| routine.metadata.routine_id == "routine/pack/missing-profile")
         );
 
         assert!(catalog.issues().iter().any(|issue| {
