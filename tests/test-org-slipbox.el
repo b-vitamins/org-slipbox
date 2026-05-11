@@ -4417,7 +4417,7 @@ ROOT-NODE defaults to NODE."
                   (org-slipbox-autosync-mode t))
               (cl-letf (((symbol-function 'org-slipbox-rpc-status)
                          (lambda ()
-                           '(:version "0.9.0"
+                           '(:version "0.10.0"
                              :root "/tmp/root"
                              :db "/tmp/org-slipbox.sqlite"
                              :files_indexed 2

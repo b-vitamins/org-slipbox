@@ -6,6 +6,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-05-12
+
 ### Added
 - Added explicit workflow spec compatibility metadata with legacy v1 defaulting,
   future-version rejection, and distinct discovery issue reporting for
@@ -42,6 +44,9 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Broadened benchmark gates for declarative extension paths, covering imported
   pack list, validation, import, routine execution, and report-profile
   rendering over non-empty server-backed fixtures.
+- Recalibrated the CI workflow and report-profile benchmark thresholds to
+  match the current declarative workbench corpus while preserving release
+  profile headroom.
 - Documented the declarative workbench extension surface, including pack
   authoring, validation, import/export, routine execution, report profiles,
   compatibility behavior, overwrite policy, and the boundary against plugin

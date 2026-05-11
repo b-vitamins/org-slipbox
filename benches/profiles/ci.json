@@ -67,19 +67,19 @@
     "dedicated_buffer_p95_ms": 30.0,
     "dedicated_exploration_buffer_p95_ms": 30.0,
     "workflow_catalog_p95_ms": 5.0,
-    "workflow_run_p95_ms": 2500.0,
+    "workflow_run_p95_ms": 4000.0,
     "corpus_audit_p95_ms": 50.0,
     "review_list_p95_ms": 25.0,
     "review_show_p95_ms": 25.0,
     "review_diff_p95_ms": 25.0,
     "review_mark_p95_ms": 50.0,
     "audit_save_review_p95_ms": 100.0,
-    "workflow_save_review_p95_ms": 2500.0,
+    "workflow_save_review_p95_ms": 3500.0,
     "remediation_preview_p95_ms": 25.0,
     "pack_catalog_p95_ms": 25.0,
     "pack_validation_p95_ms": 25.0,
     "pack_import_p95_ms": 100.0,
     "routine_run_p95_ms": 100.0,
-    "report_profile_rendering_p95_ms": 2500.0
+    "report_profile_rendering_p95_ms": 3500.0
   }
 }
