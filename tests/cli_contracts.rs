@@ -6,11 +6,16 @@ use std::process::{Command, Stdio};
 use anyhow::Result;
 use serde_json::Value;
 use slipbox_core::{
-    BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID, BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
-    ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationLens, NodeKind, NodeRecord,
-    ReviewFinding, ReviewFindingPayload, ReviewFindingStatus, ReviewRun, ReviewRunMetadata,
+    BUILT_IN_REVIEW_ROUTINE_CONTEXT_SWEEP_ID, BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
+    BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID, CorpusAuditKind, ExplorationArtifactMetadata,
+    ExplorationArtifactPayload, ExplorationLens, NodeKind, NodeRecord, ReportJsonlLineKind,
+    ReportProfileMetadata, ReportProfileMode, ReportProfileSpec, ReportProfileSubject,
+    ReviewFinding, ReviewFindingPayload, ReviewFindingStatus, ReviewRoutineComparePolicy,
+    ReviewRoutineCompareTarget, ReviewRoutineMetadata, ReviewRoutineSaveReviewPolicy,
+    ReviewRoutineSource, ReviewRoutineSpec, ReviewRun, ReviewRunDiffBucket, ReviewRunMetadata,
     ReviewRunPayload, SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact,
-    WorkflowMetadata, WorkflowSpec, WorkflowStepReport, WorkflowStepReportPayload, WorkflowSummary,
+    WorkbenchPackCompatibility, WorkbenchPackManifest, WorkbenchPackMetadata, WorkflowMetadata,
+    WorkflowSpec, WorkflowStepReport, WorkflowStepReportPayload, WorkflowSummary,
     built_in_workflow,
 };
 use slipbox_index::scan_root;
@@ -378,6 +383,67 @@ fn audit_json_command(
     run_command(&args)
 }
 
+fn pack_json_command(
+    subcommand: &str,
+    root: &str,
+    db: &str,
+    extra: &[&str],
+) -> Result<std::process::Output> {
+    let mut args = vec!["pack".to_owned(), subcommand.to_owned()];
+    args.extend(base_args(root, db));
+    args.push("--json".to_owned());
+    args.extend(extra.iter().map(|value| (*value).to_owned()));
+    run_command(&args)
+}
+
+fn pack_json_command_with_stdin(
+    subcommand: &str,
+    root: &str,
+    db: &str,
+    extra: &[&str],
+    stdin: &[u8],
+) -> Result<std::process::Output> {
+    let mut args = vec!["pack".to_owned(), subcommand.to_owned()];
+    args.extend(base_args(root, db));
+    args.push("--json".to_owned());
+    args.extend(extra.iter().map(|value| (*value).to_owned()));
+    run_command_with_stdin(&args, stdin)
+}
+
+fn pack_validate_json_command(input: &str) -> Result<std::process::Output> {
+    run_command(&[
+        "pack".to_owned(),
+        "validate".to_owned(),
+        "--json".to_owned(),
+        input.to_owned(),
+    ])
+}
+
+fn pack_validate_json_command_with_stdin(stdin: &[u8]) -> Result<std::process::Output> {
+    run_command_with_stdin(
+        &[
+            "pack".to_owned(),
+            "validate".to_owned(),
+            "--json".to_owned(),
+            "-".to_owned(),
+        ],
+        stdin,
+    )
+}
+
+fn routine_json_command(
+    subcommand: &str,
+    root: &str,
+    db: &str,
+    extra: &[&str],
+) -> Result<std::process::Output> {
+    let mut args = vec!["routine".to_owned(), subcommand.to_owned()];
+    args.extend(base_args(root, db));
+    args.push("--json".to_owned());
+    args.extend(extra.iter().map(|value| (*value).to_owned()));
+    run_command(&args)
+}
+
 fn with_bad_server_program(
     mut args: Vec<String>,
     root: &str,
@@ -479,6 +545,105 @@ fn assert_review_finding_keys(value: &Value, payload_key: &str) {
     assert_exact_object_keys(value, &["finding_id", "status", "kind", payload_key]);
 }
 
+fn assert_pack_summary_keys(value: &Value) {
+    assert_exact_object_keys(
+        value,
+        &[
+            "pack_id",
+            "title",
+            "summary",
+            "compatibility",
+            "workflow_count",
+            "review_routine_count",
+            "report_profile_count",
+            "entrypoint_routine_ids",
+        ],
+    );
+    assert_exact_object_keys(&value["compatibility"], &["version"]);
+}
+
+fn assert_pack_manifest_keys(value: &Value) {
+    assert_exact_object_keys(
+        value,
+        &[
+            "pack_id",
+            "title",
+            "summary",
+            "compatibility",
+            "workflows",
+            "review_routines",
+            "report_profiles",
+            "entrypoint_routine_ids",
+        ],
+    );
+    assert_exact_object_keys(&value["compatibility"], &["version"]);
+}
+
+fn assert_workbench_pack_issue_keys(value: &Value) {
+    assert_exact_object_keys(value, &["kind", "asset_id", "message"]);
+}
+
+fn assert_workflow_catalog_issue_keys(value: &Value, expected_optional_keys: &[&str]) {
+    let mut keys = vec!["path", "kind", "workflow_id", "message"];
+    keys.extend_from_slice(expected_optional_keys);
+    assert_exact_object_keys(value, &keys);
+}
+
+fn assert_review_routine_summary_keys(value: &Value) {
+    assert_exact_object_keys(
+        value,
+        &[
+            "routine_id",
+            "title",
+            "summary",
+            "source_kind",
+            "input_count",
+            "report_profile_count",
+        ],
+    );
+}
+
+fn assert_review_routine_spec_keys(value: &Value) {
+    assert_exact_object_keys(
+        value,
+        &[
+            "routine_id",
+            "title",
+            "summary",
+            "source",
+            "inputs",
+            "save_review",
+            "compare",
+            "report_profile_ids",
+        ],
+    );
+    assert_exact_object_keys(
+        &value["save_review"],
+        &["enabled", "review_id", "title", "summary", "overwrite"],
+    );
+}
+
+fn assert_report_profile_keys(value: &Value) {
+    assert_exact_object_keys(
+        value,
+        &[
+            "profile_id",
+            "title",
+            "summary",
+            "subjects",
+            "mode",
+            "status_filters",
+            "diff_buckets",
+            "jsonl_line_kinds",
+        ],
+    );
+}
+
+fn assert_applied_report_profile_keys(value: &Value) {
+    assert_exact_object_keys(value, &["profile", "lines"]);
+    assert_report_profile_keys(&value["profile"]);
+}
+
 fn seed_duplicate_title_audit_fixture(root: &str, db: &str) -> Result<()> {
     fs::write(
         Path::new(root).join("duplicate-a.org"),
@@ -517,6 +682,92 @@ fn discovered_workflow(workflow_id: &str, title: &str, summary: &str) -> Workflo
     workflow.metadata.title = title.to_owned();
     workflow.metadata.summary = Some(summary.to_owned());
     workflow
+}
+
+fn contract_workbench_pack(
+    pack_id: &str,
+    workflow_id: &str,
+    routine_id: &str,
+    review_id: &str,
+) -> WorkbenchPackManifest {
+    let mut workflow =
+        built_in_workflow(BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID).expect("built-in workflow exists");
+    workflow.metadata.workflow_id = workflow_id.to_owned();
+    workflow.metadata.title = "Contract Pack Workflow".to_owned();
+    workflow.metadata.summary = Some("Contract pack workflow fixture.".to_owned());
+
+    WorkbenchPackManifest {
+        metadata: WorkbenchPackMetadata {
+            pack_id: pack_id.to_owned(),
+            title: "Contract Pack".to_owned(),
+            summary: Some("Contract pack fixture.".to_owned()),
+        },
+        compatibility: WorkbenchPackCompatibility::default(),
+        workflows: vec![workflow],
+        review_routines: vec![ReviewRoutineSpec {
+            metadata: ReviewRoutineMetadata {
+                routine_id: routine_id.to_owned(),
+                title: "Contract Duplicate Title Routine".to_owned(),
+                summary: Some("Contract duplicate-title routine fixture.".to_owned()),
+            },
+            source: ReviewRoutineSource::Audit {
+                audit: CorpusAuditKind::DuplicateTitles,
+                limit: 20,
+            },
+            inputs: Vec::new(),
+            save_review: ReviewRoutineSaveReviewPolicy {
+                enabled: true,
+                review_id: Some(review_id.to_owned()),
+                title: Some("Contract Duplicate Title Review".to_owned()),
+                summary: Some("Saved by contract routine.".to_owned()),
+                overwrite: false,
+            },
+            compare: Some(ReviewRoutineComparePolicy {
+                target: ReviewRoutineCompareTarget::LatestCompatibleReview,
+                report_profile_id: Some("profile/contract/diff".to_owned()),
+            }),
+            report_profile_ids: vec!["profile/contract/detail".to_owned()],
+        }],
+        report_profiles: vec![
+            ReportProfileSpec {
+                metadata: ReportProfileMetadata {
+                    profile_id: "profile/contract/detail".to_owned(),
+                    title: "Contract Detail".to_owned(),
+                    summary: Some("Routine and review report lines.".to_owned()),
+                },
+                subjects: vec![ReportProfileSubject::Routine],
+                mode: ReportProfileMode::Detail,
+                status_filters: None,
+                diff_buckets: None,
+                jsonl_line_kinds: Some(vec![
+                    ReportJsonlLineKind::Routine,
+                    ReportJsonlLineKind::Review,
+                    ReportJsonlLineKind::Finding,
+                ]),
+            },
+            ReportProfileSpec {
+                metadata: ReportProfileMetadata {
+                    profile_id: "profile/contract/diff".to_owned(),
+                    title: "Contract Diff".to_owned(),
+                    summary: Some("Routine diff report lines.".to_owned()),
+                },
+                subjects: vec![ReportProfileSubject::Diff],
+                mode: ReportProfileMode::Detail,
+                status_filters: Some(vec![ReviewFindingStatus::Open]),
+                diff_buckets: Some(vec![ReviewRunDiffBucket::Unchanged]),
+                jsonl_line_kinds: Some(vec![
+                    ReportJsonlLineKind::Diff,
+                    ReportJsonlLineKind::Unchanged,
+                ]),
+            },
+        ],
+        entrypoint_routine_ids: vec![routine_id.to_owned()],
+    }
+}
+
+fn write_pack_manifest(pack: &WorkbenchPackManifest, path: &Path) -> Result<()> {
+    fs::write(path, serde_json::to_vec_pretty(pack)?)?;
+    Ok(())
 }
 
 #[test]
@@ -909,6 +1160,299 @@ fn workflow_and_audit_commands_expose_stable_json_shapes() -> Result<()> {
     assert_exact_object_keys(&audit_json, &["audit", "entries"]);
     assert_exact_object_keys(&audit_json["entries"][0], &["kind", "record"]);
     assert_exact_object_keys(&audit_json["entries"][0]["record"], &["title", "notes"]);
+
+    Ok(())
+}
+
+#[test]
+fn pack_commands_expose_stable_json_shapes_and_round_trip_contracts() -> Result<()> {
+    let (workspace, root, db, _anonymous_anchor_key) = build_indexed_fixture()?;
+    let pack = contract_workbench_pack(
+        "pack/contract",
+        "workflow/pack/contract",
+        "routine/pack/contract",
+        "review/routine/contract/current",
+    );
+    let pack_path = workspace.path().join("contract-pack.json");
+    write_pack_manifest(&pack, &pack_path)?;
+    let pack_bytes = serde_json::to_vec_pretty(&pack)?;
+
+    let validated = pack_validate_json_command(pack_path.to_str().expect("utf-8 path"))?;
+    assert!(validated.status.success(), "{validated:?}");
+    let validated_json: Value = serde_json::from_slice(&validated.stdout)?;
+    assert_exact_object_keys(&validated_json, &["pack", "valid", "issues"]);
+    assert_eq!(validated_json["valid"], true);
+    assert_pack_summary_keys(&validated_json["pack"]);
+    assert!(
+        validated_json["issues"]
+            .as_array()
+            .is_some_and(Vec::is_empty)
+    );
+
+    let validated_stdin = pack_validate_json_command_with_stdin(&pack_bytes)?;
+    assert!(validated_stdin.status.success(), "{validated_stdin:?}");
+    let validated_stdin_json: Value = serde_json::from_slice(&validated_stdin.stdout)?;
+    assert_exact_object_keys(&validated_stdin_json, &["pack", "valid", "issues"]);
+    assert_eq!(validated_stdin_json["pack"], validated_json["pack"]);
+
+    let imported = pack_json_command(
+        "import",
+        &root,
+        &db,
+        &[pack_path.to_str().expect("utf-8 path")],
+    )?;
+    assert!(imported.status.success(), "{imported:?}");
+    let imported_json: Value = serde_json::from_slice(&imported.stdout)?;
+    assert_exact_object_keys(&imported_json, &["pack"]);
+    assert_pack_summary_keys(&imported_json["pack"]);
+
+    let listed = pack_json_command("list", &root, &db, &[])?;
+    assert!(listed.status.success(), "{listed:?}");
+    let listed_json: Value = serde_json::from_slice(&listed.stdout)?;
+    assert_exact_object_keys(&listed_json, &["packs", "issues"]);
+    assert_pack_summary_keys(&listed_json["packs"][0]);
+    assert!(listed_json["issues"].as_array().is_some_and(Vec::is_empty));
+
+    let shown = pack_json_command("show", &root, &db, &["pack/contract"])?;
+    assert!(shown.status.success(), "{shown:?}");
+    let shown_json: Value = serde_json::from_slice(&shown.stdout)?;
+    assert_exact_object_keys(&shown_json, &["pack"]);
+    assert_pack_manifest_keys(&shown_json["pack"]);
+    assert_exact_object_keys(
+        &shown_json["pack"]["workflows"][0],
+        &[
+            "workflow_id",
+            "title",
+            "summary",
+            "compatibility",
+            "inputs",
+            "steps",
+        ],
+    );
+    assert_review_routine_spec_keys(&shown_json["pack"]["review_routines"][0]);
+    assert_exact_object_keys(
+        &shown_json["pack"]["review_routines"][0]["source"],
+        &["kind", "audit", "limit"],
+    );
+    assert_report_profile_keys(&shown_json["pack"]["report_profiles"][0]);
+
+    let exported_stdout = pack_json_command("export", &root, &db, &["pack/contract"])?;
+    assert!(exported_stdout.status.success(), "{exported_stdout:?}");
+    let exported_stdout_json: Value = serde_json::from_slice(&exported_stdout.stdout)?;
+    assert_pack_manifest_keys(&exported_stdout_json);
+    assert_eq!(exported_stdout_json, shown_json["pack"]);
+
+    let export_path = workspace.path().join("exported-pack.json");
+    let exported_file = pack_json_command(
+        "export",
+        &root,
+        &db,
+        &[
+            "pack/contract",
+            "--output",
+            export_path.to_str().expect("utf-8 path"),
+        ],
+    )?;
+    assert!(exported_file.status.success(), "{exported_file:?}");
+    let exported_file_json: Value = serde_json::from_slice(&exported_file.stdout)?;
+    assert_exact_object_keys(&exported_file_json, &["pack", "output_path"]);
+    assert_pack_summary_keys(&exported_file_json["pack"]);
+    let written_pack_json: Value = serde_json::from_slice(&fs::read(&export_path)?)?;
+    assert_eq!(written_pack_json, shown_json["pack"]);
+
+    let deleted = pack_json_command("delete", &root, &db, &["pack/contract"])?;
+    assert!(deleted.status.success(), "{deleted:?}");
+    let deleted_json: Value = serde_json::from_slice(&deleted.stdout)?;
+    assert_exact_object_keys(&deleted_json, &["pack_id"]);
+
+    let imported_stdin =
+        pack_json_command_with_stdin("import", &root, &db, &["-"], &exported_stdout.stdout)?;
+    assert!(imported_stdin.status.success(), "{imported_stdin:?}");
+    let imported_stdin_json: Value = serde_json::from_slice(&imported_stdin.stdout)?;
+    assert_exact_object_keys(&imported_stdin_json, &["pack"]);
+    assert_pack_summary_keys(&imported_stdin_json["pack"]);
+
+    let reopened_show = pack_json_command("show", &root, &db, &["pack/contract"])?;
+    assert!(reopened_show.status.success(), "{reopened_show:?}");
+    let reopened_show_json: Value = serde_json::from_slice(&reopened_show.stdout)?;
+    assert_eq!(reopened_show_json["pack"], shown_json["pack"]);
+
+    Ok(())
+}
+
+#[test]
+fn routine_commands_expose_stable_json_shapes_and_review_round_trips() -> Result<()> {
+    let (workspace, root, db, _anonymous_anchor_key) = build_indexed_fixture()?;
+    seed_duplicate_title_audit_fixture(&root, &db)?;
+
+    let base = audit_json_command(
+        "duplicate-titles",
+        &root,
+        &db,
+        &[
+            "--limit",
+            "20",
+            "--save-review",
+            "--review-id",
+            "review/routine/contracts/base",
+            "--review-title",
+            "Base Routine Contract Review",
+        ],
+    )?;
+    assert!(base.status.success(), "{base:?}");
+
+    let pack = contract_workbench_pack(
+        "pack/routine-contract",
+        "workflow/pack/routine-contract",
+        "routine/pack/routine-contract",
+        "review/routine/contracts/current",
+    );
+    let pack_path = workspace.path().join("routine-contract-pack.json");
+    write_pack_manifest(&pack, &pack_path)?;
+    let imported = pack_json_command(
+        "import",
+        &root,
+        &db,
+        &[pack_path.to_str().expect("utf-8 path")],
+    )?;
+    assert!(imported.status.success(), "{imported:?}");
+
+    let listed = routine_json_command("list", &root, &db, &[])?;
+    assert!(listed.status.success(), "{listed:?}");
+    let listed_json: Value = serde_json::from_slice(&listed.stdout)?;
+    assert_exact_object_keys(&listed_json, &["routines", "issues"]);
+    let routines = listed_json["routines"]
+        .as_array()
+        .expect("routine list should be an array");
+    let contract_routine = routines
+        .iter()
+        .find(|routine| routine["routine_id"] == "routine/pack/routine-contract")
+        .expect("imported routine should be listed");
+    assert_review_routine_summary_keys(contract_routine);
+    assert!(listed_json["issues"].as_array().is_some_and(Vec::is_empty));
+
+    let shown = routine_json_command("show", &root, &db, &["routine/pack/routine-contract"])?;
+    assert!(shown.status.success(), "{shown:?}");
+    let shown_json: Value = serde_json::from_slice(&shown.stdout)?;
+    assert_exact_object_keys(&shown_json, &["routine"]);
+    assert_review_routine_spec_keys(&shown_json["routine"]);
+    assert_exact_object_keys(
+        &shown_json["routine"]["source"],
+        &["kind", "audit", "limit"],
+    );
+
+    let built_in = routine_json_command(
+        "show",
+        &root,
+        &db,
+        &[BUILT_IN_REVIEW_ROUTINE_CONTEXT_SWEEP_ID],
+    )?;
+    assert!(built_in.status.success(), "{built_in:?}");
+    let built_in_json: Value = serde_json::from_slice(&built_in.stdout)?;
+    assert_review_routine_spec_keys(&built_in_json["routine"]);
+    assert_exact_object_keys(
+        &built_in_json["routine"]["source"],
+        &["kind", "workflow_id"],
+    );
+    assert_exact_object_keys(
+        &built_in_json["routine"]["inputs"][0],
+        &["input_id", "title", "summary", "kind"],
+    );
+
+    let run = routine_json_command("run", &root, &db, &["routine/pack/routine-contract"])?;
+    assert!(run.status.success(), "{run:?}");
+    let run_json: Value = serde_json::from_slice(&run.stdout)?;
+    assert_exact_object_keys(&run_json, &["result"]);
+    assert_exact_object_keys(
+        &run_json["result"],
+        &["routine", "source", "saved_review", "compare", "reports"],
+    );
+    assert_review_routine_summary_keys(&run_json["result"]["routine"]);
+    assert_exact_object_keys(&run_json["result"]["source"], &["kind", "result"]);
+    assert_exact_object_keys(
+        &run_json["result"]["source"]["result"],
+        &["audit", "entries"],
+    );
+    assert_review_summary_keys(&run_json["result"]["saved_review"]);
+    assert_exact_object_keys(
+        &run_json["result"]["compare"],
+        &["target", "base_review", "diff", "report"],
+    );
+    assert_review_summary_keys(&run_json["result"]["compare"]["base_review"]);
+    assert_exact_object_keys(
+        &run_json["result"]["compare"]["diff"],
+        &[
+            "base_review",
+            "target_review",
+            "added",
+            "removed",
+            "unchanged",
+            "content_changed",
+            "status_changed",
+        ],
+    );
+    assert_applied_report_profile_keys(&run_json["result"]["compare"]["report"]);
+    assert_applied_report_profile_keys(&run_json["result"]["reports"][0]);
+    assert_exact_object_keys(
+        &run_json["result"]["reports"][0]["lines"][0],
+        &["kind", "routine"],
+    );
+
+    let shown_review =
+        review_json_command("show", &root, &db, &["review/routine/contracts/current"])?;
+    assert!(shown_review.status.success(), "{shown_review:?}");
+    let shown_review_json: Value = serde_json::from_slice(&shown_review.stdout)?;
+    assert_audit_review_keys(&shown_review_json["review"]);
+    assert_review_finding_keys(&shown_review_json["review"]["findings"][0], "entry");
+
+    let diff = review_json_command(
+        "diff",
+        &root,
+        &db,
+        &[
+            "review/routine/contracts/base",
+            "review/routine/contracts/current",
+        ],
+    )?;
+    assert!(diff.status.success(), "{diff:?}");
+    let diff_json: Value = serde_json::from_slice(&diff.stdout)?;
+    assert_exact_object_keys(&diff_json, &["diff"]);
+    assert_eq!(
+        diff_json["diff"]["unchanged"].as_array().map(Vec::len),
+        Some(1)
+    );
+
+    let duplicate = contract_workbench_pack(
+        "pack/routine-contract-duplicate",
+        "workflow/pack/routine-contract-duplicate",
+        "routine/pack/routine-contract",
+        "review/routine/contracts/duplicate",
+    );
+    let duplicate_path = workspace
+        .path()
+        .join("routine-contract-duplicate-pack.json");
+    write_pack_manifest(&duplicate, &duplicate_path)?;
+    let imported_duplicate = pack_json_command(
+        "import",
+        &root,
+        &db,
+        &[duplicate_path.to_str().expect("utf-8 path")],
+    )?;
+    assert!(
+        imported_duplicate.status.success(),
+        "{imported_duplicate:?}"
+    );
+
+    let listed_with_issue = routine_json_command("list", &root, &db, &[])?;
+    assert!(listed_with_issue.status.success(), "{listed_with_issue:?}");
+    let listed_with_issue_json: Value = serde_json::from_slice(&listed_with_issue.stdout)?;
+    let routine_issue = listed_with_issue_json["issues"]
+        .as_array()
+        .expect("issues should be an array")
+        .iter()
+        .find(|issue| issue["kind"] == "duplicate-review-routine-id")
+        .expect("duplicate routine issue should be reported");
+    assert_workflow_catalog_issue_keys(routine_issue, &["pack_id", "routine_id"]);
 
     Ok(())
 }
@@ -1501,6 +2045,131 @@ fn workflow_and_audit_commands_report_structured_json_failures() -> Result<()> {
         audit_failure_path.to_str().expect("utf-8 path").to_owned(),
     ])?;
     assert_error_failure(&audit_failure, "failed to write report to");
+
+    Ok(())
+}
+
+#[test]
+fn pack_and_routine_commands_report_structured_json_failures() -> Result<()> {
+    let (workspace, root, db, _anonymous_anchor_key) = build_indexed_fixture()?;
+
+    let malformed_import =
+        pack_json_command_with_stdin("import", &root, &db, &["-"], br#"{"pack_id":"broken""#)?;
+    assert_error_failure(
+        &malformed_import,
+        "failed to parse workbench pack JSON from stdin",
+    );
+
+    let future_import = pack_json_command_with_stdin(
+        "import",
+        &root,
+        &db,
+        &["-"],
+        br#"{"pack_id":"pack/future","title":"Future Pack","compatibility":{"version":2},"workflows":[{"kind":"future-workflow-shape"}]}"#,
+    )?;
+    assert_error_failure(
+        &future_import,
+        "invalid workbench pack: unsupported workbench pack compatibility version 2; supported version is 1",
+    );
+
+    let future_validate = pack_validate_json_command_with_stdin(
+        br#"{"pack_id":"pack/future","title":"Future Pack","compatibility":{"version":2},"workflows":[{"kind":"future-workflow-shape"}]}"#,
+    )?;
+    assert!(future_validate.status.success(), "{future_validate:?}");
+    let future_validate_json: Value = serde_json::from_slice(&future_validate.stdout)?;
+    assert_exact_object_keys(&future_validate_json, &["pack", "valid", "issues"]);
+    assert_eq!(future_validate_json["valid"], false);
+    assert_workbench_pack_issue_keys(&future_validate_json["issues"][0]);
+    assert_eq!(
+        future_validate_json["issues"][0]["kind"],
+        "unsupported-version"
+    );
+
+    let pack = contract_workbench_pack(
+        "pack/error-contract",
+        "workflow/pack/error-contract",
+        "routine/pack/error-contract",
+        "review/routine/error-contract/current",
+    );
+    let pack_path = workspace.path().join("error-contract-pack.json");
+    write_pack_manifest(&pack, &pack_path)?;
+    let imported = pack_json_command(
+        "import",
+        &root,
+        &db,
+        &[pack_path.to_str().expect("utf-8 path")],
+    )?;
+    assert!(imported.status.success(), "{imported:?}");
+    let duplicate_import = pack_json_command(
+        "import",
+        &root,
+        &db,
+        &[pack_path.to_str().expect("utf-8 path")],
+    )?;
+    assert_error_failure(
+        &duplicate_import,
+        "workbench pack already exists: pack/error-contract",
+    );
+
+    let mut missing_reference = contract_workbench_pack(
+        "pack/missing-reference",
+        "workflow/pack/missing-reference",
+        "routine/pack/missing-reference",
+        "review/routine/missing-reference/current",
+    );
+    missing_reference.review_routines[0].report_profile_ids = vec!["profile/missing".to_owned()];
+    let missing_reference_path = workspace.path().join("missing-reference-pack.json");
+    write_pack_manifest(&missing_reference, &missing_reference_path)?;
+    let missing_reference_import = pack_json_command(
+        "import",
+        &root,
+        &db,
+        &[missing_reference_path.to_str().expect("utf-8 path")],
+    )?;
+    assert_error_failure(
+        &missing_reference_import,
+        "references missing profile_id profile/missing",
+    );
+
+    let mut unsupported_profile = contract_workbench_pack(
+        "pack/unsupported-profile",
+        "workflow/pack/unsupported-profile",
+        "routine/pack/unsupported-profile",
+        "review/routine/unsupported-profile/current",
+    );
+    unsupported_profile.report_profiles[0].jsonl_line_kinds =
+        Some(vec![ReportJsonlLineKind::Unsupported(
+            "future-line".to_owned(),
+        )]);
+    let unsupported_profile_path = workspace.path().join("unsupported-profile-pack.json");
+    write_pack_manifest(&unsupported_profile, &unsupported_profile_path)?;
+    let unsupported_profile_import = pack_json_command(
+        "import",
+        &root,
+        &db,
+        &[unsupported_profile_path.to_str().expect("utf-8 path")],
+    )?;
+    assert_error_failure(&unsupported_profile_import, "unsupported: future-line");
+
+    let missing_input = routine_json_command(
+        "run",
+        &root,
+        &db,
+        &[BUILT_IN_REVIEW_ROUTINE_CONTEXT_SWEEP_ID],
+    )?;
+    assert_error_failure(&missing_input, "workflow input focus must be assigned");
+
+    let missing_routine = routine_json_command("show", &root, &db, &["routine/missing"])?;
+    assert_error_failure(&missing_routine, "unknown review routine: routine/missing");
+
+    seed_duplicate_title_audit_fixture(&root, &db)?;
+    let first = routine_json_command("run", &root, &db, &["routine/pack/error-contract"])?;
+    assert!(first.status.success(), "{first:?}");
+    let conflict = routine_json_command("run", &root, &db, &["routine/pack/error-contract"])?;
+    assert_error_failure(
+        &conflict,
+        "review run already exists: review/routine/error-contract/current",
+    );
 
     Ok(())
 }

@@ -40,6 +40,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
   keeping plugin runtime, MCP, agent adapters, raw-RPC sprawl, broad mutation,
   notes, review runs, and saved exploration artifacts out of that asset model.
 
+### Fixed
+- Hardened pack and routine CLI JSON contracts for wrapper shapes, import/export
+  round trips, persisted routine review output, and structured failure behavior.
+
 ## [0.9.0] - 2026-05-06
 
 ### Added
