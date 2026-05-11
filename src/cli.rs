@@ -8,31 +8,32 @@ use anyhow::{Context, Result};
 use clap::{ArgGroup, Args, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use slipbox_core::{
-    AnchorRecord, AppliedReportProfile, CompareNotesParams, ComparisonConnectorDirection,
-    CorpusAuditEntry, CorpusAuditKind, CorpusAuditParams, CorpusAuditResult,
-    DeleteExplorationArtifactResult, DeleteReviewRunResult, DeleteWorkbenchPackResult,
-    ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
+    AnchorRecord, AppliedReportProfile, BacklinksParams, BacklinksResult, CompareNotesParams,
+    ComparisonConnectorDirection, CorpusAuditEntry, CorpusAuditKind, CorpusAuditParams,
+    CorpusAuditResult, DeleteExplorationArtifactResult, DeleteReviewRunResult,
+    DeleteWorkbenchPackResult, ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
     ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactKind,
     ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
     ExplorationArtifactSummary, ExplorationEntry, ExplorationExplanation, ExplorationLens,
-    ExplorationSectionKind, ExploreParams, ExploreResult, FileRecord, ImportWorkbenchPackParams,
-    IndexFileParams, IndexFileResult, IndexStats, IndexedFilesResult,
-    ListExplorationArtifactsResult, ListReviewRoutinesResult, ListReviewRunsResult,
-    ListWorkbenchPacksResult, ListWorkflowsResult, MarkReviewFindingParams,
-    MarkReviewFindingResult, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
-    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonEntry, NoteComparisonExplanation,
-    NoteComparisonGroup, NoteComparisonResult, NoteComparisonSectionKind, PlanningField,
-    PlanningRelationRecord, ReviewFinding, ReviewFindingKind, ReviewFindingPair,
-    ReviewFindingPayload, ReviewFindingStatus, ReviewFindingStatusDiff, ReviewRoutineCompareResult,
-    ReviewRoutineExecutionResult, ReviewRoutineIdParams, ReviewRoutineReportLine,
-    ReviewRoutineResult, ReviewRoutineSource, ReviewRoutineSourceExecutionResult,
-    ReviewRoutineSpec, ReviewRoutineSummary, ReviewRun, ReviewRunDiff, ReviewRunDiffParams,
-    ReviewRunDiffResult, ReviewRunIdParams, ReviewRunKind, ReviewRunPayload, ReviewRunResult,
-    ReviewRunSummary, RunReviewRoutineParams, RunReviewRoutineResult, RunWorkflowParams,
-    RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
-    SaveExplorationArtifactParams, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
-    SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact,
-    SavedTrailStep, SearchFilesParams, SearchFilesResult, StatusInfo, TrailReplayResult,
+    ExplorationSectionKind, ExploreParams, ExploreResult, FileRecord, ForwardLinksParams,
+    ForwardLinksResult, ImportWorkbenchPackParams, IndexFileParams, IndexFileResult, IndexStats,
+    IndexedFilesResult, ListExplorationArtifactsResult, ListReviewRoutinesResult,
+    ListReviewRunsResult, ListWorkbenchPacksResult, ListWorkflowsResult, MarkReviewFindingParams,
+    MarkReviewFindingResult, NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams,
+    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonEntry,
+    NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
+    NoteComparisonSectionKind, PlanningField, PlanningRelationRecord, RandomNodeResult,
+    ReviewFinding, ReviewFindingKind, ReviewFindingPair, ReviewFindingPayload, ReviewFindingStatus,
+    ReviewFindingStatusDiff, ReviewRoutineCompareResult, ReviewRoutineExecutionResult,
+    ReviewRoutineIdParams, ReviewRoutineReportLine, ReviewRoutineResult, ReviewRoutineSource,
+    ReviewRoutineSourceExecutionResult, ReviewRoutineSpec, ReviewRoutineSummary, ReviewRun,
+    ReviewRunDiff, ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunKind,
+    ReviewRunPayload, ReviewRunResult, ReviewRunSummary, RunReviewRoutineParams,
+    RunReviewRoutineResult, RunWorkflowParams, RunWorkflowResult, SaveCorpusAuditReviewParams,
+    SaveCorpusAuditReviewResult, SaveExplorationArtifactParams, SaveWorkflowReviewParams,
+    SaveWorkflowReviewResult, SavedComparisonArtifact, SavedExplorationArtifact,
+    SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, SearchFilesParams,
+    SearchFilesResult, SearchNodesParams, SearchNodesResult, StatusInfo, TrailReplayResult,
     TrailReplayStepResult, ValidateWorkbenchPackResult, WorkbenchPackCompatibilityEnvelope,
     WorkbenchPackIdParams, WorkbenchPackIssue, WorkbenchPackIssueKind, WorkbenchPackManifest,
     WorkbenchPackResult, WorkbenchPackSummary, WorkflowArtifactSaveSource, WorkflowCatalogIssue,
@@ -231,6 +232,93 @@ pub(crate) struct FileSearchArgs {
     /// Maximum file records to return.
     #[arg(long, default_value_t = 50)]
     pub(crate) limit: usize,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct NodeArgs {
+    #[command(subcommand)]
+    pub(crate) command: NodeCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum NodeCommand {
+    /// Show one exact note target.
+    Show(NodeShowArgs),
+    /// Search indexed notes and headings.
+    Search(NodeSearchArgs),
+    /// Return one random indexed note.
+    Random(NodeRandomArgs),
+    /// Show notes linking to one exact note target.
+    Backlinks(NodeBacklinksArgs),
+    /// Show notes linked from one exact note target.
+    ForwardLinks(NodeForwardLinksArgs),
+    /// Resolve the indexed anchor at a file line.
+    AtPoint(NodeAtPointArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct NodeShowArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    #[command(flatten)]
+    pub(crate) target: ResolveTargetArgs,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct NodeSearchArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// Search query matched against indexed note titles, aliases, refs, and text.
+    pub(crate) query: String,
+    /// Maximum nodes to return.
+    #[arg(long, default_value_t = 50)]
+    pub(crate) limit: usize,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct NodeRandomArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct NodeBacklinksArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    #[command(flatten)]
+    pub(crate) target: ResolveTargetArgs,
+    /// Maximum backlinks to return.
+    #[arg(long, default_value_t = 200)]
+    pub(crate) limit: usize,
+    /// Deduplicate backlinks by source note.
+    #[arg(long)]
+    pub(crate) unique: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct NodeForwardLinksArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    #[command(flatten)]
+    pub(crate) target: ResolveTargetArgs,
+    /// Maximum forward links to return.
+    #[arg(long, default_value_t = 200)]
+    pub(crate) limit: usize,
+    /// Deduplicate forward links by destination note.
+    #[arg(long)]
+    pub(crate) unique: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct NodeAtPointArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// File path to inspect, absolute or relative to --root.
+    #[arg(long)]
+    pub(crate) file: PathBuf,
+    /// 1-based line number.
+    #[arg(long)]
+    pub(crate) line: u32,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -958,6 +1046,17 @@ pub(crate) fn run_file(args: &FileArgs) -> Result<(), CliCommandError> {
     match &args.command {
         FileCommand::List(command) => run_headless_command(command),
         FileCommand::Search(command) => run_headless_command(command),
+    }
+}
+
+pub(crate) fn run_node(args: &NodeArgs) -> Result<(), CliCommandError> {
+    match &args.command {
+        NodeCommand::Show(command) => run_headless_command(command),
+        NodeCommand::Search(command) => run_headless_command(command),
+        NodeCommand::Random(command) => run_headless_command(command),
+        NodeCommand::Backlinks(command) => run_headless_command(command),
+        NodeCommand::ForwardLinks(command) => run_headless_command(command),
+        NodeCommand::AtPoint(command) => run_headless_command(command),
     }
 }
 
@@ -1887,6 +1986,126 @@ impl HeadlessCommand for FileSearchArgs {
     }
 }
 
+impl HeadlessCommand for NodeShowArgs {
+    type Output = NodeRecord;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        resolve_note_target(client, &self.target.target())
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_node_summary(output)
+    }
+}
+
+impl HeadlessCommand for NodeSearchArgs {
+    type Output = SearchNodesResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.search_nodes(&SearchNodesParams {
+            query: self.query.clone(),
+            limit: self.limit,
+            sort: None,
+        })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_node_search_result(output)
+    }
+}
+
+impl HeadlessCommand for NodeRandomArgs {
+    type Output = RandomNodeResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.random_node()
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_random_node_result(output)
+    }
+}
+
+impl HeadlessCommand for NodeBacklinksArgs {
+    type Output = BacklinksResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        let node = resolve_note_target(client, &self.target.target())?;
+        client.backlinks(&BacklinksParams {
+            node_key: node.node_key,
+            limit: self.limit,
+            unique: self.unique,
+        })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_backlinks_result(output)
+    }
+}
+
+impl HeadlessCommand for NodeForwardLinksArgs {
+    type Output = ForwardLinksResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        let node = resolve_note_target(client, &self.target.target())?;
+        client.forward_links(&ForwardLinksParams {
+            node_key: node.node_key,
+            limit: self.limit,
+            unique: self.unique,
+        })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_forward_links_result(output)
+    }
+}
+
+impl HeadlessCommand for NodeAtPointArgs {
+    type Output = AnchorRecord;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        require_resolved_anchor(
+            client.anchor_at_point(&NodeAtPointParams {
+                file_path: self.file.display().to_string(),
+                line: self.line,
+            })?,
+            format!(
+                "no indexed anchor at {}:{}",
+                self.file.display(),
+                self.line.max(1)
+            ),
+        )
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_anchor_summary(output)
+    }
+}
+
 impl HeadlessCommand for ResolveNodeArgs {
     type Output = NodeRecord;
 
@@ -2384,6 +2603,13 @@ fn require_resolved_node(
     error_message: String,
 ) -> Result<NodeRecord, DaemonClientError> {
     node.ok_or_else(|| DaemonClientError::Rpc(JsonRpcErrorObject::invalid_request(error_message)))
+}
+
+fn require_resolved_anchor(
+    anchor: Option<AnchorRecord>,
+    error_message: String,
+) -> Result<AnchorRecord, DaemonClientError> {
+    anchor.ok_or_else(|| DaemonClientError::Rpc(JsonRpcErrorObject::invalid_request(error_message)))
 }
 
 fn run_audit_command(kind: CorpusAuditKind, args: &AuditRunArgs) -> Result<(), CliCommandError> {
@@ -3730,6 +3956,89 @@ fn render_node_summary(node: &NodeRecord) -> String {
     }
     if let Some(closed_at) = &node.closed_at {
         output.push_str(&format!("closed: {closed_at}\n"));
+    }
+    output
+}
+
+fn render_anchor_summary(anchor: &AnchorRecord) -> String {
+    let mut output = String::new();
+    output.push_str(&format!("anchor key: {}\n", anchor.node_key));
+    if let Some(explicit_id) = &anchor.explicit_id {
+        output.push_str(&format!("id: {explicit_id}\n"));
+    }
+    output.push_str(&format!("title: {}\n", anchor.title));
+    output.push_str(&format!("kind: {}\n", anchor.kind.as_str()));
+    output.push_str(&format!("file: {}\n", anchor.file_path));
+    output.push_str(&format!("line: {}\n", anchor.line));
+    if !anchor.outline_path.is_empty() {
+        output.push_str(&format!("outline path: {}\n", anchor.outline_path));
+    }
+    if !anchor.aliases.is_empty() {
+        output.push_str(&format!("aliases: {}\n", anchor.aliases.join(", ")));
+    }
+    if !anchor.refs.is_empty() {
+        output.push_str(&format!("refs: {}\n", anchor.refs.join(", ")));
+    }
+    if !anchor.tags.is_empty() {
+        output.push_str(&format!("tags: {}\n", anchor.tags.join(", ")));
+    }
+    if let Some(todo_keyword) = &anchor.todo_keyword {
+        output.push_str(&format!("todo: {todo_keyword}\n"));
+    }
+    if let Some(scheduled_for) = &anchor.scheduled_for {
+        output.push_str(&format!("scheduled: {scheduled_for}\n"));
+    }
+    if let Some(deadline_for) = &anchor.deadline_for {
+        output.push_str(&format!("deadline: {deadline_for}\n"));
+    }
+    if let Some(closed_at) = &anchor.closed_at {
+        output.push_str(&format!("closed: {closed_at}\n"));
+    }
+    output
+}
+
+fn render_node_search_result(result: &SearchNodesResult) -> String {
+    let mut output = format!("nodes: {}\n", result.nodes.len());
+    for node in &result.nodes {
+        output.push_str(&format!("- {}\n", render_node_identity(node)));
+    }
+    output
+}
+
+fn render_random_node_result(result: &RandomNodeResult) -> String {
+    match &result.node {
+        Some(node) => render_node_summary(node),
+        None => "node: none\n".to_owned(),
+    }
+}
+
+fn render_backlinks_result(result: &BacklinksResult) -> String {
+    let mut output = format!("backlinks: {}\n", result.backlinks.len());
+    for record in &result.backlinks {
+        output.push_str(&format!(
+            "- {} at {}:{}\n",
+            render_node_identity(&record.source_note),
+            record.row,
+            record.col
+        ));
+        if let Some(anchor) = &record.source_anchor {
+            output.push_str(&format!("  anchor: {}\n", render_anchor_identity(anchor)));
+        }
+        output.push_str(&format!("  preview: {}\n", record.preview));
+    }
+    output
+}
+
+fn render_forward_links_result(result: &ForwardLinksResult) -> String {
+    let mut output = format!("forward links: {}\n", result.forward_links.len());
+    for record in &result.forward_links {
+        output.push_str(&format!(
+            "- {} at {}:{}\n",
+            render_node_identity(&record.destination_note),
+            record.row,
+            record.col
+        ));
+        output.push_str(&format!("  preview: {}\n", record.preview));
     }
     output
 }
