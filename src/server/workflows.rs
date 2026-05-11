@@ -43,6 +43,20 @@ impl WorkflowCatalog {
             .cloned()
     }
 
+    pub(super) fn review_routine(&self, routine_id: &str) -> Option<ReviewRoutineSpec> {
+        self.review_routines
+            .iter()
+            .find(|routine| routine.metadata.routine_id == routine_id)
+            .cloned()
+    }
+
+    pub(super) fn report_profile(&self, profile_id: &str) -> Option<ReportProfileSpec> {
+        self.report_profiles
+            .iter()
+            .find(|profile| profile.metadata.profile_id == profile_id)
+            .cloned()
+    }
+
     #[allow(dead_code)]
     pub(super) fn review_routine_catalog(&self) -> ReviewRoutineCatalog {
         ReviewRoutineCatalog {

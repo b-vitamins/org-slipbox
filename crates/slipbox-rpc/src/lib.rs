@@ -32,6 +32,7 @@ pub const METHOD_COMPARE_NOTES: &str = "slipbox/compareNotes";
 pub const METHOD_LIST_WORKFLOWS: &str = "slipbox/listWorkflows";
 pub const METHOD_WORKFLOW: &str = "slipbox/workflow";
 pub const METHOD_RUN_WORKFLOW: &str = "slipbox/runWorkflow";
+pub const METHOD_RUN_REVIEW_ROUTINE: &str = "slipbox/runReviewRoutine";
 pub const METHOD_CORPUS_AUDIT: &str = "slipbox/corpusAudit";
 pub const METHOD_SAVE_EXPLORATION_ARTIFACT: &str = "slipbox/saveExplorationArtifact";
 pub const METHOD_EXPLORATION_ARTIFACT: &str = "slipbox/explorationArtifact";

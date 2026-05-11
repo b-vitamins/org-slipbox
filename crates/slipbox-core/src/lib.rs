@@ -3038,6 +3038,44 @@ impl ReportProfileSubject {
             Self::Diff => "diff",
         }
     }
+
+    #[must_use]
+    pub const fn supports_line_kind(self, line_kind: &ReportJsonlLineKind) -> bool {
+        match self {
+            Self::Workflow => {
+                matches!(
+                    line_kind,
+                    ReportJsonlLineKind::Workflow | ReportJsonlLineKind::Step
+                )
+            }
+            Self::Audit => {
+                matches!(
+                    line_kind,
+                    ReportJsonlLineKind::Audit | ReportJsonlLineKind::Entry
+                )
+            }
+            Self::Review => matches!(
+                line_kind,
+                ReportJsonlLineKind::Review | ReportJsonlLineKind::Finding
+            ),
+            Self::Routine => matches!(
+                line_kind,
+                ReportJsonlLineKind::Routine
+                    | ReportJsonlLineKind::Step
+                    | ReportJsonlLineKind::Review
+                    | ReportJsonlLineKind::Finding
+            ),
+            Self::Diff => matches!(
+                line_kind,
+                ReportJsonlLineKind::Diff
+                    | ReportJsonlLineKind::Added
+                    | ReportJsonlLineKind::Removed
+                    | ReportJsonlLineKind::Unchanged
+                    | ReportJsonlLineKind::ContentChanged
+                    | ReportJsonlLineKind::StatusChanged
+            ),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -3416,6 +3454,184 @@ impl ReviewRoutineCatalog {
         }
         None
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewRoutineSummary {
+    #[serde(flatten)]
+    pub metadata: ReviewRoutineMetadata,
+    pub source_kind: ReviewRoutineSourceKind,
+    pub input_count: usize,
+    pub report_profile_count: usize,
+}
+
+impl From<&ReviewRoutineSpec> for ReviewRoutineSummary {
+    fn from(routine: &ReviewRoutineSpec) -> Self {
+        Self {
+            metadata: routine.metadata.clone(),
+            source_kind: routine.source.kind(),
+            input_count: routine.inputs.len(),
+            report_profile_count: routine.report_profile_ids.len(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunReviewRoutineParams {
+    pub routine_id: String,
+    #[serde(default)]
+    pub inputs: Vec<WorkflowInputAssignment>,
+}
+
+impl RunReviewRoutineParams {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_review_routine_id_field(&self.routine_id).or_else(|| {
+            let mut seen: Vec<&str> = Vec::with_capacity(self.inputs.len());
+            for (index, input) in self.inputs.iter().enumerate() {
+                if let Some(error) = input.validation_error() {
+                    return Some(format!(
+                        "workflow input assignment {index} is invalid: {error}"
+                    ));
+                }
+                if seen.contains(&input.input_id.as_str()) {
+                    return Some(format!(
+                        "workflow input assignment {index} reuses duplicate input_id {}",
+                        input.input_id
+                    ));
+                }
+                seen.push(input.input_id.as_str());
+            }
+            None
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum ReviewRoutineSourceExecutionResult {
+    Audit {
+        result: Box<CorpusAuditResult>,
+    },
+    Workflow {
+        result: Box<WorkflowExecutionResult>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum ReviewRoutineReportLine {
+    Routine {
+        routine: ReviewRoutineSummary,
+    },
+    Workflow {
+        workflow: WorkflowSummary,
+    },
+    Step {
+        step: Box<WorkflowStepReport>,
+    },
+    Audit {
+        audit: CorpusAuditKind,
+    },
+    Entry {
+        entry: Box<CorpusAuditEntry>,
+    },
+    Review {
+        review: ReviewRunSummary,
+    },
+    Finding {
+        finding: Box<ReviewFinding>,
+    },
+    Diff {
+        base_review: ReviewRunSummary,
+        target_review: ReviewRunSummary,
+    },
+    Added {
+        finding: Box<ReviewFinding>,
+    },
+    Removed {
+        finding: Box<ReviewFinding>,
+    },
+    Unchanged {
+        finding: Box<ReviewFindingPair>,
+    },
+    ContentChanged {
+        finding: Box<ReviewFindingPair>,
+    },
+    StatusChanged {
+        change: Box<ReviewFindingStatusDiff>,
+    },
+}
+
+impl ReviewRoutineReportLine {
+    #[must_use]
+    pub fn line_kind(&self) -> ReportJsonlLineKind {
+        match self {
+            Self::Routine { .. } => ReportJsonlLineKind::Routine,
+            Self::Workflow { .. } => ReportJsonlLineKind::Workflow,
+            Self::Step { .. } => ReportJsonlLineKind::Step,
+            Self::Audit { .. } => ReportJsonlLineKind::Audit,
+            Self::Entry { .. } => ReportJsonlLineKind::Entry,
+            Self::Review { .. } => ReportJsonlLineKind::Review,
+            Self::Finding { .. } => ReportJsonlLineKind::Finding,
+            Self::Diff { .. } => ReportJsonlLineKind::Diff,
+            Self::Added { .. } => ReportJsonlLineKind::Added,
+            Self::Removed { .. } => ReportJsonlLineKind::Removed,
+            Self::Unchanged { .. } => ReportJsonlLineKind::Unchanged,
+            Self::ContentChanged { .. } => ReportJsonlLineKind::ContentChanged,
+            Self::StatusChanged { .. } => ReportJsonlLineKind::StatusChanged,
+        }
+    }
+
+    #[must_use]
+    pub const fn subject(&self) -> ReportProfileSubject {
+        match self {
+            Self::Routine { .. } => ReportProfileSubject::Routine,
+            Self::Workflow { .. } | Self::Step { .. } => ReportProfileSubject::Workflow,
+            Self::Audit { .. } | Self::Entry { .. } => ReportProfileSubject::Audit,
+            Self::Review { .. } | Self::Finding { .. } => ReportProfileSubject::Review,
+            Self::Diff { .. }
+            | Self::Added { .. }
+            | Self::Removed { .. }
+            | Self::Unchanged { .. }
+            | Self::ContentChanged { .. }
+            | Self::StatusChanged { .. } => ReportProfileSubject::Diff,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppliedReportProfile {
+    pub profile: ReportProfileSpec,
+    pub lines: Vec<ReviewRoutineReportLine>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewRoutineCompareResult {
+    pub target: ReviewRoutineCompareTarget,
+    #[serde(default)]
+    pub base_review: Option<ReviewRunSummary>,
+    #[serde(default)]
+    pub diff: Option<Box<ReviewRunDiff>>,
+    #[serde(default)]
+    pub report: Option<AppliedReportProfile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewRoutineExecutionResult {
+    pub routine: ReviewRoutineSummary,
+    pub source: ReviewRoutineSourceExecutionResult,
+    #[serde(default)]
+    pub saved_review: Option<ReviewRunSummary>,
+    #[serde(default)]
+    pub compare: Option<ReviewRoutineCompareResult>,
+    #[serde(default)]
+    pub reports: Vec<AppliedReportProfile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunReviewRoutineResult {
+    pub result: ReviewRoutineExecutionResult,
 }
 
 pub const WORKBENCH_PACK_MANIFEST_VERSION: u32 = 1;
@@ -4620,40 +4836,7 @@ const fn report_profile_subject_supports_line_kind(
     subject: ReportProfileSubject,
     line_kind: &ReportJsonlLineKind,
 ) -> bool {
-    match subject {
-        ReportProfileSubject::Workflow => {
-            matches!(
-                line_kind,
-                ReportJsonlLineKind::Workflow | ReportJsonlLineKind::Step
-            )
-        }
-        ReportProfileSubject::Audit => {
-            matches!(
-                line_kind,
-                ReportJsonlLineKind::Audit | ReportJsonlLineKind::Entry
-            )
-        }
-        ReportProfileSubject::Review => matches!(
-            line_kind,
-            ReportJsonlLineKind::Review | ReportJsonlLineKind::Finding
-        ),
-        ReportProfileSubject::Routine => matches!(
-            line_kind,
-            ReportJsonlLineKind::Routine
-                | ReportJsonlLineKind::Step
-                | ReportJsonlLineKind::Review
-                | ReportJsonlLineKind::Finding
-        ),
-        ReportProfileSubject::Diff => matches!(
-            line_kind,
-            ReportJsonlLineKind::Diff
-                | ReportJsonlLineKind::Added
-                | ReportJsonlLineKind::Removed
-                | ReportJsonlLineKind::Unchanged
-                | ReportJsonlLineKind::ContentChanged
-                | ReportJsonlLineKind::StatusChanged
-        ),
-    }
+    subject.supports_line_kind(line_kind)
 }
 
 fn validate_review_routine_inputs(routine: &ReviewRoutineSpec) -> Option<String> {

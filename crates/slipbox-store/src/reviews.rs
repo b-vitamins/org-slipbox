@@ -219,6 +219,26 @@ impl ReviewRunStore {
         Ok(reviews)
     }
 
+    fn list_newest_first(&self) -> Result<Vec<ReviewRun>> {
+        let mut reviews = self
+            .list_review_paths()?
+            .into_iter()
+            .map(|path| {
+                let modified = fs::metadata(&path)
+                    .and_then(|metadata| metadata.modified())
+                    .unwrap_or(UNIX_EPOCH);
+                self.load_review_file(&path)
+                    .map(|review| (modified, review))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        reviews.sort_by(|(left_modified, left), (right_modified, right)| {
+            right_modified
+                .cmp(left_modified)
+                .then_with(|| right.metadata.review_id.cmp(&left.metadata.review_id))
+        });
+        Ok(reviews.into_iter().map(|(_, review)| review).collect())
+    }
+
     fn delete(&self, review_id: &str) -> Result<bool> {
         self.validate_review_id(review_id)?;
         let path = self.review_path(review_id);
@@ -246,6 +266,10 @@ impl Database {
 
     pub fn list_review_runs(&self) -> Result<Vec<ReviewRun>> {
         self.review_store.list()
+    }
+
+    pub fn list_review_runs_newest_first(&self) -> Result<Vec<ReviewRun>> {
+        self.review_store.list_newest_first()
     }
 
     pub fn delete_review_run(&self, review_id: &str) -> Result<bool> {

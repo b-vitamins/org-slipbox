@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use slipbox_core::{
-    AgendaParams, AgendaResult, BacklinksParams, BacklinksResult, CompareNotesParams,
-    CorpusAuditEntry, CorpusAuditKind, CorpusAuditParams, CorpusAuditResult,
+    AgendaParams, AgendaResult, AppliedReportProfile, BacklinksParams, BacklinksResult,
+    CompareNotesParams, CorpusAuditEntry, CorpusAuditKind, CorpusAuditParams, CorpusAuditResult,
     DeleteExplorationArtifactResult, DeleteReviewRunResult, DeleteWorkbenchPackResult,
     ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
     ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactPayload,
@@ -16,11 +16,14 @@ use slipbox_core::{
     MarkReviewFindingParams, MarkReviewFindingResult, NodeAtPointParams, NodeFromIdParams,
     NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
     NoteComparisonGroup, NoteComparisonResult, PingInfo, RandomNodeResult, ReflinksParams,
-    ReflinksResult, ReviewFinding, ReviewFindingPayload, ReviewFindingRemediationPreview,
-    ReviewFindingRemediationPreviewParams, ReviewFindingRemediationPreviewResult,
-    ReviewFindingStatus, ReviewFindingStatusTransition, ReviewRun, ReviewRunDiff,
-    ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunMetadata,
-    ReviewRunPayload, ReviewRunResult, ReviewRunSummary, RunWorkflowParams, RunWorkflowResult,
+    ReflinksResult, ReportProfileMode, ReportProfileSpec, ReviewFinding, ReviewFindingPayload,
+    ReviewFindingRemediationPreview, ReviewFindingRemediationPreviewParams,
+    ReviewFindingRemediationPreviewResult, ReviewFindingStatus, ReviewFindingStatusTransition,
+    ReviewRoutineCompareResult, ReviewRoutineExecutionResult, ReviewRoutineReportLine,
+    ReviewRoutineSource, ReviewRoutineSourceExecutionResult, ReviewRoutineSpec, ReviewRun,
+    ReviewRunDiff, ReviewRunDiffBucket, ReviewRunDiffParams, ReviewRunDiffResult,
+    ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, ReviewRunSummary,
+    RunReviewRoutineParams, RunReviewRoutineResult, RunWorkflowParams, RunWorkflowResult,
     SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult, SaveExplorationArtifactParams,
     SaveExplorationArtifactResult, SaveReviewRunParams, SaveReviewRunResult,
     SaveWorkflowReviewParams, SaveWorkflowReviewResult, SavedComparisonArtifact,
@@ -1064,6 +1067,406 @@ fn review_from_workflow_result(
     Ok(review)
 }
 
+fn generated_routine_review_id(
+    routine: &ReviewRoutineSpec,
+    inputs: &[WorkflowInputAssignment],
+) -> Result<String, JsonRpcError> {
+    if inputs.is_empty() {
+        return Ok(format!("review/{}", routine.metadata.routine_id));
+    }
+
+    let mut inputs = inputs.to_vec();
+    inputs.sort_by(|left, right| left.input_id.cmp(&right.input_id));
+    let fingerprint = stable_json_fingerprint(&inputs)?;
+    Ok(format!(
+        "review/{}/inputs-{fingerprint}",
+        routine.metadata.routine_id
+    ))
+}
+
+fn intended_routine_review_id(
+    routine: &ReviewRoutineSpec,
+    inputs: &[WorkflowInputAssignment],
+) -> Result<String, JsonRpcError> {
+    routine
+        .save_review
+        .review_id
+        .clone()
+        .map(Ok)
+        .unwrap_or_else(|| generated_routine_review_id(routine, inputs))
+}
+
+fn validate_review_routine_input_assignments(
+    routine: &ReviewRoutineSpec,
+    inputs: &[WorkflowInputAssignment],
+) -> Option<String> {
+    let mut seen_assignments: Vec<&str> = Vec::with_capacity(inputs.len());
+    for (index, input) in inputs.iter().enumerate() {
+        if let Some(error) = input.validation_error() {
+            return Some(format!(
+                "workflow input assignment {index} is invalid: {error}"
+            ));
+        }
+        if seen_assignments
+            .iter()
+            .any(|input_id| *input_id == input.input_id)
+        {
+            return Some(format!(
+                "workflow input assignment {index} reuses duplicate input_id {}",
+                input.input_id
+            ));
+        }
+        if !routine
+            .inputs
+            .iter()
+            .any(|declared| declared.input_id == input.input_id)
+        {
+            return Some(format!(
+                "workflow input assignment {index} references unknown input_id {}",
+                input.input_id
+            ));
+        }
+        seen_assignments.push(input.input_id.as_str());
+    }
+
+    routine
+        .inputs
+        .iter()
+        .find(|input| !seen_assignments.contains(&input.input_id.as_str()))
+        .map(|input| format!("workflow input {} must be assigned", input.input_id))
+}
+
+fn review_from_routine_source_result(
+    routine: &ReviewRoutineSpec,
+    inputs: &[WorkflowInputAssignment],
+    source: &ReviewRoutineSourceExecutionResult,
+    review_id: String,
+) -> Result<ReviewRun, JsonRpcError> {
+    match source {
+        ReviewRoutineSourceExecutionResult::Audit { result } => review_from_audit_result(
+            &SaveCorpusAuditReviewParams {
+                audit: result.audit,
+                limit: match &routine.source {
+                    ReviewRoutineSource::Audit { limit, .. } => *limit,
+                    _ => 0,
+                },
+                review_id: Some(review_id),
+                title: routine.save_review.title.clone(),
+                summary: routine.save_review.summary.clone(),
+                overwrite: routine.save_review.overwrite,
+            },
+            result,
+        ),
+        ReviewRoutineSourceExecutionResult::Workflow { result } => review_from_workflow_result(
+            &SaveWorkflowReviewParams {
+                workflow_id: result.workflow.metadata.workflow_id.clone(),
+                inputs: inputs.to_vec(),
+                review_id: Some(review_id.clone()),
+                title: routine.save_review.title.clone(),
+                summary: routine.save_review.summary.clone(),
+                overwrite: routine.save_review.overwrite,
+            },
+            result,
+            review_id,
+        ),
+    }
+}
+
+fn latest_compatible_review_run(
+    state: &ServerState,
+    target: &ReviewRun,
+) -> Result<Option<ReviewRun>, JsonRpcError> {
+    let reviews = state
+        .database
+        .list_review_runs_newest_first()
+        .map_err(|error| internal_error(error.context("failed to list review runs")))?;
+    Ok(reviews
+        .into_iter()
+        .find(|review| ReviewRunDiff::between(review, target).is_ok()))
+}
+
+fn report_line_status(line: &ReviewRoutineReportLine) -> Option<ReviewFindingStatus> {
+    match line {
+        ReviewRoutineReportLine::Finding { finding }
+        | ReviewRoutineReportLine::Added { finding }
+        | ReviewRoutineReportLine::Removed { finding } => Some(finding.status),
+        ReviewRoutineReportLine::Unchanged { finding }
+        | ReviewRoutineReportLine::ContentChanged { finding } => Some(finding.target.status),
+        ReviewRoutineReportLine::StatusChanged { change } => Some(change.to_status),
+        _ => None,
+    }
+}
+
+fn report_line_bucket(line: &ReviewRoutineReportLine) -> Option<ReviewRunDiffBucket> {
+    match line {
+        ReviewRoutineReportLine::Added { .. } => Some(ReviewRunDiffBucket::Added),
+        ReviewRoutineReportLine::Removed { .. } => Some(ReviewRunDiffBucket::Removed),
+        ReviewRoutineReportLine::Unchanged { .. } => Some(ReviewRunDiffBucket::Unchanged),
+        ReviewRoutineReportLine::ContentChanged { .. } => Some(ReviewRunDiffBucket::ContentChanged),
+        ReviewRoutineReportLine::StatusChanged { .. } => Some(ReviewRunDiffBucket::StatusChanged),
+        _ => None,
+    }
+}
+
+fn report_line_matches_profile(
+    profile: &ReportProfileSpec,
+    line: &ReviewRoutineReportLine,
+) -> bool {
+    let line_kind = line.line_kind();
+    if !profile
+        .subjects
+        .iter()
+        .any(|subject| subject.supports_line_kind(&line_kind))
+    {
+        return false;
+    }
+
+    if matches!(profile.mode, ReportProfileMode::Summary) && line_kind.is_detail_line() {
+        return false;
+    }
+    if let Some(line_kinds) = &profile.jsonl_line_kinds
+        && !line_kinds.contains(&line_kind)
+    {
+        return false;
+    }
+    if let Some(status_filters) = &profile.status_filters
+        && let Some(status) = report_line_status(line)
+        && !status_filters.contains(&status)
+    {
+        return false;
+    }
+    if let Some(diff_buckets) = &profile.diff_buckets
+        && let Some(bucket) = report_line_bucket(line)
+        && !diff_buckets.contains(&bucket)
+    {
+        return false;
+    }
+
+    true
+}
+
+fn apply_report_profile(
+    profile: &ReportProfileSpec,
+    routine: &ReviewRoutineSpec,
+    source: &ReviewRoutineSourceExecutionResult,
+    review: Option<&ReviewRun>,
+    diff: Option<&ReviewRunDiff>,
+) -> AppliedReportProfile {
+    let routine_summary = routine.into();
+    let mut candidates = vec![ReviewRoutineReportLine::Routine {
+        routine: routine_summary,
+    }];
+
+    match source {
+        ReviewRoutineSourceExecutionResult::Audit { result } => {
+            candidates.push(ReviewRoutineReportLine::Audit {
+                audit: result.audit,
+            });
+            candidates.extend(result.entries.iter().cloned().map(|entry| {
+                ReviewRoutineReportLine::Entry {
+                    entry: Box::new(entry),
+                }
+            }));
+        }
+        ReviewRoutineSourceExecutionResult::Workflow { result } => {
+            candidates.push(ReviewRoutineReportLine::Workflow {
+                workflow: result.workflow.clone(),
+            });
+            candidates.extend(result.steps.iter().cloned().map(|step| {
+                ReviewRoutineReportLine::Step {
+                    step: Box::new(step),
+                }
+            }));
+        }
+    }
+
+    if let Some(review) = review {
+        candidates.push(ReviewRoutineReportLine::Review {
+            review: ReviewRunSummary::from(review),
+        });
+        candidates.extend(review.findings.iter().cloned().map(|finding| {
+            ReviewRoutineReportLine::Finding {
+                finding: Box::new(finding),
+            }
+        }));
+    }
+
+    if let Some(diff) = diff {
+        candidates.push(ReviewRoutineReportLine::Diff {
+            base_review: diff.base_review.clone(),
+            target_review: diff.target_review.clone(),
+        });
+        candidates.extend(diff.added.iter().cloned().map(|finding| {
+            ReviewRoutineReportLine::Added {
+                finding: Box::new(finding),
+            }
+        }));
+        candidates.extend(diff.removed.iter().cloned().map(|finding| {
+            ReviewRoutineReportLine::Removed {
+                finding: Box::new(finding),
+            }
+        }));
+        candidates.extend(diff.unchanged.iter().cloned().map(|finding| {
+            ReviewRoutineReportLine::Unchanged {
+                finding: Box::new(finding),
+            }
+        }));
+        candidates.extend(diff.content_changed.iter().cloned().map(|finding| {
+            ReviewRoutineReportLine::ContentChanged {
+                finding: Box::new(finding),
+            }
+        }));
+        candidates.extend(diff.status_changed.iter().cloned().map(|change| {
+            ReviewRoutineReportLine::StatusChanged {
+                change: Box::new(change),
+            }
+        }));
+    }
+
+    AppliedReportProfile {
+        profile: profile.clone(),
+        lines: candidates
+            .into_iter()
+            .filter(|line| report_line_matches_profile(profile, line))
+            .collect(),
+    }
+}
+
+fn execute_review_routine(
+    state: &mut ServerState,
+    catalog: &WorkflowCatalog,
+    routine: &ReviewRoutineSpec,
+    inputs: &[WorkflowInputAssignment],
+) -> Result<ReviewRoutineExecutionResult, JsonRpcError> {
+    if let Some(message) = routine.validation_error() {
+        return Err(invalid_request(message));
+    }
+    if let Some(message) = validate_review_routine_input_assignments(routine, inputs) {
+        return Err(invalid_request(message));
+    }
+
+    let intended_review_id = routine
+        .save_review
+        .enabled
+        .then(|| intended_routine_review_id(routine, inputs))
+        .transpose()?;
+    if let Some(review_id) = intended_review_id.as_deref()
+        && !routine.save_review.overwrite
+    {
+        reject_existing_review_run(state, review_id)?;
+    }
+
+    let source = match &routine.source {
+        ReviewRoutineSource::Audit { audit, limit } => {
+            let result = execute_corpus_audit_query(
+                state,
+                &CorpusAuditParams {
+                    audit: *audit,
+                    limit: *limit,
+                },
+            )?;
+            ReviewRoutineSourceExecutionResult::Audit {
+                result: Box::new(result),
+            }
+        }
+        ReviewRoutineSource::Workflow { workflow_id } => {
+            let workflow = catalog
+                .workflow(workflow_id)
+                .ok_or_else(|| invalid_request(format!("unknown workflow: {workflow_id}")))?;
+            let result = execute_workflow_spec(state, &workflow, inputs)?;
+            ReviewRoutineSourceExecutionResult::Workflow {
+                result: Box::new(result),
+            }
+        }
+        ReviewRoutineSource::Unsupported => {
+            return Err(invalid_request(
+                "review routine source kind is unsupported".to_owned(),
+            ));
+        }
+    };
+
+    let review_run = if let Some(review_id) = intended_review_id {
+        Some(review_from_routine_source_result(
+            routine, inputs, &source, review_id,
+        )?)
+    } else {
+        None
+    };
+
+    let compare_diff = if routine.compare.is_some() {
+        let review_run = review_run.as_ref().ok_or_else(|| {
+            invalid_request(
+                "review routine compare policy requires save_review to be enabled".to_owned(),
+            )
+        })?;
+        latest_compatible_review_run(state, review_run)?
+            .map(|base| ReviewRunDiff::between(&base, review_run).map(Box::new))
+            .transpose()
+            .map_err(invalid_request)?
+    } else {
+        None
+    };
+
+    let compare = routine.compare.as_ref().map(|policy| {
+        let report = policy
+            .report_profile_id
+            .as_deref()
+            .and_then(|profile_id| catalog.report_profile(profile_id))
+            .map(|profile| {
+                apply_report_profile(
+                    &profile,
+                    routine,
+                    &source,
+                    review_run.as_ref(),
+                    compare_diff.as_deref(),
+                )
+            });
+        ReviewRoutineCompareResult {
+            target: policy.target,
+            base_review: compare_diff.as_ref().map(|diff| diff.base_review.clone()),
+            diff: compare_diff.clone(),
+            report,
+        }
+    });
+
+    let saved_review = if let Some(review_run) = &review_run {
+        Some(save_review_run_with_policy(
+            state,
+            review_run,
+            routine.save_review.overwrite,
+        )?)
+    } else {
+        None
+    };
+
+    let reports = routine
+        .report_profile_ids
+        .iter()
+        .map(|profile_id| {
+            catalog
+                .report_profile(profile_id)
+                .ok_or_else(|| invalid_request(format!("unknown report profile: {profile_id}")))
+                .map(|profile| {
+                    apply_report_profile(
+                        &profile,
+                        routine,
+                        &source,
+                        review_run.as_ref(),
+                        compare_diff.as_deref(),
+                    )
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(ReviewRoutineExecutionResult {
+        routine: routine.into(),
+        source,
+        saved_review,
+        compare,
+        reports,
+    })
+}
+
 #[derive(Debug, Clone)]
 enum WorkflowStepState {
     Resolve {
@@ -1691,6 +2094,22 @@ pub(crate) fn run_workflow(
     to_value(RunWorkflowResult { result })
 }
 
+pub(crate) fn run_review_routine(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: RunReviewRoutineParams = parse_params(params)?;
+    if let Some(message) = params.validation_error() {
+        return Err(invalid_request(message));
+    }
+    let catalog = discover_server_workflow_catalog(state)?;
+    let routine = catalog
+        .review_routine(&params.routine_id)
+        .ok_or_else(|| invalid_request(format!("unknown review routine: {}", params.routine_id)))?;
+    let result = execute_review_routine(state, &catalog, &routine, &params.inputs)?;
+    to_value(RunReviewRoutineResult { result })
+}
+
 pub(crate) fn corpus_audit(
     state: &mut ServerState,
     params: serde_json::Value,
@@ -1976,11 +2395,14 @@ mod tests {
         ExploreResult, ImportWorkbenchPackResult, ListExplorationArtifactsResult,
         ListReviewRunsResult, ListWorkbenchPacksResult, ListWorkflowsResult,
         MarkReviewFindingResult, NodeKind, NoteComparisonEntry, NoteComparisonExplanation,
-        NoteComparisonGroup, NoteComparisonResult, NoteComparisonSectionKind,
+        NoteComparisonGroup, NoteComparisonResult, NoteComparisonSectionKind, ReportJsonlLineKind,
         ReportProfileMetadata, ReportProfileMode, ReportProfileSpec, ReportProfileSubject,
         ReviewFinding, ReviewFindingPayload, ReviewFindingRemediationPreviewResult,
-        ReviewFindingStatus, ReviewRun, ReviewRunDiffResult, ReviewRunMetadata, ReviewRunPayload,
-        ReviewRunResult, RunWorkflowResult, SaveCorpusAuditReviewResult,
+        ReviewFindingStatus, ReviewRoutineComparePolicy, ReviewRoutineCompareTarget,
+        ReviewRoutineMetadata, ReviewRoutineReportLine, ReviewRoutineSaveReviewPolicy,
+        ReviewRoutineSource, ReviewRoutineSourceExecutionResult, ReviewRoutineSpec, ReviewRun,
+        ReviewRunDiffBucket, ReviewRunDiffResult, ReviewRunMetadata, ReviewRunPayload,
+        ReviewRunResult, RunReviewRoutineResult, RunWorkflowResult, SaveCorpusAuditReviewResult,
         SaveExplorationArtifactResult, SaveReviewRunResult, SaveWorkflowReviewResult,
         SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact,
         SavedTrailArtifact, SavedTrailStep, TrailReplayStepResult, ValidateWorkbenchPackResult,
@@ -1999,9 +2421,9 @@ mod tests {
         execute_saved_exploration_artifact_by_id, execute_workflow_spec, exploration_artifact,
         explore, export_workbench_pack, import_workbench_pack, list_exploration_artifacts,
         list_review_runs, list_workbench_packs, list_workflows, mark_review_finding,
-        review_finding_remediation_preview, review_run, run_workflow, save_corpus_audit_review,
-        save_exploration_artifact, save_review_run, save_workflow_review, validate_workbench_pack,
-        workbench_pack, workflow,
+        review_finding_remediation_preview, review_run, run_review_routine, run_workflow,
+        save_corpus_audit_review, save_exploration_artifact, save_review_run, save_workflow_review,
+        validate_workbench_pack, workbench_pack, workflow,
     };
     use crate::server::state::ServerState;
 
@@ -3237,6 +3659,341 @@ mod tests {
             "workflow/pack/live"
         );
         assert_eq!(run.result.steps.len(), 1);
+    }
+
+    #[test]
+    fn review_routine_rpc_executes_audit_routines_with_save_compare_and_profiles() {
+        let (_workspace, mut state) = audit_state();
+        let _: SaveCorpusAuditReviewResult = serde_json::from_value(
+            save_corpus_audit_review(
+                &mut state,
+                json!({
+                    "audit": "duplicate-titles",
+                    "limit": 20,
+                    "review_id": "review/routine/z-old"
+                }),
+            )
+            .expect("previous audit review should save"),
+        )
+        .expect("previous save result should decode");
+        sleep(Duration::from_millis(20));
+        let _: SaveCorpusAuditReviewResult = serde_json::from_value(
+            save_corpus_audit_review(
+                &mut state,
+                json!({
+                    "audit": "duplicate-titles",
+                    "limit": 20,
+                    "review_id": "review/routine/a-new"
+                }),
+            )
+            .expect("newer audit review should save"),
+        )
+        .expect("newer save result should decode");
+
+        let mut pack = sample_workbench_pack("pack/routines", "Routine Pack");
+        pack.report_profiles
+            .push(sample_routine_report_profile("profile/routine/detail"));
+        pack.report_profiles
+            .push(sample_routine_only_review_profile(
+                "profile/routine/review-lines",
+            ));
+        let mut routine =
+            sample_audit_review_routine("routine/pack/audit", "profile/routine/detail");
+        routine
+            .report_profile_ids
+            .push("profile/routine/review-lines".to_owned());
+        pack.review_routines.push(routine);
+        let _: ImportWorkbenchPackResult = serde_json::from_value(
+            import_workbench_pack(&mut state, json!({ "pack": pack }))
+                .expect("routine pack should import"),
+        )
+        .expect("pack import result should decode");
+
+        let run: RunReviewRoutineResult = serde_json::from_value(
+            run_review_routine(&mut state, json!({ "routine_id": "routine/pack/audit" }))
+                .expect("routine should run"),
+        )
+        .expect("routine result should decode");
+
+        assert_eq!(run.result.routine.metadata.routine_id, "routine/pack/audit");
+        match &run.result.source {
+            ReviewRoutineSourceExecutionResult::Audit { result } => {
+                assert_eq!(result.audit, CorpusAuditKind::DuplicateTitles);
+                assert_eq!(result.entries.len(), 1);
+            }
+            other => panic!("expected audit routine source, got {other:?}"),
+        }
+        assert_eq!(
+            run.result
+                .saved_review
+                .as_ref()
+                .expect("routine should save a review")
+                .metadata
+                .review_id,
+            "review/routine/001-current"
+        );
+        let compare = run
+            .result
+            .compare
+            .as_ref()
+            .expect("routine should return compare result");
+        assert_eq!(
+            compare
+                .base_review
+                .as_ref()
+                .expect("previous compatible review should be selected")
+                .metadata
+                .review_id,
+            "review/routine/a-new"
+        );
+        assert_eq!(
+            compare
+                .diff
+                .as_ref()
+                .expect("compatible reviews should diff")
+                .unchanged
+                .len(),
+            1
+        );
+        assert!(
+            compare
+                .report
+                .as_ref()
+                .expect("compare profile should be applied")
+                .lines
+                .iter()
+                .any(|line| matches!(line, ReviewRoutineReportLine::Unchanged { .. }))
+        );
+
+        let profile = run
+            .result
+            .reports
+            .first()
+            .expect("routine report profile should be applied");
+        assert_eq!(
+            profile.profile.metadata.profile_id,
+            "profile/routine/detail"
+        );
+        assert!(
+            profile
+                .lines
+                .iter()
+                .any(|line| matches!(line, ReviewRoutineReportLine::Routine { .. }))
+        );
+        assert!(
+            profile
+                .lines
+                .iter()
+                .any(|line| matches!(line, ReviewRoutineReportLine::Entry { .. }))
+        );
+        assert!(
+            profile
+                .lines
+                .iter()
+                .any(|line| matches!(line, ReviewRoutineReportLine::Finding { .. }))
+        );
+        assert!(
+            profile
+                .lines
+                .iter()
+                .any(|line| matches!(line, ReviewRoutineReportLine::Diff { .. }))
+        );
+        let routine_only_profile = run
+            .result
+            .reports
+            .iter()
+            .find(|report| report.profile.metadata.profile_id == "profile/routine/review-lines")
+            .expect("routine-only review profile should be applied");
+        assert!(
+            routine_only_profile
+                .lines
+                .iter()
+                .any(|line| matches!(line, ReviewRoutineReportLine::Review { .. }))
+        );
+        assert!(
+            routine_only_profile
+                .lines
+                .iter()
+                .any(|line| matches!(line, ReviewRoutineReportLine::Finding { .. }))
+        );
+        assert!(routine_only_profile.lines.iter().all(|line| matches!(
+            line,
+            ReviewRoutineReportLine::Review { .. } | ReviewRoutineReportLine::Finding { .. }
+        )));
+
+        let saved: ReviewRunResult = serde_json::from_value(
+            review_run(
+                &mut state,
+                json!({ "review_id": "review/routine/001-current" }),
+            )
+            .expect("saved routine review should be loadable"),
+        )
+        .expect("saved review should decode");
+        assert_eq!(saved.review.findings.len(), 1);
+    }
+
+    #[test]
+    fn review_routine_rpc_executes_workflow_routines_with_inputs_and_reports_step_failures() {
+        let (_workspace, mut state, target_key) = indexed_state();
+        let mut pack = sample_workbench_pack("pack/workflow-routine", "Workflow Routine Pack");
+        pack.workflows.push(sample_input_workflow(
+            "workflow/pack/input-review",
+            "Input Review",
+        ));
+        pack.review_routines.push(sample_workflow_review_routine(
+            "routine/pack/workflow",
+            "workflow/pack/input-review",
+            Some("review/routine/workflow"),
+        ));
+        pack.review_routines.push(sample_workflow_review_routine(
+            "routine/pack/workflow-failure",
+            "workflow/pack/input-review",
+            None,
+        ));
+        let _: ImportWorkbenchPackResult = serde_json::from_value(
+            import_workbench_pack(&mut state, json!({ "pack": pack }))
+                .expect("workflow routine pack should import"),
+        )
+        .expect("pack import result should decode");
+
+        let run: RunReviewRoutineResult = serde_json::from_value(
+            run_review_routine(
+                &mut state,
+                json!({
+                    "routine_id": "routine/pack/workflow",
+                    "inputs": [{
+                        "input_id": "focus",
+                        "kind": "node-key",
+                        "node_key": target_key
+                    }]
+                }),
+            )
+            .expect("workflow routine should run"),
+        )
+        .expect("workflow routine result should decode");
+        match &run.result.source {
+            ReviewRoutineSourceExecutionResult::Workflow { result } => {
+                assert_eq!(
+                    result.workflow.metadata.workflow_id,
+                    "workflow/pack/input-review"
+                );
+                assert_eq!(result.steps.len(), 2);
+            }
+            other => panic!("expected workflow routine source, got {other:?}"),
+        }
+        assert_eq!(
+            run.result
+                .saved_review
+                .as_ref()
+                .expect("workflow routine should save review")
+                .metadata
+                .review_id,
+            "review/routine/workflow"
+        );
+
+        let missing_input = run_review_routine(
+            &mut state,
+            json!({ "routine_id": "routine/pack/workflow-failure" }),
+        )
+        .expect_err("missing workflow input should fail before execution");
+        assert_eq!(
+            missing_input.into_inner().message,
+            "workflow input focus must be assigned"
+        );
+
+        let step_failure = run_review_routine(
+            &mut state,
+            json!({
+                "routine_id": "routine/pack/workflow-failure",
+                "inputs": [{
+                    "input_id": "focus",
+                    "kind": "node-key",
+                    "node_key": "missing:node"
+                }]
+            }),
+        )
+        .expect_err("workflow step failure should be surfaced with context");
+        assert_eq!(
+            step_failure.into_inner().message,
+            "workflow step resolve-focus failed: unknown workflow note target: missing:node"
+        );
+    }
+
+    #[test]
+    fn review_routine_save_review_conflicts_prevent_workflow_side_effects() {
+        let (_workspace, mut state, target_key) = indexed_state();
+        let _: SaveReviewRunResult = serde_json::from_value(
+            save_review_run(
+                &mut state,
+                json!({
+                    "review": sample_audit_review_run(
+                        "review/routine/conflict",
+                        "Existing Routine Review",
+                        ReviewFindingStatus::Open
+                    )
+                }),
+            )
+            .expect("existing review should save"),
+        )
+        .expect("save review result should decode");
+
+        let mut pack = sample_workbench_pack("pack/routine-conflict", "Routine Conflict Pack");
+        pack.workflows.push(sample_artifact_save_workflow(
+            "workflow/pack/conflict-side-effect",
+            &target_key,
+        ));
+        pack.review_routines.push(ReviewRoutineSpec {
+            metadata: ReviewRoutineMetadata {
+                routine_id: "routine/pack/conflict".to_owned(),
+                title: "Conflict Routine".to_owned(),
+                summary: None,
+            },
+            source: ReviewRoutineSource::Workflow {
+                workflow_id: "workflow/pack/conflict-side-effect".to_owned(),
+            },
+            inputs: Vec::new(),
+            save_review: ReviewRoutineSaveReviewPolicy {
+                enabled: true,
+                review_id: Some("review/routine/conflict".to_owned()),
+                title: None,
+                summary: None,
+                overwrite: false,
+            },
+            compare: None,
+            report_profile_ids: Vec::new(),
+        });
+        let _: ImportWorkbenchPackResult = serde_json::from_value(
+            import_workbench_pack(&mut state, json!({ "pack": pack }))
+                .expect("conflict pack should import"),
+        )
+        .expect("pack import result should decode");
+
+        let conflict =
+            run_review_routine(&mut state, json!({ "routine_id": "routine/pack/conflict" }))
+                .expect_err("review conflict should reject before workflow execution");
+        assert_eq!(
+            conflict.into_inner().message,
+            "review run already exists: review/routine/conflict"
+        );
+        assert!(
+            state
+                .database
+                .exploration_artifact("routine-conflict-artifact")
+                .expect("artifact lookup should succeed")
+                .is_none(),
+            "workflow artifact-save side effect should not run on review conflict"
+        );
+    }
+
+    #[test]
+    fn review_routine_rpc_reports_unknown_routines() {
+        let (_workspace, mut state) = audit_state();
+        let error = run_review_routine(&mut state, json!({ "routine_id": "routine/missing" }))
+            .expect_err("unknown routine should fail");
+        assert_eq!(
+            error.into_inner().message,
+            "unknown review routine: routine/missing"
+        );
     }
 
     #[test]
@@ -4716,6 +5473,188 @@ mod tests {
                     unique: false,
                 },
             }],
+        }
+    }
+
+    fn sample_input_workflow(workflow_id: &str, title: &str) -> WorkflowSpec {
+        WorkflowSpec {
+            metadata: WorkflowMetadata {
+                workflow_id: workflow_id.to_owned(),
+                title: title.to_owned(),
+                summary: None,
+            },
+            compatibility: WorkflowSpecCompatibility::default(),
+            inputs: vec![slipbox_core::WorkflowInputSpec {
+                input_id: "focus".to_owned(),
+                title: "Focus".to_owned(),
+                summary: None,
+                kind: slipbox_core::WorkflowInputKind::NoteTarget,
+            }],
+            steps: vec![
+                WorkflowStepSpec {
+                    step_id: "resolve-focus".to_owned(),
+                    payload: WorkflowStepPayload::Resolve {
+                        target: WorkflowResolveTarget::Input {
+                            input_id: "focus".to_owned(),
+                        },
+                    },
+                },
+                WorkflowStepSpec {
+                    step_id: "explore-focus".to_owned(),
+                    payload: WorkflowStepPayload::Explore {
+                        focus: slipbox_core::WorkflowExploreFocus::ResolvedStep {
+                            step_id: "resolve-focus".to_owned(),
+                        },
+                        lens: ExplorationLens::Refs,
+                        limit: 20,
+                        unique: false,
+                    },
+                },
+            ],
+        }
+    }
+
+    fn sample_artifact_save_workflow(workflow_id: &str, node_key: &str) -> WorkflowSpec {
+        WorkflowSpec {
+            metadata: WorkflowMetadata {
+                workflow_id: workflow_id.to_owned(),
+                title: "Artifact Save Workflow".to_owned(),
+                summary: None,
+            },
+            compatibility: WorkflowSpecCompatibility::default(),
+            inputs: Vec::new(),
+            steps: vec![
+                WorkflowStepSpec {
+                    step_id: "explore-focus".to_owned(),
+                    payload: WorkflowStepPayload::Explore {
+                        focus: slipbox_core::WorkflowExploreFocus::NodeKey {
+                            node_key: node_key.to_owned(),
+                        },
+                        lens: ExplorationLens::Refs,
+                        limit: 20,
+                        unique: false,
+                    },
+                },
+                WorkflowStepSpec {
+                    step_id: "save-artifact".to_owned(),
+                    payload: WorkflowStepPayload::ArtifactSave {
+                        source: slipbox_core::WorkflowArtifactSaveSource::ExploreStep {
+                            step_id: "explore-focus".to_owned(),
+                        },
+                        metadata: ExplorationArtifactMetadata {
+                            artifact_id: "routine-conflict-artifact".to_owned(),
+                            title: "Routine Conflict Artifact".to_owned(),
+                            summary: None,
+                        },
+                        overwrite: false,
+                    },
+                },
+            ],
+        }
+    }
+
+    fn sample_routine_report_profile(profile_id: &str) -> ReportProfileSpec {
+        ReportProfileSpec {
+            metadata: ReportProfileMetadata {
+                profile_id: profile_id.to_owned(),
+                title: "Routine Detail".to_owned(),
+                summary: None,
+            },
+            subjects: vec![
+                ReportProfileSubject::Routine,
+                ReportProfileSubject::Audit,
+                ReportProfileSubject::Review,
+                ReportProfileSubject::Diff,
+            ],
+            mode: ReportProfileMode::Detail,
+            status_filters: Some(vec![ReviewFindingStatus::Open]),
+            diff_buckets: Some(vec![ReviewRunDiffBucket::Unchanged]),
+            jsonl_line_kinds: Some(vec![
+                ReportJsonlLineKind::Routine,
+                ReportJsonlLineKind::Audit,
+                ReportJsonlLineKind::Entry,
+                ReportJsonlLineKind::Review,
+                ReportJsonlLineKind::Finding,
+                ReportJsonlLineKind::Diff,
+                ReportJsonlLineKind::Unchanged,
+            ]),
+        }
+    }
+
+    fn sample_routine_only_review_profile(profile_id: &str) -> ReportProfileSpec {
+        ReportProfileSpec {
+            metadata: ReportProfileMetadata {
+                profile_id: profile_id.to_owned(),
+                title: "Routine Review Lines".to_owned(),
+                summary: None,
+            },
+            subjects: vec![ReportProfileSubject::Routine],
+            mode: ReportProfileMode::Detail,
+            status_filters: None,
+            diff_buckets: None,
+            jsonl_line_kinds: Some(vec![
+                ReportJsonlLineKind::Review,
+                ReportJsonlLineKind::Finding,
+            ]),
+        }
+    }
+
+    fn sample_audit_review_routine(routine_id: &str, profile_id: &str) -> ReviewRoutineSpec {
+        ReviewRoutineSpec {
+            metadata: ReviewRoutineMetadata {
+                routine_id: routine_id.to_owned(),
+                title: "Duplicate Title Routine".to_owned(),
+                summary: None,
+            },
+            source: ReviewRoutineSource::Audit {
+                audit: CorpusAuditKind::DuplicateTitles,
+                limit: 20,
+            },
+            inputs: Vec::new(),
+            save_review: ReviewRoutineSaveReviewPolicy {
+                enabled: true,
+                review_id: Some("review/routine/001-current".to_owned()),
+                title: Some("Routine Duplicate Title Review".to_owned()),
+                summary: None,
+                overwrite: false,
+            },
+            compare: Some(ReviewRoutineComparePolicy {
+                target: ReviewRoutineCompareTarget::LatestCompatibleReview,
+                report_profile_id: Some(profile_id.to_owned()),
+            }),
+            report_profile_ids: vec![profile_id.to_owned()],
+        }
+    }
+
+    fn sample_workflow_review_routine(
+        routine_id: &str,
+        workflow_id: &str,
+        review_id: Option<&str>,
+    ) -> ReviewRoutineSpec {
+        ReviewRoutineSpec {
+            metadata: ReviewRoutineMetadata {
+                routine_id: routine_id.to_owned(),
+                title: "Workflow Routine".to_owned(),
+                summary: None,
+            },
+            source: ReviewRoutineSource::Workflow {
+                workflow_id: workflow_id.to_owned(),
+            },
+            inputs: vec![slipbox_core::WorkflowInputSpec {
+                input_id: "focus".to_owned(),
+                title: "Focus".to_owned(),
+                summary: None,
+                kind: slipbox_core::WorkflowInputKind::NoteTarget,
+            }],
+            save_review: ReviewRoutineSaveReviewPolicy {
+                enabled: review_id.is_some(),
+                review_id: review_id.map(str::to_owned),
+                title: None,
+                summary: None,
+                overwrite: false,
+            },
+            compare: None,
+            report_profile_ids: Vec::new(),
         }
     }
 

@@ -27,6 +27,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Merged imported workbench pack workflows, review routines, and report
   profiles into deterministic server catalogs with explicit shadowing and
   invalid-entry issues.
+- Added daemon-owned review routine execution over canonical audit, workflow,
+  save-review, diff, and report-profile semantics.
 
 ### Changed
 - Defined the `0.10.x` release band as declarative workbench extension through

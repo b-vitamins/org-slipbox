@@ -16,12 +16,13 @@ use slipbox_core::{
     NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
     NoteComparisonResult, PingInfo, ReviewFindingRemediationPreviewParams,
     ReviewFindingRemediationPreviewResult, ReviewRunDiffParams, ReviewRunDiffResult,
-    ReviewRunIdParams, ReviewRunResult, RunWorkflowParams, RunWorkflowResult,
-    SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult, SaveExplorationArtifactParams,
-    SaveExplorationArtifactResult, SaveReviewRunParams, SaveReviewRunResult,
-    SaveWorkflowReviewParams, SaveWorkflowReviewResult, SearchNodesParams, SearchNodesResult,
-    StatusInfo, ValidateWorkbenchPackParams, ValidateWorkbenchPackResult, WorkbenchPackIdParams,
-    WorkbenchPackManifest, WorkbenchPackResult, WorkflowIdParams, WorkflowResult,
+    ReviewRunIdParams, ReviewRunResult, RunReviewRoutineParams, RunReviewRoutineResult,
+    RunWorkflowParams, RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
+    SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
+    SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult, SearchNodesParams,
+    SearchNodesResult, StatusInfo, ValidateWorkbenchPackParams, ValidateWorkbenchPackResult,
+    WorkbenchPackIdParams, WorkbenchPackManifest, WorkbenchPackResult, WorkflowIdParams,
+    WorkflowResult,
 };
 use slipbox_rpc::{
     JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_COMPARE_NOTES, METHOD_CORPUS_AUDIT,
@@ -31,9 +32,9 @@ use slipbox_rpc::{
     METHOD_LIST_EXPLORATION_ARTIFACTS, METHOD_LIST_REVIEW_RUNS, METHOD_LIST_WORKBENCH_PACKS,
     METHOD_LIST_WORKFLOWS, METHOD_MARK_REVIEW_FINDING, METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID,
     METHOD_NODE_FROM_KEY, METHOD_NODE_FROM_REF, METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING,
-    METHOD_REVIEW_FINDING_REMEDIATION_PREVIEW, METHOD_REVIEW_RUN, METHOD_RUN_WORKFLOW,
-    METHOD_SAVE_CORPUS_AUDIT_REVIEW, METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SAVE_REVIEW_RUN,
-    METHOD_SAVE_WORKFLOW_REVIEW, METHOD_SEARCH_NODES, METHOD_STATUS,
+    METHOD_REVIEW_FINDING_REMEDIATION_PREVIEW, METHOD_REVIEW_RUN, METHOD_RUN_REVIEW_ROUTINE,
+    METHOD_RUN_WORKFLOW, METHOD_SAVE_CORPUS_AUDIT_REVIEW, METHOD_SAVE_EXPLORATION_ARTIFACT,
+    METHOD_SAVE_REVIEW_RUN, METHOD_SAVE_WORKFLOW_REVIEW, METHOD_SEARCH_NODES, METHOD_STATUS,
     METHOD_VALIDATE_WORKBENCH_PACK, METHOD_WORKBENCH_PACK, METHOD_WORKFLOW, read_framed_message,
     write_framed_message,
 };
@@ -276,6 +277,13 @@ where
         params: &RunWorkflowParams,
     ) -> Result<RunWorkflowResult, DaemonClientError> {
         self.request(METHOD_RUN_WORKFLOW, params)
+    }
+
+    fn run_review_routine(
+        &mut self,
+        params: &RunReviewRoutineParams,
+    ) -> Result<RunReviewRoutineResult, DaemonClientError> {
+        self.request(METHOD_RUN_REVIEW_ROUTINE, params)
     }
 
     fn corpus_audit(
@@ -636,6 +644,13 @@ impl DaemonClient {
         params: &RunWorkflowParams,
     ) -> Result<RunWorkflowResult, DaemonClientError> {
         self.rpc.run_workflow(params)
+    }
+
+    pub fn run_review_routine(
+        &mut self,
+        params: &RunReviewRoutineParams,
+    ) -> Result<RunReviewRoutineResult, DaemonClientError> {
+        self.rpc.run_review_routine(params)
     }
 
     pub fn corpus_audit(
