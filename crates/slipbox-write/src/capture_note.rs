@@ -178,6 +178,10 @@ pub fn capture_file_note_at_with_head_and_refs(
     let _ = normalized_title(title)?;
     let relative_path = next_available_relative_path(root, file_path)?;
     let absolute_path = root.join(&relative_path);
+    if let Some(parent) = absolute_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create directory {}", parent.display()))?;
+    }
     let mut document = OrgDocument::from_source(&normalized_head_source(Some(head)));
 
     if refs.is_empty() {

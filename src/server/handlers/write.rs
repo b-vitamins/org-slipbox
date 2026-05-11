@@ -17,10 +17,13 @@ pub(crate) fn capture_node(
     let refs = params.normalized_refs();
     let captured = match params.file_path.as_deref() {
         Some(file_path) => {
+            let (relative_path, _) = state
+                .resolve_index_path(file_path)
+                .map_err(|error| internal_error(error.context("failed to resolve file path")))?;
             if let Some(head) = params.head.as_deref() {
                 slipbox_write::capture_file_note_at_with_head_and_refs(
                     &state.root,
-                    file_path,
+                    &relative_path,
                     &params.title,
                     head,
                     &refs,
@@ -28,7 +31,7 @@ pub(crate) fn capture_node(
             } else {
                 slipbox_write::capture_file_note_at_with_refs(
                     &state.root,
-                    file_path,
+                    &relative_path,
                     &params.title,
                     &refs,
                 )
@@ -91,7 +94,10 @@ pub(crate) fn ensure_file_node(
     params: serde_json::Value,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let params: EnsureFileNodeParams = parse_params(params)?;
-    let ensured = slipbox_write::ensure_file_note(&state.root, &params.file_path, &params.title)
+    let (relative_path, _) = state
+        .resolve_index_path(&params.file_path)
+        .map_err(|error| internal_error(error.context("failed to resolve file path")))?;
+    let ensured = slipbox_write::ensure_file_note(&state.root, &relative_path, &params.title)
         .map_err(|error| internal_error(error.context("failed to ensure file node")))?;
     to_value(state.sync_capture(&ensured, "ensured file node")?)
 }
@@ -101,9 +107,12 @@ pub(crate) fn append_heading(
     params: serde_json::Value,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let params: AppendHeadingParams = parse_params(params)?;
+    let (relative_path, _) = state
+        .resolve_index_path(&params.file_path)
+        .map_err(|error| internal_error(error.context("failed to resolve file path")))?;
     let captured = slipbox_write::append_heading(
         &state.root,
-        &params.file_path,
+        &relative_path,
         &params.title,
         &params.heading,
         params.normalized_level(),
@@ -128,9 +137,12 @@ pub(crate) fn append_heading_at_outline_path(
     params: serde_json::Value,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let params: AppendHeadingAtOutlinePathParams = parse_params(params)?;
+    let (relative_path, _) = state
+        .resolve_index_path(&params.file_path)
+        .map_err(|error| internal_error(error.context("failed to resolve file path")))?;
     let captured = slipbox_write::append_heading_at_outline_path(
         &state.root,
-        &params.file_path,
+        &relative_path,
         &params.heading,
         &params.normalized_outline_path(),
         params.head.as_deref(),

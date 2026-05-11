@@ -135,11 +135,10 @@ fn capture_file_note_at_chooses_unique_path_when_target_exists() -> Result<()> {
 fn capture_file_note_at_with_head_preserves_head_and_assigns_identity() -> Result<()> {
     let workspace = tempdir()?;
     let root = workspace.path().join("notes");
-    fs::create_dir_all(root.join("projects"))?;
 
     let captured = capture_file_note_at_with_head_and_refs(
         &root,
-        "projects/seed.org",
+        "projects/nested/seed.org",
         "Seed",
         "#+title: Seed\n#+filetags: :seed:",
         &[String::from("https://example.test/seed")],
