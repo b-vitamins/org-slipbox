@@ -41,7 +41,7 @@ use crate::occurrences_query::query_occurrences;
 use crate::reflinks_query::query_reflinks;
 use crate::server::rpc::{internal_error, parse_params, to_value};
 use crate::server::state::ServerState;
-use crate::server::workflows::discover_workflow_catalog;
+use crate::server::workflows::{WorkflowCatalog, discover_workflow_catalog};
 use crate::unlinked_references_query::query_unlinked_references;
 
 pub(crate) fn ping(state: &ServerState) -> Result<serde_json::Value, JsonRpcError> {
@@ -668,6 +668,18 @@ fn validate_workflow_id_params(params: &WorkflowIdParams) -> Result<(), JsonRpcE
         return Err(invalid_request(message));
     }
     Ok(())
+}
+
+fn discover_server_workflow_catalog(state: &ServerState) -> Result<WorkflowCatalog, JsonRpcError> {
+    let packs = state
+        .database
+        .list_workbench_packs()
+        .map_err(|error| internal_error(error.context("failed to list workbench packs")))?;
+    Ok(discover_workflow_catalog(
+        &state.root,
+        &state.workflow_dirs,
+        &packs,
+    ))
 }
 
 fn workflow_lens_accepts_anchor_focus(lens: ExplorationLens) -> bool {
@@ -1645,7 +1657,7 @@ pub(crate) fn list_workflows(
     params: serde_json::Value,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let _params: ListWorkflowsParams = parse_params(params)?;
-    let catalog = discover_workflow_catalog(&state.root, &state.workflow_dirs);
+    let catalog = discover_server_workflow_catalog(state)?;
     to_value(ListWorkflowsResult {
         workflows: catalog.summaries(),
         issues: catalog.issues().to_vec(),
@@ -1658,7 +1670,7 @@ pub(crate) fn workflow(
 ) -> Result<serde_json::Value, JsonRpcError> {
     let params: WorkflowIdParams = parse_params(params)?;
     validate_workflow_id_params(&params)?;
-    let workflow = discover_workflow_catalog(&state.root, &state.workflow_dirs)
+    let workflow = discover_server_workflow_catalog(state)?
         .workflow(&params.workflow_id)
         .ok_or_else(|| invalid_request(format!("unknown workflow: {}", params.workflow_id)))?;
     to_value(WorkflowResult { workflow })
@@ -1672,7 +1684,7 @@ pub(crate) fn run_workflow(
     if let Some(message) = params.validation_error() {
         return Err(invalid_request(message));
     }
-    let workflow = discover_workflow_catalog(&state.root, &state.workflow_dirs)
+    let workflow = discover_server_workflow_catalog(state)?
         .workflow(&params.workflow_id)
         .ok_or_else(|| invalid_request(format!("unknown workflow: {}", params.workflow_id)))?;
     let result = execute_workflow_spec(state, &workflow, &params.inputs)?;
@@ -1762,7 +1774,7 @@ pub(crate) fn save_workflow_review(
         return Err(invalid_request(message));
     }
     let review_id = intended_workflow_review_id(&params)?;
-    let workflow = discover_workflow_catalog(&state.root, &state.workflow_dirs)
+    let workflow = discover_server_workflow_catalog(state)?
         .workflow(&params.workflow_id)
         .ok_or_else(|| invalid_request(format!("unknown workflow: {}", params.workflow_id)))?;
     if !params.overwrite {
@@ -1973,8 +1985,9 @@ mod tests {
         SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact,
         SavedTrailArtifact, SavedTrailStep, TrailReplayStepResult, ValidateWorkbenchPackResult,
         WorkbenchPackCompatibility, WorkbenchPackIssueKind, WorkbenchPackManifest,
-        WorkbenchPackMetadata, WorkbenchPackResult, WorkflowInputAssignment, WorkflowResolveTarget,
-        WorkflowResult, WorkflowSpec, WorkflowStepReport, WorkflowStepReportPayload,
+        WorkbenchPackMetadata, WorkbenchPackResult, WorkflowInputAssignment, WorkflowMetadata,
+        WorkflowResolveTarget, WorkflowResult, WorkflowSpec, WorkflowSpecCompatibility,
+        WorkflowStepPayload, WorkflowStepReport, WorkflowStepReportPayload, WorkflowStepSpec,
     };
     use slipbox_index::{DiscoveryPolicy, scan_root_with_policy};
     use tempfile::TempDir;
@@ -3180,6 +3193,50 @@ mod tests {
         )
         .expect("list result should decode");
         assert!(listed_after_delete.packs.is_empty());
+    }
+
+    #[test]
+    fn imported_pack_workflows_are_visible_through_live_catalog_handlers() {
+        let (_workspace, mut state, target_key) = indexed_state();
+        let mut pack = sample_workbench_pack("pack/workflows", "Pack Workflows");
+        pack.workflows.push(sample_pack_workflow(
+            "workflow/pack/live",
+            "Pack Live Workflow",
+            &target_key,
+        ));
+        let _: ImportWorkbenchPackResult = serde_json::from_value(
+            import_workbench_pack(&mut state, json!({ "pack": pack }))
+                .expect("pack import should succeed"),
+        )
+        .expect("import result should decode");
+
+        let listed: ListWorkflowsResult = serde_json::from_value(
+            list_workflows(&mut state, json!({})).expect("list workflows should succeed"),
+        )
+        .expect("workflow list should decode");
+        assert!(listed.issues.is_empty());
+        assert!(listed.workflows.iter().any(|workflow| {
+            workflow.metadata.workflow_id == "workflow/pack/live"
+                && workflow.metadata.title == "Pack Live Workflow"
+        }));
+
+        let shown: WorkflowResult = serde_json::from_value(
+            workflow(&mut state, json!({ "workflow_id": "workflow/pack/live" }))
+                .expect("pack workflow should be inspectable"),
+        )
+        .expect("workflow result should decode");
+        assert_eq!(shown.workflow.metadata.title, "Pack Live Workflow");
+
+        let run: RunWorkflowResult = serde_json::from_value(
+            run_workflow(&mut state, json!({ "workflow_id": "workflow/pack/live" }))
+                .expect("pack workflow should execute"),
+        )
+        .expect("workflow run should decode");
+        assert_eq!(
+            run.result.workflow.metadata.workflow_id,
+            "workflow/pack/live"
+        );
+        assert_eq!(run.result.steps.len(), 1);
     }
 
     #[test]
@@ -4636,6 +4693,29 @@ mod tests {
                     frozen_context: false,
                 }),
             },
+        }
+    }
+
+    fn sample_pack_workflow(workflow_id: &str, title: &str, node_key: &str) -> WorkflowSpec {
+        WorkflowSpec {
+            metadata: WorkflowMetadata {
+                workflow_id: workflow_id.to_owned(),
+                title: title.to_owned(),
+                summary: None,
+            },
+            compatibility: WorkflowSpecCompatibility::default(),
+            inputs: Vec::new(),
+            steps: vec![WorkflowStepSpec {
+                step_id: "explore-pack-focus".to_owned(),
+                payload: WorkflowStepPayload::Explore {
+                    focus: slipbox_core::WorkflowExploreFocus::NodeKey {
+                        node_key: node_key.to_owned(),
+                    },
+                    lens: ExplorationLens::Refs,
+                    limit: 20,
+                    unique: false,
+                },
+            }],
         }
     }
 

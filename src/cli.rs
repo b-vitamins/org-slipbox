@@ -2148,8 +2148,17 @@ fn render_workflow_list(result: &ListWorkflowsResult) -> String {
         for issue in &result.issues {
             output.push_str(&format!("- path: {}\n", issue.path));
             output.push_str(&format!("  kind: {}\n", issue.kind.label()));
+            if let Some(pack_id) = &issue.pack_id {
+                output.push_str(&format!("  pack id: {pack_id}\n"));
+            }
             if let Some(workflow_id) = &issue.workflow_id {
                 output.push_str(&format!("  workflow id: {workflow_id}\n"));
+            }
+            if let Some(routine_id) = &issue.routine_id {
+                output.push_str(&format!("  routine id: {routine_id}\n"));
+            }
+            if let Some(profile_id) = &issue.profile_id {
+                output.push_str(&format!("  profile id: {profile_id}\n"));
             }
             output.push_str(&format!("  message: {}\n", issue.message));
         }

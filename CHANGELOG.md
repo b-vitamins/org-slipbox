@@ -24,6 +24,9 @@ The format follows Keep a Changelog, and this project follows SemVer.
   pack identity.
 - Added typed daemon/RPC workbench pack operations for import, show, validate,
   export, list, and delete over the durable pack store.
+- Merged imported workbench pack workflows, review routines, and report
+  profiles into deterministic server catalogs with explicit shadowing and
+  invalid-entry issues.
 
 ### Changed
 - Defined the `0.10.x` release band as declarative workbench extension through

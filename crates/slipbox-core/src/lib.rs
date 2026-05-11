@@ -2294,8 +2294,14 @@ pub struct ListWorkflowsParams {}
 pub struct WorkflowCatalogIssue {
     pub path: String,
     pub kind: WorkflowCatalogIssueKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pack_id: Option<String>,
     #[serde(default)]
     pub workflow_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routine_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_id: Option<String>,
     pub message: String,
 }
 
@@ -2307,7 +2313,12 @@ pub enum WorkflowCatalogIssueKind {
     MalformedJson,
     UnsupportedVersion,
     InvalidSpec,
+    InvalidPack,
+    InvalidReviewRoutine,
+    InvalidReportProfile,
     DuplicateWorkflowId,
+    DuplicateReviewRoutineId,
+    DuplicateReportProfileId,
 }
 
 impl WorkflowCatalogIssueKind {
@@ -2319,7 +2330,12 @@ impl WorkflowCatalogIssueKind {
             Self::MalformedJson => "malformed-json",
             Self::UnsupportedVersion => "unsupported-version",
             Self::InvalidSpec => "invalid-spec",
+            Self::InvalidPack => "invalid-pack",
+            Self::InvalidReviewRoutine => "invalid-review-routine",
+            Self::InvalidReportProfile => "invalid-report-profile",
             Self::DuplicateWorkflowId => "duplicate-workflow-id",
+            Self::DuplicateReviewRoutineId => "duplicate-review-routine-id",
+            Self::DuplicateReportProfileId => "duplicate-report-profile-id",
         }
     }
 }
