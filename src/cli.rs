@@ -15,7 +15,8 @@ use slipbox_core::{
     ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactKind,
     ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
     ExplorationArtifactSummary, ExplorationEntry, ExplorationExplanation, ExplorationLens,
-    ExplorationSectionKind, ExploreParams, ExploreResult, ImportWorkbenchPackParams,
+    ExplorationSectionKind, ExploreParams, ExploreResult, FileRecord, ImportWorkbenchPackParams,
+    IndexFileParams, IndexFileResult, IndexStats, IndexedFilesResult,
     ListExplorationArtifactsResult, ListReviewRoutinesResult, ListReviewRunsResult,
     ListWorkbenchPacksResult, ListWorkflowsResult, MarkReviewFindingParams,
     MarkReviewFindingResult, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
@@ -31,10 +32,10 @@ use slipbox_core::{
     RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
     SaveExplorationArtifactParams, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
     SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact,
-    SavedTrailStep, StatusInfo, TrailReplayResult, TrailReplayStepResult,
-    ValidateWorkbenchPackResult, WorkbenchPackCompatibilityEnvelope, WorkbenchPackIdParams,
-    WorkbenchPackIssue, WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackResult,
-    WorkbenchPackSummary, WorkflowArtifactSaveSource, WorkflowCatalogIssue,
+    SavedTrailStep, SearchFilesParams, SearchFilesResult, StatusInfo, TrailReplayResult,
+    TrailReplayStepResult, ValidateWorkbenchPackResult, WorkbenchPackCompatibilityEnvelope,
+    WorkbenchPackIdParams, WorkbenchPackIssue, WorkbenchPackIssueKind, WorkbenchPackManifest,
+    WorkbenchPackResult, WorkbenchPackSummary, WorkflowArtifactSaveSource, WorkflowCatalogIssue,
     WorkflowExecutionResult, WorkflowExploreFocus, WorkflowIdParams, WorkflowInputAssignment,
     WorkflowInputKind, WorkflowInputSpec, WorkflowResolveTarget, WorkflowSpec,
     WorkflowSpecCompatibilityEnvelope, WorkflowStepPayload, WorkflowStepReport,
@@ -171,6 +172,65 @@ impl HeadlessArgs {
 pub(crate) struct StatusArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct SyncArgs {
+    #[command(subcommand)]
+    pub(crate) command: SyncCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum SyncCommand {
+    /// Refresh the full indexed root through daemon-owned discovery.
+    Root(SyncRootArgs),
+    /// Refresh one file's indexed state without pruning the rest of the root.
+    File(SyncFileArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct SyncRootArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct SyncFileArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// File path to refresh, absolute or relative to --root.
+    pub(crate) path: PathBuf,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct FileArgs {
+    #[command(subcommand)]
+    pub(crate) command: FileCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum FileCommand {
+    /// List indexed files.
+    List(FileListArgs),
+    /// Search indexed file paths and titles.
+    Search(FileSearchArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct FileListArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct FileSearchArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// Search query matched against indexed file paths and titles.
+    pub(crate) query: String,
+    /// Maximum file records to return.
+    #[arg(long, default_value_t = 50)]
+    pub(crate) limit: usize,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -885,6 +945,20 @@ pub(crate) trait HeadlessCommand {
 
 pub(crate) fn run_status(args: &StatusArgs) -> Result<(), CliCommandError> {
     run_headless_command(args)
+}
+
+pub(crate) fn run_sync(args: &SyncArgs) -> Result<(), CliCommandError> {
+    match &args.command {
+        SyncCommand::Root(command) => run_headless_command(command),
+        SyncCommand::File(command) => run_headless_command(command),
+    }
+}
+
+pub(crate) fn run_file(args: &FileArgs) -> Result<(), CliCommandError> {
+    match &args.command {
+        FileCommand::List(command) => run_headless_command(command),
+        FileCommand::Search(command) => run_headless_command(command),
+    }
 }
 
 pub(crate) fn run_resolve_node(args: &ResolveNodeArgs) -> Result<(), CliCommandError> {
@@ -1739,6 +1813,77 @@ impl HeadlessCommand for StatusArgs {
             output.nodes_indexed,
             output.links_indexed,
         )
+    }
+}
+
+impl HeadlessCommand for SyncRootArgs {
+    type Output = IndexStats;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.index()
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        let mut rendered = String::from("refreshed root\n");
+        rendered.push_str(&render_index_stats(output));
+        rendered
+    }
+}
+
+impl HeadlessCommand for SyncFileArgs {
+    type Output = IndexFileResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.index_file(&IndexFileParams {
+            file_path: self.path.display().to_string(),
+        })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        format!("refreshed file: {}\n", output.file_path)
+    }
+}
+
+impl HeadlessCommand for FileListArgs {
+    type Output = IndexedFilesResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.indexed_files()
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_indexed_files(output)
+    }
+}
+
+impl HeadlessCommand for FileSearchArgs {
+    type Output = SearchFilesResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.search_files(&SearchFilesParams {
+            query: self.query.clone(),
+            limit: self.limit,
+        })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_file_search_result(output)
     }
 }
 
@@ -3519,6 +3664,36 @@ fn render_review_status_counts(summary: &ReviewRunSummary) -> String {
         summary.status_counts.reviewed,
         summary.status_counts.dismissed,
         summary.status_counts.accepted
+    )
+}
+
+fn render_index_stats(stats: &IndexStats) -> String {
+    format!(
+        "files indexed: {}\nnodes indexed: {}\nlinks indexed: {}\n",
+        stats.files_indexed, stats.nodes_indexed, stats.links_indexed
+    )
+}
+
+fn render_indexed_files(result: &IndexedFilesResult) -> String {
+    let mut output = format!("indexed files: {}\n", result.files.len());
+    for file_path in &result.files {
+        output.push_str(&format!("- {file_path}\n"));
+    }
+    output
+}
+
+fn render_file_search_result(result: &SearchFilesResult) -> String {
+    let mut output = format!("files: {}\n", result.files.len());
+    for file in &result.files {
+        output.push_str(&render_file_record(file));
+    }
+    output
+}
+
+fn render_file_record(file: &FileRecord) -> String {
+    format!(
+        "- {} | {} | nodes: {}\n",
+        file.file_path, file.title, file.node_count
     )
 }
 

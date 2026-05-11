@@ -23,6 +23,10 @@ enum Command {
     Serve(ServeArgs),
     /// Show daemon status over the canonical headless connection path.
     Status(cli::StatusArgs),
+    /// Refresh indexed files over the canonical headless connection path.
+    Sync(cli::SyncArgs),
+    /// List and search indexed files over the canonical headless connection path.
+    File(cli::FileArgs),
     /// Resolve an exact note target over the canonical headless connection path.
     ResolveNode(cli::ResolveNodeArgs),
     /// Run live declared-lens exploration over the canonical headless connection path.
@@ -62,6 +66,8 @@ fn run() -> Result<(), cli::CliCommandError> {
         Command::Serve(args) => run_serve(args)
             .map_err(|error| cli::CliCommandError::new(cli::OutputMode::Human, error)),
         Command::Status(args) => cli::run_status(&args),
+        Command::Sync(args) => cli::run_sync(&args),
+        Command::File(args) => cli::run_file(&args),
         Command::ResolveNode(args) => cli::run_resolve_node(&args),
         Command::Explore(args) => cli::run_explore(&args),
         Command::Compare(args) => cli::run_compare(&args),
