@@ -3,9 +3,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result};
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 use slipbox_core::{
-    NodeKind, StructuralWriteOperationKind, StructuralWriteReport, StructuralWriteResult,
+    IndexedFilesResult, NodeKind, NodeRecord, StructuralWriteOperationKind, StructuralWriteReport,
+    StructuralWriteResult,
 };
 use slipbox_index::scan_root;
 use slipbox_store::Database;
@@ -76,6 +78,25 @@ Cross body.
 Demote body.
 "#,
     )?;
+    fs::write(
+        root.join("remove-source.org"),
+        r#"* Remove Region Source
+:PROPERTIES:
+:ID: removed-region-id
+:END:
+Removed region body.
+"#,
+    )?;
+    fs::write(
+        root.join("remove-target.org"),
+        r#"#+title: Remove Target
+
+* Remove Target
+:PROPERTIES:
+:ID: remove-target-id
+:END:
+"#,
+    )?;
 
     let db = workspace.path().join("slipbox.sqlite");
     let files = scan_root(&root)?;
@@ -129,6 +150,72 @@ fn parse_report(output: std::process::Output) -> Result<StructuralWriteReport> {
     Ok(report)
 }
 
+fn run_json_command(root: &Path, db: &Path, args: &[String]) -> Result<std::process::Output> {
+    let mut command = Command::new(slipbox_binary());
+    command.args(args);
+    command.arg("--root").arg(root);
+    command.arg("--db").arg(db);
+    command.arg("--json");
+    command.output().context("failed to run slipbox command")
+}
+
+fn parse_success_json<T: DeserializeOwned>(output: std::process::Output) -> Result<T> {
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stderr.is_empty(), "{output:?}");
+    Ok(serde_json::from_slice(&output.stdout)?)
+}
+
+fn indexed_files(root: &Path, db: &Path) -> Result<Vec<String>> {
+    let result: IndexedFilesResult = parse_success_json(run_json_command(
+        root,
+        db,
+        &["file".to_owned(), "list".to_owned()],
+    )?)?;
+    Ok(result.files)
+}
+
+fn node_by_id(root: &Path, db: &Path, id: &str) -> Result<NodeRecord> {
+    parse_success_json(run_json_command(
+        root,
+        db,
+        &[
+            "node".to_owned(),
+            "show".to_owned(),
+            "--id".to_owned(),
+            id.to_owned(),
+        ],
+    )?)
+}
+
+fn assert_report_files_match_index(
+    root: &Path,
+    db: &Path,
+    report: &StructuralWriteReport,
+) -> Result<()> {
+    let files = indexed_files(root, db)?;
+    for changed in &report.affected_files.changed_files {
+        assert!(
+            root.join(changed).exists(),
+            "changed file should exist on disk: {changed}"
+        );
+        assert!(
+            files.contains(changed),
+            "changed file should be indexed: {changed}; files={files:?}"
+        );
+    }
+    for removed in &report.affected_files.removed_files {
+        assert!(
+            !root.join(removed).exists(),
+            "removed file should be gone from disk: {removed}"
+        );
+        assert!(
+            !files.contains(removed),
+            "removed file should be absent from index: {removed}; files={files:?}"
+        );
+    }
+    Ok(())
+}
+
 fn assert_error_failure(output: &std::process::Output, expected: &str) -> Result<()> {
     assert!(!output.status.success(), "{output:?}");
     let payload: Value = serde_json::from_slice(&output.stderr)?;
@@ -153,6 +240,10 @@ fn region_char_range(source: &str) -> Result<(u32, u32)> {
         source[..start].chars().count() as u32 + 1,
         source[..end].chars().count() as u32 + 1,
     ))
+}
+
+fn whole_file_char_range(source: &str) -> (u32, u32) {
+    (1, source.chars().count() as u32 + 1)
 }
 
 #[test]
@@ -276,6 +367,209 @@ fn edit_commands_return_structural_write_reports() -> Result<()> {
     };
     assert_eq!(node.kind, NodeKind::File);
     assert_eq!(node.file_path, "demote.org");
+
+    Ok(())
+}
+
+#[test]
+fn edit_refile_subtree_read_your_writes_through_node_and_file_commands() -> Result<()> {
+    let fixture = build_edit_fixture()?;
+
+    let same_file_report = parse_report(edit_json_command(
+        &fixture.root,
+        &fixture.db,
+        &[
+            "refile-subtree".to_owned(),
+            "--source-id".to_owned(),
+            "extract-source-id".to_owned(),
+            "--target-id".to_owned(),
+            "region-target-id".to_owned(),
+        ],
+    )?)?;
+    assert_eq!(
+        same_file_report.operation,
+        StructuralWriteOperationKind::RefileSubtree
+    );
+    assert_eq!(
+        same_file_report.affected_files.changed_files,
+        vec!["main.org".to_owned()]
+    );
+    assert!(same_file_report.affected_files.removed_files.is_empty());
+    assert_report_files_match_index(&fixture.root, &fixture.db, &same_file_report)?;
+
+    let moved_same_file = node_by_id(&fixture.root, &fixture.db, "extract-source-id")?;
+    assert_eq!(moved_same_file.file_path, "main.org");
+    assert_eq!(
+        moved_same_file.outline_path,
+        "Region Target / Extract Source"
+    );
+
+    let cross_file_report = parse_report(edit_json_command(
+        &fixture.root,
+        &fixture.db,
+        &[
+            "refile-subtree".to_owned(),
+            "--source-id".to_owned(),
+            "cross-source-id".to_owned(),
+            "--target-id".to_owned(),
+            "region-target-id".to_owned(),
+        ],
+    )?)?;
+    assert_eq!(
+        cross_file_report.operation,
+        StructuralWriteOperationKind::RefileSubtree
+    );
+    assert!(
+        cross_file_report
+            .affected_files
+            .changed_files
+            .contains(&"main.org".to_owned())
+    );
+    assert!(
+        cross_file_report
+            .affected_files
+            .changed_files
+            .contains(&"cross.org".to_owned())
+    );
+    assert!(cross_file_report.affected_files.removed_files.is_empty());
+    assert_report_files_match_index(&fixture.root, &fixture.db, &cross_file_report)?;
+
+    let moved_cross_file = node_by_id(&fixture.root, &fixture.db, "cross-source-id")?;
+    assert_eq!(moved_cross_file.file_path, "main.org");
+    assert_eq!(
+        moved_cross_file.outline_path,
+        "Region Target / Cross Source"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn edit_region_refile_reports_removed_files_and_refreshes_read_surfaces() -> Result<()> {
+    let fixture = build_edit_fixture()?;
+    let source = fs::read_to_string(fixture.root.join("remove-source.org"))?;
+    let (start, end) = whole_file_char_range(&source);
+
+    let report = parse_report(edit_json_command(
+        &fixture.root,
+        &fixture.db,
+        &[
+            "refile-region".to_owned(),
+            "--file".to_owned(),
+            "remove-source.org".to_owned(),
+            "--start".to_owned(),
+            start.to_string(),
+            "--end".to_owned(),
+            end.to_string(),
+            "--target-id".to_owned(),
+            "remove-target-id".to_owned(),
+        ],
+    )?)?;
+
+    assert_eq!(report.operation, StructuralWriteOperationKind::RefileRegion);
+    assert_eq!(
+        report.affected_files.changed_files,
+        vec!["remove-target.org".to_owned()]
+    );
+    assert_eq!(
+        report.affected_files.removed_files,
+        vec!["remove-source.org".to_owned()]
+    );
+    assert!(report.result.is_none());
+    assert_report_files_match_index(&fixture.root, &fixture.db, &report)?;
+
+    let moved = node_by_id(&fixture.root, &fixture.db, "removed-region-id")?;
+    assert_eq!(moved.file_path, "remove-target.org");
+    assert_eq!(moved.outline_path, "Remove Target / Remove Region Source");
+
+    Ok(())
+}
+
+#[test]
+fn edit_extract_promote_and_demote_refresh_node_and_file_surfaces() -> Result<()> {
+    let fixture = build_edit_fixture()?;
+
+    let extract_report = parse_report(edit_json_command(
+        &fixture.root,
+        &fixture.db,
+        &[
+            "extract-subtree".to_owned(),
+            "--source-id".to_owned(),
+            "extract-source-id".to_owned(),
+            "--file".to_owned(),
+            "extracted.org".to_owned(),
+        ],
+    )?)?;
+    assert_eq!(
+        extract_report.operation,
+        StructuralWriteOperationKind::ExtractSubtree
+    );
+    assert!(
+        extract_report
+            .affected_files
+            .changed_files
+            .contains(&"main.org".to_owned())
+    );
+    assert!(
+        extract_report
+            .affected_files
+            .changed_files
+            .contains(&"extracted.org".to_owned())
+    );
+    assert_report_files_match_index(&fixture.root, &fixture.db, &extract_report)?;
+
+    let extracted = node_by_id(&fixture.root, &fixture.db, "extract-source-id")?;
+    assert_eq!(extracted.kind, NodeKind::File);
+    assert_eq!(extracted.file_path, "extracted.org");
+    assert_eq!(extracted.title, "Extract Source");
+
+    let demote_report = parse_report(edit_json_command(
+        &fixture.root,
+        &fixture.db,
+        &[
+            "demote-file".to_owned(),
+            "--file".to_owned(),
+            "demote.org".to_owned(),
+        ],
+    )?)?;
+    assert_eq!(
+        demote_report.operation,
+        StructuralWriteOperationKind::DemoteFile
+    );
+    assert_eq!(
+        demote_report.affected_files.changed_files,
+        vec!["demote.org".to_owned()]
+    );
+    assert_report_files_match_index(&fixture.root, &fixture.db, &demote_report)?;
+
+    let demoted = node_by_id(&fixture.root, &fixture.db, "demote-file-id")?;
+    assert_eq!(demoted.kind, NodeKind::Heading);
+    assert_eq!(demoted.file_path, "demote.org");
+    assert_eq!(demoted.title, "Demote Me");
+
+    let promote_report = parse_report(edit_json_command(
+        &fixture.root,
+        &fixture.db,
+        &[
+            "promote-file".to_owned(),
+            "--file".to_owned(),
+            "demote.org".to_owned(),
+        ],
+    )?)?;
+    assert_eq!(
+        promote_report.operation,
+        StructuralWriteOperationKind::PromoteFile
+    );
+    assert_eq!(
+        promote_report.affected_files.changed_files,
+        vec!["demote.org".to_owned()]
+    );
+    assert_report_files_match_index(&fixture.root, &fixture.db, &promote_report)?;
+
+    let promoted = node_by_id(&fixture.root, &fixture.db, "demote-file-id")?;
+    assert_eq!(promoted.kind, NodeKind::File);
+    assert_eq!(promoted.file_path, "demote.org");
+    assert_eq!(promoted.title, "Demote Me");
 
     Ok(())
 }
