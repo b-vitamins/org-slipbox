@@ -37,6 +37,8 @@ enum Command {
     Search(cli::SearchArgs),
     /// Query agenda entries over the canonical headless connection path.
     Agenda(cli::AgendaArgs),
+    /// Create and append daily notes over the canonical headless connection path.
+    Daily(cli::DailyArgs),
     /// Export graph DOT over the canonical headless connection path.
     Graph(cli::GraphArgs),
     /// Run capture operations over the canonical headless connection path.
@@ -89,6 +91,7 @@ fn run() -> Result<(), cli::CliCommandError> {
         Command::Tag(args) => cli::run_tag(&args),
         Command::Search(args) => cli::run_search(&args),
         Command::Agenda(args) => cli::run_agenda(&args),
+        Command::Daily(args) => cli::run_daily(&args),
         Command::Graph(args) => cli::run_graph(&args),
         Command::Capture(args) => cli::run_capture(&args),
         Command::Note(args) => cli::run_note(&args),
