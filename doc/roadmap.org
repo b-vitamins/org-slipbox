@@ -261,6 +261,21 @@ Focus:
 - carry forward the work explicitly deferred from `0.11.x`: refile, extract,
   promote/demote, and related structural rewrites need coherent product
   contracts before they become everyday CLI operations
+- start from the parity audit rather than feature count: classify each Emacs
+  command as already CLI-covered, required CLI parity, genuinely UI-only, or
+  intentionally deferred
+- expose the existing daemon structural rewrite operations through typed
+  daemon-client methods before adding CLI commands
+- add a task-shaped `edit` CLI family for refile subtree, refile region,
+  extract subtree, promote file, and demote file, with exact targets and
+  explicit file/range arguments
+- add affected-file reports and preview or dry-run semantics where the engine
+  can describe the write honestly
+- add link rewrite and ID maintenance only if they can use precise preview/apply
+  contracts and Rust-owned mutation paths
+- add maintenance and diagnostics commands for file eligibility, node
+  diagnostics, index consistency, rebuild/status reporting, and recovery
+  workflows without exposing a raw database shell
 - structural write surfaces only after everyday CLI operations have proven the
   daemon-owned write model
 - explicit product shapes for refile, extraction, promote/demote, and related
@@ -268,6 +283,9 @@ Focus:
 - stronger compatibility, migration, and stability expectations around the
   expanded Emacs and CLI surfaces
 - performance and correctness hardening for write-heavy workflows
+- compatibility policy for CLI JSON, artifacts, review runs, workflow specs,
+  routines, report profiles, packs, and new write reports, with additive
+  changes preferred over retroactive shape churn
 
 Watchpoints:
 
@@ -275,6 +293,13 @@ Watchpoints:
   operations
 - do not introduce broad remediation apply flows without explicit previews,
   user intent, and Rust-owned mutation semantics
+- do not break the `0.11.0` everyday CLI JSON shapes while adding write-report
+  structure for newer higher-risk operations
+- do not turn diagnostics into a raw SQLite explorer or support burden around
+  internal schema details
+- keep `org-protocol`, completion, draft capture buffers, calendar marking,
+  viewer hooks, capture finalizers, and live buffer coordination Emacs-specific
+  unless a real non-UI product surface emerges
 - do not collapse CLI parity into platform or extension-runtime claims
 - keep the project below `1.0.0` until the public surfaces are genuinely
   dependable

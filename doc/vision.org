@@ -117,6 +117,15 @@ MCP, agent-adapter, and platform surfaces still come later.
 `0.12.x` is therefore the structural editing and stability line: refile,
 extract, promote/demote, and any remediation-apply flows need explicit product
 shapes rather than incidental CLI growth.
+The post-`0.11.0` audit narrows that work. Everyday reads and safe constructive
+writes are already represented in the CLI. The structural rewrite RPCs already
+exist at the daemon boundary, but they still need typed daemon-client methods,
+task-shaped CLI commands, affected-file reports, read-your-writes coverage,
+and stable JSON contracts. Link rewrite, ID maintenance, diagnostics, and
+remediation apply should enter only through the same previewable, Rust-owned
+write discipline. Draft buffers, completion, calendar marking, viewer hooks,
+capture finalizers, live buffer coordination, protocol handlers, and direct
+SQLite inspection remain Emacs-specific or operator-local UI.
 
 This implies:
 
@@ -131,6 +140,9 @@ This implies:
   exploration artifacts, and executable plugins
 - everyday CLI operations reuse the same daemon-owned read/write semantics as
   Emacs; the product has two surfaces, not two slipboxes
+- structural edit and remediation surfaces are allowed only when they expose
+  explicit affected files, preview or dry-run semantics where feasible, and
+  read-your-writes behavior through the same daemon-owned mutation model
 - programmable surfaces expose meaningful operations rather than transport guts
 - the workbench should be extracted from a proven exploratory model, not
   invented in parallel and allowed to drift

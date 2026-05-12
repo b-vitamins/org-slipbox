@@ -157,12 +157,28 @@ Outcomes:
 - documented compatibility and upgrade expectations
 - clear performance envelopes
 - routine release engineering
+- structural edit commands for refile, extract, promote, and demote that use
+  Rust-owned rewrite semantics rather than frontend text mutation
+- affected-file reports, preview or dry-run discipline where feasible, and
+  read-your-writes behavior for higher-risk write operations
+- bounded remediation apply only for findings whose preview names exact files,
+  locations, and actions
+- maintenance and diagnostics commands that help users recover index and file
+  state without opening Emacs or reaching into the database directly
+- a documented CLI/Emacs parity matrix that distinguishes CLI-capable,
+  Emacs-specific, experimental, and intentionally deferred surfaces
 
 Exit criteria:
 
 - the project can evolve without repeated rescue refactors
 - packagers and users can rely on stable interfaces
 - the codebase still grows by module rather than monolith
+- the CLI covers the structural rewrite operations that are already exposed in
+  Emacs, while preserving daemon-owned mutation and explicit freshness
+- public JSON shapes for write-like commands are stable enough to support
+  scripts without retroactive churn
+- durable artifacts, review runs, packs, workflow specs, routines, profiles,
+  and the derived index survive rebuild and upgrade-style verification
 
 * Non-Milestones
 

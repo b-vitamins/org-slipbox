@@ -13,7 +13,8 @@ side owns commands, session state, and presentation.
 
 ## Status
 
-Current development starts from the released `0.11.0` foundation.
+Current development starts from the released `0.11.0` foundation and is
+landing the `0.12.0` structural editing and stabilization line.
 
 The documented workflow surface is intended to remain complete enough for
 day-to-day replacement use while the project deepens its exploratory model.
@@ -33,6 +34,11 @@ nodes, refs, tags, agenda, graph export, note creation, capture, dailies,
 identity, and metadata. Raw-RPC sprawl, plugin-runtime ambitions, MCP,
 agent-adapter claims, structural rewrite flows, and broad automated mutation
 remain deferred.
+The `0.12.x` line picks up the highest-risk remaining parity work: structural
+rewrites, write previews and affected-file reports, selected safe remediation
+apply paths, maintenance diagnostics, and compatibility policy. MCP,
+agent-adapter, plugin-runtime, scheduler, and broad automated mutation claims
+remain deferred until the two first-class surfaces are stable enough to target.
 
 ## Requirements
 
@@ -683,8 +689,12 @@ that the whole programmable platform is done.
   refs, agenda, graph export, note creation, capture, dailies, identity, and
   metadata, while still routing daemon-backed work through task-shaped commands
   over `slipbox serve`.
-- Structural rewrite flows, extension APIs, MCP surfaces, agent adapters, raw
-  RPC mirroring, and broad automated mutation remain deferred.
+- `0.12.x` is the structural editing and stabilization step: refile, extract,
+  promote/demote, maintenance diagnostics, compatibility policy, and selected
+  previewable remediation apply paths get explicit product contracts before
+  any later external adapter work.
+- Extension APIs, MCP surfaces, agent adapters, raw RPC mirroring, schedulers,
+  and broad automated mutation remain deferred.
 
 ## Headless Workbench
 
@@ -695,10 +705,12 @@ durable, reviewable, and diffable. `0.10.x` extends the workbench
 declaratively through compatible specs, routines, profiles, and packs rather
 than through a plugin runtime. `0.11.x` makes the CLI an everyday companion to
 the Emacs surface for safe ordinary slipbox operations, not a separate product
-model. That work comes before MCP or agent-adapter surfaces because ordinary
-sync, lookup, search, and write operations need a dependable scriptable house
-before external automation has a stable target. The CLI stays on the same
-architectural line as the rest of the project:
+model. `0.12.x` now carries the remaining parity and stabilization work:
+structural edits, higher-risk write previews, bounded remediation apply,
+diagnostics, and compatibility policy. That work still comes before MCP or
+agent-adapter surfaces because external automation needs dependable scriptable
+operations to target. The CLI stays on the same architectural line as the rest
+of the project:
 
 - daemon-backed headless commands talk to the daemon over canonical JSON-RPC
   stdio
@@ -822,6 +834,36 @@ slipbox node tag add --id project-alpha research active --root ~/notes --db ~/.c
 The everyday CLI deliberately stops short of structural rewrite flows such as
 refile, extract, promote, and demote. Those belong to the `0.12.x` structural
 editing and stability line, along with any future remediation-apply work.
+
+### CLI/Emacs Parity Audit
+
+The post-`0.11.0` audit leaves four clear buckets.
+
+- Already represented in the CLI: status, full and single-file sync, file list
+  and search, node lookup/search/random/neighborhoods/at-point, ref and tag
+  lookup, occurrence search, agenda queries, graph DOT export, note creation
+  and append flows, capture execution and preview, daily ensure/show/append,
+  identity assignment, metadata updates, exploration, comparison, artifacts,
+  workflows, audits, reviews, routines, and packs.
+- Should become CLI in `0.12.x`: structural rewrites already modeled by the
+  daemon boundary but not yet exposed through the typed daemon client or CLI:
+  refile subtree, refile region, extract subtree, promote file, and demote file.
+  These need affected-file reports, read-your-writes checks, and JSON contracts
+  before they are ordinary scriptable writes.
+- Should become CLI if the write path stays precise: link and ID maintenance
+  such as replacing `slipbox:` links with stable `id:` links, inspecting
+  unresolved title links, and applying selected remediation previews. These
+  must use preview/apply discipline and Rust-owned file mutation, not ad hoc
+  text replacement in CLI glue.
+- Genuinely UI-only or Emacs-specific: draft capture buffers, completion UI,
+  calendar marking, Graphviz viewer hooks, capture finalizers, live buffer
+  save/refresh coordination, `org-protocol` handlers, and direct SQLite
+  exploration through `sqlite-mode`.
+
+`0.12.x` should add maintenance and diagnostics commands where they help users
+recover without opening Emacs: file diagnostics, node diagnostics, index
+consistency checks, and explicit rebuild/status reports. These should remain
+operator commands, not a raw database shell.
 
 Discovery is deliberately narrow:
 

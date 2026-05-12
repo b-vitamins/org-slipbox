@@ -6,6 +6,13 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+### Changed
+- Defined the `0.12.x` structural editing and stabilization line after the
+  `0.11.0` CLI parity cut, including the CLI/Emacs parity audit buckets,
+  affected-file/write-preview expectations, maintenance diagnostics, and the
+  boundary against premature MCP, agent-adapter, plugin-runtime, scheduler, or
+  broad automated mutation work.
+
 ## [0.11.0] - 2026-05-13
 
 ### Added
