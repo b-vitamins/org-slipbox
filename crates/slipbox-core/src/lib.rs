@@ -2723,10 +2723,123 @@ pub enum AuditRemediationPreviewPayload {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum AuditRemediationPreviewIdentity {
+    DanglingLink {
+        source_node_key: String,
+        missing_explicit_id: String,
+        file_path: String,
+        line: u32,
+        column: u32,
+        preview: String,
+    },
+    DuplicateTitle {
+        title: String,
+        node_keys: Vec<String>,
+    },
+}
+
+impl AuditRemediationPreviewIdentity {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        match self {
+            Self::DanglingLink {
+                source_node_key,
+                missing_explicit_id,
+                file_path,
+                line,
+                column,
+                preview,
+            } => validate_required_text_field(source_node_key, "source_node_key")
+                .or_else(|| {
+                    validate_required_text_field(missing_explicit_id, "missing_explicit_id")
+                })
+                .or_else(|| validate_structural_write_file_path_field(file_path, "file_path"))
+                .or_else(|| validate_positive_position(*line, "line"))
+                .or_else(|| validate_positive_position(*column, "column"))
+                .or_else(|| validate_required_text_field(preview, "preview")),
+            Self::DuplicateTitle { title, node_keys } => {
+                validate_required_text_field(title, "title")
+                    .or_else(|| validate_review_node_key_set(node_keys, "node_keys", 2))
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum AuditRemediationApplyAction {
+    UnlinkDanglingLink {
+        source_node_key: String,
+        missing_explicit_id: String,
+        file_path: String,
+        line: u32,
+        column: u32,
+        preview: String,
+        replacement_text: String,
+    },
+}
+
+impl AuditRemediationApplyAction {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        match self {
+            Self::UnlinkDanglingLink {
+                source_node_key,
+                missing_explicit_id,
+                file_path,
+                line,
+                column,
+                preview,
+                replacement_text,
+            } => validate_required_text_field(source_node_key, "source_node_key")
+                .or_else(|| {
+                    validate_required_text_field(missing_explicit_id, "missing_explicit_id")
+                })
+                .or_else(|| validate_structural_write_file_path_field(file_path, "file_path"))
+                .or_else(|| validate_positive_position(*line, "line"))
+                .or_else(|| validate_positive_position(*column, "column"))
+                .or_else(|| validate_required_text_field(preview, "preview"))
+                .or_else(|| validate_required_text_field(replacement_text, "replacement_text")),
+        }
+    }
+
+    #[must_use]
+    pub fn preview_identity(&self) -> AuditRemediationPreviewIdentity {
+        match self {
+            Self::UnlinkDanglingLink {
+                source_node_key,
+                missing_explicit_id,
+                file_path,
+                line,
+                column,
+                preview,
+                ..
+            } => AuditRemediationPreviewIdentity::DanglingLink {
+                source_node_key: source_node_key.clone(),
+                missing_explicit_id: missing_explicit_id.clone(),
+                file_path: file_path.clone(),
+                line: *line,
+                column: *column,
+                preview: preview.clone(),
+            },
+        }
+    }
+
+    #[must_use]
+    pub fn affected_file(&self) -> &str {
+        match self {
+            Self::UnlinkDanglingLink { file_path, .. } => file_path,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReviewFindingRemediationPreview {
     pub review_id: String,
     pub finding_id: String,
     pub status: ReviewFindingStatus,
+    pub preview_identity: AuditRemediationPreviewIdentity,
     #[serde(flatten)]
     pub payload: AuditRemediationPreviewPayload,
 }
@@ -2793,12 +2906,117 @@ impl ReviewFindingRemediationPreview {
             }
         };
 
+        let preview_identity = AuditRemediationPreviewIdentity::from(&payload);
         Ok(Self {
             review_id: review_id.to_owned(),
             finding_id: finding.finding_id.clone(),
             status: finding.status,
+            preview_identity,
             payload,
         })
+    }
+}
+
+impl From<&AuditRemediationPreviewPayload> for AuditRemediationPreviewIdentity {
+    fn from(payload: &AuditRemediationPreviewPayload) -> Self {
+        match payload {
+            AuditRemediationPreviewPayload::DanglingLink {
+                source,
+                missing_explicit_id,
+                file_path,
+                line,
+                column,
+                preview,
+                ..
+            } => Self::DanglingLink {
+                source_node_key: source.node_key.clone(),
+                missing_explicit_id: missing_explicit_id.clone(),
+                file_path: file_path.clone(),
+                line: *line,
+                column: *column,
+                preview: preview.clone(),
+            },
+            AuditRemediationPreviewPayload::DuplicateTitle { title, notes, .. } => {
+                Self::DuplicateTitle {
+                    title: title.clone(),
+                    node_keys: notes.iter().map(|note| note.node_key.clone()).collect(),
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewFindingRemediationApplyParams {
+    pub review_id: String,
+    pub finding_id: String,
+    pub expected_preview: AuditRemediationPreviewIdentity,
+    pub action: AuditRemediationApplyAction,
+}
+
+impl ReviewFindingRemediationApplyParams {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_review_id_field(&self.review_id)
+            .or_else(|| validate_review_finding_id_field(&self.finding_id))
+            .or_else(|| self.expected_preview.validation_error())
+            .or_else(|| self.action.validation_error())
+            .or_else(|| {
+                (self.action.preview_identity() != self.expected_preview).then(|| {
+                    "remediation action must match the expected preview identity".to_owned()
+                })
+            })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewFindingRemediationApplication {
+    pub review_id: String,
+    pub finding_id: String,
+    pub preview_identity: AuditRemediationPreviewIdentity,
+    pub action: AuditRemediationApplyAction,
+    #[serde(flatten)]
+    pub affected_files: StructuralWriteAffectedFiles,
+    pub index_refresh: StructuralWriteIndexRefreshStatus,
+}
+
+impl ReviewFindingRemediationApplication {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_review_id_field(&self.review_id)
+            .or_else(|| validate_review_finding_id_field(&self.finding_id))
+            .or_else(|| self.preview_identity.validation_error())
+            .or_else(|| self.action.validation_error())
+            .or_else(|| {
+                (self.action.preview_identity() != self.preview_identity).then(|| {
+                    "remediation application action must match the preview identity".to_owned()
+                })
+            })
+            .or_else(|| self.affected_files.validation_error())
+            .or_else(|| {
+                (!self
+                    .affected_files
+                    .changed_files
+                    .iter()
+                    .any(|file| file == self.action.affected_file()))
+                .then(|| {
+                    format!(
+                        "remediation application affected files must include changed file {}",
+                        self.action.affected_file()
+                    )
+                })
+            })
+            .or_else(|| {
+                (!self.affected_files.removed_files.is_empty()).then(|| {
+                    "remediation applications must not remove files for supported actions"
+                        .to_owned()
+                })
+            })
+            .or_else(|| {
+                (self.index_refresh != StructuralWriteIndexRefreshStatus::Refreshed).then(|| {
+                    "remediation applications must be returned after index refresh".to_owned()
+                })
+            })
     }
 }
 
@@ -4225,6 +4443,11 @@ pub struct ReviewFindingRemediationPreviewResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewFindingRemediationApplyResult {
+    pub application: ReviewFindingRemediationApplication,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListReviewRunsResult {
     pub reviews: Vec<ReviewRunSummary>,
 }
@@ -4923,6 +5146,34 @@ fn validate_required_text_field(value: &str, field: &str) -> Option<String> {
         .trim()
         .is_empty()
         .then(|| format!("{field} must not be empty"))
+}
+
+fn validate_positive_position(value: u32, field: &str) -> Option<String> {
+    (value == 0).then(|| format!("{field} must be a positive 1-based position"))
+}
+
+fn validate_review_node_key_set(
+    node_keys: &[String],
+    field: &str,
+    minimum_len: usize,
+) -> Option<String> {
+    if node_keys.len() < minimum_len {
+        return Some(format!(
+            "{field} must include at least {minimum_len} node keys"
+        ));
+    }
+
+    let mut seen: Vec<&str> = Vec::with_capacity(node_keys.len());
+    for (index, node_key) in node_keys.iter().enumerate() {
+        if let Some(error) = validate_required_text_field(node_key, field) {
+            return Some(format!("{field} entry {index} is invalid: {error}"));
+        }
+        if seen.contains(&node_key.as_str()) {
+            return Some(format!("{field} entry {index} is duplicate: {node_key}"));
+        }
+        seen.push(node_key);
+    }
+    None
 }
 
 fn validate_artifact_id_field(value: &str) -> Option<String> {
@@ -5796,14 +6047,15 @@ fn validate_review_finding_matches_run(
 #[cfg(test)]
 mod tests {
     use super::{
-        AnchorRecord, BUILT_IN_REVIEW_ROUTINE_CONTEXT_SWEEP_ID,
-        BUILT_IN_REVIEW_ROUTINE_DUPLICATE_TITLE_ID, BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID,
-        BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID, BUILT_IN_WORKFLOW_PERIODIC_REVIEW_ID,
-        BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID, BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID,
-        BacklinkRecord, BridgeEvidenceRecord, CaptureNodeParams, CaptureTemplatePreviewResult,
-        CompareNotesParams, ComparisonConnectorDirection, ComparisonPlanningRecord,
-        ComparisonReferenceRecord, ComparisonTaskStateRecord, CorpusAuditEntry, CorpusAuditKind,
-        CorpusAuditParams, CorpusAuditReportLine, CorpusAuditResult, DanglingLinkAuditRecord,
+        AnchorRecord, AuditRemediationApplyAction, AuditRemediationPreviewIdentity,
+        BUILT_IN_REVIEW_ROUTINE_CONTEXT_SWEEP_ID, BUILT_IN_REVIEW_ROUTINE_DUPLICATE_TITLE_ID,
+        BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
+        BUILT_IN_WORKFLOW_PERIODIC_REVIEW_ID, BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
+        BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID, BacklinkRecord, BridgeEvidenceRecord,
+        CaptureNodeParams, CaptureTemplatePreviewResult, CompareNotesParams,
+        ComparisonConnectorDirection, ComparisonPlanningRecord, ComparisonReferenceRecord,
+        ComparisonTaskStateRecord, CorpusAuditEntry, CorpusAuditKind, CorpusAuditParams,
+        CorpusAuditReportLine, CorpusAuditResult, DanglingLinkAuditRecord,
         DeleteExplorationArtifactResult, DeleteWorkbenchPackResult, DuplicateTitleAuditRecord,
         ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
         ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactKind,
@@ -5817,7 +6069,9 @@ mod tests {
         NoteComparisonSection, NoteComparisonSectionKind, NoteConnectivityAuditRecord,
         PlanningField, PlanningRelationRecord, PreviewNodeRecord, ReportJsonlLineKind,
         ReportProfileCatalog, ReportProfileMetadata, ReportProfileMode, ReportProfileSpec,
-        ReportProfileSubject, ReviewFinding, ReviewFindingPayload, ReviewFindingRemediationPreview,
+        ReportProfileSubject, ReviewFinding, ReviewFindingPayload,
+        ReviewFindingRemediationApplication, ReviewFindingRemediationApplyParams,
+        ReviewFindingRemediationApplyResult, ReviewFindingRemediationPreview,
         ReviewFindingRemediationPreviewParams, ReviewFindingRemediationPreviewResult,
         ReviewFindingStatus, ReviewFindingStatusTransition, ReviewRoutineCatalog,
         ReviewRoutineComparePolicy, ReviewRoutineCompareTarget, ReviewRoutineMetadata,
@@ -6055,6 +6309,35 @@ mod tests {
                 limit: 200,
             },
             findings,
+        }
+    }
+
+    fn sample_dangling_preview_identity(
+        source_node_key: &str,
+        missing_explicit_id: &str,
+    ) -> AuditRemediationPreviewIdentity {
+        AuditRemediationPreviewIdentity::DanglingLink {
+            source_node_key: source_node_key.to_owned(),
+            missing_explicit_id: missing_explicit_id.to_owned(),
+            file_path: "sample.org".to_owned(),
+            line: 12,
+            column: 7,
+            preview: format!("[[id:{missing_explicit_id}][Missing]]"),
+        }
+    }
+
+    fn sample_unlink_dangling_action(
+        missing_explicit_id: &str,
+        replacement_text: &str,
+    ) -> AuditRemediationApplyAction {
+        AuditRemediationApplyAction::UnlinkDanglingLink {
+            source_node_key: "heading:source.org:3".to_owned(),
+            missing_explicit_id: missing_explicit_id.to_owned(),
+            file_path: "sample.org".to_owned(),
+            line: 12,
+            column: 7,
+            preview: format!("[[id:{missing_explicit_id}][Missing]]"),
+            replacement_text: replacement_text.to_owned(),
         }
     }
 
@@ -9289,6 +9572,10 @@ mod tests {
             "audit/dangling-links/source/missing-id"
         );
         assert_eq!(dangling_preview.status, ReviewFindingStatus::Open);
+        assert_eq!(
+            dangling_preview.preview_identity,
+            sample_dangling_preview_identity("file:source.org", "missing-id")
+        );
         match dangling_preview.payload {
             super::AuditRemediationPreviewPayload::DanglingLink {
                 source,
@@ -9372,6 +9659,125 @@ mod tests {
             )
             .expect_err("orphan finding should not be previewable"),
             "review finding has no remediation preview for orphan-note evidence"
+        );
+    }
+
+    #[test]
+    fn review_finding_remediation_apply_contracts_round_trip() {
+        let expected_preview =
+            sample_dangling_preview_identity("heading:source.org:3", "missing-id");
+        let action = sample_unlink_dangling_action("missing-id", "Missing");
+        let params = ReviewFindingRemediationApplyParams {
+            review_id: "review/audit/dangling-links".to_owned(),
+            finding_id: "audit/dangling-links/source/missing-id".to_owned(),
+            expected_preview: expected_preview.clone(),
+            action: action.clone(),
+        };
+        assert_eq!(params.validation_error(), None);
+        assert_eq!(action.preview_identity(), expected_preview);
+
+        let application = ReviewFindingRemediationApplication {
+            review_id: params.review_id.clone(),
+            finding_id: params.finding_id.clone(),
+            preview_identity: expected_preview,
+            action,
+            affected_files: StructuralWriteAffectedFiles {
+                changed_files: vec!["sample.org".to_owned()],
+                removed_files: Vec::new(),
+            },
+            index_refresh: StructuralWriteIndexRefreshStatus::Refreshed,
+        };
+        assert_eq!(application.validation_error(), None);
+        let result = ReviewFindingRemediationApplyResult {
+            application: application.clone(),
+        };
+
+        let serialized_params =
+            serde_json::to_value(&params).expect("apply params should serialize");
+        assert_eq!(
+            serialized_params["expected_preview"]["kind"],
+            json!("dangling-link")
+        );
+        assert_eq!(
+            serialized_params["action"]["kind"],
+            json!("unlink-dangling-link")
+        );
+        assert_eq!(
+            serde_json::from_value::<ReviewFindingRemediationApplyParams>(serialized_params)
+                .expect("apply params should deserialize"),
+            params
+        );
+        assert_eq!(
+            serde_json::from_value::<ReviewFindingRemediationApplyResult>(
+                serde_json::to_value(&result).expect("apply result should serialize"),
+            )
+            .expect("apply result should deserialize"),
+            result
+        );
+    }
+
+    #[test]
+    fn review_finding_remediation_apply_contracts_reject_mismatches() {
+        let expected_preview =
+            sample_dangling_preview_identity("heading:source.org:3", "missing-id");
+        let mismatched_action = sample_unlink_dangling_action("other-missing-id", "Missing");
+        let params = ReviewFindingRemediationApplyParams {
+            review_id: "review/audit/dangling-links".to_owned(),
+            finding_id: "audit/dangling-links/source/missing-id".to_owned(),
+            expected_preview: expected_preview.clone(),
+            action: mismatched_action,
+        };
+        assert_eq!(
+            params.validation_error(),
+            Some("remediation action must match the expected preview identity".to_owned())
+        );
+
+        let duplicate_title_preview = AuditRemediationPreviewIdentity::DuplicateTitle {
+            title: "Shared".to_owned(),
+            node_keys: vec!["file:left.org".to_owned(), "file:right.org".to_owned()],
+        };
+        let params = ReviewFindingRemediationApplyParams {
+            review_id: "review/audit/duplicate-titles".to_owned(),
+            finding_id: "audit/duplicate-titles/shared".to_owned(),
+            expected_preview: duplicate_title_preview,
+            action: sample_unlink_dangling_action("missing-id", "Missing"),
+        };
+        assert_eq!(
+            params.validation_error(),
+            Some("remediation action must match the expected preview identity".to_owned())
+        );
+
+        let mut application = ReviewFindingRemediationApplication {
+            review_id: "review/audit/dangling-links".to_owned(),
+            finding_id: "audit/dangling-links/source/missing-id".to_owned(),
+            preview_identity: expected_preview,
+            action: sample_unlink_dangling_action("missing-id", "Missing"),
+            affected_files: StructuralWriteAffectedFiles {
+                changed_files: vec!["other.org".to_owned()],
+                removed_files: Vec::new(),
+            },
+            index_refresh: StructuralWriteIndexRefreshStatus::Refreshed,
+        };
+        assert_eq!(
+            application.validation_error(),
+            Some(
+                "remediation application affected files must include changed file sample.org"
+                    .to_owned()
+            )
+        );
+
+        application.affected_files.changed_files = vec!["sample.org".to_owned()];
+        application.affected_files.removed_files = vec!["removed.org".to_owned()];
+        assert_eq!(
+            application.validation_error(),
+            Some("remediation applications must not remove files for supported actions".to_owned())
+        );
+
+        application.affected_files.removed_files.clear();
+        application.index_refresh = StructuralWriteIndexRefreshStatus::Pending;
+        assert_eq!(
+            application.validation_error(),
+            Some("remediation applications must be returned after index refresh".to_owned())
         );
     }
 
