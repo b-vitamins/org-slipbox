@@ -39,6 +39,8 @@ enum Command {
     Agenda(cli::AgendaArgs),
     /// Export graph DOT over the canonical headless connection path.
     Graph(cli::GraphArgs),
+    /// Run capture operations over the canonical headless connection path.
+    Capture(cli::CaptureArgs),
     /// Create and append notes over the canonical headless connection path.
     Note(cli::NoteArgs),
     /// Resolve an exact note target over the canonical headless connection path.
@@ -88,6 +90,7 @@ fn run() -> Result<(), cli::CliCommandError> {
         Command::Search(args) => cli::run_search(&args),
         Command::Agenda(args) => cli::run_agenda(&args),
         Command::Graph(args) => cli::run_graph(&args),
+        Command::Capture(args) => cli::run_capture(&args),
         Command::Note(args) => cli::run_note(&args),
         Command::ResolveNode(args) => cli::run_resolve_node(&args),
         Command::Explore(args) => cli::run_explore(&args),
