@@ -13,7 +13,8 @@ side owns commands, session state, and presentation.
 
 ## Status
 
-Current development starts from the released `0.10.0` foundation.
+Current development starts from the released `0.10.0` foundation and is
+landing the `0.11.0` everyday CLI parity line.
 
 The documented workflow surface is intended to remain complete enough for
 day-to-day replacement use while the project deepens its exploratory model.
@@ -29,9 +30,10 @@ as data assets rather than executable plugins. Imported declarative workbench
 assets stay separate from notes, review runs, and saved exploration artifacts.
 The `0.11.x` line turns the CLI into a first-class everyday surface for the
 ordinary slipbox operations already modeled by the daemon: sync, search, files,
-nodes, refs, agenda, graph export, note creation, capture, dailies, identity,
-and metadata. Raw-RPC sprawl, plugin-runtime ambitions, MCP, agent-adapter
-claims, structural rewrite flows, and broad automated mutation remain deferred.
+nodes, refs, tags, agenda, graph export, note creation, capture, dailies,
+identity, and metadata. Raw-RPC sprawl, plugin-runtime ambitions, MCP,
+agent-adapter claims, structural rewrite flows, and broad automated mutation
+remain deferred.
 
 ## Requirements
 
@@ -280,8 +282,8 @@ versioned workflow specs, review routines, report profiles, and packs that can
 be validated, imported, exported, cataloged, and run without becoming notes,
 review runs, saved exploration artifacts, or executable plugin code. Broader
 platform maturity, extension APIs, and agent-adapter work remain later work.
-`0.11.x` extends the same one-model line to everyday operations: the CLI should
-cover safe ordinary work over `slipbox serve` without becoming a raw transport
+`0.11.x` extends the same one-model line to everyday operations: the CLI covers
+safe ordinary work over `slipbox serve` without becoming a raw transport
 mirror, while structural editing and broader stability hardening remain the
 `0.12.x` line.
 
@@ -637,13 +639,13 @@ These stay opt-in and isolated from startup:
 `org-slipbox` ships with an explicit corpus benchmark harness instead of
 relying on anecdotal scale claims.
 
-- `cargo run --bin slipbox-bench -- check --profile ci` generates a deterministic corpus, measures full indexing, single-file incremental indexing, indexed search, backlinks, node-at-point lookup, agenda queries, workflow catalog discovery, discovered workflow execution, corpus-health audits, operational review paths, declarative extension paths, and batch Emacs benchmarks for the persistent tracking buffer, the dedicated comparison render path, and a guaranteed non-structure dedicated exploration render path rooted in the unresolved lens with trail state.
+- `cargo run --bin slipbox-bench -- check --profile ci` generates a deterministic corpus, measures full indexing, single-file incremental indexing, indexed search, backlinks, node-at-point lookup, agenda queries, workflow catalog discovery, discovered workflow execution, corpus-health audits, operational review paths, declarative extension paths, everyday CLI engine paths, and batch Emacs benchmarks for the persistent tracking buffer, the dedicated comparison render path, and a guaranteed non-structure dedicated exploration render path rooted in the unresolved lens with trail state.
 - `cargo run --bin slipbox-bench -- run --profile release --keep-corpus` runs the larger local profile and keeps the generated corpus under `target/bench/` for inspection.
 - Benchmark profiles live in [`benches/profiles/ci.json`](/home/b/projects/org-slipbox/benches/profiles/ci.json) and [`benches/profiles/release.json`](/home/b/projects/org-slipbox/benches/profiles/release.json). Reports are written to `target/bench/`.
 - The benchmark corpus includes discovered workflow specs, explicit audit
   fixtures, persisted review fixtures, and imported pack/routine/report-profile
-  fixtures, so workflow, audit, operational review, and declarative extension
-  gates measure real workbench behavior rather than empty catalog scans or
+  fixtures, so workflow, audit, operational review, declarative extension, and
+  everyday CLI gates measure real behavior rather than empty catalog scans or
   cheap fallback paths.
 
 This is an intentional divergence from the `org-roam` manual's performance
@@ -708,39 +710,14 @@ architectural line as the rest of the project:
 - file mutation remains Rust-owned behind daemon operations; structural
   rewrites and broad apply-style automation remain later explicit product work
 
-The shipped headless commands are:
+The shipped headless command families are:
 
-- `slipbox status`
-- `slipbox resolve-node`
-- `slipbox explore`
-- `slipbox compare`
-- `slipbox audit dangling-links`
-- `slipbox audit duplicate-titles`
-- `slipbox audit orphan-notes`
-- `slipbox audit weakly-integrated-notes`
-- `slipbox workflow list`
-- `slipbox workflow show`
-- `slipbox workflow run`
-- `slipbox review list`
-- `slipbox review show`
-- `slipbox review diff`
-- `slipbox review mark`
-- `slipbox review delete`
-- `slipbox routine list`
-- `slipbox routine show`
-- `slipbox routine run`
-- `slipbox pack list`
-- `slipbox pack show`
-- `slipbox pack validate`
-- `slipbox pack import`
-- `slipbox pack export`
-- `slipbox pack delete`
-- `slipbox artifact list`
-- `slipbox artifact show`
-- `slipbox artifact run`
-- `slipbox artifact export`
-- `slipbox artifact import`
-- `slipbox artifact delete`
+- everyday operations: `status`, `sync`, `file`, `node`, `ref`, `tag`,
+  `search`, `agenda`, `graph`, `note`, `capture`, and `daily`
+- exploratory workbench operations: `resolve-node`, `explore`, `compare`, and
+  `artifact`
+- composed workbench operations: `workflow`, `audit`, `review`, `routine`, and
+  `pack`
 
 Daemon-backed headless commands share the same scope arguments:
 
@@ -754,6 +731,99 @@ slipbox <command> \
 Local inspection commands, such as `slipbox workflow show --spec` and
 `slipbox pack validate`, do not require daemon scope. Workflow, routine, and
 daemon-backed pack commands also accept repeatable `--workflow-dir` arguments.
+
+### Everyday CLI
+
+`0.11.x` makes the CLI a second everyday frontend for the same daemon-owned
+operations that Emacs uses. Use Emacs when you want interactive completion,
+draft capture buffers, calendar UI, Graphviz viewer hooks, capture finalizers,
+or live buffer coordination. Use the CLI when you want scriptable sync,
+lookup, search, graph export, note creation, capture, dailies, identity, and
+metadata updates without opening Emacs.
+
+Refresh the whole index, or refresh exactly one file without pruning unrelated
+indexed files:
+
+```bash
+slipbox sync root --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox sync file notes/project.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+```
+
+Inspect indexed files:
+
+```bash
+slipbox file list --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox file search project --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+```
+
+Resolve and search nodes through the same exact target model used elsewhere:
+
+```bash
+slipbox node show --id project-alpha --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox node search "planning" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox node at-point --file notes/project.org --line 42 --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox node backlinks --id project-alpha --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox node forward-links --id project-alpha --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+```
+
+Query refs, tags, raw text occurrences, and agenda planning lines:
+
+```bash
+slipbox ref search cite:smith --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox ref resolve cite:smith2026 --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox tag search project --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox search occurrences "follow-up" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox agenda today --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox agenda range 2026-05-01 2026-05-31 --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+```
+
+Export Graphviz DOT without requiring Graphviz at CLI runtime:
+
+```bash
+slipbox graph dot --root-node-key id:project-alpha --max-distance 2 --output graph.dot --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+```
+
+Create and extend notes through Rust-owned write paths:
+
+```bash
+slipbox note create --title "Project Alpha" --file notes/project-alpha.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox note ensure-file --file notes/log.org --title "Log" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox note append-heading --file notes/log.org --title "Log" --heading "Follow up" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox note append-outline --file notes/log.org --outline "Projects" --outline "Alpha" --heading "Decision" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox note append-to-node --id project-alpha --heading "Next step" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+```
+
+Use capture when you want the capture-template engine rather than simple note
+creation:
+
+```bash
+slipbox capture node --title "Web clipping" --ref https://example.test --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+printf 'Captured body\n' | slipbox capture template --file inbox.org --title Inbox --type entry --content-stdin --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox capture preview --file inbox.org --title Inbox --type plain --content "Draft only" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+```
+
+Manage daily notes from scripts:
+
+```bash
+slipbox daily ensure --date 2026-05-13 --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox daily show --date 2026-05-13 --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox daily append --date 2026-05-13 --heading "Reviewed notes" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+```
+
+Assign identity and edit ordinary metadata through the daemon:
+
+```bash
+slipbox node ensure-id --key heading:notes/project.org:42 --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox node metadata show --id project-alpha --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox node alias add --id project-alpha "Alpha Project" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox node ref set --id project-alpha cite:smith2026 --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox node tag add --id project-alpha research active --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+```
+
+The everyday CLI deliberately stops short of structural rewrite flows such as
+refile, extract, promote, and demote. Those belong to the `0.12.x` structural
+editing and stability line, along with any future remediation-apply work.
+
 Discovery is deliberately narrow:
 
 - only top-level JSON workflow spec files are considered

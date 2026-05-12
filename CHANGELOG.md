@@ -6,6 +6,30 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+### Added
+- Added first-class everyday CLI families for ordinary slipbox work over the
+  canonical daemon boundary: `sync`, `file`, `node`, `ref`, `tag`, `search`,
+  `agenda`, `graph`, `note`, `capture`, and `daily`.
+- Added CLI write surfaces for file-note creation, explicit file-note ensure,
+  heading append, outline append, capture-template execution and preview,
+  daily note ensure/append, node identity assignment, and alias/ref/tag
+  metadata updates through Rust-owned mutation paths.
+- Added daemon-client coverage for everyday read and write operations so the
+  CLI reuses typed canonical operations instead of hand-rolled transport calls.
+
+### Changed
+- Documented `0.11.x` as everyday CLI parity: Emacs and CLI are now two
+  first-class surfaces over the same Org source of truth, derived index, and
+  daemon-owned read/write model.
+- Broadened benchmark gates for everyday engine paths, covering file sync,
+  node lookup/search, occurrence search, agenda ranges, graph DOT generation,
+  capture/create, daily append, and metadata update over non-empty fixtures.
+
+### Fixed
+- Hardened everyday CLI JSON contracts and read-your-writes integration
+  coverage across sync, file, node, ref, tag, search, agenda, graph, note,
+  capture, daily, identity, and metadata command families.
+
 ## [0.10.0] - 2026-05-12
 
 ### Added

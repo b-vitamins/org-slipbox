@@ -134,13 +134,14 @@ Exit criteria:
 - pack validation, import/export, cataloging, and routine execution are
   documented as the declarative workbench extension surface, not as executable
   plugin or raw transport guidance
-- everyday CLI operations cover ordinary slipbox work without bypassing
-  `slipbox serve`, rebuilding semantics in the CLI, or widening into raw RPC
-  wrappers
+- everyday CLI operations cover ordinary slipbox work across sync, file, node,
+  ref, tag, search, agenda, graph, note, capture, daily, identity, and
+  metadata commands without bypassing `slipbox serve`, rebuilding semantics in
+  the CLI, or widening into raw RPC wrappers
 - Emacs and CLI are documented as two first-class surfaces over one source of
   truth and one daemon-owned read/write model
-- structural rewrite and remediation-apply flows remain outside this milestone
-  until they have a separate product surface and stability line
+- structural rewrite and remediation-apply flows remain the next stability
+  line rather than part of everyday CLI parity
 - users can script and automate meaningful exploratory workflows
 - buffer and query surfaces compose without reaching into unstable internals
 - headless surfaces reuse the exploratory model already proven in the cockpit

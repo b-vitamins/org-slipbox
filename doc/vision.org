@@ -106,14 +106,17 @@ or executable code.
 `0.11.x` turns the CLI into a first-class everyday operations surface over that
 same daemon-owned model. Sync, file search, node lookup, refs, tags,
 occurrences, agenda, graph export, note creation, capture, dailies, identity,
-and metadata should be available outside Emacs without bypassing `slipbox
-serve`, inventing CLI-local write semantics, or mirroring raw transport
-methods. Emacs remains the richer interactive editing and cockpit surface; the
-CLI becomes the scriptable ordinary-work surface for the same slipbox.
+and metadata are available outside Emacs without bypassing `slipbox serve`,
+inventing CLI-local write semantics, or mirroring raw transport methods. Emacs
+remains the richer interactive editing and cockpit surface; the CLI is the
+scriptable ordinary-work surface for the same slipbox.
 That CLI parity work comes before MCP, agent adapters, or plugin-runtime
 surfaces because ordinary daemon-owned operations need to be dependable before
 external automation has a stable target. Broader extension, plugin-runtime,
 MCP, agent-adapter, and platform surfaces still come later.
+`0.12.x` is therefore the structural editing and stability line: refile,
+extract, promote/demote, and any remediation-apply flows need explicit product
+shapes rather than incidental CLI growth.
 
 This implies:
 

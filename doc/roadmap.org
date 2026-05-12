@@ -213,7 +213,9 @@ Watchpoints:
 
 Theme: everyday CLI parity.
 
-Focus:
+Status: landed on the default branch for `0.11.0`.
+
+Delivered:
 
 - make the CLI a first-class second surface for ordinary slipbox operations,
   not just research-workbench orchestration
@@ -229,7 +231,8 @@ Focus:
 - benchmark gates for the underlying everyday engine paths over non-empty
   deterministic fixtures
 - documentation that treats Emacs and CLI as two first-class surfaces over one
-  slipbox, one derived index, and one daemon-owned model
+  slipbox, one derived index, and one daemon-owned model, while naming the
+  Emacs-specific UX that remains outside the CLI claim
 - prioritize CLI parity over MCP or agent-adapter work because external
   automation needs stable everyday operations to target
 
@@ -255,6 +258,9 @@ Theme: structural editing and stability.
 
 Focus:
 
+- carry forward the work explicitly deferred from `0.11.x`: refile, extract,
+  promote/demote, and related structural rewrites need coherent product
+  contracts before they become everyday CLI operations
 - structural write surfaces only after everyday CLI operations have proven the
   daemon-owned write model
 - explicit product shapes for refile, extraction, promote/demote, and related
