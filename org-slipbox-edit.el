@@ -46,7 +46,8 @@
   (let ((file (org-slipbox--current-edit-file)))
     (org-slipbox--sync-live-file-buffer-if-needed file)
     (prog1
-        (org-slipbox-rpc-demote-entire-file file)
+        (org-slipbox--structural-report-result
+         (org-slipbox-rpc-demote-entire-file file))
       (org-slipbox--refresh-or-kill-file-buffer file))))
 
 ;;;###autoload
@@ -56,7 +57,8 @@
   (let ((file (org-slipbox--current-edit-file)))
     (org-slipbox--sync-live-file-buffer-if-needed file)
     (prog1
-        (org-slipbox-rpc-promote-entire-file file)
+        (org-slipbox--structural-report-result
+         (org-slipbox-rpc-promote-entire-file file))
       (org-slipbox--refresh-or-kill-file-buffer file))))
 
 ;;;###autoload
@@ -88,15 +90,30 @@
                      (marker-position (plist-get region :beg))
                      (marker-position (plist-get region :end))
                      (plist-get node :node_key))
-                  (org-slipbox-rpc-refile-subtree
-                   (plist-get source-node :node_key)
-                   (plist-get node :node_key))))
+                  (org-slipbox--structural-report-result
+                   (org-slipbox-rpc-refile-subtree
+                    (plist-get source-node :node_key)
+                    (plist-get node :node_key)))))
           (org-slipbox--refresh-or-kill-file-buffer source-file)
           (unless (equal source-file target-file)
             (org-slipbox--refresh-or-kill-file-buffer target-file))
           moved-node)
       (org-slipbox--clear-refile-region region)
       (deactivate-mark))))
+
+(defun org-slipbox--structural-report-result (report)
+  "Return the node or anchor result payload from structural write REPORT."
+  (let ((result (plist-get report :result)))
+    (cond
+     ((plist-member result :node)
+      (plist-get result :node))
+     ((plist-member result :anchor)
+      (plist-get result :anchor))
+     ;; Keep older daemon responses usable during in-tree development.
+     ((plist-member report :node_key)
+      report)
+     (t
+      (user-error "Structural write report did not include a node or anchor result")))))
 
 ;;;###autoload
 (defun org-slipbox-extract-subtree (&optional file-path)

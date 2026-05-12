@@ -1,7 +1,11 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
-use slipbox_core::{AnchorRecord, CaptureTemplatePreviewResult, NodeRecord, PreviewNodeRecord};
+use slipbox_core::{
+    AnchorRecord, CaptureTemplatePreviewResult, NodeRecord, PreviewNodeRecord,
+    StructuralWriteAffectedFiles, StructuralWriteIndexRefreshStatus, StructuralWriteOperationKind,
+    StructuralWriteReport, StructuralWriteResult,
+};
 use slipbox_index::DiscoveryPolicy;
 use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
 use slipbox_store::Database;
@@ -262,6 +266,52 @@ impl ServerState {
     ) -> Result<NodeRecord, JsonRpcError> {
         self.reconcile_paths(&outcome.changed_paths, &outcome.removed_paths)?;
         self.require_note_by_id(&outcome.explicit_id, description)
+    }
+
+    pub(super) fn structural_affected_files(
+        &self,
+        changed_paths: &[PathBuf],
+        removed_paths: &[PathBuf],
+    ) -> Result<StructuralWriteAffectedFiles, JsonRpcError> {
+        Ok(StructuralWriteAffectedFiles {
+            changed_files: self.relative_root_paths(changed_paths, "changed file")?,
+            removed_files: self.relative_root_paths(removed_paths, "removed file")?,
+        })
+    }
+
+    pub(super) fn structural_report(
+        &self,
+        operation: StructuralWriteOperationKind,
+        affected_files: StructuralWriteAffectedFiles,
+        result: Option<StructuralWriteResult>,
+    ) -> Result<StructuralWriteReport, JsonRpcError> {
+        let report = StructuralWriteReport {
+            operation,
+            affected_files,
+            index_refresh: StructuralWriteIndexRefreshStatus::Refreshed,
+            result,
+        };
+        if let Some(error) = report.validation_error() {
+            return Err(internal_error(anyhow!(
+                "invalid structural write report: {error}"
+            )));
+        }
+        Ok(report)
+    }
+
+    fn relative_root_paths(
+        &self,
+        paths: &[PathBuf],
+        description: &str,
+    ) -> Result<Vec<String>, JsonRpcError> {
+        paths
+            .iter()
+            .map(|path| {
+                self.relative_root_path(path).map_err(|error| {
+                    internal_error(error.context(format!("failed to resolve {description}")))
+                })
+            })
+            .collect()
     }
 
     fn relative_root_path(&self, path: &Path) -> Result<String> {

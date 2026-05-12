@@ -4765,16 +4765,26 @@ ROOT-NODE defaults to NODE."
                         ((symbol-function 'org-slipbox-rpc-refile-subtree)
                          (lambda (source-node-key target-node-key)
                            (setq rpc-args (list source-node-key target-node-key))
-                           '(:node_key "heading:target.org:4")))
+                           '(:operation "refile-subtree"
+                             :changed_files ["target.org" "source.org"]
+                             :removed_files []
+                             :index_refresh "refreshed"
+                             :result (:kind "node"
+                                      :node (:node_key "heading:target.org:4")))))
                         ((symbol-function 'org-slipbox--refresh-or-kill-file-buffer)
                          (lambda (path)
                            (push path refresh-calls))))
-                (org-slipbox-refile
-                 '(:node_key "heading:target.org:3"
-                   :file_path "target.org"
-                   :line 3
-                   :kind "heading"
-                   :title "Parent"))))
+                (should
+                 (equal
+                  (plist-get
+                   (org-slipbox-refile
+                    '(:node_key "heading:target.org:3"
+                      :file_path "target.org"
+                      :line 3
+                      :kind "heading"
+                      :title "Parent"))
+                   :node_key)
+                  "heading:target.org:4"))))
             (kill-buffer (current-buffer)))
           (should
            (equal
@@ -4820,7 +4830,11 @@ ROOT-NODE defaults to NODE."
                         ((symbol-function 'org-slipbox-rpc-refile-region)
                          (lambda (file-path start end target-node-key)
                            (setq rpc-args (list file-path start end target-node-key))
-                           '(:node_key "heading:target.org:4")))
+                           '(:operation "refile-region"
+                             :changed_files ["target.org" "source.org"]
+                             :removed_files []
+                             :index_refresh "refreshed"
+                             :result nil)))
                         ((symbol-function 'org-slipbox--refresh-or-kill-file-buffer)
                          (lambda (path)
                            (push path refresh-calls))))
@@ -4901,7 +4915,12 @@ ROOT-NODE defaults to NODE."
                         ((symbol-function 'org-slipbox-rpc-demote-entire-file)
                          (lambda (path)
                            (setq rpc-path path)
-                           '(:node_key "heading:note.org:1")))
+                           '(:operation "demote-file"
+                             :changed_files ["note.org"]
+                             :removed_files []
+                             :index_refresh "refreshed"
+                             :result (:kind "anchor"
+                                      :anchor (:node_key "heading:note.org:1")))))
                         ((symbol-function 'org-slipbox--refresh-or-kill-file-buffer)
                          (lambda (path)
                            (push path refresh-calls))))
@@ -4931,7 +4950,12 @@ ROOT-NODE defaults to NODE."
                         ((symbol-function 'org-slipbox-rpc-promote-entire-file)
                          (lambda (path)
                            (setq rpc-path path)
-                           '(:node_key "file:note.org")))
+                           '(:operation "promote-file"
+                             :changed_files ["note.org"]
+                             :removed_files []
+                             :index_refresh "refreshed"
+                             :result (:kind "node"
+                                      :node (:node_key "file:note.org")))))
                         ((symbol-function 'org-slipbox--refresh-or-kill-file-buffer)
                          (lambda (path)
                            (push path refresh-calls))))
