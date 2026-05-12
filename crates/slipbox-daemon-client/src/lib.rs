@@ -13,25 +13,27 @@ use slipbox_core::{
     CaptureTemplatePreviewResult, CompareNotesParams, CorpusAuditParams, CorpusAuditResult,
     EnsureFileNodeParams, EnsureNodeIdParams, ExecuteExplorationArtifactResult,
     ExplorationArtifactIdParams, ExplorationArtifactResult, ExploreParams, ExploreResult,
-    ForwardLinksParams, ForwardLinksResult, GraphParams, GraphResult, ImportWorkbenchPackParams,
-    ImportWorkbenchPackResult, IndexFileParams, IndexFileResult, IndexStats, IndexedFilesResult,
-    ListExplorationArtifactsParams, ListExplorationArtifactsResult, ListReviewRoutinesParams,
-    ListReviewRoutinesResult, ListReviewRunsParams, ListReviewRunsResult, ListWorkbenchPacksParams,
-    ListWorkbenchPacksResult, ListWorkflowsParams, ListWorkflowsResult, MarkReviewFindingParams,
-    MarkReviewFindingResult, NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams,
-    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, PingInfo,
-    RandomNodeResult, ReflinksParams, ReflinksResult, ReviewFindingRemediationPreviewParams,
+    ExtractSubtreeParams, ForwardLinksParams, ForwardLinksResult, GraphParams, GraphResult,
+    ImportWorkbenchPackParams, ImportWorkbenchPackResult, IndexFileParams, IndexFileResult,
+    IndexStats, IndexedFilesResult, ListExplorationArtifactsParams, ListExplorationArtifactsResult,
+    ListReviewRoutinesParams, ListReviewRoutinesResult, ListReviewRunsParams, ListReviewRunsResult,
+    ListWorkbenchPacksParams, ListWorkbenchPacksResult, ListWorkflowsParams, ListWorkflowsResult,
+    MarkReviewFindingParams, MarkReviewFindingResult, NodeAtPointParams, NodeFromIdParams,
+    NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
+    NoteComparisonResult, PingInfo, RandomNodeResult, RefileRegionParams, RefileSubtreeParams,
+    ReflinksParams, ReflinksResult, ReviewFindingRemediationPreviewParams,
     ReviewFindingRemediationPreviewResult, ReviewRoutineIdParams, ReviewRoutineResult,
     ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunResult,
-    RunReviewRoutineParams, RunReviewRoutineResult, RunWorkflowParams, RunWorkflowResult,
-    SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult, SaveExplorationArtifactParams,
-    SaveExplorationArtifactResult, SaveReviewRunParams, SaveReviewRunResult,
-    SaveWorkflowReviewParams, SaveWorkflowReviewResult, SearchFilesParams, SearchFilesResult,
-    SearchNodesParams, SearchNodesResult, SearchOccurrencesParams, SearchOccurrencesResult,
-    SearchRefsParams, SearchRefsResult, SearchTagsParams, SearchTagsResult, StatusInfo,
-    UnlinkedReferencesParams, UnlinkedReferencesResult, UpdateNodeMetadataParams,
-    ValidateWorkbenchPackParams, ValidateWorkbenchPackResult, WorkbenchPackIdParams,
-    WorkbenchPackManifest, WorkbenchPackResult, WorkflowIdParams, WorkflowResult,
+    RewriteFileParams, RunReviewRoutineParams, RunReviewRoutineResult, RunWorkflowParams,
+    RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
+    SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
+    SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult, SearchFilesParams,
+    SearchFilesResult, SearchNodesParams, SearchNodesResult, SearchOccurrencesParams,
+    SearchOccurrencesResult, SearchRefsParams, SearchRefsResult, SearchTagsParams,
+    SearchTagsResult, StatusInfo, StructuralWriteReport, UnlinkedReferencesParams,
+    UnlinkedReferencesResult, UpdateNodeMetadataParams, ValidateWorkbenchPackParams,
+    ValidateWorkbenchPackResult, WorkbenchPackIdParams, WorkbenchPackManifest, WorkbenchPackResult,
+    WorkflowIdParams, WorkflowResult,
 };
 use slipbox_rpc::{
     JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_AGENDA, METHOD_ANCHOR_AT_POINT,
@@ -39,14 +41,15 @@ use slipbox_rpc::{
     METHOD_BACKLINKS, METHOD_CAPTURE_NODE, METHOD_CAPTURE_TEMPLATE,
     METHOD_CAPTURE_TEMPLATE_PREVIEW, METHOD_COMPARE_NOTES, METHOD_CORPUS_AUDIT,
     METHOD_DELETE_EXPLORATION_ARTIFACT, METHOD_DELETE_REVIEW_RUN, METHOD_DELETE_WORKBENCH_PACK,
-    METHOD_DIFF_REVIEW_RUNS, METHOD_ENSURE_FILE_NODE, METHOD_ENSURE_NODE_ID,
-    METHOD_EXECUTE_EXPLORATION_ARTIFACT, METHOD_EXPLORATION_ARTIFACT, METHOD_EXPLORE,
-    METHOD_EXPORT_WORKBENCH_PACK, METHOD_FORWARD_LINKS, METHOD_GRAPH_DOT,
-    METHOD_IMPORT_WORKBENCH_PACK, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_INDEXED_FILES,
-    METHOD_LIST_EXPLORATION_ARTIFACTS, METHOD_LIST_REVIEW_ROUTINES, METHOD_LIST_REVIEW_RUNS,
-    METHOD_LIST_WORKBENCH_PACKS, METHOD_LIST_WORKFLOWS, METHOD_MARK_REVIEW_FINDING,
-    METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_NODE_FROM_REF,
-    METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_RANDOM_NODE, METHOD_REFLINKS,
+    METHOD_DEMOTE_ENTIRE_FILE, METHOD_DIFF_REVIEW_RUNS, METHOD_ENSURE_FILE_NODE,
+    METHOD_ENSURE_NODE_ID, METHOD_EXECUTE_EXPLORATION_ARTIFACT, METHOD_EXPLORATION_ARTIFACT,
+    METHOD_EXPLORE, METHOD_EXPORT_WORKBENCH_PACK, METHOD_EXTRACT_SUBTREE, METHOD_FORWARD_LINKS,
+    METHOD_GRAPH_DOT, METHOD_IMPORT_WORKBENCH_PACK, METHOD_INDEX, METHOD_INDEX_FILE,
+    METHOD_INDEXED_FILES, METHOD_LIST_EXPLORATION_ARTIFACTS, METHOD_LIST_REVIEW_ROUTINES,
+    METHOD_LIST_REVIEW_RUNS, METHOD_LIST_WORKBENCH_PACKS, METHOD_LIST_WORKFLOWS,
+    METHOD_MARK_REVIEW_FINDING, METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY,
+    METHOD_NODE_FROM_REF, METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_PROMOTE_ENTIRE_FILE,
+    METHOD_RANDOM_NODE, METHOD_REFILE_REGION, METHOD_REFILE_SUBTREE, METHOD_REFLINKS,
     METHOD_REVIEW_FINDING_REMEDIATION_PREVIEW, METHOD_REVIEW_ROUTINE, METHOD_REVIEW_RUN,
     METHOD_RUN_REVIEW_ROUTINE, METHOD_RUN_WORKFLOW, METHOD_SAVE_CORPUS_AUDIT_REVIEW,
     METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SAVE_REVIEW_RUN, METHOD_SAVE_WORKFLOW_REVIEW,
@@ -429,6 +432,41 @@ where
         params: &UpdateNodeMetadataParams,
     ) -> Result<NodeRecord, DaemonClientError> {
         self.request(METHOD_UPDATE_NODE_METADATA, params)
+    }
+
+    fn refile_subtree(
+        &mut self,
+        params: &RefileSubtreeParams,
+    ) -> Result<StructuralWriteReport, DaemonClientError> {
+        self.request(METHOD_REFILE_SUBTREE, params)
+    }
+
+    fn refile_region(
+        &mut self,
+        params: &RefileRegionParams,
+    ) -> Result<StructuralWriteReport, DaemonClientError> {
+        self.request(METHOD_REFILE_REGION, params)
+    }
+
+    fn extract_subtree(
+        &mut self,
+        params: &ExtractSubtreeParams,
+    ) -> Result<StructuralWriteReport, DaemonClientError> {
+        self.request(METHOD_EXTRACT_SUBTREE, params)
+    }
+
+    fn promote_entire_file(
+        &mut self,
+        params: &RewriteFileParams,
+    ) -> Result<StructuralWriteReport, DaemonClientError> {
+        self.request(METHOD_PROMOTE_ENTIRE_FILE, params)
+    }
+
+    fn demote_entire_file(
+        &mut self,
+        params: &RewriteFileParams,
+    ) -> Result<StructuralWriteReport, DaemonClientError> {
+        self.request(METHOD_DEMOTE_ENTIRE_FILE, params)
     }
 
     fn list_workflows(&mut self) -> Result<ListWorkflowsResult, DaemonClientError> {
@@ -962,6 +1000,41 @@ impl DaemonClient {
         self.rpc.update_node_metadata(params)
     }
 
+    pub fn refile_subtree(
+        &mut self,
+        params: &RefileSubtreeParams,
+    ) -> Result<StructuralWriteReport, DaemonClientError> {
+        self.rpc.refile_subtree(params)
+    }
+
+    pub fn refile_region(
+        &mut self,
+        params: &RefileRegionParams,
+    ) -> Result<StructuralWriteReport, DaemonClientError> {
+        self.rpc.refile_region(params)
+    }
+
+    pub fn extract_subtree(
+        &mut self,
+        params: &ExtractSubtreeParams,
+    ) -> Result<StructuralWriteReport, DaemonClientError> {
+        self.rpc.extract_subtree(params)
+    }
+
+    pub fn promote_entire_file(
+        &mut self,
+        params: &RewriteFileParams,
+    ) -> Result<StructuralWriteReport, DaemonClientError> {
+        self.rpc.promote_entire_file(params)
+    }
+
+    pub fn demote_entire_file(
+        &mut self,
+        params: &RewriteFileParams,
+    ) -> Result<StructuralWriteReport, DaemonClientError> {
+        self.rpc.demote_entire_file(params)
+    }
+
     pub fn list_workflows(&mut self) -> Result<ListWorkflowsResult, DaemonClientError> {
         self.rpc.list_workflows()
     }
@@ -1169,6 +1242,19 @@ mod tests {
         }
     }
 
+    fn structural_report_response(id: u64, operation: &str) -> JsonRpcResponse {
+        JsonRpcResponse::success(
+            json!(id),
+            json!({
+                "operation": operation,
+                "changed_files": ["notes.org"],
+                "removed_files": [],
+                "index_refresh": "refreshed",
+                "result": null
+            }),
+        )
+    }
+
     impl JsonRpcTransport for MockTransport {
         fn round_trip(
             &mut self,
@@ -1230,6 +1316,140 @@ mod tests {
             client.transport.requests[0].params,
             json!({"query": "alpha", "limit": 25, "sort": "title"})
         );
+    }
+
+    #[test]
+    fn structural_rewrite_methods_send_canonical_params() {
+        let mut client = RpcClient::new(MockTransport {
+            requests: Vec::new(),
+            responses: VecDeque::from([
+                Ok(structural_report_response(1, "refile-subtree")),
+                Ok(structural_report_response(2, "refile-region")),
+                Ok(structural_report_response(3, "extract-subtree")),
+                Ok(structural_report_response(4, "promote-file")),
+                Ok(structural_report_response(5, "demote-file")),
+            ]),
+            shutdowns: 0,
+        });
+
+        let refile_subtree = client
+            .refile_subtree(&RefileSubtreeParams {
+                source_node_key: "heading:source.org:4".to_owned(),
+                target_node_key: "heading:target.org:2".to_owned(),
+            })
+            .expect("refile subtree should parse report");
+        let refile_region = client
+            .refile_region(&RefileRegionParams {
+                file_path: "source.org".to_owned(),
+                start: 4,
+                end: 8,
+                target_node_key: "heading:target.org:2".to_owned(),
+            })
+            .expect("refile region should parse report");
+        let extract_subtree = client
+            .extract_subtree(&ExtractSubtreeParams {
+                source_node_key: "heading:source.org:10".to_owned(),
+                file_path: "extracted.org".to_owned(),
+            })
+            .expect("extract subtree should parse report");
+        let promote = client
+            .promote_entire_file(&RewriteFileParams {
+                file_path: "promote.org".to_owned(),
+            })
+            .expect("promote should parse report");
+        let demote = client
+            .demote_entire_file(&RewriteFileParams {
+                file_path: "demote.org".to_owned(),
+            })
+            .expect("demote should parse report");
+
+        assert_eq!(
+            refile_subtree.operation,
+            slipbox_core::StructuralWriteOperationKind::RefileSubtree
+        );
+        assert_eq!(
+            refile_region.operation,
+            slipbox_core::StructuralWriteOperationKind::RefileRegion
+        );
+        assert_eq!(
+            extract_subtree.operation,
+            slipbox_core::StructuralWriteOperationKind::ExtractSubtree
+        );
+        assert_eq!(
+            promote.operation,
+            slipbox_core::StructuralWriteOperationKind::PromoteFile
+        );
+        assert_eq!(
+            demote.operation,
+            slipbox_core::StructuralWriteOperationKind::DemoteFile
+        );
+
+        assert_eq!(client.transport.requests[0].method, METHOD_REFILE_SUBTREE);
+        assert_eq!(
+            client.transport.requests[0].params,
+            json!({
+                "source_node_key": "heading:source.org:4",
+                "target_node_key": "heading:target.org:2"
+            })
+        );
+        assert_eq!(client.transport.requests[1].method, METHOD_REFILE_REGION);
+        assert_eq!(
+            client.transport.requests[1].params,
+            json!({
+                "file_path": "source.org",
+                "start": 4,
+                "end": 8,
+                "target_node_key": "heading:target.org:2"
+            })
+        );
+        assert_eq!(client.transport.requests[2].method, METHOD_EXTRACT_SUBTREE);
+        assert_eq!(
+            client.transport.requests[2].params,
+            json!({
+                "source_node_key": "heading:source.org:10",
+                "file_path": "extracted.org"
+            })
+        );
+        assert_eq!(
+            client.transport.requests[3].method,
+            METHOD_PROMOTE_ENTIRE_FILE
+        );
+        assert_eq!(
+            client.transport.requests[3].params,
+            json!({"file_path": "promote.org"})
+        );
+        assert_eq!(
+            client.transport.requests[4].method,
+            METHOD_DEMOTE_ENTIRE_FILE
+        );
+        assert_eq!(
+            client.transport.requests[4].params,
+            json!({"file_path": "demote.org"})
+        );
+    }
+
+    #[test]
+    fn structural_rewrite_methods_map_rpc_errors() {
+        let response = JsonRpcResponse::error(
+            json!(1),
+            JsonRpcErrorObject::invalid_request("unknown source node: missing".to_owned()),
+        );
+        let mut client = RpcClient::new(MockTransport::with_response(response));
+
+        let error = client
+            .refile_subtree(&RefileSubtreeParams {
+                source_node_key: "missing".to_owned(),
+                target_node_key: "heading:target.org:2".to_owned(),
+            })
+            .expect_err("rpc error should surface");
+
+        match error {
+            DaemonClientError::Rpc(error) => {
+                assert_eq!(error.code, -32600);
+                assert_eq!(error.message, "unknown source node: missing");
+            }
+            other => panic!("unexpected error: {other}"),
+        }
     }
 
     #[test]

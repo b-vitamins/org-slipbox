@@ -12,18 +12,21 @@ use slipbox_core::{
     CorpusAuditEntry, CorpusAuditKind, DanglingLinkAuditRecord, EnsureFileNodeParams,
     EnsureNodeIdParams, ExecuteExplorationArtifactResult, ExplorationArtifactIdParams,
     ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationLens, ExploreParams,
-    ForwardLinksParams, GraphParams, ImportWorkbenchPackParams, IndexFileParams, NodeFromIdParams,
-    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeKind, ReflinksParams, ReportProfileMetadata,
+    ExtractSubtreeParams, ForwardLinksParams, GraphParams, ImportWorkbenchPackParams,
+    IndexFileParams, NodeFromIdParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeKind,
+    RefileRegionParams, RefileSubtreeParams, ReflinksParams, ReportProfileMetadata,
     ReportProfileMode, ReportProfileSpec, ReportProfileSubject, ReviewFinding,
     ReviewFindingPayload, ReviewFindingRemediationPreviewParams, ReviewFindingStatus,
     ReviewRoutineIdParams, ReviewRun, ReviewRunDiffParams, ReviewRunIdParams, ReviewRunMetadata,
-    ReviewRunPayload, RunReviewRoutineParams, RunWorkflowParams, SaveCorpusAuditReviewParams,
-    SaveExplorationArtifactParams, SaveReviewRunParams, SaveWorkflowReviewParams,
-    SavedExplorationArtifact, SavedLensViewArtifact, SearchFilesParams, SearchNodesParams,
-    SearchOccurrencesParams, SearchRefsParams, SearchTagsParams, UnlinkedReferencesParams,
-    UpdateNodeMetadataParams, ValidateWorkbenchPackParams, WorkbenchPackCompatibility,
-    WorkbenchPackIdParams, WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackMetadata,
-    WorkflowIdParams, WorkflowInputAssignment, WorkflowResult,
+    ReviewRunPayload, RewriteFileParams, RunReviewRoutineParams, RunWorkflowParams,
+    SaveCorpusAuditReviewParams, SaveExplorationArtifactParams, SaveReviewRunParams,
+    SaveWorkflowReviewParams, SavedExplorationArtifact, SavedLensViewArtifact, SearchFilesParams,
+    SearchNodesParams, SearchOccurrencesParams, SearchRefsParams, SearchTagsParams,
+    StructuralWriteIndexRefreshStatus, StructuralWriteOperationKind, StructuralWriteResult,
+    UnlinkedReferencesParams, UpdateNodeMetadataParams, ValidateWorkbenchPackParams,
+    WorkbenchPackCompatibility, WorkbenchPackIdParams, WorkbenchPackIssueKind,
+    WorkbenchPackManifest, WorkbenchPackMetadata, WorkflowIdParams, WorkflowInputAssignment,
+    WorkflowResult,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonServeConfig};
 use slipbox_index::scan_root;
@@ -454,6 +457,252 @@ fn daemon_client_exposes_everyday_write_operations_with_read_your_writes() -> Re
     })?;
     assert_eq!(occurrences.occurrences.len(), 1);
     assert_eq!(occurrences.occurrences[0].file_path, "template.org");
+
+    client.shutdown()?;
+    Ok(())
+}
+
+#[test]
+fn daemon_client_exposes_structural_rewrite_operations_over_stdio() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let main_source = r#":PROPERTIES:
+:ID: main-id
+:END:
+#+title: Main
+
+* Region Source
+:PROPERTIES:
+:ID: region-source-id
+:END:
+Region body.
+
+* Region Target
+:PROPERTIES:
+:ID: region-target-id
+:END:
+Target body.
+
+* Extract Source
+:PROPERTIES:
+:ID: extract-source-id
+:END:
+Extract body.
+"#;
+    fs::write(root.join("main.org"), main_source)?;
+    fs::write(
+        root.join("cross.org"),
+        r#":PROPERTIES:
+:ID: cross-id
+:END:
+#+title: Cross
+
+* Cross Source
+:PROPERTIES:
+:ID: cross-source-id
+:END:
+Cross body.
+"#,
+    )?;
+    fs::write(
+        root.join("demote.org"),
+        r#":PROPERTIES:
+:ID: demote-file-id
+:END:
+#+title: Demote Me
+
+Demote body.
+"#,
+    )?;
+    let db = workspace.path().join("slipbox.sqlite");
+    let mut client = DaemonClient::spawn(daemon_binary(), &DaemonServeConfig::new(&root, &db))?;
+    client.index()?;
+
+    let region_target = client
+        .node_from_id(&NodeFromIdParams {
+            id: "region-target-id".to_owned(),
+        })?
+        .context("region target should resolve")?;
+    let region_start = main_source
+        .find("* Region Source")
+        .context("region source heading should exist")?;
+    let region_end = main_source
+        .find("\n* Region Target")
+        .context("region target heading should follow source")?;
+    let region_report = client
+        .refile_region(&RefileRegionParams {
+            file_path: root.join("main.org").display().to_string(),
+            start: main_source[..region_start].chars().count() as u32 + 1,
+            end: main_source[..region_end].chars().count() as u32 + 1,
+            target_node_key: region_target.node_key.clone(),
+        })
+        .context("same-file refile region should succeed")?;
+    assert_eq!(
+        region_report.operation,
+        StructuralWriteOperationKind::RefileRegion
+    );
+    assert_eq!(
+        region_report.index_refresh,
+        StructuralWriteIndexRefreshStatus::Refreshed
+    );
+    assert_eq!(
+        region_report.affected_files.changed_files,
+        vec!["main.org".to_owned()]
+    );
+    assert!(region_report.affected_files.removed_files.is_empty());
+    assert!(region_report.result.is_none());
+    assert!(region_report.validation_error().is_none());
+
+    let moved_region = client
+        .node_from_id(&NodeFromIdParams {
+            id: "region-source-id".to_owned(),
+        })?
+        .context("same-file region move should stay indexed")?;
+    assert_eq!(moved_region.outline_path, "Region Target / Region Source");
+
+    let region_target = client
+        .node_from_id(&NodeFromIdParams {
+            id: "region-target-id".to_owned(),
+        })?
+        .context("region target should still resolve after same-file rewrite")?;
+    let cross_source = client
+        .node_from_id(&NodeFromIdParams {
+            id: "cross-source-id".to_owned(),
+        })?
+        .context("cross-file source should resolve")?;
+    let cross_report = client
+        .refile_subtree(&RefileSubtreeParams {
+            source_node_key: cross_source.node_key,
+            target_node_key: region_target.node_key,
+        })
+        .context("cross-file refile subtree should succeed")?;
+    assert_eq!(
+        cross_report.operation,
+        StructuralWriteOperationKind::RefileSubtree
+    );
+    assert_eq!(
+        cross_report.index_refresh,
+        StructuralWriteIndexRefreshStatus::Refreshed
+    );
+    assert!(
+        cross_report
+            .affected_files
+            .changed_files
+            .contains(&"main.org".to_owned())
+    );
+    assert!(
+        cross_report
+            .affected_files
+            .changed_files
+            .contains(&"cross.org".to_owned())
+    );
+    let StructuralWriteResult::Node { node: cross_node } = cross_report
+        .result
+        .as_ref()
+        .expect("cross-file refile should return moved node")
+    else {
+        panic!("cross-file refile should return node result");
+    };
+    assert_eq!(cross_node.title, "Cross Source");
+    assert_eq!(cross_node.outline_path, "Region Target / Cross Source");
+    assert!(cross_report.validation_error().is_none());
+
+    let extract_source = client
+        .node_from_id(&NodeFromIdParams {
+            id: "extract-source-id".to_owned(),
+        })?
+        .context("extract source should resolve")?;
+    let extract_report = client
+        .extract_subtree(&ExtractSubtreeParams {
+            source_node_key: extract_source.node_key,
+            file_path: "extracted.org".to_owned(),
+        })
+        .context("extract subtree should succeed")?;
+    assert_eq!(
+        extract_report.operation,
+        StructuralWriteOperationKind::ExtractSubtree
+    );
+    assert_eq!(
+        extract_report.index_refresh,
+        StructuralWriteIndexRefreshStatus::Refreshed
+    );
+    assert!(
+        extract_report
+            .affected_files
+            .changed_files
+            .contains(&"main.org".to_owned())
+    );
+    assert!(
+        extract_report
+            .affected_files
+            .changed_files
+            .contains(&"extracted.org".to_owned())
+    );
+    let StructuralWriteResult::Node {
+        node: extracted_node,
+    } = extract_report
+        .result
+        .as_ref()
+        .expect("extract should return new file node")
+    else {
+        panic!("extract should return node result");
+    };
+    assert_eq!(extracted_node.kind, NodeKind::File);
+    assert_eq!(extracted_node.file_path, "extracted.org");
+    assert!(extract_report.validation_error().is_none());
+
+    let demote_report = client
+        .demote_entire_file(&RewriteFileParams {
+            file_path: "demote.org".to_owned(),
+        })
+        .context("demote file should succeed")?;
+    assert_eq!(
+        demote_report.operation,
+        StructuralWriteOperationKind::DemoteFile
+    );
+    assert_eq!(
+        demote_report.index_refresh,
+        StructuralWriteIndexRefreshStatus::Refreshed
+    );
+    let StructuralWriteResult::Anchor {
+        anchor: demoted_anchor,
+    } = demote_report
+        .result
+        .as_ref()
+        .expect("demote should return root anchor")
+    else {
+        panic!("demote should return anchor result");
+    };
+    assert_eq!(demoted_anchor.kind, NodeKind::Heading);
+    assert_eq!(demoted_anchor.title, "Demote Me");
+    assert!(demote_report.validation_error().is_none());
+
+    let promote_report = client
+        .promote_entire_file(&RewriteFileParams {
+            file_path: "demote.org".to_owned(),
+        })
+        .context("promote file should succeed")?;
+    assert_eq!(
+        promote_report.operation,
+        StructuralWriteOperationKind::PromoteFile
+    );
+    assert_eq!(
+        promote_report.index_refresh,
+        StructuralWriteIndexRefreshStatus::Refreshed
+    );
+    let StructuralWriteResult::Node {
+        node: promoted_node,
+    } = promote_report
+        .result
+        .as_ref()
+        .expect("promote should return file node")
+    else {
+        panic!("promote should return node result");
+    };
+    assert_eq!(promoted_node.kind, NodeKind::File);
+    assert_eq!(promoted_node.file_path, "demote.org");
+    assert!(promote_report.validation_error().is_none());
 
     client.shutdown()?;
     Ok(())

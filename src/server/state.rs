@@ -97,15 +97,21 @@ impl ServerState {
         Ok(())
     }
 
-    fn remove_deleted_paths(&mut self, paths: &[PathBuf]) -> Result<(), JsonRpcError> {
+    fn remove_indexed_paths(
+        &mut self,
+        paths: &[PathBuf],
+        description: &str,
+    ) -> Result<(), JsonRpcError> {
         for path in paths {
-            let relative_path = self
-                .relative_root_path(path)
-                .map_err(|error| internal_error(error.context("failed to resolve deleted path")))?;
+            let relative_path = self.relative_root_path(path).map_err(|error| {
+                internal_error(error.context(format!("failed to resolve {description}")))
+            })?;
             self.database
                 .remove_file_index(&relative_path)
                 .map_err(|error| {
-                    internal_error(error.context("failed to remove file from SQLite index"))
+                    internal_error(
+                        error.context(format!("failed to remove {description} from SQLite index")),
+                    )
                 })?;
         }
         Ok(())
@@ -116,8 +122,10 @@ impl ServerState {
         changed_paths: &[PathBuf],
         removed_paths: &[PathBuf],
     ) -> Result<(), JsonRpcError> {
+        self.remove_indexed_paths(changed_paths, "changed file")?;
+        self.remove_indexed_paths(removed_paths, "removed file")?;
         self.sync_paths(changed_paths)?;
-        self.remove_deleted_paths(removed_paths)
+        Ok(())
     }
 
     pub(super) fn require_note(
