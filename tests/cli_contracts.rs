@@ -284,6 +284,45 @@ fn json_command(
     run_command(&args)
 }
 
+fn json_command_path(
+    command_path: &[&str],
+    root: &str,
+    db: &str,
+    extra: &[&str],
+) -> Result<std::process::Output> {
+    let mut args = command_path
+        .iter()
+        .map(|word| (*word).to_owned())
+        .collect::<Vec<_>>();
+    args.extend(base_args(root, db));
+    args.push("--json".to_owned());
+    args.extend(extra.iter().map(|value| (*value).to_owned()));
+    run_command(&args)
+}
+
+fn json_command_path_with_bad_server(
+    command_path: &[&str],
+    root: &str,
+    db: &str,
+    extra: &[&str],
+) -> Result<std::process::Output> {
+    let mut args = command_path
+        .iter()
+        .map(|word| (*word).to_owned())
+        .collect::<Vec<_>>();
+    args.extend([
+        "--root".to_owned(),
+        root.to_owned(),
+        "--db".to_owned(),
+        db.to_owned(),
+        "--server-program".to_owned(),
+        "/definitely/not/a/real/slipbox-binary".to_owned(),
+        "--json".to_owned(),
+    ]);
+    args.extend(extra.iter().map(|value| (*value).to_owned()));
+    run_command(&args)
+}
+
 fn artifact_json_command(
     subcommand: &str,
     root: &str,
@@ -474,6 +513,77 @@ fn assert_exact_object_keys(value: &Value, expected: &[&str]) {
     let mut expected_keys: Vec<String> = expected.iter().map(|key| (*key).to_owned()).collect();
     expected_keys.sort();
     assert_eq!(sorted_keys(value), expected_keys);
+}
+
+fn assert_node_record_keys(value: &Value) {
+    assert_exact_object_keys(
+        value,
+        &[
+            "node_key",
+            "explicit_id",
+            "file_path",
+            "title",
+            "outline_path",
+            "aliases",
+            "tags",
+            "refs",
+            "todo_keyword",
+            "scheduled_for",
+            "deadline_for",
+            "closed_at",
+            "level",
+            "line",
+            "kind",
+            "file_mtime_ns",
+            "backlink_count",
+            "forward_link_count",
+        ],
+    );
+}
+
+fn assert_anchor_record_keys(value: &Value) {
+    assert_node_record_keys(value);
+}
+
+fn assert_file_record_keys(value: &Value) {
+    assert_exact_object_keys(value, &["file_path", "title", "mtime_ns", "node_count"]);
+}
+
+fn assert_occurrence_record_keys(value: &Value) {
+    assert_exact_object_keys(
+        value,
+        &[
+            "file_path",
+            "row",
+            "col",
+            "preview",
+            "matched_text",
+            "owning_anchor",
+        ],
+    );
+}
+
+fn assert_preview_node_keys(value: &Value) {
+    assert_exact_object_keys(
+        value,
+        &[
+            "node_key",
+            "explicit_id",
+            "file_path",
+            "title",
+            "outline_path",
+            "aliases",
+            "tags",
+            "refs",
+            "todo_keyword",
+            "scheduled_for",
+            "deadline_for",
+            "closed_at",
+            "level",
+            "line",
+            "kind",
+        ],
+    );
 }
 
 fn assert_error_failure(output: &std::process::Output, needle: &str) {
@@ -1056,6 +1166,385 @@ fn headless_commands_expose_stable_json_shapes() -> Result<()> {
     assert!(review_delete.status.success(), "{review_delete:?}");
     let review_delete_json: Value = serde_json::from_slice(&review_delete.stdout)?;
     assert_exact_object_keys(&review_delete_json, &["review_id"]);
+
+    Ok(())
+}
+
+#[test]
+fn everyday_cli_commands_expose_stable_json_shapes() -> Result<()> {
+    let (workspace, root, db, anonymous_anchor_key) = build_indexed_fixture()?;
+
+    fs::write(
+        Path::new(&root).join("everyday.org"),
+        r#":PROPERTIES:
+:ID: everyday-id
+:END:
+#+title: Everyday
+#+filetags: :base:
+
+Links to [[id:left-id][Left]].
+* TODO Planned
+SCHEDULED: <2026-05-13 Wed>
+Body mentions durable phrase.
+"#,
+    )?;
+    let files = scan_root(Path::new(&root))?;
+    let mut database = Database::open(Path::new(&db))?;
+    database.sync_index(&files)?;
+
+    let sync_root = json_command_path(&["sync", "root"], &root, &db, &[])?;
+    assert!(sync_root.status.success(), "{sync_root:?}");
+    let sync_root_json: Value = serde_json::from_slice(&sync_root.stdout)?;
+    assert_exact_object_keys(
+        &sync_root_json,
+        &["files_indexed", "nodes_indexed", "links_indexed"],
+    );
+
+    let sync_file = json_command_path(&["sync", "file"], &root, &db, &["everyday.org"])?;
+    assert!(sync_file.status.success(), "{sync_file:?}");
+    let sync_file_json: Value = serde_json::from_slice(&sync_file.stdout)?;
+    assert_exact_object_keys(&sync_file_json, &["file_path"]);
+
+    let file_list = json_command_path(&["file", "list"], &root, &db, &[])?;
+    assert!(file_list.status.success(), "{file_list:?}");
+    let file_list_json: Value = serde_json::from_slice(&file_list.stdout)?;
+    assert_exact_object_keys(&file_list_json, &["files"]);
+
+    let file_search = json_command_path(&["file", "search"], &root, &db, &["Everyday"])?;
+    assert!(file_search.status.success(), "{file_search:?}");
+    let file_search_json: Value = serde_json::from_slice(&file_search.stdout)?;
+    assert_exact_object_keys(&file_search_json, &["files"]);
+    assert_file_record_keys(&file_search_json["files"][0]);
+
+    let node_show = json_command_path(&["node", "show"], &root, &db, &["--id", "everyday-id"])?;
+    assert!(node_show.status.success(), "{node_show:?}");
+    let node_show_json: Value = serde_json::from_slice(&node_show.stdout)?;
+    assert_node_record_keys(&node_show_json);
+
+    let node_search = json_command_path(&["node", "search"], &root, &db, &["Everyday"])?;
+    assert!(node_search.status.success(), "{node_search:?}");
+    let node_search_json: Value = serde_json::from_slice(&node_search.stdout)?;
+    assert_exact_object_keys(&node_search_json, &["nodes"]);
+    assert_node_record_keys(&node_search_json["nodes"][0]);
+
+    let node_random = json_command_path(&["node", "random"], &root, &db, &[])?;
+    assert!(node_random.status.success(), "{node_random:?}");
+    let node_random_json: Value = serde_json::from_slice(&node_random.stdout)?;
+    assert_exact_object_keys(&node_random_json, &["node"]);
+    assert_node_record_keys(&node_random_json["node"]);
+
+    let node_backlinks =
+        json_command_path(&["node", "backlinks"], &root, &db, &["--id", "left-id"])?;
+    assert!(node_backlinks.status.success(), "{node_backlinks:?}");
+    let backlinks_json: Value = serde_json::from_slice(&node_backlinks.stdout)?;
+    assert_exact_object_keys(&backlinks_json, &["backlinks"]);
+    assert_exact_object_keys(
+        &backlinks_json["backlinks"][0],
+        &[
+            "source_note",
+            "source_anchor",
+            "row",
+            "col",
+            "preview",
+            "explanation",
+        ],
+    );
+    assert_node_record_keys(&backlinks_json["backlinks"][0]["source_note"]);
+
+    let node_forward = json_command_path(
+        &["node", "forward-links"],
+        &root,
+        &db,
+        &["--id", "everyday-id"],
+    )?;
+    assert!(node_forward.status.success(), "{node_forward:?}");
+    let forward_json: Value = serde_json::from_slice(&node_forward.stdout)?;
+    assert_exact_object_keys(&forward_json, &["forward_links"]);
+    assert_exact_object_keys(
+        &forward_json["forward_links"][0],
+        &["destination_note", "row", "col", "preview", "explanation"],
+    );
+    assert_node_record_keys(&forward_json["forward_links"][0]["destination_note"]);
+
+    let node_at_point = json_command_path(
+        &["node", "at-point"],
+        &root,
+        &db,
+        &["--file", "everyday.org", "--line", "10"],
+    )?;
+    assert!(node_at_point.status.success(), "{node_at_point:?}");
+    let at_point_json: Value = serde_json::from_slice(&node_at_point.stdout)?;
+    assert_anchor_record_keys(&at_point_json);
+
+    let node_ensure_id = json_command_path(
+        &["node", "ensure-id"],
+        &root,
+        &db,
+        &["--key", &anonymous_anchor_key],
+    )?;
+    assert!(node_ensure_id.status.success(), "{node_ensure_id:?}");
+    let ensure_id_json: Value = serde_json::from_slice(&node_ensure_id.stdout)?;
+    assert_anchor_record_keys(&ensure_id_json);
+
+    let metadata_show = json_command_path(
+        &["node", "metadata", "show"],
+        &root,
+        &db,
+        &["--id", "everyday-id"],
+    )?;
+    assert!(metadata_show.status.success(), "{metadata_show:?}");
+    let metadata_show_json: Value = serde_json::from_slice(&metadata_show.stdout)?;
+    assert_node_record_keys(&metadata_show_json);
+
+    let alias_add = json_command_path(
+        &["node", "alias", "add"],
+        &root,
+        &db,
+        &["--id", "everyday-id", "Daily Alias"],
+    )?;
+    assert!(alias_add.status.success(), "{alias_add:?}");
+    let alias_json: Value = serde_json::from_slice(&alias_add.stdout)?;
+    assert_node_record_keys(&alias_json);
+
+    let ref_set = json_command_path(
+        &["node", "ref", "set"],
+        &root,
+        &db,
+        &["--id", "everyday-id", "cite:everyday2026"],
+    )?;
+    assert!(ref_set.status.success(), "{ref_set:?}");
+    let ref_set_json: Value = serde_json::from_slice(&ref_set.stdout)?;
+    assert_node_record_keys(&ref_set_json);
+
+    let tag_set = json_command_path(
+        &["node", "tag", "set"],
+        &root,
+        &db,
+        &["--id", "everyday-id", "scriptable"],
+    )?;
+    assert!(tag_set.status.success(), "{tag_set:?}");
+    let tag_set_json: Value = serde_json::from_slice(&tag_set.stdout)?;
+    assert_node_record_keys(&tag_set_json);
+
+    let ref_search = json_command_path(&["ref", "search"], &root, &db, &["everyday"])?;
+    assert!(ref_search.status.success(), "{ref_search:?}");
+    let ref_search_json: Value = serde_json::from_slice(&ref_search.stdout)?;
+    assert_exact_object_keys(&ref_search_json, &["refs"]);
+    assert_exact_object_keys(&ref_search_json["refs"][0], &["reference", "node"]);
+    assert_node_record_keys(&ref_search_json["refs"][0]["node"]);
+
+    let ref_show = json_command_path(&["ref", "show"], &root, &db, &["cite:everyday2026"])?;
+    assert!(ref_show.status.success(), "{ref_show:?}");
+    let ref_show_json: Value = serde_json::from_slice(&ref_show.stdout)?;
+    assert_node_record_keys(&ref_show_json);
+
+    let tag_search = json_command_path(&["tag", "search"], &root, &db, &["scriptable"])?;
+    assert!(tag_search.status.success(), "{tag_search:?}");
+    let tag_search_json: Value = serde_json::from_slice(&tag_search.stdout)?;
+    assert_exact_object_keys(&tag_search_json, &["tags"]);
+
+    let occurrence_search =
+        json_command_path(&["search", "occurrences"], &root, &db, &["durable phrase"])?;
+    assert!(occurrence_search.status.success(), "{occurrence_search:?}");
+    let occurrence_json: Value = serde_json::from_slice(&occurrence_search.stdout)?;
+    assert_exact_object_keys(&occurrence_json, &["occurrences"]);
+    assert_occurrence_record_keys(&occurrence_json["occurrences"][0]);
+    assert_anchor_record_keys(&occurrence_json["occurrences"][0]["owning_anchor"]);
+
+    let agenda_today = json_command_path(&["agenda", "today"], &root, &db, &[])?;
+    assert!(agenda_today.status.success(), "{agenda_today:?}");
+    let agenda_today_json: Value = serde_json::from_slice(&agenda_today.stdout)?;
+    assert_exact_object_keys(&agenda_today_json, &["nodes"]);
+
+    let agenda_date = json_command_path(&["agenda", "date"], &root, &db, &["2026-05-13"])?;
+    assert!(agenda_date.status.success(), "{agenda_date:?}");
+    let agenda_json: Value = serde_json::from_slice(&agenda_date.stdout)?;
+    assert_exact_object_keys(&agenda_json, &["nodes"]);
+    assert_anchor_record_keys(&agenda_json["nodes"][0]);
+
+    let agenda_range = json_command_path(
+        &["agenda", "range"],
+        &root,
+        &db,
+        &["2026-05-12", "2026-05-14"],
+    )?;
+    assert!(agenda_range.status.success(), "{agenda_range:?}");
+    let agenda_range_json: Value = serde_json::from_slice(&agenda_range.stdout)?;
+    assert_exact_object_keys(&agenda_range_json, &["nodes"]);
+
+    let graph_stdout = json_command_path(&["graph", "dot"], &root, &db, &[])?;
+    assert!(graph_stdout.status.success(), "{graph_stdout:?}");
+    let graph_json: Value = serde_json::from_slice(&graph_stdout.stdout)?;
+    assert_exact_object_keys(&graph_json, &["dot"]);
+
+    let graph_path = workspace.path().join("graph.dot");
+    let graph_file = json_command_path(
+        &["graph", "dot"],
+        &root,
+        &db,
+        &["--output", graph_path.to_str().expect("utf-8 path")],
+    )?;
+    assert!(graph_file.status.success(), "{graph_file:?}");
+    let graph_file_json: Value = serde_json::from_slice(&graph_file.stdout)?;
+    assert_exact_object_keys(&graph_file_json, &["output_path", "format"]);
+
+    let note_create = json_command_path(
+        &["note", "create"],
+        &root,
+        &db,
+        &[
+            "--title",
+            "Contract Note",
+            "--file",
+            "contract-note.org",
+            "--ref",
+            "cite:contractnote2026",
+        ],
+    )?;
+    assert!(note_create.status.success(), "{note_create:?}");
+    let note_create_json: Value = serde_json::from_slice(&note_create.stdout)?;
+    assert_node_record_keys(&note_create_json);
+
+    let note_ensure = json_command_path(
+        &["note", "ensure-file"],
+        &root,
+        &db,
+        &["--file", "ensured.org", "--title", "Ensured"],
+    )?;
+    assert!(note_ensure.status.success(), "{note_ensure:?}");
+    let note_ensure_json: Value = serde_json::from_slice(&note_ensure.stdout)?;
+    assert_node_record_keys(&note_ensure_json);
+
+    let note_append = json_command_path(
+        &["note", "append-heading"],
+        &root,
+        &db,
+        &[
+            "--file",
+            "ensured.org",
+            "--title",
+            "Ensured",
+            "--heading",
+            "Child",
+        ],
+    )?;
+    assert!(note_append.status.success(), "{note_append:?}");
+    let note_append_json: Value = serde_json::from_slice(&note_append.stdout)?;
+    assert_anchor_record_keys(&note_append_json);
+
+    let note_append_to_node = json_command_path(
+        &["note", "append-to-node"],
+        &root,
+        &db,
+        &["--key", "file:ensured.org", "--heading", "Grandchild"],
+    )?;
+    assert!(
+        note_append_to_node.status.success(),
+        "{note_append_to_node:?}"
+    );
+    let note_append_to_node_json: Value = serde_json::from_slice(&note_append_to_node.stdout)?;
+    assert_anchor_record_keys(&note_append_to_node_json);
+
+    let note_append_outline = json_command_path(
+        &["note", "append-outline"],
+        &root,
+        &db,
+        &[
+            "--file",
+            "outline-contract.org",
+            "--head",
+            "#+title: Outline Contract\n",
+            "--outline",
+            "Inbox",
+            "Review",
+            "--heading",
+            "Finding",
+        ],
+    )?;
+    assert!(
+        note_append_outline.status.success(),
+        "{note_append_outline:?}"
+    );
+    let note_append_outline_json: Value = serde_json::from_slice(&note_append_outline.stdout)?;
+    assert_anchor_record_keys(&note_append_outline_json);
+
+    let capture_node = json_command_path(
+        &["capture", "node"],
+        &root,
+        &db,
+        &[
+            "--title",
+            "Captured Contract",
+            "--file",
+            "captured-contract.org",
+        ],
+    )?;
+    assert!(capture_node.status.success(), "{capture_node:?}");
+    let capture_node_json: Value = serde_json::from_slice(&capture_node.stdout)?;
+    assert_node_record_keys(&capture_node_json);
+
+    let capture_template = json_command_path(
+        &["capture", "template"],
+        &root,
+        &db,
+        &[
+            "--file",
+            "captured-template.org",
+            "--title",
+            "Captured Template",
+            "--type",
+            "plain",
+            "--content",
+            "Captured template body",
+        ],
+    )?;
+    assert!(capture_template.status.success(), "{capture_template:?}");
+    let capture_template_json: Value = serde_json::from_slice(&capture_template.stdout)?;
+    assert_anchor_record_keys(&capture_template_json);
+
+    let capture_preview = json_command_path(
+        &["capture", "preview"],
+        &root,
+        &db,
+        &[
+            "--file",
+            "preview-contract.org",
+            "--title",
+            "Preview Contract",
+            "--type",
+            "plain",
+            "--content",
+            "Preview body",
+        ],
+    )?;
+    assert!(capture_preview.status.success(), "{capture_preview:?}");
+    let capture_preview_json: Value = serde_json::from_slice(&capture_preview.stdout)?;
+    assert_exact_object_keys(
+        &capture_preview_json,
+        &["file_path", "content", "preview_node"],
+    );
+    assert_preview_node_keys(&capture_preview_json["preview_node"]);
+
+    let daily_ensure =
+        json_command_path(&["daily", "ensure"], &root, &db, &["--date", "2026-05-13"])?;
+    assert!(daily_ensure.status.success(), "{daily_ensure:?}");
+    let daily_ensure_json: Value = serde_json::from_slice(&daily_ensure.stdout)?;
+    assert_node_record_keys(&daily_ensure_json);
+
+    let daily_show = json_command_path(&["daily", "show"], &root, &db, &["--date", "2026-05-13"])?;
+    assert!(daily_show.status.success(), "{daily_show:?}");
+    let daily_show_json: Value = serde_json::from_slice(&daily_show.stdout)?;
+    assert_node_record_keys(&daily_show_json);
+
+    let daily_append = json_command_path(
+        &["daily", "append"],
+        &root,
+        &db,
+        &["--date", "2026-05-13", "--heading", "Daily Contract"],
+    )?;
+    assert!(daily_append.status.success(), "{daily_append:?}");
+    let daily_append_json: Value = serde_json::from_slice(&daily_append.stdout)?;
+    assert_anchor_record_keys(&daily_append_json);
 
     Ok(())
 }
@@ -1883,6 +2372,75 @@ fn headless_commands_report_structured_daemon_failures() -> Result<()> {
             &db,
             1,
         ),
+        with_bad_server_program(vec!["sync".to_owned(), "root".to_owned()], &root, &db, 2),
+        with_bad_server_program(
+            vec![
+                "sync".to_owned(),
+                "file".to_owned(),
+                "comparison.org".to_owned(),
+            ],
+            &root,
+            &db,
+            2,
+        ),
+        with_bad_server_program(vec!["file".to_owned(), "list".to_owned()], &root, &db, 2),
+        with_bad_server_program(
+            vec![
+                "node".to_owned(),
+                "ensure-id".to_owned(),
+                "--id".to_owned(),
+                "left-id".to_owned(),
+            ],
+            &root,
+            &db,
+            2,
+        ),
+        with_bad_server_program(
+            vec![
+                "node".to_owned(),
+                "alias".to_owned(),
+                "add".to_owned(),
+                "--id".to_owned(),
+                "left-id".to_owned(),
+                "Alias".to_owned(),
+            ],
+            &root,
+            &db,
+            3,
+        ),
+        with_bad_server_program(
+            vec![
+                "note".to_owned(),
+                "create".to_owned(),
+                "--title".to_owned(),
+                "Bad Daemon Note".to_owned(),
+            ],
+            &root,
+            &db,
+            2,
+        ),
+        with_bad_server_program(
+            vec![
+                "capture".to_owned(),
+                "node".to_owned(),
+                "--title".to_owned(),
+                "Bad Daemon Capture".to_owned(),
+            ],
+            &root,
+            &db,
+            2,
+        ),
+        with_bad_server_program(
+            vec![
+                "daily".to_owned(),
+                "ensure".to_owned(),
+                "--date".to_owned(),
+                "2026-05-13".to_owned(),
+            ],
+            &root,
+            &db,
+            2,
+        ),
         with_bad_server_program(
             vec!["artifact".to_owned(), "list".to_owned()],
             &root,
@@ -1989,6 +2547,96 @@ fn headless_commands_report_structured_daemon_failures() -> Result<()> {
         let output = run_command(&command)?;
         assert_error_failure(&output, "failed to start slipbox daemon");
     }
+
+    Ok(())
+}
+
+#[test]
+fn everyday_cli_commands_report_structured_json_failures() -> Result<()> {
+    let (_workspace, root, db, _anonymous_anchor_key) = build_indexed_fixture()?;
+    seed_duplicate_title_audit_fixture(&root, &db)?;
+    fs::write(
+        Path::new(&root).join("duplicate-c.org"),
+        r#":PROPERTIES:
+:ID: dup-c-id
+:END:
+#+title: Shared Title
+"#,
+    )?;
+    let files = scan_root(Path::new(&root))?;
+    let mut database = Database::open(Path::new(&db))?;
+    database.sync_index(&files)?;
+
+    let duplicate_show =
+        json_command_path(&["node", "show"], &root, &db, &["--title", "Shared Title"])?;
+    assert_error_failure(&duplicate_show, "multiple nodes match Shared Title");
+
+    let missing_target = json_command_path(
+        &["note", "append-to-node"],
+        &root,
+        &db,
+        &["--id", "missing-id", "--heading", "Missing"],
+    )?;
+    assert_error_failure(&missing_target, "unknown node id: missing-id");
+
+    let invalid_daily_date =
+        json_command_path(&["daily", "ensure"], &root, &db, &["--date", "05/13/2026"])?;
+    assert_error_failure(&invalid_daily_date, "invalid daily date \"05/13/2026\"");
+
+    let invalid_daily_path = json_command_path(
+        &["daily", "ensure"],
+        &root,
+        &db,
+        &["--file-format", "../%Y-%m-%d.org"],
+    )?;
+    assert_error_failure(
+        &invalid_daily_path,
+        "daily file path must stay within --root",
+    );
+
+    let malformed_capture = json_command_path(
+        &["capture", "template"],
+        &root,
+        &db,
+        &[
+            "--node-key",
+            "file:comparison.org",
+            "--file",
+            "ignored.org",
+            "--type",
+            "plain",
+            "--content",
+            "ignored",
+        ],
+    )?;
+    assert_error_failure(&malformed_capture, "--node-key cannot be combined");
+
+    let metadata_missing_target = json_command_path(
+        &["node", "tag", "add"],
+        &root,
+        &db,
+        &["--id", "missing-id", "ghost"],
+    )?;
+    assert_error_failure(&metadata_missing_target, "unknown node id: missing-id");
+
+    let invalid_agenda_range = json_command_path(
+        &["agenda", "range"],
+        &root,
+        &db,
+        &["2026-05-14", "2026-05-13"],
+    )?;
+    assert_error_failure(
+        &invalid_agenda_range,
+        "agenda range end 2026-05-13 is before start 2026-05-14",
+    );
+
+    let invalid_graph_option =
+        json_command_path(&["graph", "dot"], &root, &db, &["--hide-link-type", "ref"])?;
+    assert_error_failure(&invalid_graph_option, "unsupported graph link type filter");
+
+    let daemon_failure =
+        json_command_path_with_bad_server(&["node", "search"], &root, &db, &["Left"])?;
+    assert_error_failure(&daemon_failure, "failed to start slipbox daemon");
 
     Ok(())
 }
