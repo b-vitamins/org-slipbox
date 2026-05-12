@@ -4551,6 +4551,206 @@ pub struct ExtractSubtreeParams {
     pub file_path: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StructuralWriteOperationKind {
+    RefileSubtree,
+    RefileRegion,
+    ExtractSubtree,
+    PromoteFile,
+    DemoteFile,
+}
+
+impl StructuralWriteOperationKind {
+    #[must_use]
+    pub const fn requires_result(self) -> bool {
+        !matches!(self, Self::RefileRegion)
+    }
+
+    #[must_use]
+    pub const fn permits_removed_files(self) -> bool {
+        matches!(self, Self::RefileSubtree | Self::RefileRegion)
+    }
+
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::RefileSubtree => "refile-subtree",
+            Self::RefileRegion => "refile-region",
+            Self::ExtractSubtree => "extract-subtree",
+            Self::PromoteFile => "promote-file",
+            Self::DemoteFile => "demote-file",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StructuralWriteIndexRefreshStatus {
+    Refreshed,
+    Pending,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StructuralWriteAffectedFiles {
+    #[serde(default)]
+    pub changed_files: Vec<String>,
+    #[serde(default)]
+    pub removed_files: Vec<String>,
+}
+
+impl StructuralWriteAffectedFiles {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        if self.changed_files.is_empty() {
+            return Some("structural writes must include at least one changed file".to_owned());
+        }
+
+        validate_structural_write_file_paths(&self.changed_files, "changed_files")
+            .or_else(|| validate_structural_write_file_paths(&self.removed_files, "removed_files"))
+            .or_else(|| {
+                self.changed_files
+                    .iter()
+                    .find(|changed| self.removed_files.iter().any(|removed| removed == *changed))
+                    .map(|path| {
+                        format!("structural write file {path} cannot be both changed and removed")
+                    })
+            })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum StructuralWriteResult {
+    Node { node: Box<NodeRecord> },
+    Anchor { anchor: Box<AnchorRecord> },
+}
+
+impl StructuralWriteResult {
+    #[must_use]
+    pub fn file_path(&self) -> &str {
+        match self {
+            Self::Node { node } => &node.file_path,
+            Self::Anchor { anchor } => &anchor.file_path,
+        }
+    }
+
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        match self {
+            Self::Node { node } => validate_structural_write_result_node(node),
+            Self::Anchor { anchor } => validate_structural_write_result_anchor(anchor),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum StructuralWritePreviewResult {
+    ExistingNode { node_key: String },
+    ExistingAnchor { node_key: String },
+    File { file_path: String },
+}
+
+impl StructuralWritePreviewResult {
+    #[must_use]
+    pub fn file_path(&self) -> Option<&str> {
+        match self {
+            Self::ExistingNode { .. } | Self::ExistingAnchor { .. } => None,
+            Self::File { file_path } => Some(file_path),
+        }
+    }
+
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        match self {
+            Self::ExistingNode { node_key } => validate_required_text_field(node_key, "node_key"),
+            Self::ExistingAnchor { node_key } => validate_required_text_field(node_key, "node_key"),
+            Self::File { file_path } => {
+                validate_structural_write_file_path_field(file_path, "file_path")
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StructuralWriteReport {
+    pub operation: StructuralWriteOperationKind,
+    #[serde(flatten)]
+    pub affected_files: StructuralWriteAffectedFiles,
+    pub index_refresh: StructuralWriteIndexRefreshStatus,
+    #[serde(default)]
+    pub result: Option<StructuralWriteResult>,
+}
+
+impl StructuralWriteReport {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        self.affected_files
+            .validation_error()
+            .or_else(|| {
+                validate_structural_write_operation_files(self.operation, &self.affected_files)
+            })
+            .or_else(|| {
+                (self.index_refresh != StructuralWriteIndexRefreshStatus::Refreshed).then(|| {
+                    "structural write reports must be returned after index refresh".to_owned()
+                })
+            })
+            .or_else(|| {
+                validate_structural_write_result_requirement(self.operation, self.result.as_ref())
+            })
+            .or_else(|| {
+                self.result
+                    .as_ref()
+                    .and_then(StructuralWriteResult::validation_error)
+            })
+            .or_else(|| {
+                self.result.as_ref().and_then(|result| {
+                    validate_structural_write_result_file(result.file_path(), &self.affected_files)
+                })
+            })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StructuralWritePreview {
+    pub operation: StructuralWriteOperationKind,
+    #[serde(flatten)]
+    pub affected_files: StructuralWriteAffectedFiles,
+    #[serde(default)]
+    pub result: Option<StructuralWritePreviewResult>,
+}
+
+impl StructuralWritePreview {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        self.affected_files
+            .validation_error()
+            .or_else(|| {
+                validate_structural_write_operation_files(self.operation, &self.affected_files)
+            })
+            .or_else(|| {
+                validate_structural_write_preview_result_requirement(
+                    self.operation,
+                    self.result.as_ref(),
+                )
+            })
+            .or_else(|| {
+                self.result
+                    .as_ref()
+                    .and_then(StructuralWritePreviewResult::validation_error)
+            })
+            .or_else(|| {
+                self.result
+                    .as_ref()
+                    .and_then(StructuralWritePreviewResult::file_path)
+                    .and_then(|file_path| {
+                        validate_structural_write_result_file(file_path, &self.affected_files)
+                    })
+            })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RewriteFileParams {
     pub file_path: String,
@@ -4808,6 +5008,125 @@ fn validate_optional_report_profile_id_field(value: Option<&str>, field: &str) -
 
 fn validate_optional_text_field(value: Option<&str>, field: &str) -> Option<String> {
     value.and_then(|text| validate_required_text_field(text, field))
+}
+
+fn validate_structural_write_file_path_field(value: &str, field: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Some(format!("{field} must not be empty"));
+    }
+    if trimmed != value {
+        return Some(format!(
+            "{field} must not have leading or trailing whitespace"
+        ));
+    }
+    if value.starts_with('/') || value.starts_with('\\') {
+        return Some(format!("{field} must be relative to the slipbox root"));
+    }
+    if value.contains('\\') {
+        return Some(format!("{field} must use forward slashes"));
+    }
+    if !value.ends_with(".org") {
+        return Some(format!("{field} must target an .org file"));
+    }
+    if value
+        .split('/')
+        .any(|component| component.is_empty() || matches!(component, "." | ".."))
+    {
+        return Some(format!("{field} must be a normalized relative path"));
+    }
+    None
+}
+
+fn validate_structural_write_file_paths(paths: &[String], field: &str) -> Option<String> {
+    let mut seen: Vec<&str> = Vec::with_capacity(paths.len());
+    for (index, path) in paths.iter().enumerate() {
+        if let Some(error) = validate_structural_write_file_path_field(path, field) {
+            return Some(format!("{field} entry {index} is invalid: {error}"));
+        }
+        if seen.contains(&path.as_str()) {
+            return Some(format!("{field} entry {index} is duplicate: {path}"));
+        }
+        seen.push(path);
+    }
+    None
+}
+
+fn validate_structural_write_operation_files(
+    operation: StructuralWriteOperationKind,
+    affected_files: &StructuralWriteAffectedFiles,
+) -> Option<String> {
+    (!operation.permits_removed_files() && !affected_files.removed_files.is_empty()).then(|| {
+        format!(
+            "{} structural writes must not include removed files",
+            operation.label()
+        )
+    })
+}
+
+fn validate_structural_write_result_requirement(
+    operation: StructuralWriteOperationKind,
+    result: Option<&StructuralWriteResult>,
+) -> Option<String> {
+    match (operation.requires_result(), result.is_some()) {
+        (true, false) => Some(format!(
+            "{} structural write reports must include a resulting node or anchor",
+            operation.label()
+        )),
+        (false, true) => Some(format!(
+            "{} structural write reports must not include a resulting node or anchor",
+            operation.label()
+        )),
+        _ => None,
+    }
+}
+
+fn validate_structural_write_preview_result_requirement(
+    operation: StructuralWriteOperationKind,
+    result: Option<&StructuralWritePreviewResult>,
+) -> Option<String> {
+    match (operation.requires_result(), result.is_some()) {
+        (true, false) => Some(format!(
+            "{} structural write previews must include an expected result",
+            operation.label()
+        )),
+        (false, true) => Some(format!(
+            "{} structural write previews must not include an expected result",
+            operation.label()
+        )),
+        _ => None,
+    }
+}
+
+fn validate_structural_write_result_file(
+    file_path: &str,
+    affected_files: &StructuralWriteAffectedFiles,
+) -> Option<String> {
+    (!affected_files
+        .changed_files
+        .iter()
+        .any(|changed| changed == file_path))
+    .then(|| format!("structural write result file {file_path} must be in changed_files"))
+}
+
+fn validate_structural_write_result_node(node: &NodeRecord) -> Option<String> {
+    validate_required_text_field(&node.node_key, "node.node_key")
+        .or_else(|| validate_structural_write_file_path_field(&node.file_path, "node.file_path"))
+        .or_else(|| validate_required_text_field(&node.title, "node.title"))
+        .or_else(|| {
+            (node.kind == NodeKind::Heading && node.explicit_id.is_none()).then(|| {
+                "structural write result nodes must be file notes or headings with explicit IDs"
+                    .to_owned()
+            })
+        })
+}
+
+fn validate_structural_write_result_anchor(anchor: &AnchorRecord) -> Option<String> {
+    validate_required_text_field(&anchor.node_key, "anchor.node_key")
+        .or_else(|| {
+            validate_structural_write_file_path_field(&anchor.file_path, "anchor.file_path")
+        })
+        .or_else(|| validate_required_text_field(&anchor.title, "anchor.title"))
 }
 
 fn validate_report_profile_subjects(subjects: &[ReportProfileSubject]) -> Option<String> {
@@ -5509,18 +5828,21 @@ mod tests {
         SaveExplorationArtifactResult, SaveReviewRunParams, SaveReviewRunResult,
         SaveWorkflowReviewParams, SaveWorkflowReviewResult, SavedComparisonArtifact,
         SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep,
-        SearchNodesParams, SearchNodesSort, TrailReplayResult, TrailReplayStepResult,
-        UnlinkedReferencesParams, UpdateNodeMetadataParams, ValidateWorkbenchPackParams,
-        ValidateWorkbenchPackResult, WorkbenchPackCompatibility,
-        WorkbenchPackCompatibilityEnvelope, WorkbenchPackIdParams, WorkbenchPackIssueKind,
-        WorkbenchPackManifest, WorkbenchPackMetadata, WorkbenchPackResult, WorkbenchPackSummary,
-        WorkflowArtifactSaveSource, WorkflowExecutionResult, WorkflowExploreFocus,
-        WorkflowInputAssignment, WorkflowInputKind, WorkflowInputSpec, WorkflowMetadata,
-        WorkflowReportLine, WorkflowResolveTarget, WorkflowSpec, WorkflowSpecCompatibility,
-        WorkflowSpecCompatibilityEnvelope, WorkflowStepPayload, WorkflowStepRef,
-        WorkflowStepReport, WorkflowStepReportPayload, WorkflowStepSpec, WorkflowSummary,
-        built_in_review_routine, built_in_review_routine_summaries, built_in_review_routines,
-        built_in_workflow, built_in_workflow_summaries, built_in_workflows, normalize_reference,
+        SearchNodesParams, SearchNodesSort, StructuralWriteAffectedFiles,
+        StructuralWriteIndexRefreshStatus, StructuralWriteOperationKind, StructuralWritePreview,
+        StructuralWritePreviewResult, StructuralWriteReport, StructuralWriteResult,
+        TrailReplayResult, TrailReplayStepResult, UnlinkedReferencesParams,
+        UpdateNodeMetadataParams, ValidateWorkbenchPackParams, ValidateWorkbenchPackResult,
+        WorkbenchPackCompatibility, WorkbenchPackCompatibilityEnvelope, WorkbenchPackIdParams,
+        WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackMetadata, WorkbenchPackResult,
+        WorkbenchPackSummary, WorkflowArtifactSaveSource, WorkflowExecutionResult,
+        WorkflowExploreFocus, WorkflowInputAssignment, WorkflowInputKind, WorkflowInputSpec,
+        WorkflowMetadata, WorkflowReportLine, WorkflowResolveTarget, WorkflowSpec,
+        WorkflowSpecCompatibility, WorkflowSpecCompatibilityEnvelope, WorkflowStepPayload,
+        WorkflowStepRef, WorkflowStepReport, WorkflowStepReportPayload, WorkflowStepSpec,
+        WorkflowSummary, built_in_review_routine, built_in_review_routine_summaries,
+        built_in_review_routines, built_in_workflow, built_in_workflow_summaries,
+        built_in_workflows, normalize_reference,
     };
     use serde_json::json;
 
@@ -5934,6 +6256,318 @@ mod tests {
                     "kind": "heading"
                 }
             })
+        );
+    }
+
+    #[test]
+    fn structural_write_reports_round_trip_all_operation_kinds() {
+        let result_node = NodeRecord {
+            explicit_id: Some("result-id".to_owned()),
+            file_path: "extracted.org".to_owned(),
+            ..sample_node("heading:extracted.org:1", "Result")
+        };
+        let promoted_file = NodeRecord {
+            node_key: "file:promote.org".to_owned(),
+            file_path: "promote.org".to_owned(),
+            kind: NodeKind::File,
+            ..sample_node("file:promote.org", "Promoted")
+        };
+        let reports = vec![
+            StructuralWriteReport {
+                operation: StructuralWriteOperationKind::RefileSubtree,
+                affected_files: StructuralWriteAffectedFiles {
+                    changed_files: vec!["target.org".to_owned(), "source.org".to_owned()],
+                    removed_files: vec!["old-source.org".to_owned()],
+                },
+                index_refresh: StructuralWriteIndexRefreshStatus::Refreshed,
+                result: Some(StructuralWriteResult::Anchor {
+                    anchor: Box::new(AnchorRecord {
+                        file_path: "target.org".to_owned(),
+                        ..sample_anchor("heading:target.org:7", "Moved")
+                    }),
+                }),
+            },
+            StructuralWriteReport {
+                operation: StructuralWriteOperationKind::RefileRegion,
+                affected_files: StructuralWriteAffectedFiles {
+                    changed_files: vec!["notes/target.org".to_owned()],
+                    removed_files: Vec::new(),
+                },
+                index_refresh: StructuralWriteIndexRefreshStatus::Refreshed,
+                result: None,
+            },
+            StructuralWriteReport {
+                operation: StructuralWriteOperationKind::ExtractSubtree,
+                affected_files: StructuralWriteAffectedFiles {
+                    changed_files: vec!["source.org".to_owned(), "extracted.org".to_owned()],
+                    removed_files: Vec::new(),
+                },
+                index_refresh: StructuralWriteIndexRefreshStatus::Refreshed,
+                result: Some(StructuralWriteResult::Node {
+                    node: Box::new(result_node.clone()),
+                }),
+            },
+            StructuralWriteReport {
+                operation: StructuralWriteOperationKind::PromoteFile,
+                affected_files: StructuralWriteAffectedFiles {
+                    changed_files: vec!["promote.org".to_owned()],
+                    removed_files: Vec::new(),
+                },
+                index_refresh: StructuralWriteIndexRefreshStatus::Refreshed,
+                result: Some(StructuralWriteResult::Node {
+                    node: Box::new(promoted_file),
+                }),
+            },
+            StructuralWriteReport {
+                operation: StructuralWriteOperationKind::DemoteFile,
+                affected_files: StructuralWriteAffectedFiles {
+                    changed_files: vec!["demote.org".to_owned()],
+                    removed_files: Vec::new(),
+                },
+                index_refresh: StructuralWriteIndexRefreshStatus::Refreshed,
+                result: Some(StructuralWriteResult::Anchor {
+                    anchor: Box::new(AnchorRecord {
+                        file_path: "demote.org".to_owned(),
+                        ..sample_anchor("heading:demote.org:1", "Demoted")
+                    }),
+                }),
+            },
+        ];
+
+        for report in reports {
+            assert_eq!(report.validation_error(), None);
+            let serialized =
+                serde_json::to_value(&report).expect("structural report should serialize");
+            assert_eq!(
+                serde_json::from_value::<StructuralWriteReport>(serialized)
+                    .expect("structural report should deserialize"),
+                report
+            );
+        }
+    }
+
+    #[test]
+    fn structural_write_previews_round_trip_expected_results() {
+        let previews = vec![
+            StructuralWritePreview {
+                operation: StructuralWriteOperationKind::RefileSubtree,
+                affected_files: StructuralWriteAffectedFiles {
+                    changed_files: vec!["target.org".to_owned()],
+                    removed_files: vec!["source.org".to_owned()],
+                },
+                result: Some(StructuralWritePreviewResult::ExistingAnchor {
+                    node_key: "heading:target.org:7".to_owned(),
+                }),
+            },
+            StructuralWritePreview {
+                operation: StructuralWriteOperationKind::RefileRegion,
+                affected_files: StructuralWriteAffectedFiles {
+                    changed_files: vec!["target.org".to_owned()],
+                    removed_files: Vec::new(),
+                },
+                result: None,
+            },
+            StructuralWritePreview {
+                operation: StructuralWriteOperationKind::ExtractSubtree,
+                affected_files: StructuralWriteAffectedFiles {
+                    changed_files: vec!["source.org".to_owned(), "new/extracted.org".to_owned()],
+                    removed_files: Vec::new(),
+                },
+                result: Some(StructuralWritePreviewResult::File {
+                    file_path: "new/extracted.org".to_owned(),
+                }),
+            },
+        ];
+
+        for preview in previews {
+            assert_eq!(preview.validation_error(), None);
+            let serialized =
+                serde_json::to_value(&preview).expect("structural preview should serialize");
+            assert_eq!(
+                serde_json::from_value::<StructuralWritePreview>(serialized)
+                    .expect("structural preview should deserialize"),
+                preview
+            );
+        }
+    }
+
+    #[test]
+    fn structural_write_report_serializes_stable_machine_shape() {
+        let report = StructuralWriteReport {
+            operation: StructuralWriteOperationKind::ExtractSubtree,
+            affected_files: StructuralWriteAffectedFiles {
+                changed_files: vec!["source.org".to_owned(), "extracted.org".to_owned()],
+                removed_files: Vec::new(),
+            },
+            index_refresh: StructuralWriteIndexRefreshStatus::Refreshed,
+            result: Some(StructuralWriteResult::Node {
+                node: Box::new(NodeRecord {
+                    explicit_id: Some("extracted-id".to_owned()),
+                    file_path: "extracted.org".to_owned(),
+                    ..sample_node("heading:extracted.org:1", "Extracted")
+                }),
+            }),
+        };
+
+        let value = serde_json::to_value(report).expect("report should serialize");
+        assert_eq!(
+            value,
+            json!({
+                "operation": "extract-subtree",
+                "changed_files": ["source.org", "extracted.org"],
+                "removed_files": [],
+                "index_refresh": "refreshed",
+                "result": {
+                    "kind": "node",
+                "node": {
+                        "node_key": "heading:extracted.org:1",
+                        "explicit_id": "extracted-id",
+                        "file_path": "extracted.org",
+                        "title": "Extracted",
+                        "outline_path": "Extracted",
+                        "aliases": [],
+                        "tags": [],
+                        "refs": [],
+                        "todo_keyword": null,
+                        "scheduled_for": null,
+                        "deadline_for": null,
+                        "closed_at": null,
+                        "level": 1,
+                        "line": 1,
+                        "kind": "heading",
+                        "file_mtime_ns": 0,
+                        "backlink_count": 0,
+                        "forward_link_count": 0
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn structural_write_validation_rejects_contradictory_reports_and_previews() {
+        let base_report = StructuralWriteReport {
+            operation: StructuralWriteOperationKind::RefileSubtree,
+            affected_files: StructuralWriteAffectedFiles {
+                changed_files: vec!["source.org".to_owned()],
+                removed_files: Vec::new(),
+            },
+            index_refresh: StructuralWriteIndexRefreshStatus::Refreshed,
+            result: Some(StructuralWriteResult::Anchor {
+                anchor: Box::new(AnchorRecord {
+                    file_path: "source.org".to_owned(),
+                    ..sample_anchor("heading:source.org:1", "Source")
+                }),
+            }),
+        };
+
+        let mut missing_changed = base_report.clone();
+        missing_changed.affected_files.changed_files.clear();
+        assert_eq!(
+            missing_changed.validation_error(),
+            Some("structural writes must include at least one changed file".to_owned())
+        );
+
+        let mut duplicate_changed = base_report.clone();
+        duplicate_changed.affected_files.changed_files =
+            vec!["source.org".to_owned(), "source.org".to_owned()];
+        assert_eq!(
+            duplicate_changed.validation_error(),
+            Some("changed_files entry 1 is duplicate: source.org".to_owned())
+        );
+
+        let mut overlapping_files = base_report.clone();
+        overlapping_files.affected_files.removed_files = vec!["source.org".to_owned()];
+        assert_eq!(
+            overlapping_files.validation_error(),
+            Some("structural write file source.org cannot be both changed and removed".to_owned())
+        );
+
+        let mut pending_refresh = base_report.clone();
+        pending_refresh.index_refresh = StructuralWriteIndexRefreshStatus::Pending;
+        assert_eq!(
+            pending_refresh.validation_error(),
+            Some("structural write reports must be returned after index refresh".to_owned())
+        );
+
+        let mut missing_result = base_report.clone();
+        missing_result.result = None;
+        assert_eq!(
+            missing_result.validation_error(),
+            Some(
+                "refile-subtree structural write reports must include a resulting node or anchor"
+                    .to_owned()
+            )
+        );
+
+        let unexpected_result = StructuralWriteReport {
+            operation: StructuralWriteOperationKind::RefileRegion,
+            result: base_report.result.clone(),
+            ..base_report.clone()
+        };
+        assert_eq!(
+            unexpected_result.validation_error(),
+            Some(
+                "refile-region structural write reports must not include a resulting node or anchor"
+                    .to_owned()
+            )
+        );
+
+        let removed_from_promote = StructuralWriteReport {
+            operation: StructuralWriteOperationKind::PromoteFile,
+            affected_files: StructuralWriteAffectedFiles {
+                changed_files: vec!["promote.org".to_owned()],
+                removed_files: vec!["old.org".to_owned()],
+            },
+            result: base_report.result.clone(),
+            ..base_report.clone()
+        };
+        assert_eq!(
+            removed_from_promote.validation_error(),
+            Some("promote-file structural writes must not include removed files".to_owned())
+        );
+
+        let malformed_node = StructuralWriteReport {
+            result: Some(StructuralWriteResult::Node {
+                node: Box::new(sample_node("heading:source.org:3", "Source")),
+            }),
+            ..base_report.clone()
+        };
+        assert_eq!(
+            malformed_node.validation_error(),
+            Some(
+                "structural write result nodes must be file notes or headings with explicit IDs"
+                    .to_owned()
+            )
+        );
+
+        let result_outside_changed_files = StructuralWriteReport {
+            result: Some(StructuralWriteResult::Anchor {
+                anchor: Box::new(AnchorRecord {
+                    file_path: "other.org".to_owned(),
+                    ..sample_anchor("heading:other.org:1", "Other")
+                }),
+            }),
+            ..base_report.clone()
+        };
+        assert_eq!(
+            result_outside_changed_files.validation_error(),
+            Some("structural write result file other.org must be in changed_files".to_owned())
+        );
+
+        let invalid_preview = StructuralWritePreview {
+            operation: StructuralWriteOperationKind::ExtractSubtree,
+            affected_files: StructuralWriteAffectedFiles {
+                changed_files: vec!["source.org".to_owned()],
+                removed_files: Vec::new(),
+            },
+            result: Some(StructuralWritePreviewResult::File {
+                file_path: "../escape.org".to_owned(),
+            }),
+        };
+        assert_eq!(
+            invalid_preview.validation_error(),
+            Some("file_path must be a normalized relative path".to_owned())
         );
     }
 
