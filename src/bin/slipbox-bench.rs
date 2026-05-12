@@ -22,20 +22,22 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use slipbox_core::{
-    AuditRemediationPreviewPayload, BacklinkRecord, CompareNotesParams, CorpusAuditKind,
-    CorpusAuditParams, ExplorationEntry, ExplorationLens, ExplorationSection,
-    ExplorationSectionKind, ExploreResult, ForwardLinkRecord, ImportWorkbenchPackParams,
-    MarkReviewFindingParams, NodeRecord, NoteComparisonResult, ReportJsonlLineKind,
-    ReportProfileMetadata, ReportProfileMode, ReportProfileSpec, ReportProfileSubject,
+    AgendaParams, AppendHeadingParams, AuditRemediationPreviewPayload, BacklinkRecord,
+    CaptureNodeParams, CompareNotesParams, CorpusAuditKind, CorpusAuditParams, ExplorationEntry,
+    ExplorationLens, ExplorationSection, ExplorationSectionKind, ExploreResult, ForwardLinkRecord,
+    GraphParams, ImportWorkbenchPackParams, IndexFileParams, MarkReviewFindingParams,
+    NodeFromIdParams, NodeRecord, NoteComparisonResult, ReportJsonlLineKind, ReportProfileMetadata,
+    ReportProfileMode, ReportProfileSpec, ReportProfileSubject,
     ReviewFindingRemediationPreviewParams, ReviewFindingStatus, ReviewRoutineMetadata,
     ReviewRoutineSaveReviewPolicy, ReviewRoutineSource, ReviewRoutineSpec, ReviewRunDiffParams,
     ReviewRunIdParams, RunReviewRoutineParams, RunWorkflowParams, SaveCorpusAuditReviewParams,
-    SaveWorkflowReviewParams, SearchNodesSort, ValidateWorkbenchPackParams,
-    WorkbenchPackCompatibility, WorkbenchPackIssueKind, WorkbenchPackManifest,
-    WorkbenchPackMetadata, WorkflowExecutionResult, WorkflowExploreFocus, WorkflowInputAssignment,
-    WorkflowInputKind, WorkflowInputSpec, WorkflowMetadata, WorkflowResolveTarget,
-    WorkflowResolveTarget as WorkflowSpecResolveTarget, WorkflowSpec, WorkflowSpecCompatibility,
-    WorkflowStepPayload, WorkflowStepReportPayload, WorkflowStepSpec,
+    SaveWorkflowReviewParams, SearchNodesParams, SearchNodesSort, SearchOccurrencesParams,
+    UpdateNodeMetadataParams, ValidateWorkbenchPackParams, WorkbenchPackCompatibility,
+    WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackMetadata, WorkflowExecutionResult,
+    WorkflowExploreFocus, WorkflowInputAssignment, WorkflowInputKind, WorkflowInputSpec,
+    WorkflowMetadata, WorkflowResolveTarget, WorkflowResolveTarget as WorkflowSpecResolveTarget,
+    WorkflowSpec, WorkflowSpecCompatibility, WorkflowStepPayload, WorkflowStepReportPayload,
+    WorkflowStepSpec,
 };
 use slipbox_index::{DiscoveryPolicy, scan_path_with_policy, scan_root_with_policy};
 use slipbox_store::Database;
@@ -151,6 +153,15 @@ struct IterationConfig {
     pack_import: usize,
     routine_run: usize,
     report_profile_rendering: usize,
+    everyday_file_sync: usize,
+    everyday_node_show: usize,
+    everyday_node_search: usize,
+    everyday_occurrence_search: usize,
+    everyday_agenda_range: usize,
+    everyday_graph_dot: usize,
+    everyday_capture_create: usize,
+    everyday_daily_append: usize,
+    everyday_metadata_update: usize,
     search_limit: usize,
     backlinks_limit: usize,
     reflinks_limit: usize,
@@ -191,6 +202,15 @@ struct ThresholdConfig {
     pack_import_p95_ms: f64,
     routine_run_p95_ms: f64,
     report_profile_rendering_p95_ms: f64,
+    everyday_file_sync_p95_ms: f64,
+    everyday_node_show_p95_ms: f64,
+    everyday_node_search_p95_ms: f64,
+    everyday_occurrence_search_p95_ms: f64,
+    everyday_agenda_range_p95_ms: f64,
+    everyday_graph_dot_p95_ms: f64,
+    everyday_capture_create_p95_ms: f64,
+    everyday_daily_append_p95_ms: f64,
+    everyday_metadata_update_p95_ms: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -227,6 +247,15 @@ struct BenchmarkReport {
     pack_import: TimingReport,
     routine_run: TimingReport,
     report_profile_rendering: TimingReport,
+    everyday_file_sync: TimingReport,
+    everyday_node_show: TimingReport,
+    everyday_node_search: TimingReport,
+    everyday_occurrence_search: TimingReport,
+    everyday_agenda_range: TimingReport,
+    everyday_graph_dot: TimingReport,
+    everyday_capture_create: TimingReport,
+    everyday_daily_append: TimingReport,
+    everyday_metadata_update: TimingReport,
 }
 
 #[derive(Debug, Serialize)]
@@ -557,6 +586,17 @@ fn run_profile(
         )
     };
     let index_file = benchmark_index_file(&mut database, profile, fixture, &policy)?;
+    let everyday_node_show = benchmark_everyday_node_show(&mut workbench, profile, &hot_node)?;
+    let everyday_node_search = benchmark_everyday_node_search(&mut workbench, profile, fixture)?;
+    let everyday_occurrence_search =
+        benchmark_everyday_occurrence_search(&mut workbench, profile, fixture)?;
+    let everyday_agenda_range = benchmark_everyday_agenda_range(&mut workbench, profile)?;
+    let everyday_graph_dot = benchmark_everyday_graph_dot(&mut workbench, profile, &hot_node)?;
+    let everyday_file_sync = benchmark_everyday_file_sync(&mut workbench, profile, fixture)?;
+    let everyday_capture_create = benchmark_everyday_capture_create(&mut workbench, profile)?;
+    let everyday_daily_append = benchmark_everyday_daily_append(&mut workbench, profile)?;
+    let everyday_metadata_update =
+        benchmark_everyday_metadata_update(&mut workbench, profile, &hot_node)?;
 
     Ok(BenchmarkReport {
         profile: profile_name.to_owned(),
@@ -599,6 +639,15 @@ fn run_profile(
         pack_import,
         routine_run,
         report_profile_rendering,
+        everyday_file_sync,
+        everyday_node_show,
+        everyday_node_search,
+        everyday_occurrence_search,
+        everyday_agenda_range,
+        everyday_graph_dot,
+        everyday_capture_create,
+        everyday_daily_append,
+        everyday_metadata_update,
     })
 }
 
@@ -955,6 +1004,224 @@ fn benchmark_index_file(
     }
 
     Ok(TimingReport::from_samples(samples))
+}
+
+fn benchmark_everyday_file_sync(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &CorpusFixture,
+) -> Result<TimingReport> {
+    let mut samples = Vec::with_capacity(profile.iterations.everyday_file_sync);
+    for iteration in 0..profile.iterations.everyday_file_sync {
+        let source = fixture.mutable_template.replace(
+            "__BENCH_MUTABLE__",
+            &format!("everyday-sync-{iteration:04}"),
+        );
+        fs::write(&fixture.mutable_file, source).with_context(|| {
+            format!(
+                "failed to write everyday sync benchmark file {}",
+                fixture.mutable_file.display()
+            )
+        })?;
+        let params = IndexFileParams {
+            file_path: fixture.mutable_relative_path.clone(),
+        };
+        let start = Instant::now();
+        let result = workbench.index_file(&params)?;
+        samples.push(elapsed_ms(start));
+        if result.file_path != fixture.mutable_relative_path {
+            bail!(
+                "everyday file sync returned {}, expected {}",
+                result.file_path,
+                fixture.mutable_relative_path
+            );
+        }
+    }
+    fs::write(&fixture.mutable_file, &fixture.mutable_template).with_context(|| {
+        format!(
+            "failed to restore everyday sync benchmark file {}",
+            fixture.mutable_file.display()
+        )
+    })?;
+    workbench.index_file(&IndexFileParams {
+        file_path: fixture.mutable_relative_path.clone(),
+    })?;
+    Ok(TimingReport::from_samples(samples))
+}
+
+fn benchmark_everyday_node_show(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    node: &NodeRecord,
+) -> Result<TimingReport> {
+    measure_iterations(profile.iterations.everyday_node_show, |_| {
+        let result = workbench
+            .node_from_id(&NodeFromIdParams {
+                id: node
+                    .explicit_id
+                    .clone()
+                    .context("benchmark node has no ID")?,
+            })?
+            .context("everyday node show benchmark returned no node")?;
+        if result.node_key != node.node_key {
+            bail!(
+                "everyday node show returned {}, expected {}",
+                result.node_key,
+                node.node_key
+            );
+        }
+        black_box(result.title);
+        Ok(())
+    })
+}
+
+fn benchmark_everyday_node_search(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &CorpusFixture,
+) -> Result<TimingReport> {
+    measure_iterations(profile.iterations.everyday_node_search, |iteration| {
+        let query = &fixture.search_queries[iteration % fixture.search_queries.len()];
+        let result = workbench.search_nodes(&SearchNodesParams {
+            query: query.clone(),
+            limit: profile.iterations.search_limit,
+            sort: None,
+        })?;
+        if result.nodes.is_empty() {
+            bail!("everyday node search query {query} returned no nodes");
+        }
+        black_box(result.nodes.len());
+        Ok(())
+    })
+}
+
+fn benchmark_everyday_occurrence_search(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &CorpusFixture,
+) -> Result<TimingReport> {
+    measure_iterations(profile.iterations.everyday_occurrence_search, |iteration| {
+        let query = &fixture.search_queries[iteration % fixture.search_queries.len()];
+        let result = workbench.search_occurrences(&SearchOccurrencesParams {
+            query: query.clone(),
+            limit: profile.iterations.search_limit,
+        })?;
+        if result.occurrences.is_empty() {
+            bail!("everyday occurrence search query {query} returned no hits");
+        }
+        black_box(result.occurrences.len());
+        Ok(())
+    })
+}
+
+fn benchmark_everyday_agenda_range(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+) -> Result<TimingReport> {
+    measure_iterations(profile.iterations.everyday_agenda_range, |_| {
+        let result = workbench.agenda(&AgendaParams {
+            start: AGENDA_START.to_owned(),
+            end: AGENDA_END.to_owned(),
+            limit: profile.iterations.agenda_limit,
+        })?;
+        if result.nodes.is_empty() {
+            bail!("everyday agenda range benchmark returned no nodes");
+        }
+        black_box(result.nodes.len());
+        Ok(())
+    })
+}
+
+fn benchmark_everyday_graph_dot(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    node: &NodeRecord,
+) -> Result<TimingReport> {
+    measure_iterations(profile.iterations.everyday_graph_dot, |_| {
+        let result = workbench.graph_dot(&GraphParams {
+            root_node_key: Some(node.node_key.clone()),
+            max_distance: Some(2),
+            include_orphans: false,
+            hidden_link_types: Vec::new(),
+            max_title_length: 60,
+            shorten_titles: None,
+            node_url_prefix: None,
+        })?;
+        if !result.dot.contains("digraph") {
+            bail!("everyday graph DOT benchmark returned malformed DOT");
+        }
+        black_box(result.dot.len());
+        Ok(())
+    })
+}
+
+fn benchmark_everyday_capture_create(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+) -> Result<TimingReport> {
+    measure_iterations(profile.iterations.everyday_capture_create, |iteration| {
+        let title = format!("Benchmark Capture {iteration:04}");
+        let result = workbench.capture_node(&CaptureNodeParams {
+            title: title.clone(),
+            file_path: None,
+            head: None,
+            refs: vec![format!("bench-capture-{iteration:04}")],
+        })?;
+        if result.title != title {
+            bail!(
+                "everyday capture benchmark returned title {}, expected {}",
+                result.title,
+                title
+            );
+        }
+        black_box(result.node_key);
+        Ok(())
+    })
+}
+
+fn benchmark_everyday_daily_append(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+) -> Result<TimingReport> {
+    measure_iterations(profile.iterations.everyday_daily_append, |iteration| {
+        let heading = format!("Benchmark Daily Entry {iteration:04}");
+        let result = workbench.append_heading(&AppendHeadingParams {
+            file_path: format!("daily/bench-2026-03-{:02}.org", (iteration % 28) + 1),
+            title: format!("Benchmark Daily {}", (iteration % 28) + 1),
+            heading: heading.clone(),
+            level: 1,
+        })?;
+        if result.title != heading {
+            bail!(
+                "everyday daily append returned title {}, expected {}",
+                result.title,
+                heading
+            );
+        }
+        black_box(result.node_key);
+        Ok(())
+    })
+}
+
+fn benchmark_everyday_metadata_update(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    node: &NodeRecord,
+) -> Result<TimingReport> {
+    measure_iterations(profile.iterations.everyday_metadata_update, |iteration| {
+        let alias = format!("Benchmark Alias {iteration:04}");
+        let result = workbench.update_node_metadata(&UpdateNodeMetadataParams {
+            node_key: node.node_key.clone(),
+            aliases: Some(vec![alias.clone()]),
+            refs: None,
+            tags: None,
+        })?;
+        if !result.aliases.iter().any(|candidate| candidate == &alias) {
+            bail!("everyday metadata update did not persist alias {alias}");
+        }
+        black_box(result.aliases.len());
+        Ok(())
+    })
 }
 
 fn benchmark_persistent_buffer(
@@ -2923,6 +3190,51 @@ fn enforce_thresholds(report: &BenchmarkReport, thresholds: &ThresholdConfig) ->
         report.report_profile_rendering.p95_ms,
         thresholds.report_profile_rendering_p95_ms,
     )?;
+    check_threshold(
+        "everyday_file_sync",
+        report.everyday_file_sync.p95_ms,
+        thresholds.everyday_file_sync_p95_ms,
+    )?;
+    check_threshold(
+        "everyday_node_show",
+        report.everyday_node_show.p95_ms,
+        thresholds.everyday_node_show_p95_ms,
+    )?;
+    check_threshold(
+        "everyday_node_search",
+        report.everyday_node_search.p95_ms,
+        thresholds.everyday_node_search_p95_ms,
+    )?;
+    check_threshold(
+        "everyday_occurrence_search",
+        report.everyday_occurrence_search.p95_ms,
+        thresholds.everyday_occurrence_search_p95_ms,
+    )?;
+    check_threshold(
+        "everyday_agenda_range",
+        report.everyday_agenda_range.p95_ms,
+        thresholds.everyday_agenda_range_p95_ms,
+    )?;
+    check_threshold(
+        "everyday_graph_dot",
+        report.everyday_graph_dot.p95_ms,
+        thresholds.everyday_graph_dot_p95_ms,
+    )?;
+    check_threshold(
+        "everyday_capture_create",
+        report.everyday_capture_create.p95_ms,
+        thresholds.everyday_capture_create_p95_ms,
+    )?;
+    check_threshold(
+        "everyday_daily_append",
+        report.everyday_daily_append.p95_ms,
+        thresholds.everyday_daily_append_p95_ms,
+    )?;
+    check_threshold(
+        "everyday_metadata_update",
+        report.everyday_metadata_update.p95_ms,
+        thresholds.everyday_metadata_update_p95_ms,
+    )?;
     Ok(())
 }
 
@@ -2982,6 +3294,18 @@ fn print_summary(report: &BenchmarkReport, check: bool, output_path: &Path) {
     print_metric("packImport", &report.pack_import);
     print_metric("routineRun", &report.routine_run);
     print_metric("reportProfileRendering", &report.report_profile_rendering);
+    print_metric("everydayFileSync", &report.everyday_file_sync);
+    print_metric("everydayNodeShow", &report.everyday_node_show);
+    print_metric("everydayNodeSearch", &report.everyday_node_search);
+    print_metric(
+        "everydayOccurrenceSearch",
+        &report.everyday_occurrence_search,
+    );
+    print_metric("everydayAgendaRange", &report.everyday_agenda_range);
+    print_metric("everydayGraphDot", &report.everyday_graph_dot);
+    print_metric("everydayCaptureCreate", &report.everyday_capture_create);
+    print_metric("everydayDailyAppend", &report.everyday_daily_append);
+    print_metric("everydayMetadataUpdate", &report.everyday_metadata_update);
 }
 
 fn print_metric(name: &str, report: &TimingReport) {
@@ -3154,6 +3478,30 @@ impl BenchmarkProfile {
             (
                 "report_profile_rendering",
                 self.iterations.report_profile_rendering,
+            ),
+            ("everyday_file_sync", self.iterations.everyday_file_sync),
+            ("everyday_node_show", self.iterations.everyday_node_show),
+            ("everyday_node_search", self.iterations.everyday_node_search),
+            (
+                "everyday_occurrence_search",
+                self.iterations.everyday_occurrence_search,
+            ),
+            (
+                "everyday_agenda_range",
+                self.iterations.everyday_agenda_range,
+            ),
+            ("everyday_graph_dot", self.iterations.everyday_graph_dot),
+            (
+                "everyday_capture_create",
+                self.iterations.everyday_capture_create,
+            ),
+            (
+                "everyday_daily_append",
+                self.iterations.everyday_daily_append,
+            ),
+            (
+                "everyday_metadata_update",
+                self.iterations.everyday_metadata_update,
             ),
             ("search_limit", self.iterations.search_limit),
             ("backlinks_limit", self.iterations.backlinks_limit),
@@ -3347,6 +3695,15 @@ mod tests {
                 pack_import: 1,
                 routine_run: 1,
                 report_profile_rendering: 1,
+                everyday_file_sync: 1,
+                everyday_node_show: 1,
+                everyday_node_search: 1,
+                everyday_occurrence_search: 1,
+                everyday_agenda_range: 1,
+                everyday_graph_dot: 1,
+                everyday_capture_create: 1,
+                everyday_daily_append: 1,
+                everyday_metadata_update: 1,
                 search_limit: 5,
                 backlinks_limit: 20,
                 reflinks_limit: 20,
@@ -3385,6 +3742,15 @@ mod tests {
                 pack_import_p95_ms: 1.0,
                 routine_run_p95_ms: 1.0,
                 report_profile_rendering_p95_ms: 1.0,
+                everyday_file_sync_p95_ms: 1.0,
+                everyday_node_show_p95_ms: 1.0,
+                everyday_node_search_p95_ms: 1.0,
+                everyday_occurrence_search_p95_ms: 1.0,
+                everyday_agenda_range_p95_ms: 1.0,
+                everyday_graph_dot_p95_ms: 1.0,
+                everyday_capture_create_p95_ms: 1.0,
+                everyday_daily_append_p95_ms: 1.0,
+                everyday_metadata_update_p95_ms: 1.0,
             },
         };
         let review_fixture = prepare_review_benchmark_fixtures(
@@ -3407,6 +3773,185 @@ mod tests {
                 finding_id: review_fixture.remediation_finding_id.clone(),
             },
         )?)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn generated_corpus_guarantees_everyday_operation_benchmark_fixtures() -> Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let config = CorpusConfig {
+            files: 3,
+            headings_per_file: 4,
+            workflow_specs: 4,
+            hot_link_stride: 2,
+            ref_stride: 2,
+            scheduled_stride: 2,
+            deadline_stride: 3,
+            query_count: 4,
+        };
+        let fixture = generate_corpus(tempdir.path(), &config)?;
+        let files = scan_root_with_policy(&fixture.root, &DiscoveryPolicy::default())?;
+        let mut database = Database::open(&baseline_db_path(&fixture))?;
+        database.sync_index(&files)?;
+        let hot_node = database
+            .node_from_id(&fixture.hot_node_id)?
+            .context("hot node should exist")?;
+        let mut workbench = server::WorkbenchBench::new(
+            fixture.root.clone(),
+            baseline_db_path(&fixture),
+            fixture.workflow_dirs.clone(),
+            DiscoveryPolicy::default(),
+        )?;
+        let profile = BenchmarkProfile {
+            corpus: config,
+            iterations: IterationConfig {
+                full_index: 1,
+                index_file: 1,
+                search_nodes: 1,
+                search_nodes_sorted: 1,
+                search_files: 1,
+                search_occurrences: 1,
+                backlinks: 1,
+                forward_links: 1,
+                reflinks: 1,
+                unlinked_references: 1,
+                node_at_point: 1,
+                agenda: 1,
+                persistent_buffer_samples: 1,
+                persistent_buffer_iterations: 1,
+                dedicated_buffer_samples: 1,
+                dedicated_buffer_iterations: 1,
+                dedicated_exploration_buffer_samples: 1,
+                dedicated_exploration_buffer_iterations: 1,
+                workflow_catalog: 1,
+                workflow_run: 1,
+                corpus_audit: 1,
+                review_list: 1,
+                review_show: 1,
+                review_diff: 1,
+                review_mark: 2,
+                audit_save_review: 1,
+                workflow_save_review: 1,
+                remediation_preview: 1,
+                pack_catalog: 1,
+                pack_validation: 2,
+                pack_import: 1,
+                routine_run: 1,
+                report_profile_rendering: 1,
+                everyday_file_sync: 1,
+                everyday_node_show: 1,
+                everyday_node_search: 1,
+                everyday_occurrence_search: 1,
+                everyday_agenda_range: 1,
+                everyday_graph_dot: 1,
+                everyday_capture_create: 1,
+                everyday_daily_append: 1,
+                everyday_metadata_update: 1,
+                search_limit: 5,
+                backlinks_limit: 20,
+                reflinks_limit: 20,
+                unlinked_references_limit: 20,
+                agenda_limit: 20,
+                audit_limit: 20,
+            },
+            thresholds: ThresholdConfig {
+                full_index_p95_ms: 1.0,
+                index_file_p95_ms: 1.0,
+                search_nodes_p95_ms: 1.0,
+                search_nodes_sorted_p95_ms: 1.0,
+                search_files_p95_ms: 1.0,
+                search_occurrences_p95_ms: 1.0,
+                backlinks_p95_ms: 1.0,
+                forward_links_p95_ms: 1.0,
+                reflinks_p95_ms: 1.0,
+                unlinked_references_p95_ms: 1.0,
+                node_at_point_p95_ms: 1.0,
+                agenda_p95_ms: 1.0,
+                persistent_buffer_p95_ms: None,
+                dedicated_buffer_p95_ms: None,
+                dedicated_exploration_buffer_p95_ms: None,
+                workflow_catalog_p95_ms: 1.0,
+                workflow_run_p95_ms: 1.0,
+                corpus_audit_p95_ms: 1.0,
+                review_list_p95_ms: 1.0,
+                review_show_p95_ms: 1.0,
+                review_diff_p95_ms: 1.0,
+                review_mark_p95_ms: 1.0,
+                audit_save_review_p95_ms: 1.0,
+                workflow_save_review_p95_ms: 1.0,
+                remediation_preview_p95_ms: 1.0,
+                pack_catalog_p95_ms: 1.0,
+                pack_validation_p95_ms: 1.0,
+                pack_import_p95_ms: 1.0,
+                routine_run_p95_ms: 1.0,
+                report_profile_rendering_p95_ms: 1.0,
+                everyday_file_sync_p95_ms: 1.0,
+                everyday_node_show_p95_ms: 1.0,
+                everyday_node_search_p95_ms: 1.0,
+                everyday_occurrence_search_p95_ms: 1.0,
+                everyday_agenda_range_p95_ms: 1.0,
+                everyday_graph_dot_p95_ms: 1.0,
+                everyday_capture_create_p95_ms: 1.0,
+                everyday_daily_append_p95_ms: 1.0,
+                everyday_metadata_update_p95_ms: 1.0,
+            },
+        };
+
+        assert_eq!(
+            benchmark_everyday_node_show(&mut workbench, &profile, &hot_node)?
+                .samples_ms
+                .len(),
+            1
+        );
+        assert_eq!(
+            benchmark_everyday_node_search(&mut workbench, &profile, &fixture)?
+                .samples_ms
+                .len(),
+            1
+        );
+        assert_eq!(
+            benchmark_everyday_occurrence_search(&mut workbench, &profile, &fixture)?
+                .samples_ms
+                .len(),
+            1
+        );
+        assert_eq!(
+            benchmark_everyday_agenda_range(&mut workbench, &profile)?
+                .samples_ms
+                .len(),
+            1
+        );
+        assert_eq!(
+            benchmark_everyday_graph_dot(&mut workbench, &profile, &hot_node)?
+                .samples_ms
+                .len(),
+            1
+        );
+        assert_eq!(
+            benchmark_everyday_file_sync(&mut workbench, &profile, &fixture)?
+                .samples_ms
+                .len(),
+            1
+        );
+        assert_eq!(
+            benchmark_everyday_capture_create(&mut workbench, &profile)?
+                .samples_ms
+                .len(),
+            1
+        );
+        assert_eq!(
+            benchmark_everyday_daily_append(&mut workbench, &profile)?
+                .samples_ms
+                .len(),
+            1
+        );
+        assert_eq!(
+            benchmark_everyday_metadata_update(&mut workbench, &profile, &hot_node)?
+                .samples_ms
+                .len(),
+            1
+        );
 
         Ok(())
     }
@@ -3477,6 +4022,15 @@ mod tests {
                 pack_import: 1,
                 routine_run: 1,
                 report_profile_rendering: 1,
+                everyday_file_sync: 1,
+                everyday_node_show: 1,
+                everyday_node_search: 1,
+                everyday_occurrence_search: 1,
+                everyday_agenda_range: 1,
+                everyday_graph_dot: 1,
+                everyday_capture_create: 1,
+                everyday_daily_append: 1,
+                everyday_metadata_update: 1,
                 search_limit: 5,
                 backlinks_limit: 20,
                 reflinks_limit: 20,
@@ -3515,6 +4069,15 @@ mod tests {
                 pack_import_p95_ms: 1.0,
                 routine_run_p95_ms: 1.0,
                 report_profile_rendering_p95_ms: 1.0,
+                everyday_file_sync_p95_ms: 1.0,
+                everyday_node_show_p95_ms: 1.0,
+                everyday_node_search_p95_ms: 1.0,
+                everyday_occurrence_search_p95_ms: 1.0,
+                everyday_agenda_range_p95_ms: 1.0,
+                everyday_graph_dot_p95_ms: 1.0,
+                everyday_capture_create_p95_ms: 1.0,
+                everyday_daily_append_p95_ms: 1.0,
+                everyday_metadata_update_p95_ms: 1.0,
             },
         };
 

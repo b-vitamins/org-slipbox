@@ -43,6 +43,15 @@
     "pack_import": 20,
     "routine_run": 60,
     "report_profile_rendering": 20,
+    "everyday_file_sync": 20,
+    "everyday_node_show": 80,
+    "everyday_node_search": 80,
+    "everyday_occurrence_search": 40,
+    "everyday_agenda_range": 80,
+    "everyday_graph_dot": 40,
+    "everyday_capture_create": 20,
+    "everyday_daily_append": 20,
+    "everyday_metadata_update": 20,
     "search_limit": 25,
     "backlinks_limit": 200,
     "reflinks_limit": 200,
@@ -80,6 +89,15 @@
     "pack_validation_p95_ms": 100.0,
     "pack_import_p95_ms": 300.0,
     "routine_run_p95_ms": 300.0,
-    "report_profile_rendering_p95_ms": 25000.0
+    "report_profile_rendering_p95_ms": 25000.0,
+    "everyday_file_sync_p95_ms": 500.0,
+    "everyday_node_show_p95_ms": 10.0,
+    "everyday_node_search_p95_ms": 80.0,
+    "everyday_occurrence_search_p95_ms": 700.0,
+    "everyday_agenda_range_p95_ms": 250.0,
+    "everyday_graph_dot_p95_ms": 30000.0,
+    "everyday_capture_create_p95_ms": 500.0,
+    "everyday_daily_append_p95_ms": 500.0,
+    "everyday_metadata_update_p95_ms": 500.0
   }
 }

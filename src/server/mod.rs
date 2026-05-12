@@ -9,14 +9,17 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use slipbox_core::{
-    CorpusAuditParams, CorpusAuditResult, ImportWorkbenchPackParams, ImportWorkbenchPackResult,
-    ListReviewRoutinesResult, ListReviewRunsResult, ListWorkbenchPacksResult, ListWorkflowsResult,
-    MarkReviewFindingParams, MarkReviewFindingResult, ReviewFindingRemediationPreviewParams,
+    AgendaParams, AgendaResult, AnchorRecord, AppendHeadingParams, CaptureNodeParams,
+    CorpusAuditParams, CorpusAuditResult, GraphParams, GraphResult, ImportWorkbenchPackParams,
+    ImportWorkbenchPackResult, IndexFileParams, IndexFileResult, ListReviewRoutinesResult,
+    ListReviewRunsResult, ListWorkbenchPacksResult, ListWorkflowsResult, MarkReviewFindingParams,
+    MarkReviewFindingResult, NodeFromIdParams, NodeRecord, ReviewFindingRemediationPreviewParams,
     ReviewFindingRemediationPreviewResult, ReviewRunDiffParams, ReviewRunDiffResult,
     ReviewRunIdParams, ReviewRunResult, RunReviewRoutineParams, RunReviewRoutineResult,
     RunWorkflowParams, RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
-    SaveWorkflowReviewParams, SaveWorkflowReviewResult, ValidateWorkbenchPackParams,
-    ValidateWorkbenchPackResult,
+    SaveWorkflowReviewParams, SaveWorkflowReviewResult, SearchNodesParams, SearchNodesResult,
+    SearchOccurrencesParams, SearchOccurrencesResult, UpdateNodeMetadataParams,
+    ValidateWorkbenchPackParams, ValidateWorkbenchPackResult,
 };
 use slipbox_index::DiscoveryPolicy;
 use slipbox_rpc::{JsonRpcErrorObject, JsonRpcResponse, read_framed_message, write_framed_message};
@@ -50,6 +53,67 @@ impl WorkbenchBench {
             .context("workflow discovery benchmark request failed")?;
         serde_json::from_value(value)
             .context("failed to decode workflow discovery benchmark result")
+    }
+
+    pub(crate) fn index_file(&mut self, params: &IndexFileParams) -> Result<IndexFileResult> {
+        let value = handlers::query::index_file(&mut self.state, serde_json::to_value(params)?)
+            .context("file sync benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode file sync benchmark result")
+    }
+
+    pub(crate) fn node_from_id(&mut self, params: &NodeFromIdParams) -> Result<Option<NodeRecord>> {
+        let value = handlers::query::node_from_id(&mut self.state, serde_json::to_value(params)?)
+            .context("node show benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode node show benchmark result")
+    }
+
+    pub(crate) fn search_nodes(&mut self, params: &SearchNodesParams) -> Result<SearchNodesResult> {
+        let value = handlers::query::search_nodes(&mut self.state, serde_json::to_value(params)?)
+            .context("node search benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode node search benchmark result")
+    }
+
+    pub(crate) fn search_occurrences(
+        &mut self,
+        params: &SearchOccurrencesParams,
+    ) -> Result<SearchOccurrencesResult> {
+        let value = handlers::query::search_occurrences(&self.state, serde_json::to_value(params)?)
+            .context("occurrence search benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode occurrence search benchmark result")
+    }
+
+    pub(crate) fn agenda(&mut self, params: &AgendaParams) -> Result<AgendaResult> {
+        let value = handlers::query::agenda(&mut self.state, serde_json::to_value(params)?)
+            .context("agenda benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode agenda benchmark result")
+    }
+
+    pub(crate) fn graph_dot(&mut self, params: &GraphParams) -> Result<GraphResult> {
+        let value = handlers::query::graph_dot(&mut self.state, serde_json::to_value(params)?)
+            .context("graph DOT benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode graph DOT benchmark result")
+    }
+
+    pub(crate) fn capture_node(&mut self, params: &CaptureNodeParams) -> Result<NodeRecord> {
+        let value = handlers::write::capture_node(&mut self.state, serde_json::to_value(params)?)
+            .context("capture benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode capture benchmark result")
+    }
+
+    pub(crate) fn append_heading(&mut self, params: &AppendHeadingParams) -> Result<AnchorRecord> {
+        let value = handlers::write::append_heading(&mut self.state, serde_json::to_value(params)?)
+            .context("daily append benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode daily append benchmark result")
+    }
+
+    pub(crate) fn update_node_metadata(
+        &mut self,
+        params: &UpdateNodeMetadataParams,
+    ) -> Result<NodeRecord> {
+        let value =
+            handlers::write::update_node_metadata(&mut self.state, serde_json::to_value(params)?)
+                .context("metadata update benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode metadata update benchmark result")
     }
 
     pub(crate) fn run_workflow(&mut self, params: &RunWorkflowParams) -> Result<RunWorkflowResult> {
