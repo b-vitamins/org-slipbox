@@ -6,6 +6,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-05-13
+
 ### Added
 - Added first-class everyday CLI families for ordinary slipbox work over the
   canonical daemon boundary: `sync`, `file`, `node`, `ref`, `tag`, `search`,

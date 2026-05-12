@@ -78,7 +78,7 @@ fn status_command_prints_human_output_over_shared_runtime() -> Result<()> {
 
     assert!(output.status.success(), "{output:?}");
     let stdout = String::from_utf8(output.stdout)?;
-    assert!(stdout.contains("version: 0.10.0"));
+    assert!(stdout.contains("version: 0.11.0"));
     assert!(stdout.contains(&format!("root: {}", fs::canonicalize(&root)?.display())));
     assert!(stdout.contains(&format!("db: {db}")));
     assert!(stdout.contains("files indexed: 2"));
@@ -113,7 +113,7 @@ fn status_command_supports_json_output() -> Result<()> {
     assert_eq!(parsed.links_indexed, 1);
     assert_eq!(parsed.root, fs::canonicalize(&root)?.display().to_string());
     assert_eq!(parsed.db, db);
-    assert_eq!(parsed.version, "0.10.0");
+    assert_eq!(parsed.version, "0.11.0");
     assert!(output.stderr.is_empty());
 
     Ok(())

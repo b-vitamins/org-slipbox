@@ -213,7 +213,7 @@ Watchpoints:
 
 Theme: everyday CLI parity.
 
-Status: landed on the default branch for `0.11.0`.
+Status: shipped in `0.11.0`.
 
 Delivered:
 

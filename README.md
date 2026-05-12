@@ -13,8 +13,7 @@ side owns commands, session state, and presentation.
 
 ## Status
 
-Current development starts from the released `0.10.0` foundation and is
-landing the `0.11.0` everyday CLI parity line.
+Current development starts from the released `0.11.0` foundation.
 
 The documented workflow surface is intended to remain complete enough for
 day-to-day replacement use while the project deepens its exploratory model.
