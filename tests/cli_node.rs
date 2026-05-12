@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use slipbox_core::{
     AnchorRecord, BacklinksResult, ForwardLinksResult, NodeKind, NodeRecord, RandomNodeResult,
-    SearchNodesResult,
+    SearchNodesResult, SearchTagsResult,
 };
 use slipbox_index::scan_root;
 use slipbox_store::Database;
@@ -37,6 +37,7 @@ fn build_indexed_fixture() -> Result<(tempfile::TempDir, String, String, AnchorR
 :ROAM_REFS: cite:alpha2024
 :END:
 #+title: Alpha
+#+filetags: :seed:
 
 See [[id:beta-id][Beta]].
 "#,
@@ -48,9 +49,11 @@ See [[id:beta-id][Beta]].
 :END:
 #+title: Beta
 
-* Child
+* Child :child:
 :PROPERTIES:
 :ID: beta-child-id
+:ROAM_ALIASES: Beta Kid
+:ROAM_REFS: cite:beta-child
 :END:
 Child body.
 ** Anonymous Grandchild
@@ -95,9 +98,22 @@ fn node_command(
     subcommand: &str,
     extra_args: &[String],
 ) -> Result<std::process::Output> {
-    let mut args = vec![
-        "node".to_owned(),
-        subcommand.to_owned(),
+    node_command_path(root, db, &[subcommand], extra_args)
+}
+
+fn node_command_path(
+    root: &str,
+    db: &str,
+    subcommands: &[&str],
+    extra_args: &[String],
+) -> Result<std::process::Output> {
+    let mut args = vec!["node".to_owned()];
+    args.extend(
+        subcommands
+            .iter()
+            .map(|subcommand| (*subcommand).to_owned()),
+    );
+    args.extend([
         "--root".to_owned(),
         root.to_owned(),
         "--db".to_owned(),
@@ -105,7 +121,7 @@ fn node_command(
         "--server-program".to_owned(),
         slipbox_binary().to_owned(),
         "--json".to_owned(),
-    ];
+    ]);
     args.extend_from_slice(extra_args);
     Ok(Command::new(slipbox_binary()).args(args).output()?)
 }
@@ -216,6 +232,206 @@ fn node_at_point_returns_anonymous_anchor_semantics() -> Result<()> {
 }
 
 #[test]
+fn node_ensure_id_assigns_file_and_heading_identities() -> Result<()> {
+    let (_workspace, root, db, anonymous_anchor) = build_indexed_fixture()?;
+
+    let file_output = node_command(
+        &root,
+        &db,
+        "ensure-id",
+        &["--key".to_owned(), "file:shared-one.org".to_owned()],
+    )?;
+    assert!(file_output.status.success(), "{file_output:?}");
+    let file_anchor: AnchorRecord = serde_json::from_slice(&file_output.stdout)?;
+    assert_eq!(file_anchor.node_key, "file:shared-one.org");
+    assert_eq!(file_anchor.kind, NodeKind::File);
+    assert!(file_anchor.explicit_id.is_some());
+
+    let heading_output = node_command(
+        &root,
+        &db,
+        "ensure-id",
+        &["--key".to_owned(), anonymous_anchor.node_key.clone()],
+    )?;
+    assert!(heading_output.status.success(), "{heading_output:?}");
+    let heading_anchor: AnchorRecord = serde_json::from_slice(&heading_output.stdout)?;
+    assert_eq!(heading_anchor.node_key, anonymous_anchor.node_key);
+    assert_eq!(heading_anchor.kind, NodeKind::Heading);
+    assert!(heading_anchor.explicit_id.is_some());
+
+    let show_heading = node_command(
+        &root,
+        &db,
+        "show",
+        &["--key".to_owned(), anonymous_anchor.node_key.clone()],
+    )?;
+    assert!(show_heading.status.success(), "{show_heading:?}");
+    let shown: NodeRecord = serde_json::from_slice(&show_heading.stdout)?;
+    assert_eq!(shown.explicit_id, heading_anchor.explicit_id);
+    assert!(show_heading.stderr.is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn node_metadata_commands_update_file_level_metadata() -> Result<()> {
+    let (_workspace, root, db, _anonymous_anchor) = build_indexed_fixture()?;
+
+    let show = node_command_path(
+        &root,
+        &db,
+        &["metadata", "show"],
+        &["--id".to_owned(), "alpha-id".to_owned()],
+    )?;
+    assert!(show.status.success(), "{show:?}");
+    let shown: NodeRecord = serde_json::from_slice(&show.stdout)?;
+    assert_eq!(shown.aliases, vec!["Apex"]);
+    assert_eq!(shown.refs, vec!["@alpha2024"]);
+    assert_eq!(shown.tags, vec!["seed"]);
+
+    let add_alias = node_command_path(
+        &root,
+        &db,
+        &["alias", "add"],
+        &[
+            "--id".to_owned(),
+            "alpha-id".to_owned(),
+            "Apex".to_owned(),
+            "Alpha Alt".to_owned(),
+        ],
+    )?;
+    assert!(add_alias.status.success(), "{add_alias:?}");
+    let aliased: NodeRecord = serde_json::from_slice(&add_alias.stdout)?;
+    assert_eq!(aliased.aliases, vec!["Apex", "Alpha Alt"]);
+
+    let search = node_command(&root, &db, "search", &["Alpha Alt".to_owned()])?;
+    assert!(search.status.success(), "{search:?}");
+    let search_result: SearchNodesResult = serde_json::from_slice(&search.stdout)?;
+    assert!(
+        search_result
+            .nodes
+            .iter()
+            .any(|node| node.node_key == "file:alpha.org")
+    );
+
+    let remove_alias = node_command_path(
+        &root,
+        &db,
+        &["alias", "remove"],
+        &["--id".to_owned(), "alpha-id".to_owned(), "apex".to_owned()],
+    )?;
+    assert!(remove_alias.status.success(), "{remove_alias:?}");
+    let removed: NodeRecord = serde_json::from_slice(&remove_alias.stdout)?;
+    assert_eq!(removed.aliases, vec!["Alpha Alt"]);
+
+    let set_alias = node_command_path(
+        &root,
+        &db,
+        &["alias", "set"],
+        &[
+            "--id".to_owned(),
+            "alpha-id".to_owned(),
+            "Primary".to_owned(),
+            "Primary".to_owned(),
+            "Secondary".to_owned(),
+        ],
+    )?;
+    assert!(set_alias.status.success(), "{set_alias:?}");
+    let reset: NodeRecord = serde_json::from_slice(&set_alias.stdout)?;
+    assert_eq!(reset.aliases, vec!["Primary", "Secondary"]);
+
+    Ok(())
+}
+
+#[test]
+fn node_metadata_commands_update_heading_refs_and_tags() -> Result<()> {
+    let (_workspace, root, db, _anonymous_anchor) = build_indexed_fixture()?;
+
+    let add_ref = node_command_path(
+        &root,
+        &db,
+        &["ref", "add"],
+        &[
+            "--id".to_owned(),
+            "beta-child-id".to_owned(),
+            "cite:beta-child".to_owned(),
+            "https://example.com/beta".to_owned(),
+        ],
+    )?;
+    assert!(add_ref.status.success(), "{add_ref:?}");
+    let refed: NodeRecord = serde_json::from_slice(&add_ref.stdout)?;
+    assert_eq!(refed.refs, vec!["@beta-child", "https://example.com/beta"]);
+
+    let ref_show = Command::new(slipbox_binary())
+        .args([
+            "ref",
+            "show",
+            "--root",
+            &root,
+            "--db",
+            &db,
+            "--server-program",
+            slipbox_binary(),
+            "--json",
+            "https://example.com/beta",
+        ])
+        .output()?;
+    assert!(ref_show.status.success(), "{ref_show:?}");
+    let ref_target: NodeRecord = serde_json::from_slice(&ref_show.stdout)?;
+    assert_eq!(ref_target.node_key, refed.node_key);
+
+    let remove_ref = node_command_path(
+        &root,
+        &db,
+        &["ref", "remove"],
+        &[
+            "--id".to_owned(),
+            "beta-child-id".to_owned(),
+            "cite:beta-child".to_owned(),
+        ],
+    )?;
+    assert!(remove_ref.status.success(), "{remove_ref:?}");
+    let ref_removed: NodeRecord = serde_json::from_slice(&remove_ref.stdout)?;
+    assert_eq!(ref_removed.refs, vec!["https://example.com/beta"]);
+
+    let set_tags = node_command_path(
+        &root,
+        &db,
+        &["tag", "set"],
+        &[
+            "--id".to_owned(),
+            "beta-child-id".to_owned(),
+            "review".to_owned(),
+            "review".to_owned(),
+            "active".to_owned(),
+        ],
+    )?;
+    assert!(set_tags.status.success(), "{set_tags:?}");
+    let tagged: NodeRecord = serde_json::from_slice(&set_tags.stdout)?;
+    assert_eq!(tagged.tags, vec!["review", "active"]);
+
+    let tag_search = Command::new(slipbox_binary())
+        .args([
+            "tag",
+            "search",
+            "--root",
+            &root,
+            "--db",
+            &db,
+            "--server-program",
+            slipbox_binary(),
+            "--json",
+            "review",
+        ])
+        .output()?;
+    assert!(tag_search.status.success(), "{tag_search:?}");
+    let tags: SearchTagsResult = serde_json::from_slice(&tag_search.stdout)?;
+    assert!(tags.tags.iter().any(|tag| tag == "review"));
+
+    Ok(())
+}
+
+#[test]
 fn node_target_commands_report_structured_json_errors() -> Result<()> {
     let (_workspace, root, db, anonymous_anchor) = build_indexed_fixture()?;
 
@@ -246,6 +462,28 @@ fn node_target_commands_report_structured_json_errors() -> Result<()> {
             parsed.error.message
         );
     }
+
+    Ok(())
+}
+
+#[test]
+fn node_metadata_commands_report_structured_json_errors() -> Result<()> {
+    let (_workspace, root, db, _anonymous_anchor) = build_indexed_fixture()?;
+    let output = node_command_path(
+        &root,
+        &db,
+        &["alias", "add"],
+        &[
+            "--id".to_owned(),
+            "missing-id".to_owned(),
+            "Ghost".to_owned(),
+        ],
+    )?;
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let parsed: ErrorPayload = serde_json::from_slice(&output.stderr)?;
+    assert!(parsed.error.message.contains("unknown node id: missing-id"));
 
     Ok(())
 }
