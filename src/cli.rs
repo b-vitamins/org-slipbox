@@ -10,8 +10,9 @@ use clap::{ArgGroup, Args, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use slipbox_core::{
     AgendaParams, AgendaResult, AnchorRecord, AppendHeadingAtOutlinePathParams,
-    AppendHeadingParams, AppendHeadingToNodeParams, AppliedReportProfile, BacklinksParams,
-    BacklinksResult, CaptureContentType, CaptureNodeParams, CaptureTemplateParams,
+    AppendHeadingParams, AppendHeadingToNodeParams, AppliedReportProfile,
+    AuditRemediationApplyAction, AuditRemediationConfidence, AuditRemediationPreviewPayload,
+    BacklinksParams, BacklinksResult, CaptureContentType, CaptureNodeParams, CaptureTemplateParams,
     CaptureTemplatePreviewParams, CaptureTemplatePreviewResult, CompareNotesParams,
     ComparisonConnectorDirection, CorpusAuditEntry, CorpusAuditKind, CorpusAuditParams,
     CorpusAuditResult, DeleteExplorationArtifactResult, DeleteReviewRunResult,
@@ -30,9 +31,12 @@ use slipbox_core::{
     NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
     NoteComparisonSectionKind, OccurrenceRecord, PlanningField, PlanningRelationRecord,
     RandomNodeResult, RefRecord, RefileRegionParams, RefileSubtreeParams, ReviewFinding,
-    ReviewFindingKind, ReviewFindingPair, ReviewFindingPayload, ReviewFindingStatus,
-    ReviewFindingStatusDiff, ReviewRoutineCompareResult, ReviewRoutineExecutionResult,
-    ReviewRoutineIdParams, ReviewRoutineReportLine, ReviewRoutineResult, ReviewRoutineSource,
+    ReviewFindingKind, ReviewFindingPair, ReviewFindingPayload,
+    ReviewFindingRemediationApplyParams, ReviewFindingRemediationApplyResult,
+    ReviewFindingRemediationPreview, ReviewFindingRemediationPreviewParams,
+    ReviewFindingRemediationPreviewResult, ReviewFindingStatus, ReviewFindingStatusDiff,
+    ReviewRoutineCompareResult, ReviewRoutineExecutionResult, ReviewRoutineIdParams,
+    ReviewRoutineReportLine, ReviewRoutineResult, ReviewRoutineSource,
     ReviewRoutineSourceExecutionResult, ReviewRoutineSpec, ReviewRoutineSummary, ReviewRun,
     ReviewRunDiff, ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunKind,
     ReviewRunPayload, ReviewRunResult, ReviewRunSummary, RewriteFileParams, RunReviewRoutineParams,
@@ -1893,6 +1897,8 @@ pub(crate) enum ReviewCommand {
     Show(ReviewShowArgs),
     /// Compare two compatible durable review runs.
     Diff(ReviewDiffArgs),
+    /// Preview and apply safe remediation actions for review findings.
+    Remediation(ReviewRemediationArgs),
     /// Update one durable review finding status.
     Mark(ReviewMarkArgs),
     /// Delete a durable review run by identifier.
@@ -1927,6 +1933,48 @@ pub(crate) struct ReviewDiffArgs {
     pub(crate) base_review_id: String,
     /// Target durable review run identifier.
     pub(crate) target_review_id: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ReviewRemediationArgs {
+    #[command(subcommand)]
+    pub(crate) command: ReviewRemediationCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum ReviewRemediationCommand {
+    /// Inspect the daemon-owned remediation preview for one finding.
+    Preview(ReviewRemediationPreviewArgs),
+    /// Apply one supported remediation action after explicit confirmation.
+    Apply(ReviewRemediationApplyArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ReviewFindingIdArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// Durable review run identifier.
+    pub(crate) review_id: String,
+    /// Typed durable finding identifier within the review run.
+    pub(crate) finding_id: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ReviewRemediationPreviewArgs {
+    #[command(flatten)]
+    pub(crate) finding: ReviewFindingIdArgs,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ReviewRemediationApplyArgs {
+    #[command(flatten)]
+    pub(crate) finding: ReviewFindingIdArgs,
+    /// Confirm applying the supported unlink-dangling-link remediation.
+    #[arg(long)]
+    pub(crate) confirm_unlink_dangling_link: bool,
+    /// Replacement text for the removed id link. Defaults to the current link label.
+    #[arg(long)]
+    pub(crate) replacement_text: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -2304,6 +2352,7 @@ pub(crate) fn run_review(args: &ReviewArgs) -> Result<(), CliCommandError> {
         ReviewCommand::List(command) => run_headless_command(command),
         ReviewCommand::Show(command) => run_headless_command(command),
         ReviewCommand::Diff(command) => run_headless_command(command),
+        ReviewCommand::Remediation(command) => run_review_remediation(command),
         ReviewCommand::Mark(command) => run_review_mark(command),
         ReviewCommand::Delete(command) => run_headless_command(command),
     }
@@ -4069,6 +4118,25 @@ impl HeadlessCommand for ReviewDiffArgs {
     }
 }
 
+impl HeadlessCommand for ReviewRemediationPreviewArgs {
+    type Output = ReviewFindingRemediationPreviewResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.finding.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.review_finding_remediation_preview(&ReviewFindingRemediationPreviewParams {
+            review_id: self.finding.review_id.clone(),
+            finding_id: self.finding.finding_id.clone(),
+        })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_review_remediation_preview(&output.preview)
+    }
+}
+
 impl HeadlessCommand for ReviewDeleteArgs {
     type Output = DeleteReviewRunResult;
 
@@ -4085,6 +4153,161 @@ impl HeadlessCommand for ReviewDeleteArgs {
     fn render_human(&self, output: &Self::Output) -> String {
         format!("deleted review: {}\n", output.review_id)
     }
+}
+
+fn run_review_remediation(command: &ReviewRemediationArgs) -> Result<(), CliCommandError> {
+    match &command.command {
+        ReviewRemediationCommand::Preview(command) => run_headless_command(command),
+        ReviewRemediationCommand::Apply(command) => run_review_remediation_apply(command),
+    }
+}
+
+fn run_review_remediation_apply(
+    command: &ReviewRemediationApplyArgs,
+) -> Result<(), CliCommandError> {
+    let output_mode = command.finding.headless.output_mode();
+    if !command.confirm_unlink_dangling_link {
+        return Err(CliCommandError::new(
+            output_mode,
+            anyhow::anyhow!("review remediation apply requires --confirm-unlink-dangling-link"),
+        ));
+    }
+
+    let mut client = command.finding.headless.connect()?;
+    let preview = client
+        .review_finding_remediation_preview(&ReviewFindingRemediationPreviewParams {
+            review_id: command.finding.review_id.clone(),
+            finding_id: command.finding.finding_id.clone(),
+        })
+        .map_err(|error| CliCommandError::new(output_mode, error))?
+        .preview;
+    let action = remediation_action_from_preview(&preview, command.replacement_text.as_deref())
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    let output = client
+        .review_finding_remediation_apply(&ReviewFindingRemediationApplyParams {
+            review_id: command.finding.review_id.clone(),
+            finding_id: command.finding.finding_id.clone(),
+            expected_preview: preview.preview_identity,
+            action,
+        })
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    client
+        .shutdown()
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+
+    let stdout = io::stdout();
+    let mut writer = stdout.lock();
+    write_output(&mut writer, output_mode, &output, |value| {
+        render_review_remediation_application(value)
+    })
+    .map_err(|error| CliCommandError::new(output_mode, error))
+}
+
+fn remediation_action_from_preview(
+    preview: &ReviewFindingRemediationPreview,
+    replacement_text: Option<&str>,
+) -> Result<AuditRemediationApplyAction> {
+    match &preview.payload {
+        AuditRemediationPreviewPayload::DanglingLink {
+            source,
+            missing_explicit_id,
+            file_path,
+            line,
+            column,
+            preview,
+            ..
+        } => {
+            let replacement_text = match replacement_text {
+                Some(value) => value.to_owned(),
+                None => {
+                    replacement_text_from_dangling_preview(preview, *column, missing_explicit_id)?
+                }
+            };
+            Ok(AuditRemediationApplyAction::UnlinkDanglingLink {
+                source_node_key: source.node_key.clone(),
+                missing_explicit_id: missing_explicit_id.clone(),
+                file_path: file_path.clone(),
+                line: *line,
+                column: *column,
+                preview: preview.clone(),
+                replacement_text,
+            })
+        }
+        AuditRemediationPreviewPayload::DuplicateTitle { .. } => {
+            anyhow::bail!(
+                "review remediation apply currently supports only unlink-dangling-link findings"
+            )
+        }
+    }
+}
+
+fn replacement_text_from_dangling_preview(
+    preview: &str,
+    column: u32,
+    missing_explicit_id: &str,
+) -> Result<String> {
+    let link = org_link_at_preview_column(preview, column)
+        .or_else(|| first_org_id_link_for_target(preview, missing_explicit_id))
+        .ok_or_else(|| {
+            anyhow::anyhow!("failed to derive unlink-dangling-link replacement text from preview")
+        })?;
+    let (target, label) = org_id_link_target_and_label(link).ok_or_else(|| {
+        anyhow::anyhow!("failed to derive unlink-dangling-link replacement text from preview")
+    })?;
+    if target != missing_explicit_id {
+        anyhow::bail!(
+            "preview link target {target} does not match missing id {missing_explicit_id}"
+        );
+    }
+    Ok(label.unwrap_or(target).to_owned())
+}
+
+fn org_link_at_preview_column(preview: &str, column: u32) -> Option<&str> {
+    let link_start = byte_index_for_column(preview, column)?;
+    let suffix = preview.get(link_start..)?;
+    if !suffix.starts_with("[[") {
+        return None;
+    }
+    let link_end = suffix.find("]]")? + 2;
+    suffix.get(..link_end)
+}
+
+fn first_org_id_link_for_target<'a>(preview: &'a str, target: &str) -> Option<&'a str> {
+    let mut search_start = 0_usize;
+    while let Some(relative_start) = preview.get(search_start..)?.find("[[") {
+        let start = search_start + relative_start;
+        let suffix = preview.get(start..)?;
+        let link_end = suffix.find("]]")? + 2;
+        let link = suffix.get(..link_end)?;
+        if org_id_link_target_and_label(link).is_some_and(|(candidate, _)| candidate == target) {
+            return Some(link);
+        }
+        search_start = start + link_end;
+    }
+    None
+}
+
+fn byte_index_for_column(line: &str, column: u32) -> Option<usize> {
+    if column == 0 {
+        return None;
+    }
+    if column == 1 {
+        return Some(0);
+    }
+    line.char_indices()
+        .nth(column as usize - 1)
+        .map(|(index, _)| index)
+}
+
+fn org_id_link_target_and_label(link: &str) -> Option<(&str, Option<&str>)> {
+    let inner = link.strip_prefix("[[")?.strip_suffix("]]")?;
+    let (target, label) = inner
+        .split_once("][")
+        .map_or((inner, None), |(target, label)| (target, Some(label)));
+    target
+        .trim()
+        .strip_prefix("id:")
+        .map(|id| (id.trim(), label))
 }
 
 fn run_review_mark(command: &ReviewMarkArgs) -> Result<(), CliCommandError> {
@@ -5566,6 +5789,120 @@ fn render_mark_review_finding_result(result: &MarkReviewFindingResult) -> String
         render_review_finding_status(result.transition.from_status),
         render_review_finding_status(result.transition.to_status)
     )
+}
+
+fn render_review_remediation_preview(preview: &ReviewFindingRemediationPreview) -> String {
+    let mut output = String::new();
+    output.push_str(&format!("review id: {}\n", preview.review_id));
+    output.push_str(&format!("finding id: {}\n", preview.finding_id));
+    output.push_str(&format!(
+        "status: {}\n",
+        render_review_finding_status(preview.status)
+    ));
+
+    match &preview.payload {
+        AuditRemediationPreviewPayload::DanglingLink {
+            source,
+            missing_explicit_id,
+            file_path,
+            line,
+            column,
+            preview: preview_text,
+            suggestion,
+            confidence,
+            reason,
+        } => {
+            output.push_str("remediation: unlink-dangling-link\n");
+            output.push_str(&format!(
+                "confidence: {}\n",
+                render_audit_remediation_confidence(*confidence)
+            ));
+            output.push_str(&format!("source: {}\n", render_anchor_identity(source)));
+            output.push_str(&format!("missing id: {missing_explicit_id}\n"));
+            output.push_str(&format!("location: {file_path}:{line}:{column}\n"));
+            output.push_str(&format!("preview: {preview_text}\n"));
+            output.push_str(&format!("suggestion: {suggestion}\n"));
+            output.push_str(&format!("reason: {reason}\n"));
+            output.push_str(&format!(
+                "apply: slipbox review remediation apply {} {} --confirm-unlink-dangling-link\n",
+                preview.review_id, preview.finding_id
+            ));
+        }
+        AuditRemediationPreviewPayload::DuplicateTitle {
+            title,
+            notes,
+            suggestion,
+            confidence,
+            reason,
+        } => {
+            output.push_str("remediation: manual-review\n");
+            output.push_str(&format!(
+                "confidence: {}\n",
+                render_audit_remediation_confidence(*confidence)
+            ));
+            output.push_str(&format!("title: {title}\n"));
+            output.push_str(&format!("notes: {}\n", notes.len()));
+            for note in notes {
+                output.push_str(&format!("  - {}\n", render_node_identity(note)));
+            }
+            output.push_str(&format!("suggestion: {suggestion}\n"));
+            output.push_str(&format!("reason: {reason}\n"));
+            output.push_str("apply: unsupported by safe remediation apply\n");
+        }
+    }
+    output
+}
+
+fn render_review_remediation_application(result: &ReviewFindingRemediationApplyResult) -> String {
+    let application = &result.application;
+    let mut output = String::new();
+    output.push_str(&format!(
+        "applied remediation: {} {}\n",
+        application.review_id, application.finding_id
+    ));
+    output.push_str(&format!(
+        "action: {}\n",
+        render_audit_remediation_apply_action(&application.action)
+    ));
+    output.push_str(&format!(
+        "index: {}\n",
+        render_structural_index_refresh(application.index_refresh)
+    ));
+    output.push_str("changed files:\n");
+    if application.affected_files.changed_files.is_empty() {
+        output.push_str("  (none)\n");
+    } else {
+        for file in &application.affected_files.changed_files {
+            output.push_str(&format!("  - {file}\n"));
+        }
+    }
+    output.push_str("removed files:\n");
+    if application.affected_files.removed_files.is_empty() {
+        output.push_str("  (none)\n");
+    } else {
+        for file in &application.affected_files.removed_files {
+            output.push_str(&format!("  - {file}\n"));
+        }
+    }
+    output.push_str(&format!(
+        "inspect: slipbox review show {}\n",
+        application.review_id
+    ));
+    output
+}
+
+fn render_audit_remediation_apply_action(action: &AuditRemediationApplyAction) -> &'static str {
+    match action {
+        AuditRemediationApplyAction::UnlinkDanglingLink { .. } => "unlink-dangling-link",
+    }
+}
+
+fn render_audit_remediation_confidence(confidence: AuditRemediationConfidence) -> &'static str {
+    match confidence {
+        AuditRemediationConfidence::Low => "low",
+        AuditRemediationConfidence::Medium => "medium",
+        AuditRemediationConfidence::High => "high",
+    }
 }
 
 fn render_review_payload(output: &mut String, payload: &ReviewRunPayload) {

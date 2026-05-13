@@ -4,12 +4,15 @@ use std::process::Command;
 use anyhow::Result;
 use serde::Deserialize;
 use slipbox_core::{
-    AnchorRecord, CorpusAuditEntry, CorpusAuditKind, DanglingLinkAuditRecord,
-    DeleteReviewRunResult, ListReviewRunsResult, MarkReviewFindingResult, NodeKind, NodeRecord,
-    ReviewFinding, ReviewFindingPayload, ReviewFindingStatus, ReviewRun, ReviewRunDiffResult,
-    ReviewRunKind, ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, WorkflowMetadata,
+    AnchorRecord, AuditRemediationApplyAction, AuditRemediationPreviewPayload, CorpusAuditEntry,
+    CorpusAuditKind, DanglingLinkAuditRecord, DeleteReviewRunResult, ListReviewRunsResult,
+    MarkReviewFindingResult, NodeKind, NodeRecord, ReviewFinding, ReviewFindingPayload,
+    ReviewFindingRemediationApplyResult, ReviewFindingRemediationPreviewResult,
+    ReviewFindingStatus, ReviewRun, ReviewRunDiffResult, ReviewRunKind, ReviewRunMetadata,
+    ReviewRunPayload, ReviewRunResult, StructuralWriteIndexRefreshStatus, WorkflowMetadata,
     WorkflowStepReport, WorkflowStepReportPayload, WorkflowSummary,
 };
+use slipbox_index::scan_root;
 use slipbox_store::Database;
 use tempfile::tempdir;
 
@@ -59,6 +62,39 @@ fn build_review_diff_fixture() -> Result<(tempfile::TempDir, String, String)> {
     ))
 }
 
+fn build_remediation_fixture() -> Result<(tempfile::TempDir, String, String)> {
+    build_remediation_fixture_with_link("[[id:missing-id][Missing]]")
+}
+
+fn build_remediation_fixture_with_link(link: &str) -> Result<(tempfile::TempDir, String, String)> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    fs::write(
+        root.join("source.org"),
+        format!(
+            r#":PROPERTIES:
+:ID: source-id
+:END:
+#+title: Source
+
+Points to {link}.
+"#
+        ),
+    )?;
+    let db = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&db)?;
+    let files = scan_root(&root)?;
+    database.sync_index(&files)?;
+    database.save_review_run(&remediation_review_run(link))?;
+
+    Ok((
+        workspace,
+        root.display().to_string(),
+        db.display().to_string(),
+    ))
+}
+
 fn audit_review_run() -> ReviewRun {
     ReviewRun {
         metadata: ReviewRunMetadata {
@@ -100,6 +136,54 @@ fn audit_review_run() -> ReviewRun {
                         line: 12,
                         column: 7,
                         preview: "[[id:missing-id][Missing]]".to_owned(),
+                    }),
+                }),
+            },
+        }],
+    }
+}
+
+fn remediation_review_run(link: &str) -> ReviewRun {
+    ReviewRun {
+        metadata: ReviewRunMetadata {
+            review_id: "review/audit/remediation".to_owned(),
+            title: "Remediation Review".to_owned(),
+            summary: Some("Review safe remediation actions".to_owned()),
+        },
+        payload: ReviewRunPayload::Audit {
+            audit: CorpusAuditKind::DanglingLinks,
+            limit: 20,
+        },
+        findings: vec![ReviewFinding {
+            finding_id: "audit/dangling-links/source/missing-id".to_owned(),
+            status: ReviewFindingStatus::Open,
+            payload: ReviewFindingPayload::Audit {
+                entry: Box::new(CorpusAuditEntry::DanglingLink {
+                    record: Box::new(DanglingLinkAuditRecord {
+                        source: AnchorRecord {
+                            node_key: "file:source.org".to_owned(),
+                            explicit_id: Some("source-id".to_owned()),
+                            file_path: "source.org".to_owned(),
+                            title: "Source".to_owned(),
+                            outline_path: "Source".to_owned(),
+                            aliases: Vec::new(),
+                            tags: Vec::new(),
+                            refs: Vec::new(),
+                            todo_keyword: None,
+                            scheduled_for: None,
+                            deadline_for: None,
+                            closed_at: None,
+                            level: 0,
+                            line: 1,
+                            kind: NodeKind::File,
+                            file_mtime_ns: 0,
+                            backlink_count: 0,
+                            forward_link_count: 1,
+                        },
+                        missing_explicit_id: "missing-id".to_owned(),
+                        line: 6,
+                        column: 11,
+                        preview: format!("Points to {link}."),
                     }),
                 }),
             },
@@ -380,6 +464,66 @@ fn review_mark_command(
     Ok(command.output()?)
 }
 
+fn review_remediation_preview_command(
+    root: &str,
+    db: &str,
+    review_id: &str,
+    finding_id: &str,
+    json: bool,
+) -> Result<std::process::Output> {
+    let mut command = Command::new(slipbox_binary());
+    command.args([
+        "review",
+        "remediation",
+        "preview",
+        "--root",
+        root,
+        "--db",
+        db,
+        "--server-program",
+        slipbox_binary(),
+    ]);
+    if json {
+        command.arg("--json");
+    }
+    command.args([review_id, finding_id]);
+    Ok(command.output()?)
+}
+
+fn review_remediation_apply_command(
+    root: &str,
+    db: &str,
+    review_id: &str,
+    finding_id: &str,
+    json: bool,
+    confirm_unlink: bool,
+    replacement_text: Option<&str>,
+) -> Result<std::process::Output> {
+    let mut command = Command::new(slipbox_binary());
+    command.args([
+        "review",
+        "remediation",
+        "apply",
+        "--root",
+        root,
+        "--db",
+        db,
+        "--server-program",
+        slipbox_binary(),
+    ]);
+    if json {
+        command.arg("--json");
+    }
+    if confirm_unlink {
+        command.arg("--confirm-unlink-dangling-link");
+    }
+    if let Some(replacement_text) = replacement_text {
+        command.args(["--replacement-text", replacement_text]);
+    }
+    command.args([review_id, finding_id]);
+    Ok(command.output()?)
+}
+
 #[test]
 fn review_list_command_lists_review_runs_as_summaries() -> Result<()> {
     let (_workspace, root, db) = build_review_fixture()?;
@@ -492,6 +636,232 @@ fn review_show_command_prints_workflow_finding_payloads() -> Result<()> {
     assert!(stdout.contains("tags: review"));
     assert!(stdout.contains("todo: TODO"));
     assert!(output.stderr.is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn review_remediation_preview_command_returns_canonical_json_and_human_details() -> Result<()> {
+    let (_workspace, root, db) = build_remediation_fixture()?;
+
+    let json_output = review_remediation_preview_command(
+        &root,
+        &db,
+        "review/audit/remediation",
+        "audit/dangling-links/source/missing-id",
+        true,
+    )?;
+
+    assert!(json_output.status.success(), "{json_output:?}");
+    let parsed: ReviewFindingRemediationPreviewResult =
+        serde_json::from_slice(&json_output.stdout)?;
+    assert_eq!(parsed.preview.review_id, "review/audit/remediation");
+    assert_eq!(
+        parsed.preview.finding_id,
+        "audit/dangling-links/source/missing-id"
+    );
+    match parsed.preview.payload {
+        AuditRemediationPreviewPayload::DanglingLink {
+            missing_explicit_id,
+            file_path,
+            line,
+            column,
+            preview,
+            ..
+        } => {
+            assert_eq!(missing_explicit_id, "missing-id");
+            assert_eq!(file_path, "source.org");
+            assert_eq!(line, 6);
+            assert_eq!(column, 11);
+            assert_eq!(preview, "Points to [[id:missing-id][Missing]].");
+        }
+        other => panic!("expected dangling-link preview, got {other:?}"),
+    }
+    assert!(json_output.stderr.is_empty());
+
+    let human_output = review_remediation_preview_command(
+        &root,
+        &db,
+        "review/audit/remediation",
+        "audit/dangling-links/source/missing-id",
+        false,
+    )?;
+    assert!(human_output.status.success(), "{human_output:?}");
+    let stdout = String::from_utf8(human_output.stdout)?;
+    assert!(stdout.contains("remediation: unlink-dangling-link"));
+    assert!(stdout.contains("confidence: medium"));
+    assert!(stdout.contains("missing id: missing-id"));
+    assert!(stdout.contains("location: source.org:6:11"));
+    assert!(stdout.contains(
+        "apply: slipbox review remediation apply review/audit/remediation audit/dangling-links/source/missing-id --confirm-unlink-dangling-link"
+    ));
+    assert!(human_output.stderr.is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn review_remediation_apply_command_applies_supported_actions_as_json() -> Result<()> {
+    let (workspace, root, db) = build_remediation_fixture()?;
+
+    let output = review_remediation_apply_command(
+        &root,
+        &db,
+        "review/audit/remediation",
+        "audit/dangling-links/source/missing-id",
+        true,
+        true,
+        None,
+    )?;
+
+    assert!(output.status.success(), "{output:?}");
+    let parsed: ReviewFindingRemediationApplyResult = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(parsed.application.review_id, "review/audit/remediation");
+    assert_eq!(
+        parsed.application.finding_id,
+        "audit/dangling-links/source/missing-id"
+    );
+    assert_eq!(
+        parsed.application.affected_files.changed_files,
+        vec!["source.org"]
+    );
+    assert!(parsed.application.affected_files.removed_files.is_empty());
+    assert_eq!(
+        parsed.application.index_refresh,
+        StructuralWriteIndexRefreshStatus::Refreshed
+    );
+    match parsed.application.action {
+        AuditRemediationApplyAction::UnlinkDanglingLink {
+            replacement_text, ..
+        } => assert_eq!(replacement_text, "Missing"),
+    }
+    let source = fs::read_to_string(workspace.path().join("notes/source.org"))?;
+    assert!(source.contains("Points to Missing."));
+    assert!(!source.contains("[[id:missing-id][Missing]]"));
+    assert!(output.stderr.is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn review_remediation_apply_derives_replacement_from_spaced_id_targets() -> Result<()> {
+    let (workspace, root, db) = build_remediation_fixture_with_link("[[ id:missing-id][Missing]]")?;
+
+    let output = review_remediation_apply_command(
+        &root,
+        &db,
+        "review/audit/remediation",
+        "audit/dangling-links/source/missing-id",
+        true,
+        true,
+        None,
+    )?;
+
+    assert!(output.status.success(), "{output:?}");
+    let parsed: ReviewFindingRemediationApplyResult = serde_json::from_slice(&output.stdout)?;
+    match parsed.application.action {
+        AuditRemediationApplyAction::UnlinkDanglingLink {
+            replacement_text, ..
+        } => assert_eq!(replacement_text, "Missing"),
+    }
+    let source = fs::read_to_string(workspace.path().join("notes/source.org"))?;
+    assert!(source.contains("Points to Missing."));
+    assert!(!source.contains("[[ id:missing-id][Missing]]"));
+    assert!(output.stderr.is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn review_remediation_apply_command_prints_human_acknowledgement() -> Result<()> {
+    let (_workspace, root, db) = build_remediation_fixture()?;
+
+    let output = review_remediation_apply_command(
+        &root,
+        &db,
+        "review/audit/remediation",
+        "audit/dangling-links/source/missing-id",
+        false,
+        true,
+        None,
+    )?;
+
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout)?;
+    assert!(stdout.contains(
+        "applied remediation: review/audit/remediation audit/dangling-links/source/missing-id"
+    ));
+    assert!(stdout.contains("action: unlink-dangling-link"));
+    assert!(stdout.contains("index: refreshed"));
+    assert!(stdout.contains("changed files:\n  - source.org"));
+    assert!(stdout.contains("removed files:\n  (none)"));
+    assert!(stdout.contains("inspect: slipbox review show review/audit/remediation"));
+    assert!(output.stderr.is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn review_remediation_commands_report_unsupported_and_stale_findings() -> Result<()> {
+    let (_workspace, root, db) = build_review_fixture()?;
+
+    let unsupported = review_remediation_preview_command(
+        &root,
+        &db,
+        "review/workflow/context",
+        "workflow-step/resolve-focus",
+        true,
+    )?;
+    assert_eq!(unsupported.status.code(), Some(1));
+    assert!(unsupported.stdout.is_empty());
+    let parsed: ErrorPayload = serde_json::from_slice(&unsupported.stderr)?;
+    assert!(parsed.error.message.contains("workflow-step evidence"));
+
+    let missing = review_remediation_apply_command(
+        &root,
+        &db,
+        "review/audit/dangling",
+        "audit/dangling-links/source/unknown",
+        true,
+        true,
+        None,
+    )?;
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(missing.stdout.is_empty());
+    let parsed: ErrorPayload = serde_json::from_slice(&missing.stderr)?;
+    assert!(
+        parsed
+            .error
+            .message
+            .contains("unknown review finding audit/dangling-links/source/unknown")
+    );
+
+    Ok(())
+}
+
+#[test]
+fn review_remediation_apply_requires_confirmation_as_structured_json() -> Result<()> {
+    let (_workspace, root, db) = build_remediation_fixture()?;
+
+    let output = review_remediation_apply_command(
+        &root,
+        &db,
+        "review/audit/remediation",
+        "audit/dangling-links/source/missing-id",
+        true,
+        false,
+        None,
+    )?;
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let parsed: ErrorPayload = serde_json::from_slice(&output.stderr)?;
+    assert!(
+        parsed
+            .error
+            .message
+            .contains("requires --confirm-unlink-dangling-link")
+    );
 
     Ok(())
 }
