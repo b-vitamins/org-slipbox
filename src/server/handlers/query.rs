@@ -2805,18 +2805,19 @@ mod tests {
         ExecutedExplorationArtifactPayload, ExplorationArtifactMetadata,
         ExplorationArtifactPayload, ExplorationArtifactResult, ExplorationEntry,
         ExplorationExplanation, ExplorationLens, ExplorationSectionKind, ExploreParams,
-        ExploreResult, ImportWorkbenchPackResult, ListExplorationArtifactsResult,
-        ListReviewRunsResult, ListWorkbenchPacksResult, ListWorkflowsResult,
-        MarkReviewFindingResult, NodeKind, NoteComparisonEntry, NoteComparisonExplanation,
-        NoteComparisonGroup, NoteComparisonResult, NoteComparisonSectionKind, ReportJsonlLineKind,
-        ReportProfileMetadata, ReportProfileMode, ReportProfileSpec, ReportProfileSubject,
-        ReviewFinding, ReviewFindingPayload, ReviewFindingRemediationApplyParams,
-        ReviewFindingRemediationApplyResult, ReviewFindingRemediationPreviewResult,
-        ReviewFindingStatus, ReviewRoutineComparePolicy, ReviewRoutineCompareTarget,
-        ReviewRoutineMetadata, ReviewRoutineReportLine, ReviewRoutineSaveReviewPolicy,
-        ReviewRoutineSource, ReviewRoutineSourceExecutionResult, ReviewRoutineSpec, ReviewRun,
-        ReviewRunDiffBucket, ReviewRunDiffResult, ReviewRunMetadata, ReviewRunPayload,
-        ReviewRunResult, RunReviewRoutineResult, RunWorkflowResult, SaveCorpusAuditReviewResult,
+        ExploreResult, GraphParams, ImportWorkbenchPackResult, ListExplorationArtifactsResult,
+        ListReviewRoutinesResult, ListReviewRunsResult, ListWorkbenchPacksResult,
+        ListWorkflowsResult, MarkReviewFindingResult, NodeKind, NoteComparisonEntry,
+        NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
+        NoteComparisonSectionKind, ReportJsonlLineKind, ReportProfileMetadata, ReportProfileMode,
+        ReportProfileSpec, ReportProfileSubject, ReviewFinding, ReviewFindingPayload,
+        ReviewFindingRemediationApplyParams, ReviewFindingRemediationApplyResult,
+        ReviewFindingRemediationPreviewResult, ReviewFindingStatus, ReviewRoutineComparePolicy,
+        ReviewRoutineCompareTarget, ReviewRoutineMetadata, ReviewRoutineReportLine,
+        ReviewRoutineResult, ReviewRoutineSaveReviewPolicy, ReviewRoutineSource,
+        ReviewRoutineSourceExecutionResult, ReviewRoutineSpec, ReviewRun, ReviewRunDiffBucket,
+        ReviewRunDiffResult, ReviewRunMetadata, ReviewRunPayload, ReviewRunResult,
+        RunReviewRoutineResult, RunWorkflowResult, SaveCorpusAuditReviewResult,
         SaveExplorationArtifactResult, SaveReviewRunResult, SaveWorkflowReviewResult,
         SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact,
         SavedTrailArtifact, SavedTrailStep, TrailReplayStepResult, ValidateWorkbenchPackResult,
@@ -2834,10 +2835,11 @@ mod tests {
         execute_exploration_artifact, execute_explore_query, execute_saved_exploration_artifact,
         execute_saved_exploration_artifact_by_id, execute_workflow_spec, exploration_artifact,
         explore, export_workbench_pack, import_workbench_pack, list_exploration_artifacts,
-        list_review_runs, list_workbench_packs, list_workflows, mark_review_finding,
-        review_finding_remediation_apply, review_finding_remediation_preview, review_run,
-        run_review_routine, run_workflow, save_corpus_audit_review, save_exploration_artifact,
-        save_review_run, save_workflow_review, validate_workbench_pack, workbench_pack, workflow,
+        list_review_routines, list_review_runs, list_workbench_packs, list_workflows,
+        mark_review_finding, review_finding_remediation_apply, review_finding_remediation_preview,
+        review_routine, review_run, run_review_routine, run_workflow, save_corpus_audit_review,
+        save_exploration_artifact, save_review_run, save_workflow_review, validate_workbench_pack,
+        workbench_pack, workflow,
     };
     use crate::server::state::ServerState;
 
@@ -4073,6 +4075,213 @@ mod tests {
             "workflow/pack/live"
         );
         assert_eq!(run.result.steps.len(), 1);
+    }
+
+    #[test]
+    fn durable_state_survives_reopen_and_forced_index_rebuild_without_surface_pollution() {
+        let (_workspace, mut state, target_key) = indexed_state();
+        let focus = state
+            .database
+            .node_from_id("target-id")
+            .expect("target lookup should succeed")
+            .expect("target note should exist");
+        let graph_params = GraphParams {
+            root_node_key: None,
+            max_distance: None,
+            include_orphans: true,
+            hidden_link_types: Vec::new(),
+            max_title_length: 100,
+            shorten_titles: None,
+            node_url_prefix: None,
+        };
+        let before_notes = state
+            .database
+            .search_nodes("", 50, None)
+            .expect("baseline node search should succeed");
+        let before_files = state
+            .database
+            .indexed_files()
+            .expect("baseline file list should succeed");
+        let before_refs = state
+            .database
+            .search_refs("", 50)
+            .expect("baseline ref search should succeed");
+        let before_graph = state
+            .database
+            .graph_dot(&graph_params)
+            .expect("baseline graph should render");
+
+        let artifact = saved_lens_artifact(
+            "artifact/rebuild-survivor",
+            "Durable Artifact Survivor",
+            &target_key,
+            ExplorationLens::Refs,
+        );
+        state
+            .database
+            .save_exploration_artifact(&artifact)
+            .expect("artifact should persist");
+        let review = sample_audit_review_run(
+            "review/rebuild-survivor",
+            "Durable Review Survivor",
+            ReviewFindingStatus::Open,
+        );
+        state
+            .database
+            .save_review_run(&review)
+            .expect("review should persist");
+        let mut pack = sample_workbench_pack("pack/rebuild-survivor", "Durable Pack Survivor");
+        pack.workflows.push(sample_input_workflow(
+            "workflow/pack/rebuild-survivor",
+            "Durable Pack Workflow",
+        ));
+        let mut routine = sample_workflow_review_routine(
+            "routine/pack/rebuild-survivor",
+            "workflow/pack/rebuild-survivor",
+            None,
+        );
+        routine.report_profile_ids = vec!["pack/rebuild-survivor/profile/detail".to_owned()];
+        pack.review_routines.push(routine);
+        let imported: ImportWorkbenchPackResult = serde_json::from_value(
+            import_workbench_pack(&mut state, json!({ "pack": pack.clone() }))
+                .expect("pack import should succeed"),
+        )
+        .expect("pack import result should decode");
+        assert_eq!(imported.pack, pack.summary());
+
+        let root = state.root.clone();
+        let db_path = state.db_path.clone();
+        let discovery = state.discovery.clone();
+        drop(state);
+        fs::remove_file(&db_path).expect("derived SQLite database should be removable");
+
+        let mut reopened = ServerState::new(root.clone(), db_path, Vec::new(), discovery)
+            .expect("state should reopen after derived database removal");
+
+        let artifacts: ListExplorationArtifactsResult = serde_json::from_value(
+            list_exploration_artifacts(&mut reopened, json!({}))
+                .expect("artifacts should list after rebuild"),
+        )
+        .expect("artifact list should decode");
+        assert_eq!(artifacts.artifacts.len(), 1);
+        assert_eq!(
+            artifacts.artifacts[0].metadata.artifact_id,
+            "artifact/rebuild-survivor"
+        );
+        let reviews: ListReviewRunsResult = serde_json::from_value(
+            list_review_runs(&mut reopened, json!({})).expect("reviews should list after rebuild"),
+        )
+        .expect("review list should decode");
+        assert_eq!(reviews.reviews.len(), 1);
+        assert_eq!(
+            reviews.reviews[0].metadata.review_id,
+            "review/rebuild-survivor"
+        );
+        let packs: ListWorkbenchPacksResult = serde_json::from_value(
+            list_workbench_packs(&mut reopened, json!({}))
+                .expect("packs should list after rebuild"),
+        )
+        .expect("pack list should decode");
+        assert_eq!(packs.packs, vec![pack.summary()]);
+
+        let workflows: ListWorkflowsResult = serde_json::from_value(
+            list_workflows(&mut reopened, json!({})).expect("workflow catalog should load packs"),
+        )
+        .expect("workflow list should decode");
+        assert!(workflows.issues.is_empty());
+        assert!(workflows.workflows.iter().any(|workflow| {
+            workflow.metadata.workflow_id == "workflow/pack/rebuild-survivor"
+                && workflow.metadata.title == "Durable Pack Workflow"
+        }));
+        let shown_workflow: WorkflowResult = serde_json::from_value(
+            workflow(
+                &mut reopened,
+                json!({ "workflow_id": "workflow/pack/rebuild-survivor" }),
+            )
+            .expect("pack workflow should remain inspectable"),
+        )
+        .expect("workflow result should decode");
+        assert_eq!(
+            shown_workflow.workflow.metadata.workflow_id,
+            "workflow/pack/rebuild-survivor"
+        );
+
+        let routines: ListReviewRoutinesResult = serde_json::from_value(
+            list_review_routines(&mut reopened, json!({}))
+                .expect("routine catalog should load packs"),
+        )
+        .expect("routine list should decode");
+        assert!(routines.issues.is_empty());
+        assert!(routines.routines.iter().any(|routine| {
+            routine.metadata.routine_id == "routine/pack/rebuild-survivor"
+                && routine.metadata.title == "Workflow Routine"
+        }));
+        let shown_routine: ReviewRoutineResult = serde_json::from_value(
+            review_routine(
+                &mut reopened,
+                json!({ "routine_id": "routine/pack/rebuild-survivor" }),
+            )
+            .expect("pack routine should remain inspectable"),
+        )
+        .expect("routine result should decode");
+        assert_eq!(
+            shown_routine.routine.report_profile_ids,
+            vec!["pack/rebuild-survivor/profile/detail".to_owned()]
+        );
+        let shown_pack: WorkbenchPackResult = serde_json::from_value(
+            workbench_pack(&mut reopened, json!({ "pack_id": "pack/rebuild-survivor" }))
+                .expect("pack should remain inspectable"),
+        )
+        .expect("pack result should decode");
+        assert_eq!(
+            shown_pack.pack.report_profiles[0].metadata.profile_id,
+            "pack/rebuild-survivor/profile/detail"
+        );
+
+        let files =
+            scan_root_with_policy(&root, &reopened.discovery).expect("fixture should rescan");
+        reopened
+            .database
+            .sync_index(&files)
+            .expect("derived index should rebuild");
+        assert_eq!(
+            reopened.database.search_nodes("", 50, None).unwrap(),
+            before_notes
+        );
+        assert_eq!(reopened.database.indexed_files().unwrap(), before_files);
+        assert_eq!(reopened.database.search_refs("", 50).unwrap(), before_refs);
+        assert_eq!(
+            reopened.database.graph_dot(&graph_params).unwrap(),
+            before_graph
+        );
+        assert!(
+            reopened
+                .database
+                .search_nodes("Durable Pack Survivor", 20, None)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            reopened
+                .database
+                .search_refs("rebuild-survivor", 20)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            !reopened
+                .database
+                .graph_dot(&graph_params)
+                .unwrap()
+                .contains("rebuild-survivor")
+        );
+        assert_eq!(
+            reopened
+                .database
+                .node_from_id("target-id")
+                .expect("rebuilt target lookup should succeed"),
+            Some(focus)
+        );
     }
 
     #[test]
