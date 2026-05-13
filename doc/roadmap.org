@@ -215,26 +215,14 @@ Theme: everyday CLI parity.
 
 Status: shipped in `0.11.0`.
 
-Delivered:
+Focus:
 
-- make the CLI a first-class second surface for ordinary slipbox operations,
-  not just research-workbench orchestration
-- typed daemon-client coverage for existing everyday read and write RPCs so
-  command implementations do not hand-roll transport calls
-- task-shaped sync, file, node, ref, tag, occurrence, agenda, and graph export
-  commands over canonical daemon semantics
-- safe constructive write commands for note creation, append flows, capture,
-  dailies, identity, and metadata through Rust-owned mutation paths
-- read-your-writes integration coverage across daemon restarts and follow-up
-  query surfaces
-- JSON contract coverage for the everyday CLI families without snapshot bloat
-- benchmark gates for the underlying everyday engine paths over non-empty
-  deterministic fixtures
-- documentation that treats Emacs and CLI as two first-class surfaces over one
-  slipbox, one derived index, and one daemon-owned model, while naming the
-  Emacs-specific UX that remains outside the CLI claim
-- prioritize CLI parity over MCP or agent-adapter work because external
-  automation needs stable everyday operations to target
+- make the CLI a first-class second surface for ordinary slipbox operations
+- cover everyday read and constructive write operations through daemon-owned,
+  task-shaped commands
+- preserve read-your-writes behavior, JSON contracts, and benchmark gates for
+  the everyday surface
+- keep Emacs-specific interaction and external automation out of this band
 
 Watchpoints:
 
@@ -256,36 +244,18 @@ Watchpoints:
 
 Theme: structural editing and stability.
 
+Status: release-candidate line.
+
 Focus:
 
-- carry forward the work explicitly deferred from `0.11.x`: refile, extract,
-  promote/demote, and related structural rewrites need coherent product
-  contracts before they become everyday CLI operations
-- start from the parity audit rather than feature count: classify each Emacs
-  command as already CLI-covered, required CLI parity, genuinely UI-only, or
-  intentionally deferred
-- expose the existing daemon structural rewrite operations through typed
-  daemon-client methods before adding CLI commands
-- add a task-shaped `edit` CLI family for refile subtree, refile region,
-  extract subtree, promote file, and demote file, with exact targets and
-  explicit file/range arguments
-- add affected-file reports and preview or dry-run semantics where the engine
-  can describe the write honestly
-- add link rewrite and ID maintenance only if they can use precise preview/apply
-  contracts and Rust-owned mutation paths
-- add maintenance and diagnostics commands for file eligibility, node
-  diagnostics, index consistency, rebuild/status reporting, and recovery
-  workflows without exposing a raw database shell
-- structural write surfaces only after everyday CLI operations have proven the
-  daemon-owned write model
-- explicit product shapes for refile, extraction, promote/demote, and related
-  structural edits rather than incidental command growth
-- stronger compatibility, migration, and stability expectations around the
-  expanded Emacs and CLI surfaces
-- performance and correctness hardening for write-heavy workflows
-- compatibility policy for CLI JSON, artifacts, review runs, workflow specs,
-  routines, report profiles, packs, and new write reports, with additive
-  changes preferred over retroactive shape churn
+- make structural rewrites and bounded remediation safe, daemon-owned, and
+  scriptable
+- publish the CLI/Emacs parity boundary and compatibility expectations for
+  public JSON and durable records
+- harden diagnostics, rebuild survival, and benchmark gates around higher-risk
+  write paths
+- use the release evidence to decide whether the next line is `1.0.0` or
+  another stabilization cut
 
 Watchpoints:
 
@@ -301,8 +271,8 @@ Watchpoints:
   viewer hooks, capture finalizers, and live buffer coordination Emacs-specific
   unless a real non-UI product surface emerges
 - do not collapse CLI parity into platform or extension-runtime claims
-- keep the project below `1.0.0` until the public surfaces are genuinely
-  dependable
+- do not claim `1.0.0` until compatibility, packaging, benchmark, and
+  rebuild/upgrade behavior have survived a stabilization cycle
 
 * 1.0.x
 

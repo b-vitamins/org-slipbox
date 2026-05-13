@@ -13,8 +13,8 @@ side owns commands, session state, and presentation.
 
 ## Status
 
-Current development starts from the released `0.11.0` foundation and is
-landing the `0.12.0` structural editing and stabilization line.
+Current development is preparing the `0.12.0` structural editing and
+stabilization release on top of the released `0.11.0` CLI parity foundation.
 
 The documented workflow surface is intended to remain complete enough for
 day-to-day replacement use while the project deepens its exploratory model.
@@ -31,14 +31,15 @@ assets stay separate from notes, review runs, and saved exploration artifacts.
 The `0.11.x` line turns the CLI into a first-class everyday surface for the
 ordinary slipbox operations already modeled by the daemon: sync, search, files,
 nodes, refs, tags, agenda, graph export, note creation, capture, dailies,
-identity, and metadata. Raw-RPC sprawl, plugin-runtime ambitions, MCP,
-agent-adapter claims, structural rewrite flows, and broad automated mutation
-remain deferred.
-The `0.12.x` line picks up the highest-risk remaining parity work: structural
-rewrites, write previews and affected-file reports, selected safe remediation
-apply paths, maintenance diagnostics, and compatibility policy. MCP,
-agent-adapter, plugin-runtime, scheduler, and broad automated mutation claims
-remain deferred until the two first-class surfaces are stable enough to target.
+identity, and metadata. In that line, raw-RPC sprawl, plugin-runtime
+ambitions, MCP, agent-adapter claims, structural rewrite flows, and broad
+automated mutation remain deferred.
+The `0.12.x` line completes the highest-risk remaining parity work: structural
+rewrites, affected-file reports, selected preview-backed remediation apply,
+`slipbox:` link rewrite, maintenance diagnostics, compatibility policy, and
+upgrade-style rebuild survival coverage. MCP, agent-adapter, plugin-runtime,
+scheduler, and broad automated mutation claims remain deferred until the two
+first-class surfaces are stable enough to target.
 
 ## Requirements
 
@@ -289,8 +290,10 @@ review runs, saved exploration artifacts, or executable plugin code. Broader
 platform maturity, extension APIs, and agent-adapter work remain later work.
 `0.11.x` extends the same one-model line to everyday operations: the CLI covers
 safe ordinary work over `slipbox serve` without becoming a raw transport
-mirror, while structural editing and broader stability hardening remain the
-`0.12.x` line.
+mirror. `0.12.x` then adds structural editing, diagnostics, link rewrite,
+bounded remediation apply, compatibility policy, and broader stability
+hardening without turning the project into a plugin runtime or automation
+platform.
 
 When the current node record includes indexed metadata, the node summary also
 renders file modification time plus backlink and forward-link counts without
@@ -690,9 +693,9 @@ that the whole programmable platform is done.
   metadata, while still routing daemon-backed work through task-shaped commands
   over `slipbox serve`.
 - `0.12.x` is the structural editing and stabilization step: refile, extract,
-  promote/demote, maintenance diagnostics, compatibility policy, and selected
-  previewable remediation apply paths get explicit product contracts before
-  any later external adapter work.
+  promote/demote, maintenance diagnostics, compatibility policy, `slipbox:`
+  link rewrite, and selected previewable remediation apply paths get explicit
+  product contracts before any later external adapter work.
 - Extension APIs, MCP surfaces, agent adapters, raw RPC mirroring, schedulers,
   and broad automated mutation remain deferred.
 
@@ -705,12 +708,13 @@ durable, reviewable, and diffable. `0.10.x` extends the workbench
 declaratively through compatible specs, routines, profiles, and packs rather
 than through a plugin runtime. `0.11.x` makes the CLI an everyday companion to
 the Emacs surface for safe ordinary slipbox operations, not a separate product
-model. `0.12.x` now carries the remaining parity and stabilization work:
-structural edits, higher-risk write previews, bounded remediation apply,
-diagnostics, and compatibility policy. That work still comes before MCP or
-agent-adapter surfaces because external automation needs dependable scriptable
-operations to target. The CLI stays on the same architectural line as the rest
-of the project:
+model. `0.12.x` adds the remaining structural and stabilization layer:
+structural edits, affected-file write reports, bounded remediation apply,
+`slipbox:` link rewrite, diagnostics, durable-state rebuild coverage, and
+compatibility policy. That work still comes before MCP or agent-adapter
+surfaces because external automation needs dependable scriptable operations to
+target. The CLI stays on the same architectural line as the rest of the
+project:
 
 - daemon-backed headless commands talk to the daemon over canonical JSON-RPC
   stdio
@@ -718,13 +722,15 @@ of the project:
   executable unless you override it with `--server-program`
 - `--json` is first-class for machine use
 - the command surface is task-shaped rather than a thin wrapper over every RPC
-- file mutation remains Rust-owned behind daemon operations; structural
-  rewrites and broad apply-style automation remain later explicit product work
+- file mutation remains Rust-owned behind daemon operations; broad apply-style
+  automation remains deferred even though bounded structural and remediation
+  writes now have explicit product contracts
 
 The shipped headless command families are:
 
-- everyday operations: `status`, `sync`, `file`, `node`, `ref`, `tag`,
-  `search`, `agenda`, `graph`, `note`, `capture`, and `daily`
+- everyday and maintenance operations: `status`, `sync`, `file`, `diagnose`,
+  `node`, `ref`, `tag`, `search`, `agenda`, `graph`, `note`, `capture`,
+  `daily`, `edit`, and `link`
 - exploratory workbench operations: `resolve-node`, `explore`, `compare`, and
   `artifact`
 - composed workbench operations: `workflow`, `audit`, `review`, `routine`, and
@@ -831,39 +837,91 @@ slipbox node ref set --id project-alpha cite:smith2026 --root ~/notes --db ~/.ca
 slipbox node tag add --id project-alpha research active --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 ```
 
-The everyday CLI deliberately stops short of structural rewrite flows such as
-refile, extract, promote, and demote. Those belong to the `0.12.x` structural
-editing and stability line, along with any future remediation-apply work.
+### Structural Editing And Maintenance
 
-### CLI/Emacs Parity Audit
+`0.12.x` adds the higher-risk write paths that were intentionally left out of
+the `0.11.x` everyday CLI cut. Structural edits return
+`StructuralWriteReport` JSON with the operation kind, changed and removed
+files, refreshed-index status, and any node or anchor result. They are still
+daemon-owned Rust mutations, not CLI text rewriting.
 
-The post-`0.11.0` audit leaves four clear buckets.
+Move indexed subtrees or character ranges under exact target notes:
 
-- Already represented in the CLI: status, full and single-file sync, file list
-  and search, node lookup/search/random/neighborhoods/at-point, ref and tag
-  lookup, occurrence search, agenda queries, graph DOT export, note creation
-  and append flows, capture execution and preview, daily ensure/show/append,
-  identity assignment, metadata updates, exploration, comparison, artifacts,
-  workflows, audits, reviews, routines, and packs.
-- Should become CLI in `0.12.x`: structural rewrites already modeled by the
-  daemon boundary but not yet exposed through the typed daemon client or CLI:
-  refile subtree, refile region, extract subtree, promote file, and demote file.
-  These need affected-file reports, read-your-writes checks, and JSON contracts
-  before they are ordinary scriptable writes.
-- Should become CLI if the write path stays precise: link and ID maintenance
-  such as replacing `slipbox:` links with stable `id:` links, inspecting
-  unresolved title links, and applying selected remediation previews. These
-  must use preview/apply discipline and Rust-owned file mutation, not ad hoc
-  text replacement in CLI glue.
-- Genuinely UI-only or Emacs-specific: draft capture buffers, completion UI,
-  calendar marking, Graphviz viewer hooks, capture finalizers, live buffer
-  save/refresh coordination, `org-protocol` handlers, and direct SQLite
-  exploration through `sqlite-mode`.
+```bash
+slipbox edit refile-subtree \
+  --source-key heading:notes/source.org:12 \
+  --target-id project-alpha \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --json
 
-`0.12.x` should add maintenance and diagnostics commands where they help users
-recover without opening Emacs: file diagnostics, node diagnostics, index
-consistency checks, and explicit rebuild/status reports. These should remain
-operator commands, not a raw database shell.
+slipbox edit refile-region \
+  --file notes/inbox.org \
+  --start 148 \
+  --end 420 \
+  --target-id project-alpha \
+  --root ~/notes \
+  --db ~/.cache/org-slipbox.sqlite \
+  --json
+```
+
+Extract a subtree into a file note, or convert between file-level metadata and
+a single root heading:
+
+```bash
+slipbox edit extract-subtree --source-key heading:notes/inbox.org:27 --file notes/extracted.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox edit promote-file --file notes/one-root-heading.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox edit demote-file --file notes/file-note.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+```
+
+Inspect safe maintenance state without opening Emacs or reading SQLite
+directly:
+
+```bash
+slipbox diagnose file --file notes/project.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox diagnose node --key heading:notes/project.org:42 --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox diagnose index --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+```
+
+Preview and apply supported `slipbox:` link rewrites through the daemon:
+
+```bash
+slipbox link rewrite-slipbox preview --file notes/project.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox link rewrite-slipbox apply --file notes/project.org --confirm-replace-slipbox-links --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+```
+
+Supported review findings can also be applied when the preview identifies an
+exact safe action. Today the bounded apply path is dangling-link unlinking; it
+requires a fresh preview, exact file/line/column evidence, and explicit
+confirmation:
+
+```bash
+slipbox review remediation preview review/dangling-links/current audit/dangling-links/source/missing-id --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox review remediation apply review/dangling-links/current audit/dangling-links/source/missing-id --confirm-unlink-dangling-link --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+```
+
+### CLI/Emacs Parity Matrix
+
+The `0.12.0` surface leaves a clear parity matrix.
+
+- CLI-capable: status, sync, file list/search, diagnostics, node
+  lookup/search/random/neighborhoods/at-point, ref/tag lookup, occurrence
+  search, agenda queries, graph DOT export, note creation and append flows,
+  capture execution and preview, daily ensure/show/append, identity
+  assignment, metadata updates, structural edits, `slipbox:` link rewrite,
+  bounded remediation apply, exploration, comparison, artifacts, workflows,
+  audits, reviews, routines, and packs.
+- Emacs-specific: draft capture buffers, completion UI, calendar marking,
+  Graphviz viewer hooks, capture finalizers, live buffer save/refresh
+  coordination, `org-protocol` handlers, interactive trail/cockpit navigation,
+  and direct SQLite exploration through `sqlite-mode`.
+- Experimental or narrow: structural write reports, remediation apply records,
+  `slipbox:` link rewrite results, diagnostics output, report-profile JSONL,
+  and benchmark gates are public enough for scripts, but still intentionally
+  scoped to their task-shaped contracts.
+- Intentionally deferred: MCP, agent adapters, plugin runtimes, schedulers,
+  broad automated mutation, raw-RPC mirroring, and a generalized query or
+  remediation language.
 
 Discovery is deliberately narrow:
 
@@ -1197,10 +1255,10 @@ slipbox review delete \
   --json
 ```
 
-Supported audit findings can produce read-only remediation previews through
-the daemon. There is deliberately no broad automatic fix/apply surface in this
-line; structural writes remain Rust-owned and require a later explicit product
-surface before anything mutates Org files.
+Supported audit findings can produce daemon-owned remediation previews.
+`0.12.x` adds one bounded apply path for dangling links when the preview names
+the exact file, line, column, missing ID, and replacement action. There is
+still no broad automatic fix/apply surface.
 
 Save a live exploration or comparison as a durable artifact:
 
@@ -1260,15 +1318,63 @@ The JSON contracts are intentionally different where the semantics differ:
 - `slipbox routine run --json` returns `{ "result": ... }`, including routine
   source execution, optional saved review, optional compare result, and applied
   reports
+- `slipbox edit ... --json` returns a `StructuralWriteReport` with
+  `operation`, `changed_files`, `removed_files`, `index_refresh`, and any
+  resulting node or anchor
+- `slipbox review remediation preview --json` returns `{ "preview": ... }`;
+  `review remediation apply --json` returns `{ "application": ... }`
+- `slipbox link rewrite-slipbox preview --json` returns `{ "preview": ... }`;
+  `link rewrite-slipbox apply --json` returns `{ "application": ... }`
+- `slipbox diagnose ... --json` returns task-shaped diagnostic wrappers rather
+  than raw SQLite rows
+
+### Stability And Compatibility Policy
+
+`org-slipbox` is still pre-`1.0`, but `0.12.0` treats the public CLI and
+durable JSON shapes as compatibility-sensitive.
+
+- CLI `--json` wrappers should evolve additively. Removing fields, renaming
+  fields, changing enum spellings, or changing wrapper shape requires an
+  explicit migration note and should be avoided outside a deliberate
+  compatibility release.
+- Durable exploration artifacts, review runs, and workbench packs are validated
+  on load and persist outside the derived SQLite index. Rebuilding the index
+  must not erase them, and note/ref/search/graph surfaces must not treat them
+  as notes.
+- Workflow specs and workbench packs carry explicit compatibility metadata.
+  The current supported version is `1`; missing workflow compatibility
+  defaults to version `1`; future versions are rejected before typed parsing
+  tries to interpret future syntax.
+- Review routines and report profiles are versioned through their containing
+  pack and validated as declarative assets. They are not executable plugins,
+  template engines, schedulers, or adapter hooks.
+- Structural write reports, link rewrite applications, remediation
+  applications, and diagnostics are public task records. They should stay
+  factual and narrow: explicit affected files, refreshed-index status where a
+  mutation occurred, and no hidden CLI-only semantics.
+- The derived SQLite schema remains an internal index. Users and scripts should
+  target daemon/CLI contracts, not database tables.
+
+### 1.0 Readiness
+
+The project is substantially closer to a dependable system after `0.12.0`:
+the cockpit, headless workbench, everyday CLI, structural writes, diagnostics,
+durable side stores, declarative assets, JSON contracts, and scale gates now
+cover the main product line.
+
+The next release should still be one more stabilization cut rather than an
+immediate `1.0.0`. The remaining evidence needed for `1.0` is not more raw
+feature count; it is release-cycle proof that the public JSON contracts,
+durable record formats, packaging paths, bundled-SQLite builds, benchmark
+profiles, and upgrade/rebuild behavior hold up without rescue refactors. MCP,
+agent adapters, plugin runtimes, schedulers, and broad automated mutation
+remain out of scope until after that surface is boringly reliable.
 
 This is now a broader composed research workbench surface, not the whole
-platform. Named workflows, audits, reviews, routines, report profiles, and
-packs compose the settled live explore/compare/artifact model. The extension
-layer is declarative: workflows, review routines, report profiles, and packs
-are portable assets to validate, import, run, and catalog, not executable
-plugins or raw transport wrappers. Review status is explicit triage state for
-durable review runs, not a general task manager. Remediation previews describe
-possible safe actions; they do not apply writes.
+platform. Named workflows, audits, reviews, routines, report profiles, packs,
+structural writes, diagnostics, and bounded remediation compose the settled
+live explore/compare/artifact model without becoming executable plugins or raw
+transport wrappers.
 
 ## FAQ
 

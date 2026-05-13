@@ -140,8 +140,9 @@ Exit criteria:
   the CLI, or widening into raw RPC wrappers
 - Emacs and CLI are documented as two first-class surfaces over one source of
   truth and one daemon-owned read/write model
-- structural rewrite and remediation-apply flows remain the next stability
-  line rather than part of everyday CLI parity
+- structural rewrite, link rewrite, diagnostics, and bounded remediation-apply
+  flows are exposed through explicit daemon-owned contracts rather than
+  frontend text mutation
 - users can script and automate meaningful exploratory workflows
 - buffer and query surfaces compose without reaching into unstable internals
 - headless surfaces reuse the exploratory model already proven in the cockpit
@@ -157,28 +158,22 @@ Outcomes:
 - documented compatibility and upgrade expectations
 - clear performance envelopes
 - routine release engineering
-- structural edit commands for refile, extract, promote, and demote that use
-  Rust-owned rewrite semantics rather than frontend text mutation
-- affected-file reports, preview or dry-run discipline where feasible, and
-  read-your-writes behavior for higher-risk write operations
-- bounded remediation apply only for findings whose preview names exact files,
-  locations, and actions
-- maintenance and diagnostics commands that help users recover index and file
-  state without opening Emacs or reaching into the database directly
-- a documented CLI/Emacs parity matrix that distinguishes CLI-capable,
-  Emacs-specific, experimental, and intentionally deferred surfaces
+- stable daemon-owned contracts for structural writes and bounded remediation
+- maintenance diagnostics that help users recover file and index state without
+  reaching into database internals
+- a documented CLI/Emacs parity boundary
 
 Exit criteria:
 
 - the project can evolve without repeated rescue refactors
 - packagers and users can rely on stable interfaces
 - the codebase still grows by module rather than monolith
-- the CLI covers the structural rewrite operations that are already exposed in
-  Emacs, while preserving daemon-owned mutation and explicit freshness
-- public JSON shapes for write-like commands are stable enough to support
-  scripts without retroactive churn
-- durable artifacts, review runs, packs, workflow specs, routines, profiles,
-  and the derived index survive rebuild and upgrade-style verification
+- higher-risk write surfaces have stable task reports, read-your-writes
+  behavior, and rebuild-safe verification
+- public JSON and durable record formats are compatibility-sensitive and
+  covered by contract tests
+- release evidence supports either a `1.0.0` cut or one explicit stabilization
+  release
 
 * Non-Milestones
 

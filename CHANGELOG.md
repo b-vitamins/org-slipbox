@@ -6,12 +6,37 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+### Added
+- Added Rust-owned structural rewrite reports and daemon/CLI flows for
+  `edit refile-subtree`, `edit refile-region`, `edit extract-subtree`,
+  `edit promote-file`, and `edit demote-file`, including changed/removed file
+  reporting and refreshed-index guarantees.
+- Added safe remediation apply for supported dangling-link review findings,
+  guarded by daemon-owned previews, stale-file checks, restored-target checks,
+  explicit confirmation, and refreshed affected-file reporting.
+- Added `slipbox link rewrite-slipbox` preview/apply commands to replace
+  resolvable `slipbox:` Org links with stable `id:` links through the daemon,
+  assigning target IDs where needed.
+- Added maintenance diagnostics for files, nodes, and index drift through the
+  `diagnose` CLI family.
+
 ### Changed
 - Defined the `0.12.x` structural editing and stabilization line after the
   `0.11.0` CLI parity cut, including the CLI/Emacs parity audit buckets,
   affected-file/write-preview expectations, maintenance diagnostics, and the
   boundary against premature MCP, agent-adapter, plugin-runtime, scheduler, or
   broad automated mutation work.
+- Documented the final `0.12.0` public surface with a CLI/Emacs parity matrix,
+  compatibility and deprecation policy for JSON/durable records, and an
+  explicit readiness assessment for whether the next release should be `1.0.0`.
+- Broadened benchmark gates for high-risk write paths, covering structural
+  edits, remediation apply, and `slipbox:` link rewrite preview/apply over
+  non-empty server-backed fixtures.
+
+### Fixed
+- Hardened structural, remediation, link rewrite, diagnostics, durable-state,
+  and rebuild-survival contract coverage across CLI, daemon, store, and
+  benchmark surfaces.
 
 ## [0.11.0] - 2026-05-13
 

@@ -114,18 +114,14 @@ That CLI parity work comes before MCP, agent adapters, or plugin-runtime
 surfaces because ordinary daemon-owned operations need to be dependable before
 external automation has a stable target. Broader extension, plugin-runtime,
 MCP, agent-adapter, and platform surfaces still come later.
-`0.12.x` is therefore the structural editing and stability line: refile,
-extract, promote/demote, and any remediation-apply flows need explicit product
-shapes rather than incidental CLI growth.
-The post-`0.11.0` audit narrows that work. Everyday reads and safe constructive
-writes are already represented in the CLI. The structural rewrite RPCs already
-exist at the daemon boundary, but they still need typed daemon-client methods,
-task-shaped CLI commands, affected-file reports, read-your-writes coverage,
-and stable JSON contracts. Link rewrite, ID maintenance, diagnostics, and
-remediation apply should enter only through the same previewable, Rust-owned
-write discipline. Draft buffers, completion, calendar marking, viewer hooks,
-capture finalizers, live buffer coordination, protocol handlers, and direct
-SQLite inspection remain Emacs-specific or operator-local UI.
+`0.12.x` is therefore the structural editing and stability line. Higher-risk
+writes may become public only when they stay daemon-owned, report affected
+files, refresh the derived index explicitly, and use preview/apply discipline
+where the engine can describe the change honestly. Diagnostics should help
+users reason about file and index state without exposing SQLite internals.
+The project should remain below `1.0.0` until public JSON contracts, durable
+record formats, packaging paths, benchmark profiles, and rebuild/upgrade
+behavior have proven stable across a release cycle.
 
 This implies:
 
