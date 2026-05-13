@@ -2800,7 +2800,12 @@ impl AuditRemediationApplyAction {
                 .or_else(|| validate_positive_position(*line, "line"))
                 .or_else(|| validate_positive_position(*column, "column"))
                 .or_else(|| validate_required_text_field(preview, "preview"))
-                .or_else(|| validate_required_text_field(replacement_text, "replacement_text")),
+                .or_else(|| validate_required_text_field(replacement_text, "replacement_text"))
+                .or_else(|| {
+                    replacement_text
+                        .contains(['\n', '\r'])
+                        .then(|| "replacement_text must be a single line".to_owned())
+                }),
         }
     }
 

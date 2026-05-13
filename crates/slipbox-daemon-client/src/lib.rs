@@ -21,7 +21,8 @@ use slipbox_core::{
     MarkReviewFindingParams, MarkReviewFindingResult, NodeAtPointParams, NodeFromIdParams,
     NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
     NoteComparisonResult, PingInfo, RandomNodeResult, RefileRegionParams, RefileSubtreeParams,
-    ReflinksParams, ReflinksResult, ReviewFindingRemediationPreviewParams,
+    ReflinksParams, ReflinksResult, ReviewFindingRemediationApplyParams,
+    ReviewFindingRemediationApplyResult, ReviewFindingRemediationPreviewParams,
     ReviewFindingRemediationPreviewResult, ReviewRoutineIdParams, ReviewRoutineResult,
     ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunResult,
     RewriteFileParams, RunReviewRoutineParams, RunReviewRoutineResult, RunWorkflowParams,
@@ -50,13 +51,13 @@ use slipbox_rpc::{
     METHOD_MARK_REVIEW_FINDING, METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY,
     METHOD_NODE_FROM_REF, METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_PROMOTE_ENTIRE_FILE,
     METHOD_RANDOM_NODE, METHOD_REFILE_REGION, METHOD_REFILE_SUBTREE, METHOD_REFLINKS,
-    METHOD_REVIEW_FINDING_REMEDIATION_PREVIEW, METHOD_REVIEW_ROUTINE, METHOD_REVIEW_RUN,
-    METHOD_RUN_REVIEW_ROUTINE, METHOD_RUN_WORKFLOW, METHOD_SAVE_CORPUS_AUDIT_REVIEW,
-    METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SAVE_REVIEW_RUN, METHOD_SAVE_WORKFLOW_REVIEW,
-    METHOD_SEARCH_FILES, METHOD_SEARCH_NODES, METHOD_SEARCH_OCCURRENCES, METHOD_SEARCH_REFS,
-    METHOD_SEARCH_TAGS, METHOD_STATUS, METHOD_UNLINKED_REFERENCES, METHOD_UPDATE_NODE_METADATA,
-    METHOD_VALIDATE_WORKBENCH_PACK, METHOD_WORKBENCH_PACK, METHOD_WORKFLOW, read_framed_message,
-    write_framed_message,
+    METHOD_REVIEW_FINDING_REMEDIATION_APPLY, METHOD_REVIEW_FINDING_REMEDIATION_PREVIEW,
+    METHOD_REVIEW_ROUTINE, METHOD_REVIEW_RUN, METHOD_RUN_REVIEW_ROUTINE, METHOD_RUN_WORKFLOW,
+    METHOD_SAVE_CORPUS_AUDIT_REVIEW, METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SAVE_REVIEW_RUN,
+    METHOD_SAVE_WORKFLOW_REVIEW, METHOD_SEARCH_FILES, METHOD_SEARCH_NODES,
+    METHOD_SEARCH_OCCURRENCES, METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS, METHOD_STATUS,
+    METHOD_UNLINKED_REFERENCES, METHOD_UPDATE_NODE_METADATA, METHOD_VALIDATE_WORKBENCH_PACK,
+    METHOD_WORKBENCH_PACK, METHOD_WORKFLOW, read_framed_message, write_framed_message,
 };
 use thiserror::Error;
 
@@ -575,6 +576,13 @@ where
         params: &ReviewFindingRemediationPreviewParams,
     ) -> Result<ReviewFindingRemediationPreviewResult, DaemonClientError> {
         self.request(METHOD_REVIEW_FINDING_REMEDIATION_PREVIEW, params)
+    }
+
+    fn review_finding_remediation_apply(
+        &mut self,
+        params: &ReviewFindingRemediationApplyParams,
+    ) -> Result<ReviewFindingRemediationApplyResult, DaemonClientError> {
+        self.request(METHOD_REVIEW_FINDING_REMEDIATION_APPLY, params)
     }
 
     fn list_review_runs(&mut self) -> Result<ListReviewRunsResult, DaemonClientError> {
@@ -1140,6 +1148,13 @@ impl DaemonClient {
         self.rpc.review_finding_remediation_preview(params)
     }
 
+    pub fn review_finding_remediation_apply(
+        &mut self,
+        params: &ReviewFindingRemediationApplyParams,
+    ) -> Result<ReviewFindingRemediationApplyResult, DaemonClientError> {
+        self.rpc.review_finding_remediation_apply(params)
+    }
+
     pub fn list_review_runs(&mut self) -> Result<ListReviewRunsResult, DaemonClientError> {
         self.rpc.list_review_runs()
     }
@@ -1251,6 +1266,40 @@ mod tests {
                 "removed_files": [],
                 "index_refresh": "refreshed",
                 "result": null
+            }),
+        )
+    }
+
+    fn remediation_apply_response(id: u64) -> JsonRpcResponse {
+        JsonRpcResponse::success(
+            json!(id),
+            json!({
+                "application": {
+                    "review_id": "review/audit/dangling-links",
+                    "finding_id": "audit/dangling-links/source/missing-id",
+                    "preview_identity": {
+                        "kind": "dangling-link",
+                        "source_node_key": "file:source.org",
+                        "missing_explicit_id": "missing-id",
+                        "file_path": "source.org",
+                        "line": 6,
+                        "column": 11,
+                        "preview": "Points to [[id:missing-id][Missing]]."
+                    },
+                    "action": {
+                        "kind": "unlink-dangling-link",
+                        "source_node_key": "file:source.org",
+                        "missing_explicit_id": "missing-id",
+                        "file_path": "source.org",
+                        "line": 6,
+                        "column": 11,
+                        "preview": "Points to [[id:missing-id][Missing]].",
+                        "replacement_text": "Missing"
+                    },
+                    "changed_files": ["source.org"],
+                    "removed_files": [],
+                    "index_refresh": "refreshed"
+                }
             }),
         )
     }
@@ -1425,6 +1474,78 @@ mod tests {
         assert_eq!(
             client.transport.requests[4].params,
             json!({"file_path": "demote.org"})
+        );
+    }
+
+    #[test]
+    fn remediation_apply_sends_canonical_params() {
+        let mut client = RpcClient::new(MockTransport {
+            requests: Vec::new(),
+            responses: VecDeque::from([Ok(remediation_apply_response(1))]),
+            shutdowns: 0,
+        });
+
+        let expected_preview = slipbox_core::AuditRemediationPreviewIdentity::DanglingLink {
+            source_node_key: "file:source.org".to_owned(),
+            missing_explicit_id: "missing-id".to_owned(),
+            file_path: "source.org".to_owned(),
+            line: 6,
+            column: 11,
+            preview: "Points to [[id:missing-id][Missing]].".to_owned(),
+        };
+        let action = slipbox_core::AuditRemediationApplyAction::UnlinkDanglingLink {
+            source_node_key: "file:source.org".to_owned(),
+            missing_explicit_id: "missing-id".to_owned(),
+            file_path: "source.org".to_owned(),
+            line: 6,
+            column: 11,
+            preview: "Points to [[id:missing-id][Missing]].".to_owned(),
+            replacement_text: "Missing".to_owned(),
+        };
+        let result = client
+            .review_finding_remediation_apply(&ReviewFindingRemediationApplyParams {
+                review_id: "review/audit/dangling-links".to_owned(),
+                finding_id: "audit/dangling-links/source/missing-id".to_owned(),
+                expected_preview: expected_preview.clone(),
+                action: action.clone(),
+            })
+            .expect("apply result should parse");
+
+        assert_eq!(result.application.preview_identity, expected_preview);
+        assert_eq!(result.application.action, action);
+        assert_eq!(
+            result.application.affected_files.changed_files,
+            vec!["source.org".to_owned()]
+        );
+        assert_eq!(
+            client.transport.requests[0].method,
+            METHOD_REVIEW_FINDING_REMEDIATION_APPLY
+        );
+        assert_eq!(
+            client.transport.requests[0].params,
+            json!({
+                "review_id": "review/audit/dangling-links",
+                "finding_id": "audit/dangling-links/source/missing-id",
+                "expected_preview": {
+                    "kind": "dangling-link",
+                    "source_node_key": "file:source.org",
+                    "missing_explicit_id": "missing-id",
+                    "file_path": "source.org",
+                    "line": 6,
+                    "column": 11,
+                    "preview": "Points to [[id:missing-id][Missing]]."
+                },
+                "action": {
+                    "kind": "unlink-dangling-link",
+                    "source_node_key": "file:source.org",
+                    "missing_explicit_id": "missing-id",
+                    "file_path": "source.org",
+                    "line": 6,
+                    "column": 11,
+                    "preview": "Points to [[id:missing-id][Missing]].",
+                    "replacement_text": "Missing"
+                }
+            })
         );
     }
 

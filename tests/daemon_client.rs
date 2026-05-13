@@ -5,28 +5,29 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result};
 use slipbox_core::{
     AgendaParams, AnchorRecord, AppendHeadingAtOutlinePathParams, AppendHeadingParams,
-    AppendHeadingToNodeParams, AuditRemediationConfidence, AuditRemediationPreviewPayload,
-    BUILT_IN_REVIEW_ROUTINE_DUPLICATE_TITLE_ID, BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID,
-    BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID, BacklinksParams, CaptureContentType,
-    CaptureNodeParams, CaptureTemplateParams, CaptureTemplatePreviewParams, CompareNotesParams,
-    CorpusAuditEntry, CorpusAuditKind, DanglingLinkAuditRecord, EnsureFileNodeParams,
-    EnsureNodeIdParams, ExecuteExplorationArtifactResult, ExplorationArtifactIdParams,
-    ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationLens, ExploreParams,
-    ExtractSubtreeParams, ForwardLinksParams, GraphParams, ImportWorkbenchPackParams,
-    IndexFileParams, NodeFromIdParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeKind,
-    RefileRegionParams, RefileSubtreeParams, ReflinksParams, ReportProfileMetadata,
-    ReportProfileMode, ReportProfileSpec, ReportProfileSubject, ReviewFinding,
-    ReviewFindingPayload, ReviewFindingRemediationPreviewParams, ReviewFindingStatus,
-    ReviewRoutineIdParams, ReviewRun, ReviewRunDiffParams, ReviewRunIdParams, ReviewRunMetadata,
-    ReviewRunPayload, RewriteFileParams, RunReviewRoutineParams, RunWorkflowParams,
-    SaveCorpusAuditReviewParams, SaveExplorationArtifactParams, SaveReviewRunParams,
-    SaveWorkflowReviewParams, SavedExplorationArtifact, SavedLensViewArtifact, SearchFilesParams,
-    SearchNodesParams, SearchOccurrencesParams, SearchRefsParams, SearchTagsParams,
-    StructuralWriteIndexRefreshStatus, StructuralWriteOperationKind, StructuralWriteResult,
-    UnlinkedReferencesParams, UpdateNodeMetadataParams, ValidateWorkbenchPackParams,
-    WorkbenchPackCompatibility, WorkbenchPackIdParams, WorkbenchPackIssueKind,
-    WorkbenchPackManifest, WorkbenchPackMetadata, WorkflowIdParams, WorkflowInputAssignment,
-    WorkflowResult,
+    AppendHeadingToNodeParams, AuditRemediationApplyAction, AuditRemediationConfidence,
+    AuditRemediationPreviewPayload, BUILT_IN_REVIEW_ROUTINE_DUPLICATE_TITLE_ID,
+    BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID,
+    BacklinksParams, CaptureContentType, CaptureNodeParams, CaptureTemplateParams,
+    CaptureTemplatePreviewParams, CompareNotesParams, CorpusAuditEntry, CorpusAuditKind,
+    DanglingLinkAuditRecord, EnsureFileNodeParams, EnsureNodeIdParams,
+    ExecuteExplorationArtifactResult, ExplorationArtifactIdParams, ExplorationArtifactMetadata,
+    ExplorationArtifactPayload, ExplorationLens, ExploreParams, ExtractSubtreeParams,
+    ForwardLinksParams, GraphParams, ImportWorkbenchPackParams, IndexFileParams, NodeFromIdParams,
+    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeKind, RefileRegionParams,
+    RefileSubtreeParams, ReflinksParams, ReportProfileMetadata, ReportProfileMode,
+    ReportProfileSpec, ReportProfileSubject, ReviewFinding, ReviewFindingPayload,
+    ReviewFindingRemediationApplyParams, ReviewFindingRemediationPreviewParams,
+    ReviewFindingStatus, ReviewRoutineIdParams, ReviewRun, ReviewRunDiffParams, ReviewRunIdParams,
+    ReviewRunMetadata, ReviewRunPayload, RewriteFileParams, RunReviewRoutineParams,
+    RunWorkflowParams, SaveCorpusAuditReviewParams, SaveExplorationArtifactParams,
+    SaveReviewRunParams, SaveWorkflowReviewParams, SavedExplorationArtifact, SavedLensViewArtifact,
+    SearchFilesParams, SearchNodesParams, SearchOccurrencesParams, SearchRefsParams,
+    SearchTagsParams, StructuralWriteIndexRefreshStatus, StructuralWriteOperationKind,
+    StructuralWriteResult, UnlinkedReferencesParams, UpdateNodeMetadataParams,
+    ValidateWorkbenchPackParams, WorkbenchPackCompatibility, WorkbenchPackIdParams,
+    WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackMetadata, WorkflowIdParams,
+    WorkflowInputAssignment, WorkflowResult,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonServeConfig};
 use slipbox_index::scan_root;
@@ -84,7 +85,6 @@ Weakly integrated peer with shared references and no direct links.
 Alpha appears here as unlinked text.
 "#,
     )?;
-
     let files = scan_root(&root)?;
     let db = workspace.path().join("slipbox.sqlite");
     let mut database = Database::open(&db)?;
@@ -135,9 +135,9 @@ fn sample_review_run() -> ReviewRun {
                             forward_link_count: 0,
                         },
                         missing_explicit_id: "missing-id".to_owned(),
-                        line: 12,
-                        column: 7,
-                        preview: "[[id:missing-id][Missing]]".to_owned(),
+                        line: 6,
+                        column: 11,
+                        preview: "Points to [[id:missing-id][Missing]].".to_owned(),
                     }),
                 }),
             },
@@ -1007,6 +1007,17 @@ fn daemon_client_queries_spawned_daemon_and_round_trips_artifacts() -> Result<()
     assert_eq!(deleted_pack.pack_id, "pack/daemon-client");
     assert!(client.list_workbench_packs()?.packs.is_empty());
 
+    fs::write(
+        root.join("source.org"),
+        r#":PROPERTIES:
+:ID: source-id
+:END:
+#+title: Source
+
+Points to [[id:missing-id][Missing]].
+"#,
+    )?;
+
     let review = sample_review_run();
     let saved_review = client.save_review_run(&SaveReviewRunParams {
         review: review.clone(),
@@ -1032,19 +1043,50 @@ fn daemon_client_queries_spawned_daemon_and_round_trips_artifacts() -> Result<()
             finding_id: "audit/dangling-links/source/missing-id".to_owned(),
         })?;
     assert_eq!(preview.preview.review_id, "review/audit/dangling-links");
-    match preview.preview.payload {
+    let action = match &preview.preview.payload {
         AuditRemediationPreviewPayload::DanglingLink {
+            source,
             missing_explicit_id,
+            file_path,
+            line,
+            column,
+            preview,
             confidence,
             suggestion,
             ..
         } => {
             assert_eq!(missing_explicit_id, "missing-id");
-            assert_eq!(confidence, AuditRemediationConfidence::Medium);
+            assert_eq!(*confidence, AuditRemediationConfidence::Medium);
             assert!(suggestion.contains("id:missing-id"));
+            AuditRemediationApplyAction::UnlinkDanglingLink {
+                source_node_key: source.node_key.clone(),
+                missing_explicit_id: missing_explicit_id.clone(),
+                file_path: file_path.clone(),
+                line: *line,
+                column: *column,
+                preview: preview.clone(),
+                replacement_text: "Missing".to_owned(),
+            }
         }
         other => panic!("expected dangling-link remediation preview, got {other:?}"),
-    }
+    };
+    let applied =
+        client.review_finding_remediation_apply(&ReviewFindingRemediationApplyParams {
+            review_id: "review/audit/dangling-links".to_owned(),
+            finding_id: "audit/dangling-links/source/missing-id".to_owned(),
+            expected_preview: preview.preview.preview_identity,
+            action,
+        })?;
+    assert_eq!(
+        applied.application.affected_files.changed_files,
+        vec!["source.org".to_owned()]
+    );
+    assert!(fs::read_to_string(root.join("source.org"))?.contains("Points to Missing."));
+
+    let loaded_after_apply = client.review_run(&ReviewRunIdParams {
+        review_id: "review/audit/dangling-links".to_owned(),
+    })?;
+    assert_eq!(loaded_after_apply.review, review);
 
     let mut target_review = review.clone();
     target_review.metadata.review_id = "review/audit/dangling-links/target".to_owned();

@@ -1,11 +1,13 @@
 use std::collections::HashMap;
+use std::fs;
 
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use slipbox_core::{
-    AgendaParams, AgendaResult, AppliedReportProfile, BacklinksParams, BacklinksResult,
-    CompareNotesParams, CorpusAuditEntry, CorpusAuditKind, CorpusAuditParams, CorpusAuditResult,
-    DeleteExplorationArtifactResult, DeleteReviewRunResult, DeleteWorkbenchPackResult,
-    ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
+    AgendaParams, AgendaResult, AppliedReportProfile, AuditRemediationApplyAction, BacklinksParams,
+    BacklinksResult, CompareNotesParams, CorpusAuditEntry, CorpusAuditKind, CorpusAuditParams,
+    CorpusAuditResult, DeleteExplorationArtifactResult, DeleteReviewRunResult,
+    DeleteWorkbenchPackResult, ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
     ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactPayload,
     ExplorationArtifactResult, ExplorationArtifactSummary, ExplorationEntry, ExplorationLens,
     ExplorationSection, ExplorationSectionKind, ExploreParams, ExploreResult, ForwardLinksParams,
@@ -18,26 +20,28 @@ use slipbox_core::{
     NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonGroup,
     NoteComparisonResult, PingInfo, RandomNodeResult, ReflinksParams, ReflinksResult,
     ReportProfileMode, ReportProfileSpec, ReviewFinding, ReviewFindingPayload,
-    ReviewFindingRemediationPreview, ReviewFindingRemediationPreviewParams,
-    ReviewFindingRemediationPreviewResult, ReviewFindingStatus, ReviewFindingStatusTransition,
-    ReviewRoutineCompareResult, ReviewRoutineExecutionResult, ReviewRoutineIdParams,
-    ReviewRoutineReportLine, ReviewRoutineResult, ReviewRoutineSource,
-    ReviewRoutineSourceExecutionResult, ReviewRoutineSpec, ReviewRun, ReviewRunDiff,
-    ReviewRunDiffBucket, ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams,
-    ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, ReviewRunSummary, RunReviewRoutineParams,
-    RunReviewRoutineResult, RunWorkflowParams, RunWorkflowResult, SaveCorpusAuditReviewParams,
-    SaveCorpusAuditReviewResult, SaveExplorationArtifactParams, SaveExplorationArtifactResult,
-    SaveReviewRunParams, SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
+    ReviewFindingRemediationApplication, ReviewFindingRemediationApplyParams,
+    ReviewFindingRemediationApplyResult, ReviewFindingRemediationPreview,
+    ReviewFindingRemediationPreviewParams, ReviewFindingRemediationPreviewResult,
+    ReviewFindingStatus, ReviewFindingStatusTransition, ReviewRoutineCompareResult,
+    ReviewRoutineExecutionResult, ReviewRoutineIdParams, ReviewRoutineReportLine,
+    ReviewRoutineResult, ReviewRoutineSource, ReviewRoutineSourceExecutionResult,
+    ReviewRoutineSpec, ReviewRun, ReviewRunDiff, ReviewRunDiffBucket, ReviewRunDiffParams,
+    ReviewRunDiffResult, ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload, ReviewRunResult,
+    ReviewRunSummary, RunReviewRoutineParams, RunReviewRoutineResult, RunWorkflowParams,
+    RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
+    SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
+    SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
     SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailStep,
     SearchFilesParams, SearchFilesResult, SearchNodesParams, SearchNodesResult,
     SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams, SearchRefsResult,
-    SearchTagsParams, SearchTagsResult, StatusInfo, TrailReplayResult, TrailReplayStepResult,
-    UnlinkedReferencesParams, UnlinkedReferencesResult, ValidateWorkbenchPackParams,
-    ValidateWorkbenchPackResult, WorkbenchPackCompatibilityEnvelope, WorkbenchPackIdParams,
-    WorkbenchPackIssue, WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackResult,
-    WorkbenchPackSummary, WorkflowExecutionResult, WorkflowIdParams, WorkflowInputAssignment,
-    WorkflowResolveTarget, WorkflowResult, WorkflowSpec, WorkflowStepPayload, WorkflowStepReport,
-    WorkflowStepReportPayload,
+    SearchTagsParams, SearchTagsResult, StatusInfo, StructuralWriteIndexRefreshStatus,
+    TrailReplayResult, TrailReplayStepResult, UnlinkedReferencesParams, UnlinkedReferencesResult,
+    ValidateWorkbenchPackParams, ValidateWorkbenchPackResult, WorkbenchPackCompatibilityEnvelope,
+    WorkbenchPackIdParams, WorkbenchPackIssue, WorkbenchPackIssueKind, WorkbenchPackManifest,
+    WorkbenchPackResult, WorkbenchPackSummary, WorkflowExecutionResult, WorkflowIdParams,
+    WorkflowInputAssignment, WorkflowResolveTarget, WorkflowResult, WorkflowSpec,
+    WorkflowStepPayload, WorkflowStepReport, WorkflowStepReportPayload,
 };
 use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
 
@@ -1991,6 +1995,220 @@ pub(crate) fn review_finding_remediation_preview(
     to_value(ReviewFindingRemediationPreviewResult { preview })
 }
 
+pub(crate) fn review_finding_remediation_apply(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: ReviewFindingRemediationApplyParams = parse_params(params)?;
+    if let Some(message) = params.validation_error() {
+        return Err(invalid_request(message));
+    }
+
+    let review = known_review_run(state, &params.review_id)?;
+    let finding = review
+        .findings
+        .iter()
+        .find(|finding| finding.finding_id == params.finding_id)
+        .ok_or_else(|| {
+            invalid_request(format!(
+                "unknown review finding {} in review run {}",
+                params.finding_id, params.review_id
+            ))
+        })?;
+    let current_preview =
+        ReviewFindingRemediationPreview::from_review_finding(&params.review_id, finding)
+            .map_err(invalid_request)?;
+    if current_preview.preview_identity != params.expected_preview {
+        return Err(invalid_request(format!(
+            "stale remediation preview for finding {} in review run {}",
+            params.finding_id, params.review_id
+        )));
+    }
+
+    let application = apply_review_finding_remediation_action(state, params)?;
+    to_value(ReviewFindingRemediationApplyResult { application })
+}
+
+fn apply_review_finding_remediation_action(
+    state: &mut ServerState,
+    params: ReviewFindingRemediationApplyParams,
+) -> Result<ReviewFindingRemediationApplication, JsonRpcError> {
+    let ReviewFindingRemediationApplyParams {
+        review_id,
+        finding_id,
+        expected_preview,
+        action,
+    } = params;
+
+    match &action {
+        AuditRemediationApplyAction::UnlinkDanglingLink {
+            file_path,
+            line,
+            column,
+            preview,
+            missing_explicit_id,
+            replacement_text,
+            ..
+        } => {
+            let (_relative_path, absolute_path) = state
+                .resolve_index_path(file_path)
+                .map_err(|error| internal_error(error.context("failed to resolve file path")))?;
+            if state
+                .database
+                .node_from_id(missing_explicit_id)
+                .map_err(|error| {
+                    internal_error(error.context("failed to recheck missing remediation target"))
+                })?
+                .is_some()
+            {
+                return Err(invalid_request(format!(
+                    "cannot unlink dangling link because target id {missing_explicit_id} now resolves in the current index"
+                )));
+            }
+            apply_unlink_dangling_link(
+                &absolute_path,
+                *line,
+                *column,
+                preview,
+                missing_explicit_id,
+                replacement_text,
+            )?;
+            state.sync_path(&absolute_path)?;
+            let affected_files = state.structural_affected_files(&[absolute_path], &[])?;
+            let application = ReviewFindingRemediationApplication {
+                review_id,
+                finding_id,
+                preview_identity: expected_preview,
+                action,
+                affected_files,
+                index_refresh: StructuralWriteIndexRefreshStatus::Refreshed,
+            };
+            if let Some(message) = application.validation_error() {
+                return Err(internal_error(anyhow!(
+                    "invalid remediation application: {message}"
+                )));
+            }
+            Ok(application)
+        }
+    }
+}
+
+fn apply_unlink_dangling_link(
+    path: &std::path::Path,
+    line: u32,
+    column: u32,
+    expected_preview: &str,
+    missing_explicit_id: &str,
+    replacement_text: &str,
+) -> Result<(), JsonRpcError> {
+    let mut content = fs::read_to_string(path)
+        .map_err(|error| internal_error(anyhow!("failed to read remediation target: {error}")))?;
+    let (line_start, line_end) = line_bounds(&content, line).ok_or_else(|| {
+        invalid_request(format!(
+            "remediation action line {line} is outside {}",
+            path.display()
+        ))
+    })?;
+    let line_text = &content[line_start..line_end];
+    if line_text.trim() != expected_preview {
+        return Err(invalid_request(format!(
+            "remediation action no longer matches file contents at {}:{line}:{column}",
+            path.display()
+        )));
+    }
+
+    let link_start = byte_index_for_column(line_text, column).ok_or_else(|| {
+        invalid_request(format!(
+            "remediation action column {column} is outside {}:{line}",
+            path.display()
+        ))
+    })?;
+    let suffix = &line_text[link_start..];
+    if !suffix.starts_with("[[") {
+        return Err(invalid_request(format!(
+            "remediation action no longer points at an Org link at {}:{line}:{column}",
+            path.display()
+        )));
+    }
+    let link_end = suffix
+        .find("]]")
+        .map(|end| link_start + end + 2)
+        .ok_or_else(|| {
+            invalid_request(format!(
+                "remediation action found an unterminated Org link at {}:{line}:{column}",
+                path.display()
+            ))
+        })?;
+    let link = &line_text[link_start..link_end];
+    let (destination_id, label) = org_id_link_target_and_label(link).ok_or_else(|| {
+        invalid_request(format!(
+            "remediation action no longer points at an id link at {}:{line}:{column}",
+            path.display()
+        ))
+    })?;
+    if destination_id != missing_explicit_id {
+        return Err(invalid_request(format!(
+            "remediation action expected missing id {missing_explicit_id} but found {destination_id}"
+        )));
+    }
+    let expected_replacement = label.unwrap_or(destination_id);
+    if replacement_text != expected_replacement {
+        return Err(invalid_request(format!(
+            "unlink-dangling-link replacement_text must match the current link label: {expected_replacement}"
+        )));
+    }
+
+    content.replace_range(
+        line_start + link_start..line_start + link_end,
+        replacement_text,
+    );
+    fs::write(path, content)
+        .map_err(|error| internal_error(anyhow!("failed to write remediation target: {error}")))?;
+    Ok(())
+}
+
+fn line_bounds(content: &str, line_number: u32) -> Option<(usize, usize)> {
+    if line_number == 0 {
+        return None;
+    }
+    let mut line_start = 0_usize;
+    for (index, segment) in content.split_inclusive('\n').enumerate() {
+        if index as u32 + 1 == line_number {
+            let mut line_end = line_start + segment.len();
+            if segment.ends_with('\n') {
+                line_end -= 1;
+                if line_end > line_start && content.as_bytes()[line_end - 1] == b'\r' {
+                    line_end -= 1;
+                }
+            }
+            return Some((line_start, line_end));
+        }
+        line_start += segment.len();
+    }
+    None
+}
+
+fn byte_index_for_column(line: &str, column: u32) -> Option<usize> {
+    if column == 0 {
+        return None;
+    }
+    if column == 1 {
+        return Some(0);
+    }
+    line.char_indices()
+        .nth(column as usize - 1)
+        .map(|(index, _)| index)
+}
+
+fn org_id_link_target_and_label(link: &str) -> Option<(&str, Option<&str>)> {
+    let inner = link.strip_prefix("[[")?.strip_suffix("]]")?;
+    let (target, label) = inner
+        .split_once("][")
+        .map_or((inner, None), |(target, label)| (target, Some(label)));
+    let destination_id = target.trim().strip_prefix("id:")?.trim();
+    (!destination_id.is_empty()).then_some((destination_id, label))
+}
+
 pub(crate) fn list_review_runs(
     state: &mut ServerState,
     params: serde_json::Value,
@@ -2418,13 +2636,13 @@ mod tests {
 
     use serde_json::json;
     use slipbox_core::{
-        AnchorRecord, AuditRemediationConfidence, AuditRemediationPreviewPayload,
-        BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID,
-        BUILT_IN_WORKFLOW_PERIODIC_REVIEW_ID, BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID,
-        BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID, CompareNotesParams,
-        ComparisonConnectorDirection, CorpusAuditEntry, CorpusAuditKind, CorpusAuditResult,
-        DanglingLinkAuditRecord, DeleteExplorationArtifactResult, DeleteReviewRunResult,
-        DeleteWorkbenchPackResult, ExecuteExplorationArtifactResult,
+        AnchorRecord, AuditRemediationApplyAction, AuditRemediationConfidence,
+        AuditRemediationPreviewPayload, BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID,
+        BUILT_IN_WORKFLOW_CONTEXT_SWEEP_ID, BUILT_IN_WORKFLOW_PERIODIC_REVIEW_ID,
+        BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID, BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID,
+        CompareNotesParams, ComparisonConnectorDirection, CorpusAuditEntry, CorpusAuditKind,
+        CorpusAuditResult, DanglingLinkAuditRecord, DeleteExplorationArtifactResult,
+        DeleteReviewRunResult, DeleteWorkbenchPackResult, ExecuteExplorationArtifactResult,
         ExecutedExplorationArtifactPayload, ExplorationArtifactMetadata,
         ExplorationArtifactPayload, ExplorationArtifactResult, ExplorationEntry,
         ExplorationExplanation, ExplorationLens, ExplorationSectionKind, ExploreParams,
@@ -2433,7 +2651,8 @@ mod tests {
         MarkReviewFindingResult, NodeKind, NoteComparisonEntry, NoteComparisonExplanation,
         NoteComparisonGroup, NoteComparisonResult, NoteComparisonSectionKind, ReportJsonlLineKind,
         ReportProfileMetadata, ReportProfileMode, ReportProfileSpec, ReportProfileSubject,
-        ReviewFinding, ReviewFindingPayload, ReviewFindingRemediationPreviewResult,
+        ReviewFinding, ReviewFindingPayload, ReviewFindingRemediationApplyParams,
+        ReviewFindingRemediationApplyResult, ReviewFindingRemediationPreviewResult,
         ReviewFindingStatus, ReviewRoutineComparePolicy, ReviewRoutineCompareTarget,
         ReviewRoutineMetadata, ReviewRoutineReportLine, ReviewRoutineSaveReviewPolicy,
         ReviewRoutineSource, ReviewRoutineSourceExecutionResult, ReviewRoutineSpec, ReviewRun,
@@ -2457,9 +2676,9 @@ mod tests {
         execute_saved_exploration_artifact_by_id, execute_workflow_spec, exploration_artifact,
         explore, export_workbench_pack, import_workbench_pack, list_exploration_artifacts,
         list_review_runs, list_workbench_packs, list_workflows, mark_review_finding,
-        review_finding_remediation_preview, review_run, run_review_routine, run_workflow,
-        save_corpus_audit_review, save_exploration_artifact, save_review_run, save_workflow_review,
-        validate_workbench_pack, workbench_pack, workflow,
+        review_finding_remediation_apply, review_finding_remediation_preview, review_run,
+        run_review_routine, run_workflow, save_corpus_audit_review, save_exploration_artifact,
+        save_review_run, save_workflow_review, validate_workbench_pack, workbench_pack, workflow,
     };
     use crate::server::state::ServerState;
 
@@ -4580,6 +4799,398 @@ mod tests {
             }),
         )
         .expect_err("orphan preview should be rejected");
+        assert_eq!(
+            unsupported.into_inner().message,
+            "review finding has no remediation preview for orphan-note evidence"
+        );
+    }
+
+    #[test]
+    fn review_finding_remediation_apply_unlinks_dangling_links_without_review_mutation() {
+        let (_workspace, mut state) = audit_state();
+
+        let _: SaveCorpusAuditReviewResult = serde_json::from_value(
+            save_corpus_audit_review(
+                &mut state,
+                json!({
+                    "audit": "dangling-links",
+                    "limit": 20,
+                    "review_id": "review/audit/dangling-links/custom",
+                    "overwrite": true
+                }),
+            )
+            .expect("save audit review RPC should succeed"),
+        )
+        .expect("save audit review result should decode");
+        let stored_before: ReviewRunResult = serde_json::from_value(
+            review_run(
+                &mut state,
+                json!({ "review_id": "review/audit/dangling-links/custom" }),
+            )
+            .expect("saved audit review should load"),
+        )
+        .expect("review result should decode");
+        let dangling_finding_id = stored_before.review.findings[0].finding_id.clone();
+        let preview: ReviewFindingRemediationPreviewResult = serde_json::from_value(
+            review_finding_remediation_preview(
+                &mut state,
+                json!({
+                    "review_id": "review/audit/dangling-links/custom",
+                    "finding_id": dangling_finding_id
+                }),
+            )
+            .expect("dangling-link preview should succeed"),
+        )
+        .expect("preview result should decode");
+
+        let action = match &preview.preview.payload {
+            AuditRemediationPreviewPayload::DanglingLink {
+                source,
+                missing_explicit_id,
+                file_path,
+                line,
+                column,
+                preview,
+                ..
+            } => AuditRemediationApplyAction::UnlinkDanglingLink {
+                source_node_key: source.node_key.clone(),
+                missing_explicit_id: missing_explicit_id.clone(),
+                file_path: file_path.clone(),
+                line: *line,
+                column: *column,
+                preview: preview.clone(),
+                replacement_text: "Missing".to_owned(),
+            },
+            other => panic!("expected dangling-link preview, got {other:?}"),
+        };
+        let apply: ReviewFindingRemediationApplyResult = serde_json::from_value(
+            review_finding_remediation_apply(
+                &mut state,
+                serde_json::to_value(ReviewFindingRemediationApplyParams {
+                    review_id: "review/audit/dangling-links/custom".to_owned(),
+                    finding_id: dangling_finding_id,
+                    expected_preview: preview.preview.preview_identity,
+                    action,
+                })
+                .expect("apply params should serialize"),
+            )
+            .expect("remediation apply should succeed"),
+        )
+        .expect("apply result should decode");
+        assert_eq!(
+            apply.application.affected_files.changed_files,
+            vec!["dangling-source.org"]
+        );
+        assert!(apply.application.affected_files.removed_files.is_empty());
+
+        let source_after =
+            fs::read_to_string(state.root.join("dangling-source.org")).expect("source should read");
+        assert!(source_after.contains("Points to Missing."));
+        assert!(!source_after.contains("[[id:missing-id][Missing]]"));
+        let audit_after: CorpusAuditResult = serde_json::from_value(
+            corpus_audit(
+                &mut state,
+                json!({ "audit": "dangling-links", "limit": 20 }),
+            )
+            .expect("dangling-link audit should still run"),
+        )
+        .expect("audit result should decode");
+        assert!(audit_after.entries.is_empty());
+
+        let stored_after: ReviewRunResult = serde_json::from_value(
+            review_run(
+                &mut state,
+                json!({ "review_id": "review/audit/dangling-links/custom" }),
+            )
+            .expect("saved audit review should still load"),
+        )
+        .expect("review result should decode");
+        assert_eq!(stored_after.review, stored_before.review);
+        assert_eq!(
+            state
+                .database
+                .list_exploration_artifacts()
+                .expect("artifact list should load"),
+            Vec::new()
+        );
+        assert_eq!(
+            state
+                .database
+                .list_workbench_packs()
+                .expect("pack list should load"),
+            Vec::new()
+        );
+    }
+
+    #[test]
+    fn review_finding_remediation_apply_rejects_restored_missing_targets_without_writing() {
+        let (_workspace, mut state) = audit_state();
+
+        let _: SaveCorpusAuditReviewResult = serde_json::from_value(
+            save_corpus_audit_review(
+                &mut state,
+                json!({
+                    "audit": "dangling-links",
+                    "limit": 20,
+                    "review_id": "review/audit/dangling-links/custom",
+                    "overwrite": true
+                }),
+            )
+            .expect("save audit review RPC should succeed"),
+        )
+        .expect("save audit review result should decode");
+        let stored: ReviewRunResult = serde_json::from_value(
+            review_run(
+                &mut state,
+                json!({ "review_id": "review/audit/dangling-links/custom" }),
+            )
+            .expect("saved audit review should load"),
+        )
+        .expect("review result should decode");
+        let dangling_finding_id = stored.review.findings[0].finding_id.clone();
+        let preview: ReviewFindingRemediationPreviewResult = serde_json::from_value(
+            review_finding_remediation_preview(
+                &mut state,
+                json!({
+                    "review_id": "review/audit/dangling-links/custom",
+                    "finding_id": dangling_finding_id
+                }),
+            )
+            .expect("dangling-link preview should succeed"),
+        )
+        .expect("preview result should decode");
+        let action = match &preview.preview.payload {
+            AuditRemediationPreviewPayload::DanglingLink {
+                source,
+                missing_explicit_id,
+                file_path,
+                line,
+                column,
+                preview,
+                ..
+            } => AuditRemediationApplyAction::UnlinkDanglingLink {
+                source_node_key: source.node_key.clone(),
+                missing_explicit_id: missing_explicit_id.clone(),
+                file_path: file_path.clone(),
+                line: *line,
+                column: *column,
+                preview: preview.clone(),
+                replacement_text: "Missing".to_owned(),
+            },
+            other => panic!("expected dangling-link preview, got {other:?}"),
+        };
+
+        let source_path = state.root.join("dangling-source.org");
+        let source_before =
+            fs::read_to_string(&source_path).expect("dangling source should read before apply");
+        let restored_target_path = state.root.join("restored-target.org");
+        fs::write(
+            &restored_target_path,
+            r#":PROPERTIES:
+:ID: missing-id
+:END:
+#+title: Restored Target
+
+Restored target.
+"#,
+        )
+        .expect("restored target should write");
+        state
+            .sync_path(&restored_target_path)
+            .expect("restored target should sync");
+        assert!(
+            state
+                .database
+                .node_from_id("missing-id")
+                .expect("restored target lookup should succeed")
+                .is_some()
+        );
+
+        let restored_target_error = review_finding_remediation_apply(
+            &mut state,
+            serde_json::to_value(ReviewFindingRemediationApplyParams {
+                review_id: "review/audit/dangling-links/custom".to_owned(),
+                finding_id: dangling_finding_id,
+                expected_preview: preview.preview.preview_identity,
+                action,
+            })
+            .expect("apply params should serialize"),
+        )
+        .expect_err("restored target should make the remediation stale");
+        assert_eq!(
+            restored_target_error.into_inner().message,
+            "cannot unlink dangling link because target id missing-id now resolves in the current index"
+        );
+        let source_after =
+            fs::read_to_string(&source_path).expect("dangling source should read after rejection");
+        assert_eq!(source_after, source_before);
+    }
+
+    #[test]
+    fn review_finding_remediation_apply_rejects_stale_or_unsupported_actions() {
+        let (_workspace, mut state) = audit_state();
+
+        let _: SaveCorpusAuditReviewResult = serde_json::from_value(
+            save_corpus_audit_review(
+                &mut state,
+                json!({
+                    "audit": "dangling-links",
+                    "limit": 20,
+                    "review_id": "review/audit/dangling-links/custom",
+                    "overwrite": true
+                }),
+            )
+            .expect("save audit review RPC should succeed"),
+        )
+        .expect("save audit review result should decode");
+        let stored: ReviewRunResult = serde_json::from_value(
+            review_run(
+                &mut state,
+                json!({ "review_id": "review/audit/dangling-links/custom" }),
+            )
+            .expect("saved audit review should load"),
+        )
+        .expect("review result should decode");
+        let dangling_finding_id = stored.review.findings[0].finding_id.clone();
+        let preview: ReviewFindingRemediationPreviewResult = serde_json::from_value(
+            review_finding_remediation_preview(
+                &mut state,
+                json!({
+                    "review_id": "review/audit/dangling-links/custom",
+                    "finding_id": dangling_finding_id
+                }),
+            )
+            .expect("dangling-link preview should succeed"),
+        )
+        .expect("preview result should decode");
+        let action = match &preview.preview.payload {
+            AuditRemediationPreviewPayload::DanglingLink {
+                source,
+                missing_explicit_id,
+                file_path,
+                line,
+                column,
+                preview,
+                ..
+            } => AuditRemediationApplyAction::UnlinkDanglingLink {
+                source_node_key: source.node_key.clone(),
+                missing_explicit_id: missing_explicit_id.clone(),
+                file_path: file_path.clone(),
+                line: *line,
+                column: *column,
+                preview: preview.clone(),
+                replacement_text: "Missing".to_owned(),
+            },
+            other => panic!("expected dangling-link preview, got {other:?}"),
+        };
+
+        let mut stale_action = action.clone();
+        let stale_preview = match &mut stale_action {
+            AuditRemediationApplyAction::UnlinkDanglingLink {
+                missing_explicit_id,
+                preview,
+                ..
+            } => {
+                *missing_explicit_id = "other-missing-id".to_owned();
+                *preview = "Points to [[id:other-missing-id][Missing]].".to_owned();
+                stale_action.preview_identity()
+            }
+        };
+        let stale_preview_error = review_finding_remediation_apply(
+            &mut state,
+            serde_json::to_value(ReviewFindingRemediationApplyParams {
+                review_id: "review/audit/dangling-links/custom".to_owned(),
+                finding_id: dangling_finding_id.clone(),
+                expected_preview: stale_preview,
+                action: stale_action,
+            })
+            .expect("stale apply params should serialize"),
+        )
+        .expect_err("stale stored preview should be rejected");
+        assert_eq!(
+            stale_preview_error.into_inner().message,
+            format!(
+                "stale remediation preview for finding {dangling_finding_id} in review run review/audit/dangling-links/custom"
+            )
+        );
+
+        let mut wrong_replacement = action.clone();
+        match &mut wrong_replacement {
+            AuditRemediationApplyAction::UnlinkDanglingLink {
+                replacement_text, ..
+            } => *replacement_text = "Wrong".to_owned(),
+        }
+        let wrong_replacement_error = review_finding_remediation_apply(
+            &mut state,
+            serde_json::to_value(ReviewFindingRemediationApplyParams {
+                review_id: "review/audit/dangling-links/custom".to_owned(),
+                finding_id: dangling_finding_id.clone(),
+                expected_preview: preview.preview.preview_identity.clone(),
+                action: wrong_replacement,
+            })
+            .expect("wrong replacement params should serialize"),
+        )
+        .expect_err("action with wrong replacement should be rejected");
+        assert_eq!(
+            wrong_replacement_error.into_inner().message,
+            "unlink-dangling-link replacement_text must match the current link label: Missing"
+        );
+
+        let source_path = state.root.join("dangling-source.org");
+        let stale_source = fs::read_to_string(&source_path)
+            .expect("dangling source should read")
+            .replace("[[id:missing-id][Missing]]", "[[id:missing-id][Stale]]");
+        fs::write(&source_path, stale_source).expect("stale fixture should write");
+        let stale_file_error = review_finding_remediation_apply(
+            &mut state,
+            serde_json::to_value(ReviewFindingRemediationApplyParams {
+                review_id: "review/audit/dangling-links/custom".to_owned(),
+                finding_id: dangling_finding_id,
+                expected_preview: preview.preview.preview_identity,
+                action: action.clone(),
+            })
+            .expect("stale file params should serialize"),
+        )
+        .expect_err("stale file contents should be rejected");
+        assert!(
+            stale_file_error
+                .into_inner()
+                .message
+                .contains("remediation action no longer matches file contents")
+        );
+
+        let _: SaveCorpusAuditReviewResult = serde_json::from_value(
+            save_corpus_audit_review(
+                &mut state,
+                json!({
+                    "audit": "orphan-notes",
+                    "limit": 20,
+                    "review_id": "review/audit/orphan-notes/custom",
+                    "overwrite": true
+                }),
+            )
+            .expect("save orphan review RPC should succeed"),
+        )
+        .expect("orphan review result should decode");
+        let orphan_review: ReviewRunResult = serde_json::from_value(
+            review_run(
+                &mut state,
+                json!({ "review_id": "review/audit/orphan-notes/custom" }),
+            )
+            .expect("orphan review should load"),
+        )
+        .expect("orphan review result should decode");
+        let unsupported = review_finding_remediation_apply(
+            &mut state,
+            serde_json::to_value(ReviewFindingRemediationApplyParams {
+                review_id: "review/audit/orphan-notes/custom".to_owned(),
+                finding_id: orphan_review.review.findings[0].finding_id.clone(),
+                expected_preview: action.preview_identity(),
+                action,
+            })
+            .expect("unsupported apply params should serialize"),
+        )
+        .expect_err("unsupported finding should be rejected");
         assert_eq!(
             unsupported.into_inner().message,
             "review finding has no remediation preview for orphan-note evidence"
