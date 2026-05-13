@@ -6,6 +6,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-05-14
+
 ### Added
 - Added Rust-owned structural rewrite reports and daemon/CLI flows for
   `edit refile-subtree`, `edit refile-region`, `edit extract-subtree`,

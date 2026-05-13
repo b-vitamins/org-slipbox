@@ -13,8 +13,8 @@ side owns commands, session state, and presentation.
 
 ## Status
 
-Current development is preparing the `0.12.0` structural editing and
-stabilization release on top of the released `0.11.0` CLI parity foundation.
+The latest release is `0.12.0`, the structural editing and stabilization line
+built on the `0.11.0` CLI parity foundation.
 
 The documented workflow surface is intended to remain complete enough for
 day-to-day replacement use while the project deepens its exploratory model.
