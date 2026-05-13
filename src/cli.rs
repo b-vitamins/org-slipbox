@@ -21,14 +21,16 @@ use slipbox_core::{
     ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactKind,
     ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
     ExplorationArtifactSummary, ExplorationEntry, ExplorationExplanation, ExplorationLens,
-    ExplorationSectionKind, ExploreParams, ExploreResult, ExtractSubtreeParams, FileRecord,
+    ExplorationSectionKind, ExploreParams, ExploreResult, ExtractSubtreeParams,
+    FileDiagnosticIssue, FileDiagnostics, FileDiagnosticsParams, FileDiagnosticsResult, FileRecord,
     ForwardLinksParams, ForwardLinksResult, GraphParams, GraphResult, GraphTitleShortening,
-    ImportWorkbenchPackParams, IndexFileParams, IndexFileResult, IndexStats, IndexedFilesResult,
-    ListExplorationArtifactsResult, ListReviewRoutinesResult, ListReviewRunsResult,
-    ListWorkbenchPacksResult, ListWorkflowsResult, MarkReviewFindingParams,
-    MarkReviewFindingResult, NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams,
-    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonEntry,
-    NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
+    ImportWorkbenchPackParams, IndexDiagnostics, IndexDiagnosticsResult, IndexFileParams,
+    IndexFileResult, IndexStats, IndexedFilesResult, ListExplorationArtifactsResult,
+    ListReviewRoutinesResult, ListReviewRunsResult, ListWorkbenchPacksResult, ListWorkflowsResult,
+    MarkReviewFindingParams, MarkReviewFindingResult, NodeAtPointParams, NodeDiagnosticIssue,
+    NodeDiagnostics, NodeDiagnosticsParams, NodeDiagnosticsResult, NodeFromIdParams,
+    NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
+    NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
     NoteComparisonSectionKind, OccurrenceRecord, PlanningField, PlanningRelationRecord,
     RandomNodeResult, RefRecord, RefileRegionParams, RefileSubtreeParams, ReviewFinding,
     ReviewFindingKind, ReviewFindingPair, ReviewFindingPayload,
@@ -248,6 +250,45 @@ pub(crate) struct FileSearchArgs {
     /// Maximum file records to return.
     #[arg(long, default_value_t = 50)]
     pub(crate) limit: usize,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct DiagnoseArgs {
+    #[command(subcommand)]
+    pub(crate) command: DiagnoseCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum DiagnoseCommand {
+    /// Diagnose one file's discovery eligibility and indexed state.
+    File(DiagnoseFileArgs),
+    /// Diagnose one indexed node's source file and line state.
+    Node(DiagnoseNodeArgs),
+    /// Diagnose eligible-vs-indexed file drift and status consistency.
+    Index(DiagnoseIndexArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct DiagnoseFileArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// File path to diagnose, absolute or relative to --root.
+    #[arg(long)]
+    pub(crate) file: PathBuf,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct DiagnoseNodeArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    #[command(flatten)]
+    pub(crate) target: ResolveTargetArgs,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct DiagnoseIndexArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -683,11 +724,30 @@ fn normalize_daily_file_path(file_path: &str) -> Result<String, DaemonClientErro
 }
 
 fn normalize_edit_file_path(root: &Path, file_path: &Path) -> Result<String, DaemonClientError> {
+    let normalized = normalize_root_relative_path(root, file_path, "edit file path")?;
+    if !normalized.ends_with(".org") {
+        return Err(invalid_request_error("edit file path must end with .org"));
+    }
+    Ok(normalized)
+}
+
+fn normalize_diagnostic_file_path(
+    root: &Path,
+    file_path: &Path,
+) -> Result<String, DaemonClientError> {
+    normalize_root_relative_path(root, file_path, "diagnostic file path")
+}
+
+fn normalize_root_relative_path(
+    root: &Path,
+    file_path: &Path,
+    description: &str,
+) -> Result<String, DaemonClientError> {
     let relative = if file_path.is_absolute() {
         let absolute_root = canonical_edit_root(root)?;
         file_path.strip_prefix(&absolute_root).map_err(|_| {
             invalid_request_error(format!(
-                "edit file path must stay within --root: {}",
+                "{description} must stay within --root: {}",
                 file_path.display()
             ))
         })?
@@ -701,19 +761,18 @@ fn normalize_edit_file_path(root: &Path, file_path: &Path) -> Result<String, Dae
             Component::CurDir => {}
             Component::Normal(part) => normalized.push(part),
             Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
-                return Err(invalid_request_error(
-                    "edit file path must stay within --root",
-                ));
+                return Err(invalid_request_error(format!(
+                    "{description} must stay within --root"
+                )));
             }
         }
     }
 
     let normalized = normalized.to_string_lossy().replace('\\', "/");
     if normalized.is_empty() {
-        return Err(invalid_request_error("edit file path must not be empty"));
-    }
-    if !normalized.ends_with(".org") {
-        return Err(invalid_request_error("edit file path must end with .org"));
+        return Err(invalid_request_error(format!(
+            "{description} must not be empty"
+        )));
     }
     Ok(normalized)
 }
@@ -2073,6 +2132,14 @@ pub(crate) fn run_file(args: &FileArgs) -> Result<(), CliCommandError> {
     }
 }
 
+pub(crate) fn run_diagnose(args: &DiagnoseArgs) -> Result<(), CliCommandError> {
+    match &args.command {
+        DiagnoseCommand::File(command) => run_headless_command(command),
+        DiagnoseCommand::Node(command) => run_headless_command(command),
+        DiagnoseCommand::Index(command) => run_headless_command(command),
+    }
+}
+
 pub(crate) fn run_node(args: &NodeArgs) -> Result<(), CliCommandError> {
     match &args.command {
         NodeCommand::Show(command) => run_headless_command(command),
@@ -3283,6 +3350,56 @@ impl HeadlessCommand for FileSearchArgs {
 
     fn render_human(&self, output: &Self::Output) -> String {
         render_file_search_result(output)
+    }
+}
+
+impl HeadlessCommand for DiagnoseFileArgs {
+    type Output = FileDiagnosticsResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        let file_path = normalize_diagnostic_file_path(&self.headless.scope.root, &self.file)?;
+        client.diagnose_file(&FileDiagnosticsParams { file_path })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_file_diagnostics(&output.diagnostic)
+    }
+}
+
+impl HeadlessCommand for DiagnoseNodeArgs {
+    type Output = NodeDiagnosticsResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        let node_key = resolve_anchor_or_note_target_key(client, &self.target.target())?;
+        client.diagnose_node(&NodeDiagnosticsParams { node_key })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_node_diagnostics(&output.diagnostic)
+    }
+}
+
+impl HeadlessCommand for DiagnoseIndexArgs {
+    type Output = IndexDiagnosticsResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        client.diagnose_index()
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_index_diagnostics(&output.diagnostic)
     }
 }
 
@@ -6263,6 +6380,139 @@ fn render_file_record(file: &FileRecord) -> String {
         "- {} | {} | nodes: {}\n",
         file.file_path, file.title, file.node_count
     )
+}
+
+fn render_file_diagnostics(diagnostic: &FileDiagnostics) -> String {
+    let mut output = String::new();
+    output.push_str(&format!("file: {}\n", diagnostic.file_path));
+    output.push_str(&format!("absolute path: {}\n", diagnostic.absolute_path));
+    output.push_str(&format!("exists: {}\n", yes_no(diagnostic.exists)));
+    output.push_str(&format!("eligible: {}\n", yes_no(diagnostic.eligible)));
+    output.push_str(&format!("indexed: {}\n", yes_no(diagnostic.indexed)));
+    if let Some(record) = &diagnostic.index_record {
+        output.push_str(&format!("title: {}\n", record.title));
+        output.push_str(&format!("nodes: {}\n", record.node_count));
+        output.push_str(&format!("mtime ns: {}\n", record.mtime_ns));
+    }
+    output.push_str("issues:\n");
+    render_file_diagnostic_issues(&mut output, &diagnostic.issues, "  ");
+    output
+}
+
+fn render_node_diagnostics(diagnostic: &NodeDiagnostics) -> String {
+    let mut output = String::new();
+    output.push_str(&format!(
+        "node: {}\n",
+        render_anchor_identity(&diagnostic.node)
+    ));
+    output.push_str(&format!("file: {}\n", diagnostic.file.file_path));
+    output.push_str(&format!("line: {}\n", diagnostic.node.line));
+    output.push_str(&format!(
+        "line present: {}\n",
+        yes_no(diagnostic.line_present)
+    ));
+    output.push_str("file issues:\n");
+    render_file_diagnostic_issues(&mut output, &diagnostic.file.issues, "  ");
+    output.push_str("node issues:\n");
+    render_node_diagnostic_issues(&mut output, &diagnostic.issues, "  ");
+    output
+}
+
+fn render_index_diagnostics(diagnostic: &IndexDiagnostics) -> String {
+    let mut output = String::new();
+    output.push_str(&format!("root: {}\n", diagnostic.root));
+    output.push_str(&format!(
+        "eligible files: {}\n",
+        diagnostic.eligible_files.len()
+    ));
+    output.push_str(&format!(
+        "indexed files: {}\n",
+        diagnostic.indexed_files.len()
+    ));
+    output.push_str(&format!(
+        "status consistent: {}\n",
+        yes_no(diagnostic.status_consistent)
+    ));
+    output.push_str(&format!(
+        "index current: {}\n",
+        yes_no(diagnostic.index_current)
+    ));
+    output.push_str(&format!(
+        "status counts: files={} nodes={} links={}\n",
+        diagnostic.status.files_indexed,
+        diagnostic.status.nodes_indexed,
+        diagnostic.status.links_indexed
+    ));
+    render_path_list(
+        &mut output,
+        "missing from index",
+        &diagnostic.missing_from_index,
+    );
+    render_path_list(
+        &mut output,
+        "indexed but missing",
+        &diagnostic.indexed_but_missing,
+    );
+    render_path_list(
+        &mut output,
+        "indexed but ineligible",
+        &diagnostic.indexed_but_ineligible,
+    );
+    output
+}
+
+fn render_file_diagnostic_issues(
+    output: &mut String,
+    issues: &[FileDiagnosticIssue],
+    indent: &str,
+) {
+    if issues.is_empty() {
+        output.push_str(indent);
+        output.push_str("(none)\n");
+        return;
+    }
+    for issue in issues {
+        output.push_str(indent);
+        output.push_str(match issue {
+            FileDiagnosticIssue::MissingFromIndex => "missing-from-index",
+            FileDiagnosticIssue::IndexedButMissing => "indexed-but-missing",
+            FileDiagnosticIssue::IndexedButIneligible => "indexed-but-ineligible",
+        });
+        output.push('\n');
+    }
+}
+
+fn render_node_diagnostic_issues(
+    output: &mut String,
+    issues: &[NodeDiagnosticIssue],
+    indent: &str,
+) {
+    if issues.is_empty() {
+        output.push_str(indent);
+        output.push_str("(none)\n");
+        return;
+    }
+    for issue in issues {
+        output.push_str(indent);
+        output.push_str(match issue {
+            NodeDiagnosticIssue::SourceFileMissing => "source-file-missing",
+            NodeDiagnosticIssue::SourceFileIneligible => "source-file-ineligible",
+            NodeDiagnosticIssue::SourceFileUnindexed => "source-file-unindexed",
+            NodeDiagnosticIssue::LineOutOfRange => "line-out-of-range",
+        });
+        output.push('\n');
+    }
+}
+
+fn render_path_list(output: &mut String, label: &str, paths: &[String]) {
+    output.push_str(&format!("{label}: {}\n", paths.len()));
+    for path in paths {
+        output.push_str(&format!("- {path}\n"));
+    }
+}
+
+fn yes_no(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
 }
 
 fn render_structural_write_report(report: &StructuralWriteReport) -> String {

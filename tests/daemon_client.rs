@@ -13,23 +13,23 @@ use slipbox_core::{
     DanglingLinkAuditRecord, EnsureFileNodeParams, EnsureNodeIdParams,
     ExecuteExplorationArtifactResult, ExplorationArtifactIdParams, ExplorationArtifactMetadata,
     ExplorationArtifactPayload, ExplorationLens, ExploreParams, ExtractSubtreeParams,
-    ForwardLinksParams, GraphParams, ImportWorkbenchPackParams, IndexFileParams, NodeFromIdParams,
-    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeKind, RefileRegionParams,
-    RefileSubtreeParams, ReflinksParams, ReportProfileMetadata, ReportProfileMode,
-    ReportProfileSpec, ReportProfileSubject, ReviewFinding, ReviewFindingPayload,
-    ReviewFindingRemediationApplyParams, ReviewFindingRemediationPreviewParams,
-    ReviewFindingStatus, ReviewRoutineIdParams, ReviewRun, ReviewRunDiffParams, ReviewRunIdParams,
-    ReviewRunMetadata, ReviewRunPayload, RewriteFileParams, RunReviewRoutineParams,
-    RunWorkflowParams, SaveCorpusAuditReviewParams, SaveExplorationArtifactParams,
-    SaveReviewRunParams, SaveWorkflowReviewParams, SavedExplorationArtifact, SavedLensViewArtifact,
-    SearchFilesParams, SearchNodesParams, SearchOccurrencesParams, SearchRefsParams,
-    SearchTagsParams, StructuralWriteIndexRefreshStatus, StructuralWriteOperationKind,
-    StructuralWriteResult, UnlinkedReferencesParams, UpdateNodeMetadataParams,
-    ValidateWorkbenchPackParams, WorkbenchPackCompatibility, WorkbenchPackIdParams,
-    WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackMetadata, WorkflowIdParams,
-    WorkflowInputAssignment, WorkflowResult,
+    FileDiagnosticsParams, ForwardLinksParams, GraphParams, ImportWorkbenchPackParams,
+    IndexFileParams, NodeFromIdParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeKind,
+    RefileRegionParams, RefileSubtreeParams, ReflinksParams, ReportProfileMetadata,
+    ReportProfileMode, ReportProfileSpec, ReportProfileSubject, ReviewFinding,
+    ReviewFindingPayload, ReviewFindingRemediationApplyParams,
+    ReviewFindingRemediationPreviewParams, ReviewFindingStatus, ReviewRoutineIdParams, ReviewRun,
+    ReviewRunDiffParams, ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload, RewriteFileParams,
+    RunReviewRoutineParams, RunWorkflowParams, SaveCorpusAuditReviewParams,
+    SaveExplorationArtifactParams, SaveReviewRunParams, SaveWorkflowReviewParams,
+    SavedExplorationArtifact, SavedLensViewArtifact, SearchFilesParams, SearchNodesParams,
+    SearchOccurrencesParams, SearchRefsParams, SearchTagsParams, StructuralWriteIndexRefreshStatus,
+    StructuralWriteOperationKind, StructuralWriteResult, UnlinkedReferencesParams,
+    UpdateNodeMetadataParams, ValidateWorkbenchPackParams, WorkbenchPackCompatibility,
+    WorkbenchPackIdParams, WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackMetadata,
+    WorkflowIdParams, WorkflowInputAssignment, WorkflowResult,
 };
-use slipbox_daemon_client::{DaemonClient, DaemonServeConfig};
+use slipbox_daemon_client::{DaemonClient, DaemonClientError, DaemonServeConfig};
 use slipbox_index::scan_root;
 use slipbox_store::Database;
 use tempfile::{TempDir, tempdir};
@@ -307,6 +307,37 @@ fn daemon_client_exposes_everyday_read_operations() -> Result<()> {
             .dot
             .contains("\"file:alpha.org\" -> \"file:beta.org\";")
     );
+
+    client.shutdown()?;
+    Ok(())
+}
+
+#[test]
+fn daemon_client_diagnostics_reject_root_escape_paths() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    fs::write(workspace.path().join("outside.org"), "#+title: Outside\n")?;
+    let db = workspace.path().join("slipbox.sqlite");
+    let mut client = DaemonClient::spawn(daemon_binary(), &DaemonServeConfig::new(&root, &db))?;
+
+    let error = client
+        .diagnose_file(&FileDiagnosticsParams {
+            file_path: "../outside.org".to_owned(),
+        })
+        .expect_err("diagnoseFile must reject paths outside the slipbox root");
+
+    match error {
+        DaemonClientError::Rpc(error) => {
+            assert_eq!(error.code, -32600);
+            assert!(
+                error.message.contains("must stay within the slipbox root"),
+                "{}",
+                error.message
+            );
+        }
+        other => panic!("expected JSON-RPC invalid_request, got {other:?}"),
+    }
 
     client.shutdown()?;
     Ok(())

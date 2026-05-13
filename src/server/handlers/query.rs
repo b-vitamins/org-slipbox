@@ -1,5 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::path::Path;
 
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
@@ -10,28 +11,30 @@ use slipbox_core::{
     DeleteWorkbenchPackResult, ExecuteExplorationArtifactResult, ExecutedExplorationArtifact,
     ExecutedExplorationArtifactPayload, ExplorationArtifactIdParams, ExplorationArtifactPayload,
     ExplorationArtifactResult, ExplorationArtifactSummary, ExplorationEntry, ExplorationLens,
-    ExplorationSection, ExplorationSectionKind, ExploreParams, ExploreResult, ForwardLinksParams,
+    ExplorationSection, ExplorationSectionKind, ExploreParams, ExploreResult, FileDiagnosticIssue,
+    FileDiagnostics, FileDiagnosticsParams, FileDiagnosticsResult, ForwardLinksParams,
     ForwardLinksResult, GraphParams, GraphResult, ImportWorkbenchPackParams,
-    ImportWorkbenchPackResult, IndexFileParams, IndexFileResult, IndexedFilesResult,
-    ListExplorationArtifactsParams, ListExplorationArtifactsResult, ListReviewRoutinesParams,
-    ListReviewRoutinesResult, ListReviewRunsParams, ListReviewRunsResult, ListWorkbenchPacksParams,
-    ListWorkbenchPacksResult, ListWorkflowsParams, ListWorkflowsResult, MarkReviewFindingParams,
-    MarkReviewFindingResult, NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams,
-    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonGroup,
-    NoteComparisonResult, PingInfo, RandomNodeResult, ReflinksParams, ReflinksResult,
-    ReportProfileMode, ReportProfileSpec, ReviewFinding, ReviewFindingPayload,
-    ReviewFindingRemediationApplication, ReviewFindingRemediationApplyParams,
-    ReviewFindingRemediationApplyResult, ReviewFindingRemediationPreview,
-    ReviewFindingRemediationPreviewParams, ReviewFindingRemediationPreviewResult,
-    ReviewFindingStatus, ReviewFindingStatusTransition, ReviewRoutineCompareResult,
-    ReviewRoutineExecutionResult, ReviewRoutineIdParams, ReviewRoutineReportLine,
-    ReviewRoutineResult, ReviewRoutineSource, ReviewRoutineSourceExecutionResult,
-    ReviewRoutineSpec, ReviewRun, ReviewRunDiff, ReviewRunDiffBucket, ReviewRunDiffParams,
-    ReviewRunDiffResult, ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload, ReviewRunResult,
-    ReviewRunSummary, RunReviewRoutineParams, RunReviewRoutineResult, RunWorkflowParams,
-    RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
-    SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
-    SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
+    ImportWorkbenchPackResult, IndexDiagnostics, IndexDiagnosticsResult, IndexFileParams,
+    IndexFileResult, IndexedFilesResult, ListExplorationArtifactsParams,
+    ListExplorationArtifactsResult, ListReviewRoutinesParams, ListReviewRoutinesResult,
+    ListReviewRunsParams, ListReviewRunsResult, ListWorkbenchPacksParams, ListWorkbenchPacksResult,
+    ListWorkflowsParams, ListWorkflowsResult, MarkReviewFindingParams, MarkReviewFindingResult,
+    NodeAtPointParams, NodeDiagnosticIssue, NodeDiagnostics, NodeDiagnosticsParams,
+    NodeDiagnosticsResult, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
+    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonGroup, NoteComparisonResult, PingInfo,
+    RandomNodeResult, ReflinksParams, ReflinksResult, ReportProfileMode, ReportProfileSpec,
+    ReviewFinding, ReviewFindingPayload, ReviewFindingRemediationApplication,
+    ReviewFindingRemediationApplyParams, ReviewFindingRemediationApplyResult,
+    ReviewFindingRemediationPreview, ReviewFindingRemediationPreviewParams,
+    ReviewFindingRemediationPreviewResult, ReviewFindingStatus, ReviewFindingStatusTransition,
+    ReviewRoutineCompareResult, ReviewRoutineExecutionResult, ReviewRoutineIdParams,
+    ReviewRoutineReportLine, ReviewRoutineResult, ReviewRoutineSource,
+    ReviewRoutineSourceExecutionResult, ReviewRoutineSpec, ReviewRun, ReviewRunDiff,
+    ReviewRunDiffBucket, ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams,
+    ReviewRunMetadata, ReviewRunPayload, ReviewRunResult, ReviewRunSummary, RunReviewRoutineParams,
+    RunReviewRoutineResult, RunWorkflowParams, RunWorkflowResult, SaveCorpusAuditReviewParams,
+    SaveCorpusAuditReviewResult, SaveExplorationArtifactParams, SaveExplorationArtifactResult,
+    SaveReviewRunParams, SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
     SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailStep,
     SearchFilesParams, SearchFilesResult, SearchNodesParams, SearchNodesResult,
     SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams, SearchRefsResult,
@@ -157,6 +160,162 @@ pub(crate) fn search_files(
         .search_files(&params.query, params.normalized_limit())
         .map_err(|error| internal_error(error.context("failed to query indexed files")))?;
     to_value(SearchFilesResult { files })
+}
+
+pub(crate) fn diagnose_file(
+    state: &ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: FileDiagnosticsParams = parse_params(params)?;
+    let diagnostic = file_diagnostics(state, &params.file_path)?;
+    to_value(FileDiagnosticsResult { diagnostic })
+}
+
+pub(crate) fn diagnose_node(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: NodeDiagnosticsParams = parse_params(params)?;
+    let node = state.known_anchor(&params.node_key, "diagnostic node")?;
+    let file = file_diagnostics(state, &node.file_path)?;
+    let line_present = file.exists
+        && fs::read_to_string(state.root.join(&node.file_path))
+            .map(|source| line_exists(&source, node.line))
+            .unwrap_or(false);
+    let mut issues = Vec::new();
+    if !file.exists {
+        issues.push(NodeDiagnosticIssue::SourceFileMissing);
+    }
+    if !file.eligible {
+        issues.push(NodeDiagnosticIssue::SourceFileIneligible);
+    }
+    if !file.indexed {
+        issues.push(NodeDiagnosticIssue::SourceFileUnindexed);
+    }
+    if !line_present {
+        issues.push(NodeDiagnosticIssue::LineOutOfRange);
+    }
+    to_value(NodeDiagnosticsResult {
+        diagnostic: NodeDiagnostics {
+            node,
+            file,
+            line_present,
+            issues,
+        },
+    })
+}
+
+pub(crate) fn diagnose_index(state: &ServerState) -> Result<serde_json::Value, JsonRpcError> {
+    let eligible_files = eligible_files(state)?;
+    let indexed_files = state
+        .database
+        .indexed_files()
+        .map_err(|error| internal_error(error.context("failed to read indexed files")))?;
+    let indexed_set = indexed_files.iter().cloned().collect::<HashSet<_>>();
+    let eligible_set = eligible_files.iter().cloned().collect::<HashSet<_>>();
+    let mut missing_from_index = eligible_files
+        .iter()
+        .filter(|file_path| !indexed_set.contains(*file_path))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut indexed_but_missing = Vec::new();
+    let mut indexed_but_ineligible = Vec::new();
+    for file_path in &indexed_files {
+        let absolute_path = state.root.join(file_path);
+        if !absolute_path.is_file() {
+            indexed_but_missing.push(file_path.clone());
+        } else if !eligible_set.contains(file_path) {
+            indexed_but_ineligible.push(file_path.clone());
+        }
+    }
+    missing_from_index.sort();
+    indexed_but_missing.sort();
+    indexed_but_ineligible.sort();
+    let status = state
+        .database
+        .stats()
+        .map_err(|error| internal_error(error.context("failed to read index statistics")))?;
+    let status_consistent = status.files_indexed as usize == indexed_files.len();
+    let index_current = status_consistent
+        && missing_from_index.is_empty()
+        && indexed_but_missing.is_empty()
+        && indexed_but_ineligible.is_empty();
+
+    to_value(IndexDiagnosticsResult {
+        diagnostic: IndexDiagnostics {
+            root: state.root.display().to_string(),
+            eligible_files,
+            indexed_files,
+            missing_from_index,
+            indexed_but_missing,
+            indexed_but_ineligible,
+            status,
+            status_consistent,
+            index_current,
+        },
+    })
+}
+
+fn file_diagnostics(state: &ServerState, file_path: &str) -> Result<FileDiagnostics, JsonRpcError> {
+    let (relative_path, absolute_path) = state
+        .resolve_index_path(file_path)
+        .map_err(|error| invalid_request(error.to_string()))?;
+    let exists = absolute_path.is_file();
+    let eligible = exists && state.discovery.matches_path(&state.root, &absolute_path);
+    let index_record = state
+        .database
+        .file_record(&relative_path)
+        .map_err(|error| internal_error(error.context("failed to read indexed file record")))?;
+    let indexed = index_record.is_some();
+    let mut issues = Vec::new();
+    if exists && eligible && !indexed {
+        issues.push(FileDiagnosticIssue::MissingFromIndex);
+    }
+    if indexed && !exists {
+        issues.push(FileDiagnosticIssue::IndexedButMissing);
+    }
+    if indexed && exists && !eligible {
+        issues.push(FileDiagnosticIssue::IndexedButIneligible);
+    }
+
+    Ok(FileDiagnostics {
+        file_path: relative_path,
+        absolute_path: absolute_path.display().to_string(),
+        exists,
+        eligible,
+        indexed,
+        index_record,
+        issues,
+    })
+}
+
+fn eligible_files(state: &ServerState) -> Result<Vec<String>, JsonRpcError> {
+    let files = state
+        .discovery
+        .list_files(&state.root)
+        .map_err(|error| internal_error(error.context("failed to discover eligible files")))?;
+    let mut relative_files = files
+        .iter()
+        .map(|path| relative_root_path(&state.root, path))
+        .collect::<Result<Vec<_>, _>>()?;
+    relative_files.sort();
+    Ok(relative_files)
+}
+
+fn relative_root_path(root: &Path, path: &Path) -> Result<String, JsonRpcError> {
+    path.strip_prefix(root)
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+        .map_err(|_| {
+            internal_error(anyhow!(
+                "{} is not under {}",
+                path.display(),
+                root.display()
+            ))
+        })
+}
+
+fn line_exists(source: &str, line: u32) -> bool {
+    line > 0 && source.lines().count() >= line as usize
 }
 
 pub(crate) fn search_occurrences(

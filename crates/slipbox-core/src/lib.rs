@@ -25,6 +25,83 @@ pub struct IndexedFilesResult {
     pub files: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FileDiagnosticIssue {
+    MissingFromIndex,
+    IndexedButMissing,
+    IndexedButIneligible,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileDiagnosticsParams {
+    pub file_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileDiagnostics {
+    pub file_path: String,
+    pub absolute_path: String,
+    pub exists: bool,
+    pub eligible: bool,
+    pub indexed: bool,
+    #[serde(default)]
+    pub index_record: Option<FileRecord>,
+    #[serde(default)]
+    pub issues: Vec<FileDiagnosticIssue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileDiagnosticsResult {
+    pub diagnostic: FileDiagnostics,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NodeDiagnosticIssue {
+    SourceFileMissing,
+    SourceFileIneligible,
+    SourceFileUnindexed,
+    LineOutOfRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeDiagnosticsParams {
+    pub node_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeDiagnostics {
+    pub node: AnchorRecord,
+    pub file: FileDiagnostics,
+    pub line_present: bool,
+    #[serde(default)]
+    pub issues: Vec<NodeDiagnosticIssue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeDiagnosticsResult {
+    pub diagnostic: NodeDiagnostics,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IndexDiagnostics {
+    pub root: String,
+    pub eligible_files: Vec<String>,
+    pub indexed_files: Vec<String>,
+    pub missing_from_index: Vec<String>,
+    pub indexed_but_missing: Vec<String>,
+    pub indexed_but_ineligible: Vec<String>,
+    pub status: IndexStats,
+    pub status_consistent: bool,
+    pub index_current: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IndexDiagnosticsResult {
+    pub diagnostic: IndexDiagnostics,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileRecord {
     pub file_path: String,

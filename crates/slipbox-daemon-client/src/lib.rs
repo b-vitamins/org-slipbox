@@ -13,30 +13,31 @@ use slipbox_core::{
     CaptureTemplatePreviewResult, CompareNotesParams, CorpusAuditParams, CorpusAuditResult,
     EnsureFileNodeParams, EnsureNodeIdParams, ExecuteExplorationArtifactResult,
     ExplorationArtifactIdParams, ExplorationArtifactResult, ExploreParams, ExploreResult,
-    ExtractSubtreeParams, ForwardLinksParams, ForwardLinksResult, GraphParams, GraphResult,
-    ImportWorkbenchPackParams, ImportWorkbenchPackResult, IndexFileParams, IndexFileResult,
+    ExtractSubtreeParams, FileDiagnosticsParams, FileDiagnosticsResult, ForwardLinksParams,
+    ForwardLinksResult, GraphParams, GraphResult, ImportWorkbenchPackParams,
+    ImportWorkbenchPackResult, IndexDiagnosticsResult, IndexFileParams, IndexFileResult,
     IndexStats, IndexedFilesResult, ListExplorationArtifactsParams, ListExplorationArtifactsResult,
     ListReviewRoutinesParams, ListReviewRoutinesResult, ListReviewRunsParams, ListReviewRunsResult,
     ListWorkbenchPacksParams, ListWorkbenchPacksResult, ListWorkflowsParams, ListWorkflowsResult,
-    MarkReviewFindingParams, MarkReviewFindingResult, NodeAtPointParams, NodeFromIdParams,
-    NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
-    NoteComparisonResult, PingInfo, RandomNodeResult, RefileRegionParams, RefileSubtreeParams,
-    ReflinksParams, ReflinksResult, ReviewFindingRemediationApplyParams,
-    ReviewFindingRemediationApplyResult, ReviewFindingRemediationPreviewParams,
-    ReviewFindingRemediationPreviewResult, ReviewRoutineIdParams, ReviewRoutineResult,
-    ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunResult,
-    RewriteFileParams, RunReviewRoutineParams, RunReviewRoutineResult, RunWorkflowParams,
-    RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
-    SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
-    SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult, SearchFilesParams,
-    SearchFilesResult, SearchNodesParams, SearchNodesResult, SearchOccurrencesParams,
-    SearchOccurrencesResult, SearchRefsParams, SearchRefsResult, SearchTagsParams,
-    SearchTagsResult, SlipboxLinkRewriteApplyParams, SlipboxLinkRewriteApplyResult,
-    SlipboxLinkRewritePreviewParams, SlipboxLinkRewritePreviewResult, StatusInfo,
-    StructuralWriteReport, UnlinkedReferencesParams, UnlinkedReferencesResult,
-    UpdateNodeMetadataParams, ValidateWorkbenchPackParams, ValidateWorkbenchPackResult,
-    WorkbenchPackIdParams, WorkbenchPackManifest, WorkbenchPackResult, WorkflowIdParams,
-    WorkflowResult,
+    MarkReviewFindingParams, MarkReviewFindingResult, NodeAtPointParams, NodeDiagnosticsParams,
+    NodeDiagnosticsResult, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
+    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, PingInfo, RandomNodeResult,
+    RefileRegionParams, RefileSubtreeParams, ReflinksParams, ReflinksResult,
+    ReviewFindingRemediationApplyParams, ReviewFindingRemediationApplyResult,
+    ReviewFindingRemediationPreviewParams, ReviewFindingRemediationPreviewResult,
+    ReviewRoutineIdParams, ReviewRoutineResult, ReviewRunDiffParams, ReviewRunDiffResult,
+    ReviewRunIdParams, ReviewRunResult, RewriteFileParams, RunReviewRoutineParams,
+    RunReviewRoutineResult, RunWorkflowParams, RunWorkflowResult, SaveCorpusAuditReviewParams,
+    SaveCorpusAuditReviewResult, SaveExplorationArtifactParams, SaveExplorationArtifactResult,
+    SaveReviewRunParams, SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
+    SearchFilesParams, SearchFilesResult, SearchNodesParams, SearchNodesResult,
+    SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams, SearchRefsResult,
+    SearchTagsParams, SearchTagsResult, SlipboxLinkRewriteApplyParams,
+    SlipboxLinkRewriteApplyResult, SlipboxLinkRewritePreviewParams,
+    SlipboxLinkRewritePreviewResult, StatusInfo, StructuralWriteReport, UnlinkedReferencesParams,
+    UnlinkedReferencesResult, UpdateNodeMetadataParams, ValidateWorkbenchPackParams,
+    ValidateWorkbenchPackResult, WorkbenchPackIdParams, WorkbenchPackManifest, WorkbenchPackResult,
+    WorkflowIdParams, WorkflowResult,
 };
 use slipbox_rpc::{
     JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_AGENDA, METHOD_ANCHOR_AT_POINT,
@@ -44,15 +45,16 @@ use slipbox_rpc::{
     METHOD_BACKLINKS, METHOD_CAPTURE_NODE, METHOD_CAPTURE_TEMPLATE,
     METHOD_CAPTURE_TEMPLATE_PREVIEW, METHOD_COMPARE_NOTES, METHOD_CORPUS_AUDIT,
     METHOD_DELETE_EXPLORATION_ARTIFACT, METHOD_DELETE_REVIEW_RUN, METHOD_DELETE_WORKBENCH_PACK,
-    METHOD_DEMOTE_ENTIRE_FILE, METHOD_DIFF_REVIEW_RUNS, METHOD_ENSURE_FILE_NODE,
-    METHOD_ENSURE_NODE_ID, METHOD_EXECUTE_EXPLORATION_ARTIFACT, METHOD_EXPLORATION_ARTIFACT,
-    METHOD_EXPLORE, METHOD_EXPORT_WORKBENCH_PACK, METHOD_EXTRACT_SUBTREE, METHOD_FORWARD_LINKS,
-    METHOD_GRAPH_DOT, METHOD_IMPORT_WORKBENCH_PACK, METHOD_INDEX, METHOD_INDEX_FILE,
-    METHOD_INDEXED_FILES, METHOD_LIST_EXPLORATION_ARTIFACTS, METHOD_LIST_REVIEW_ROUTINES,
-    METHOD_LIST_REVIEW_RUNS, METHOD_LIST_WORKBENCH_PACKS, METHOD_LIST_WORKFLOWS,
-    METHOD_MARK_REVIEW_FINDING, METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY,
-    METHOD_NODE_FROM_REF, METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_PROMOTE_ENTIRE_FILE,
-    METHOD_RANDOM_NODE, METHOD_REFILE_REGION, METHOD_REFILE_SUBTREE, METHOD_REFLINKS,
+    METHOD_DEMOTE_ENTIRE_FILE, METHOD_DIAGNOSE_FILE, METHOD_DIAGNOSE_INDEX, METHOD_DIAGNOSE_NODE,
+    METHOD_DIFF_REVIEW_RUNS, METHOD_ENSURE_FILE_NODE, METHOD_ENSURE_NODE_ID,
+    METHOD_EXECUTE_EXPLORATION_ARTIFACT, METHOD_EXPLORATION_ARTIFACT, METHOD_EXPLORE,
+    METHOD_EXPORT_WORKBENCH_PACK, METHOD_EXTRACT_SUBTREE, METHOD_FORWARD_LINKS, METHOD_GRAPH_DOT,
+    METHOD_IMPORT_WORKBENCH_PACK, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_INDEXED_FILES,
+    METHOD_LIST_EXPLORATION_ARTIFACTS, METHOD_LIST_REVIEW_ROUTINES, METHOD_LIST_REVIEW_RUNS,
+    METHOD_LIST_WORKBENCH_PACKS, METHOD_LIST_WORKFLOWS, METHOD_MARK_REVIEW_FINDING,
+    METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_NODE_FROM_REF,
+    METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING, METHOD_PROMOTE_ENTIRE_FILE, METHOD_RANDOM_NODE,
+    METHOD_REFILE_REGION, METHOD_REFILE_SUBTREE, METHOD_REFLINKS,
     METHOD_REVIEW_FINDING_REMEDIATION_APPLY, METHOD_REVIEW_FINDING_REMEDIATION_PREVIEW,
     METHOD_REVIEW_ROUTINE, METHOD_REVIEW_RUN, METHOD_RUN_REVIEW_ROUTINE, METHOD_RUN_WORKFLOW,
     METHOD_SAVE_CORPUS_AUDIT_REVIEW, METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SAVE_REVIEW_RUN,
@@ -248,6 +250,24 @@ where
 
     fn indexed_files(&mut self) -> Result<IndexedFilesResult, DaemonClientError> {
         self.request(METHOD_INDEXED_FILES, &Value::Null)
+    }
+
+    fn diagnose_file(
+        &mut self,
+        params: &FileDiagnosticsParams,
+    ) -> Result<FileDiagnosticsResult, DaemonClientError> {
+        self.request(METHOD_DIAGNOSE_FILE, params)
+    }
+
+    fn diagnose_node(
+        &mut self,
+        params: &NodeDiagnosticsParams,
+    ) -> Result<NodeDiagnosticsResult, DaemonClientError> {
+        self.request(METHOD_DIAGNOSE_NODE, params)
+    }
+
+    fn diagnose_index(&mut self) -> Result<IndexDiagnosticsResult, DaemonClientError> {
+        self.request(METHOD_DIAGNOSE_INDEX, &Value::Null)
     }
 
     fn search_files(
@@ -832,6 +852,24 @@ impl DaemonClient {
 
     pub fn indexed_files(&mut self) -> Result<IndexedFilesResult, DaemonClientError> {
         self.rpc.indexed_files()
+    }
+
+    pub fn diagnose_file(
+        &mut self,
+        params: &FileDiagnosticsParams,
+    ) -> Result<FileDiagnosticsResult, DaemonClientError> {
+        self.rpc.diagnose_file(params)
+    }
+
+    pub fn diagnose_node(
+        &mut self,
+        params: &NodeDiagnosticsParams,
+    ) -> Result<NodeDiagnosticsResult, DaemonClientError> {
+        self.rpc.diagnose_node(params)
+    }
+
+    pub fn diagnose_index(&mut self) -> Result<IndexDiagnosticsResult, DaemonClientError> {
+        self.rpc.diagnose_index()
     }
 
     pub fn search_files(

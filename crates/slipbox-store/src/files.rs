@@ -1,11 +1,32 @@
 use anyhow::{Context, Result};
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 
 use slipbox_core::FileRecord;
 
 use crate::Database;
 
 impl Database {
+    pub fn file_record(&self, file_path: &str) -> Result<Option<FileRecord>> {
+        let mut statement = self.connection.prepare(
+            "SELECT f.path,
+                    f.title,
+                    f.mtime_ns,
+                    COALESCE(
+                      (SELECT COUNT(*)
+                         FROM nodes AS count_nodes
+                        WHERE count_nodes.file_path = f.path),
+                      0
+                    ) AS node_count
+               FROM files AS f
+              WHERE f.path = ?1
+              LIMIT 1",
+        )?;
+        statement
+            .query_row(params![file_path], row_to_file_record)
+            .optional()
+            .context("failed to read indexed file record")
+    }
+
     pub fn search_files(&self, query: &str, limit: usize) -> Result<Vec<FileRecord>> {
         let normalized_query = query.trim();
         let mut statement = self.connection.prepare(

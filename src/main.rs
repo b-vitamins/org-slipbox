@@ -27,6 +27,8 @@ enum Command {
     Sync(cli::SyncArgs),
     /// List and search indexed files over the canonical headless connection path.
     File(cli::FileArgs),
+    /// Run maintenance diagnostics over the canonical headless connection path.
+    Diagnose(cli::DiagnoseArgs),
     /// Inspect nodes and node neighborhoods over the canonical headless connection path.
     Node(cli::NodeArgs),
     /// Search and resolve indexed references over the canonical headless connection path.
@@ -90,6 +92,7 @@ fn run() -> Result<(), cli::CliCommandError> {
         Command::Status(args) => cli::run_status(&args),
         Command::Sync(args) => cli::run_sync(&args),
         Command::File(args) => cli::run_file(&args),
+        Command::Diagnose(args) => cli::run_diagnose(&args),
         Command::Node(args) => cli::run_node(&args),
         Command::Ref(args) => cli::run_ref(&args),
         Command::Tag(args) => cli::run_tag(&args),
