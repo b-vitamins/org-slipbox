@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::str::FromStr;
+use std::sync::LazyLock;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -1879,13 +1880,16 @@ impl From<&WorkflowSpec> for WorkflowSummary {
 
 #[must_use]
 pub fn built_in_workflows() -> Vec<WorkflowSpec> {
-    vec![
-        built_in_context_sweep_workflow(),
-        built_in_unresolved_sweep_workflow(),
-        built_in_periodic_review_workflow(),
-        built_in_weak_integration_review_workflow(),
-        built_in_comparison_tension_workflow(),
-    ]
+    static WORKFLOWS: LazyLock<Vec<WorkflowSpec>> = LazyLock::new(|| {
+        vec![
+            built_in_context_sweep_workflow(),
+            built_in_unresolved_sweep_workflow(),
+            built_in_periodic_review_workflow(),
+            built_in_weak_integration_review_workflow(),
+            built_in_comparison_tension_workflow(),
+        ]
+    });
+    WORKFLOWS.clone()
 }
 
 #[must_use]
@@ -3781,10 +3785,13 @@ impl From<&ReviewRoutineSpec> for ReviewRoutineSummary {
 
 #[must_use]
 pub fn built_in_review_routines() -> Vec<ReviewRoutineSpec> {
-    vec![
-        built_in_context_sweep_review_routine(),
-        built_in_duplicate_title_review_routine(),
-    ]
+    static ROUTINES: LazyLock<Vec<ReviewRoutineSpec>> = LazyLock::new(|| {
+        vec![
+            built_in_context_sweep_review_routine(),
+            built_in_duplicate_title_review_routine(),
+        ]
+    });
+    ROUTINES.clone()
 }
 
 #[must_use]

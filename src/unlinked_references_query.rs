@@ -9,7 +9,7 @@ use slipbox_store::Database;
 
 use crate::text_query::{
     build_structural_ranges, byte_offset_for_column, column_number, has_phrase_boundaries,
-    structural_range_for_key, structural_range_for_row,
+    structural_range_for_key,
 };
 
 /// Return structured title and alias mentions that are not already linked.
@@ -36,7 +36,14 @@ pub(crate) fn query_unlinked_references(
     }
 
     let matcher = build_mention_matcher(&patterns)?;
-    let indexed_files = database.indexed_files()?;
+    let indexed_files = candidate_file_paths(database, &patterns)?;
+    let links_by_file = if let Some(explicit_id) = node.explicit_id.as_deref() {
+        database
+            .links_to_destination_by_file(explicit_id)
+            .context("failed to read indexed links for unlinked-reference scan")?
+    } else {
+        HashMap::new()
+    };
     let limit = limit.clamp(1, 1_000);
     let mut results = Vec::new();
     let mut seen = BTreeSet::new();
@@ -51,64 +58,49 @@ pub(crate) fn query_unlinked_references(
             continue;
         }
 
-        let source = slipbox_index::read_source(&absolute_path)
-            .with_context(|| format!("failed to read indexed file {}", absolute_path.display()))?;
-        let lines = source.lines().collect::<Vec<_>>();
+        let Some(candidate) = database.occurrence_document(&file_path)? else {
+            continue;
+        };
         let visible_anchors = database
             .anchors_in_file(&file_path)
             .with_context(|| format!("failed to read indexed anchors for {file_path}"))?;
         if visible_anchors.is_empty() {
             continue;
         }
-        let anchors_by_key = visible_anchors
-            .iter()
-            .map(|candidate| (candidate.node_key.as_str(), candidate))
-            .collect::<HashMap<_, _>>();
-        let outline = slipbox_index::scan_source_outline(&file_path, &source);
 
-        let ranges = build_structural_ranges(&outline, lines.len().max(1) as u32);
         let current_range = if file_path == node.file_path {
-            Some(
-                structural_range_for_key(&ranges, &node.node_key).ok_or_else(|| {
-                    anyhow!(
-                        "queried node {} was not found in indexed file {}",
-                        node.node_key,
-                        file_path
-                    )
-                })?,
-            )
+            Some(current_subtree_range(root, &file_path, node)?)
         } else {
             None
         };
-        let linked_spans = linked_spans_by_row(database, &file_path, &lines, node)?;
-        let mut source_index = 0_usize;
+        let lines = candidate.search_text.lines().collect::<Vec<_>>();
+        let lines_by_row = candidate
+            .line_rows
+            .iter()
+            .copied()
+            .zip(lines.iter().copied())
+            .collect::<HashMap<_, _>>();
+        let linked_spans = linked_spans_by_row(
+            links_by_file
+                .get(&file_path)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]),
+            &lines_by_row,
+        );
+        let mut source_anchor_index = 0_usize;
 
-        for (row_index, line) in lines.iter().enumerate() {
+        for (line_index, line) in lines.iter().enumerate() {
             if results.len() >= limit {
                 break;
             }
 
-            let row = row_index as u32 + 1;
+            let row = candidate.line_rows[line_index];
             if current_range.is_some_and(|(start, end)| start <= row && row <= end) {
                 continue;
             }
 
-            let Some(source_range) = structural_range_for_row(&ranges, row, &mut source_index)
-            else {
-                continue;
-            };
-            if source_range.excluded {
-                continue;
-            }
-            let source_anchor = anchors_by_key
-                .get(source_range.node_key.as_str())
-                .ok_or_else(|| {
-                    anyhow!(
-                        "indexed source anchor {} was not found in visible anchor map for {}",
-                        source_range.node_key,
-                        file_path
-                    )
-                })?;
+            let source_anchor =
+                resolve_owning_anchor(&visible_anchors, row, &mut source_anchor_index);
             let covered_spans = linked_spans.get(&row);
 
             for matched in matcher.find_iter(line) {
@@ -122,7 +114,7 @@ pub(crate) fn query_unlinked_references(
                 }
 
                 let result = UnlinkedReferenceRecord {
-                    source_anchor: (*source_anchor).clone(),
+                    source_anchor: source_anchor.clone(),
                     row,
                     col: column_number(line, start),
                     preview: line.trim_end().to_owned(),
@@ -189,29 +181,83 @@ fn build_mention_matcher(patterns: &[String]) -> Result<Regex> {
         .context("failed to build unlinked-reference matcher")
 }
 
-fn linked_spans_by_row(
-    database: &Database,
-    file_path: &str,
-    lines: &[&str],
-    node: &AnchorRecord,
-) -> Result<BTreeMap<u32, Vec<(usize, usize)>>> {
-    let Some(explicit_id) = node.explicit_id.as_deref() else {
-        return Ok(BTreeMap::new());
-    };
+fn candidate_file_paths(database: &Database, patterns: &[String]) -> Result<Vec<String>> {
+    if patterns
+        .iter()
+        .any(|pattern| pattern.trim().chars().count() < 3)
+    {
+        return database.indexed_files();
+    }
 
-    let links = database
-        .links_to_destination_in_file(file_path, explicit_id)
-        .with_context(|| format!("failed to read indexed links for {file_path}"))?;
+    let mut candidates = BTreeSet::new();
+    for pattern in patterns {
+        let mut offset = 0_usize;
+        loop {
+            let batch = database
+                .search_occurrence_document_paths(pattern, 1_000, offset)
+                .with_context(|| {
+                    format!("failed to prefilter unlinked-reference files for {pattern:?}")
+                })?;
+            let batch_len = batch.len();
+            if batch_len == 0 {
+                break;
+            }
+            candidates.extend(batch);
+            offset += batch_len;
+            if batch_len < 1_000 {
+                break;
+            }
+        }
+    }
+
+    Ok(candidates.into_iter().collect())
+}
+
+fn current_subtree_range(root: &Path, file_path: &str, node: &AnchorRecord) -> Result<(u32, u32)> {
+    let absolute_path = root.join(file_path);
+    if !absolute_path.exists() {
+        return Ok((0, 0));
+    }
+
+    let source = slipbox_index::read_source(&absolute_path)
+        .with_context(|| format!("failed to read indexed file {}", absolute_path.display()))?;
+    let line_count = source.lines().count().max(1) as u32;
+    let outline = slipbox_index::scan_source_outline(file_path, &source);
+    let ranges = build_structural_ranges(&outline, line_count);
+    structural_range_for_key(&ranges, &node.node_key).ok_or_else(|| {
+        anyhow!(
+            "queried node {} was not found in indexed file {}",
+            node.node_key,
+            file_path
+        )
+    })
+}
+
+fn resolve_owning_anchor<'a>(
+    anchors: &'a [AnchorRecord],
+    row: u32,
+    index: &mut usize,
+) -> &'a AnchorRecord {
+    while *index + 1 < anchors.len() && anchors[*index + 1].line <= row {
+        *index += 1;
+    }
+    &anchors[*index]
+}
+
+fn linked_spans_by_row(
+    links: &[IndexedLink],
+    lines_by_row: &HashMap<u32, &str>,
+) -> BTreeMap<u32, Vec<(usize, usize)>> {
     if links.is_empty() {
-        return Ok(BTreeMap::new());
+        return BTreeMap::new();
     }
 
     let mut spans_by_row = BTreeMap::<u32, Vec<(usize, usize)>>::new();
     for link in links {
-        let Some(line) = lines.get(link.line.saturating_sub(1) as usize) else {
+        let Some(line) = lines_by_row.get(&link.line).copied() else {
             continue;
         };
-        if let Some(span) = linked_label_span(line, &link) {
+        if let Some(span) = linked_label_span(line, link) {
             spans_by_row.entry(link.line).or_default().push(span);
         }
     }
@@ -221,7 +267,7 @@ fn linked_spans_by_row(
         spans.dedup();
     }
 
-    Ok(spans_by_row)
+    spans_by_row
 }
 
 fn linked_label_span(line: &str, link: &IndexedLink) -> Option<(usize, usize)> {

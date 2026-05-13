@@ -22,9 +22,12 @@ impl Database {
                     link.preview
                FROM links AS link
                JOIN nodes AS src ON src.node_key = link.source_node_key
-               LEFT JOIN nodes AS dest ON dest.explicit_id = link.destination_explicit_id
-              WHERE dest.explicit_id IS NULL
-              ORDER BY src.file_path, link.line, link.column, src.node_key
+              WHERE NOT EXISTS (
+                    SELECT 1
+                      FROM nodes AS dest
+                     WHERE dest.explicit_id = link.destination_explicit_id
+                  )
+              ORDER BY link.source_file_path, link.line, link.column, link.source_node_key
               LIMIT ?1",
             anchor_select_columns("src")
         );

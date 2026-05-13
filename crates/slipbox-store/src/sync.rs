@@ -128,14 +128,16 @@ impl Database {
             transaction.execute(
                 "INSERT INTO links (
                    source_node_key,
+                   source_file_path,
                    destination_explicit_id,
                    line,
                    column,
                    preview
                  )
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![
                     link.source_node_key,
+                    file.file_path,
                     link.destination_explicit_id,
                     link.line,
                     link.column,

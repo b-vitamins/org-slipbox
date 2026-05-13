@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::Database;
 
-const SCHEMA_VERSION: i32 = 14;
+const SCHEMA_VERSION: i32 = 15;
 
 impl Database {
     pub(crate) fn migrate(&self) -> Result<()> {
@@ -105,6 +105,7 @@ impl Database {
 
              CREATE TABLE IF NOT EXISTS links (
                source_node_key TEXT NOT NULL,
+               source_file_path TEXT NOT NULL,
                destination_explicit_id TEXT NOT NULL,
                line INTEGER NOT NULL,
                column INTEGER NOT NULL,
@@ -136,6 +137,12 @@ impl Database {
              CREATE INDEX IF NOT EXISTS idx_links_destination_explicit_id
                ON links (destination_explicit_id);
 
+             CREATE INDEX IF NOT EXISTS idx_links_destination_source_file_line
+               ON links (destination_explicit_id, source_file_path, line, column);
+
+             CREATE INDEX IF NOT EXISTS idx_links_source_file_line
+               ON links (source_file_path, line, column, source_node_key);
+
              CREATE INDEX IF NOT EXISTS idx_refs_ref
                ON refs (ref);
 
@@ -160,7 +167,7 @@ impl Database {
                ON nodes (todo_keyword)
                WHERE todo_keyword IS NOT NULL;
 
-             PRAGMA user_version = 14;",
+             PRAGMA user_version = 15;",
         )?;
         Ok(())
     }

@@ -534,6 +534,42 @@ fn unlinked_references_query_supports_quoted_multi_word_aliases() -> Result<()> 
 }
 
 #[test]
+fn unlinked_references_query_preserves_short_alias_matches() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    fs::write(
+        root.join("current.org"),
+        "#+title: Current\n\n* Artificial Intelligence\n:PROPERTIES:\n:ID: target-id\n:ROAM_ALIASES: AI\n:END:\nAI should stay hidden.\n",
+    )?;
+    fs::write(
+        root.join("other.org"),
+        "#+title: Other\n\nAI should surface.\nAIM should stay out.\nLinked [[id:target-id][AI]] should stay hidden as linked.\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let source = database
+        .node_from_id("target-id")?
+        .expect("expected artificial intelligence node");
+
+    let source_anchor = AnchorRecord::from(source);
+    let unlinked_references = query_unlinked_references(&database, &root, &source_anchor, 10)?;
+    assert_eq!(unlinked_references.len(), 1);
+    assert_eq!(unlinked_references[0].source_anchor.title, "Other");
+    assert_eq!(unlinked_references[0].row, 3);
+    assert_eq!(unlinked_references[0].col, 1);
+    assert_eq!(unlinked_references[0].preview, "AI should surface.");
+    assert_eq!(unlinked_references[0].matched_text, "AI");
+
+    Ok(())
+}
+
+#[test]
 fn occurrence_query_returns_structured_hits_and_honors_limits() -> Result<()> {
     let workspace = tempdir()?;
     let root = workspace.path().join("notes");

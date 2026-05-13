@@ -42,7 +42,7 @@ impl Database {
                    FROM links AS l
                    JOIN nodes AS a ON a.node_key = l.source_node_key
                   WHERE l.destination_explicit_id = ?1
-                  ORDER BY a.file_path, l.line, l.column",
+                  ORDER BY l.source_file_path, l.line, l.column",
                 crate::nodes::anchor_select_columns("a")
             )
         } else {
@@ -54,7 +54,7 @@ impl Database {
                    FROM links AS l
                    JOIN nodes AS a ON a.node_key = l.source_node_key
                   WHERE l.destination_explicit_id = ?1
-                  ORDER BY a.file_path, l.line, l.column
+                  ORDER BY l.source_file_path, l.line, l.column
                   LIMIT ?2",
                 crate::nodes::anchor_select_columns("a")
             )
@@ -71,29 +71,37 @@ impl Database {
 
         while let Some(row) = rows.next().context("failed to read backlink row")? {
             let source = row_to_backlink_source(row).context("failed to decode backlink row")?;
-            if !note_owner_cache.contains_key(&source.anchor.file_path) {
-                let owners = self
-                    .note_owners_by_anchor_key(&source.anchor.file_path)
-                    .with_context(|| {
-                        format!(
-                            "failed to resolve note owners for {}",
-                            source.anchor.file_path
-                        )
+            let (source_note, source_anchor) = if source.anchor.is_note() {
+                (
+                    NodeRecord::try_from(source.anchor.clone()).map_err(|_| {
+                        anyhow::anyhow!("anchor {} is not a canonical note", source.anchor.node_key)
+                    })?,
+                    None,
+                )
+            } else {
+                if !note_owner_cache.contains_key(&source.anchor.file_path) {
+                    let owners = self
+                        .note_owners_by_anchor_key(&source.anchor.file_path)
+                        .with_context(|| {
+                            format!(
+                                "failed to resolve note owners for {}",
+                                source.anchor.file_path
+                            )
+                        })?;
+                    note_owner_cache.insert(source.anchor.file_path.clone(), owners);
+                }
+                let source_note = note_owner_cache
+                    .get(&source.anchor.file_path)
+                    .and_then(|owners| owners.get(&source.anchor.node_key))
+                    .cloned()
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("anchor {} has no owning note", source.anchor.node_key)
                     })?;
-                note_owner_cache.insert(source.anchor.file_path.clone(), owners);
-            }
-            let source_note = note_owner_cache
-                .get(&source.anchor.file_path)
-                .and_then(|owners| owners.get(&source.anchor.node_key))
-                .cloned()
-                .ok_or_else(|| {
-                    anyhow::anyhow!("anchor {} has no owning note", source.anchor.node_key)
-                })?;
+                (source_note, Some(source.anchor))
+            };
             if unique && !seen_notes.insert(source_note.node_key.clone()) {
                 continue;
             }
-            let source_anchor =
-                (source.anchor.node_key != source_note.node_key).then_some(source.anchor);
             results.push(BacklinkRecord {
                 source_note,
                 source_anchor,
