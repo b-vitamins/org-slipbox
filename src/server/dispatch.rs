@@ -17,7 +17,8 @@ use slipbox_rpc::{
     METHOD_REVIEW_ROUTINE, METHOD_REVIEW_RUN, METHOD_RUN_REVIEW_ROUTINE, METHOD_RUN_WORKFLOW,
     METHOD_SAVE_CORPUS_AUDIT_REVIEW, METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SAVE_REVIEW_RUN,
     METHOD_SAVE_WORKFLOW_REVIEW, METHOD_SEARCH_FILES, METHOD_SEARCH_NODES,
-    METHOD_SEARCH_OCCURRENCES, METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS, METHOD_STATUS,
+    METHOD_SEARCH_OCCURRENCES, METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS,
+    METHOD_SLIPBOX_LINK_REWRITE_APPLY, METHOD_SLIPBOX_LINK_REWRITE_PREVIEW, METHOD_STATUS,
     METHOD_UNLINKED_REFERENCES, METHOD_UPDATE_NODE_METADATA, METHOD_VALIDATE_WORKBENCH_PACK,
     METHOD_WORKBENCH_PACK, METHOD_WORKFLOW,
 };
@@ -115,6 +116,8 @@ fn dispatch_request(
         METHOD_EXTRACT_SUBTREE => write::extract_subtree(state, params),
         METHOD_PROMOTE_ENTIRE_FILE => write::promote_entire_file(state, params),
         METHOD_DEMOTE_ENTIRE_FILE => write::demote_entire_file(state, params),
+        METHOD_SLIPBOX_LINK_REWRITE_PREVIEW => write::slipbox_link_rewrite_preview(state, params),
+        METHOD_SLIPBOX_LINK_REWRITE_APPLY => write::slipbox_link_rewrite_apply(state, params),
         METHOD_INDEX_FILE => query::index_file(state, params),
         _ => Err(JsonRpcError::new(JsonRpcErrorObject::method_not_found(
             format!("unsupported method: {method}"),

@@ -46,7 +46,9 @@ use slipbox_core::{
     SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, SearchFilesParams,
     SearchFilesResult, SearchNodesParams, SearchNodesResult, SearchOccurrencesParams,
     SearchOccurrencesResult, SearchRefsParams, SearchRefsResult, SearchTagsParams,
-    SearchTagsResult, StatusInfo, StructuralWriteReport, StructuralWriteResult, TrailReplayResult,
+    SearchTagsResult, SlipboxLinkRewriteApplyParams, SlipboxLinkRewriteApplyResult,
+    SlipboxLinkRewritePreview, SlipboxLinkRewritePreviewParams, SlipboxLinkRewritePreviewResult,
+    StatusInfo, StructuralWriteReport, StructuralWriteResult, TrailReplayResult,
     TrailReplayStepResult, UpdateNodeMetadataParams, ValidateWorkbenchPackResult,
     WorkbenchPackCompatibilityEnvelope, WorkbenchPackIdParams, WorkbenchPackIssue,
     WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackResult, WorkbenchPackSummary,
@@ -1250,6 +1252,56 @@ impl EditTargetArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+pub(crate) struct LinkArgs {
+    #[command(subcommand)]
+    pub(crate) command: LinkCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum LinkCommand {
+    /// Replace exact `slipbox:` Org links with stable `id:` links.
+    RewriteSlipbox(LinkRewriteSlipboxArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct LinkRewriteSlipboxArgs {
+    #[command(subcommand)]
+    pub(crate) command: LinkRewriteSlipboxCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum LinkRewriteSlipboxCommand {
+    /// Preview supported `slipbox:` link rewrites in one file.
+    Preview(LinkRewriteSlipboxPreviewArgs),
+    /// Apply supported `slipbox:` link rewrites in one file after confirmation.
+    Apply(LinkRewriteSlipboxApplyArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct LinkRewriteSlipboxFileArgs {
+    #[command(flatten)]
+    pub(crate) headless: HeadlessArgs,
+    /// File path to inspect or rewrite, absolute or relative to --root.
+    #[arg(long)]
+    pub(crate) file: PathBuf,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct LinkRewriteSlipboxPreviewArgs {
+    #[command(flatten)]
+    pub(crate) target: LinkRewriteSlipboxFileArgs,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct LinkRewriteSlipboxApplyArgs {
+    #[command(flatten)]
+    pub(crate) target: LinkRewriteSlipboxFileArgs,
+    /// Confirm replacing supported `slipbox:` links in the selected file.
+    #[arg(long)]
+    pub(crate) confirm_replace_slipbox_links: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 #[command(group(
     ArgGroup::new("target")
         .args(["id", "title", "reference", "key"])
@@ -2181,6 +2233,12 @@ pub(crate) fn run_edit(args: &EditArgs) -> Result<(), CliCommandError> {
         EditCommand::ExtractSubtree(command) => run_headless_command(command),
         EditCommand::PromoteFile(command) => run_headless_command(command),
         EditCommand::DemoteFile(command) => run_headless_command(command),
+    }
+}
+
+pub(crate) fn run_link(args: &LinkArgs) -> Result<(), CliCommandError> {
+    match &args.command {
+        LinkCommand::RewriteSlipbox(command) => run_link_rewrite_slipbox(command),
     }
 }
 
@@ -3576,6 +3634,24 @@ impl HeadlessCommand for EditDemoteFileArgs {
     }
 }
 
+impl HeadlessCommand for LinkRewriteSlipboxPreviewArgs {
+    type Output = SlipboxLinkRewritePreviewResult;
+
+    fn headless_args(&self) -> &HeadlessArgs {
+        &self.target.headless
+    }
+
+    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
+        let file_path =
+            normalize_edit_file_path(&self.target.headless.scope.root, &self.target.file)?;
+        client.slipbox_link_rewrite_preview(&SlipboxLinkRewritePreviewParams { file_path })
+    }
+
+    fn render_human(&self, output: &Self::Output) -> String {
+        render_slipbox_link_rewrite_preview(&output.preview)
+    }
+}
+
 impl HeadlessCommand for NodeEnsureIdArgs {
     type Output = AnchorRecord;
 
@@ -4199,6 +4275,49 @@ fn run_review_remediation_apply(
     let mut writer = stdout.lock();
     write_output(&mut writer, output_mode, &output, |value| {
         render_review_remediation_application(value)
+    })
+    .map_err(|error| CliCommandError::new(output_mode, error))
+}
+
+fn run_link_rewrite_slipbox(command: &LinkRewriteSlipboxArgs) -> Result<(), CliCommandError> {
+    match &command.command {
+        LinkRewriteSlipboxCommand::Preview(command) => run_headless_command(command),
+        LinkRewriteSlipboxCommand::Apply(command) => run_link_rewrite_slipbox_apply(command),
+    }
+}
+
+fn run_link_rewrite_slipbox_apply(
+    command: &LinkRewriteSlipboxApplyArgs,
+) -> Result<(), CliCommandError> {
+    let output_mode = command.target.headless.output_mode();
+    if !command.confirm_replace_slipbox_links {
+        return Err(CliCommandError::new(
+            output_mode,
+            anyhow::anyhow!("link rewrite apply requires --confirm-replace-slipbox-links"),
+        ));
+    }
+
+    let mut client = command.target.headless.connect()?;
+    let file_path =
+        normalize_edit_file_path(&command.target.headless.scope.root, &command.target.file)
+            .map_err(|error| CliCommandError::new(output_mode, error))?;
+    let preview = client
+        .slipbox_link_rewrite_preview(&SlipboxLinkRewritePreviewParams { file_path })
+        .map_err(|error| CliCommandError::new(output_mode, error))?
+        .preview;
+    let output = client
+        .slipbox_link_rewrite_apply(&SlipboxLinkRewriteApplyParams {
+            expected_preview: preview,
+        })
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    client
+        .shutdown()
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+
+    let stdout = io::stdout();
+    let mut writer = stdout.lock();
+    write_output(&mut writer, output_mode, &output, |value| {
+        render_slipbox_link_rewrite_application(value)
     })
     .map_err(|error| CliCommandError::new(output_mode, error))
 }
@@ -5888,6 +6007,71 @@ fn render_review_remediation_application(result: &ReviewFindingRemediationApplyR
         "inspect: slipbox review show {}\n",
         application.review_id
     ));
+    output
+}
+
+fn render_slipbox_link_rewrite_preview(preview: &SlipboxLinkRewritePreview) -> String {
+    let mut output = String::new();
+    output.push_str(&format!("file: {}\n", preview.file_path));
+    output.push_str(&format!("rewrites: {}\n", preview.rewrites.len()));
+    if preview.rewrites.is_empty() {
+        output.push_str("  (none)\n");
+        return output;
+    }
+    for rewrite in &preview.rewrites {
+        output.push_str(&format!(
+            "- {}:{} slipbox:{} -> ",
+            rewrite.line, rewrite.column, rewrite.title_or_alias
+        ));
+        match &rewrite.target_explicit_id {
+            Some(explicit_id) => output.push_str(&format!("id:{explicit_id}\n")),
+            None => output.push_str("id will be assigned on apply\n"),
+        }
+        output.push_str(&format!(
+            "  target: {}\n",
+            render_node_identity(&rewrite.target)
+        ));
+        output.push_str(&format!("  description: {}\n", rewrite.description));
+        output.push_str(&format!("  preview: {}\n", rewrite.preview));
+        if let Some(replacement) = &rewrite.replacement {
+            output.push_str(&format!("  replacement: {replacement}\n"));
+        }
+    }
+    output
+}
+
+fn render_slipbox_link_rewrite_application(result: &SlipboxLinkRewriteApplyResult) -> String {
+    let application = &result.application;
+    let mut output = String::new();
+    output.push_str(&format!(
+        "rewrote slipbox links: {}\n",
+        application.file_path
+    ));
+    output.push_str(&format!("rewrites: {}\n", application.rewrites.len()));
+    for rewrite in &application.rewrites {
+        output.push_str(&format!(
+            "- {}:{} slipbox:{} -> id:{}\n",
+            rewrite.line, rewrite.column, rewrite.title_or_alias, rewrite.target_explicit_id
+        ));
+        output.push_str(&format!("  target node: {}\n", rewrite.target_node_key));
+        output.push_str(&format!("  replacement: {}\n", rewrite.replacement));
+    }
+    output.push_str(&format!(
+        "index: {}\n",
+        render_structural_index_refresh(application.index_refresh)
+    ));
+    output.push_str("changed files:\n");
+    for file in &application.affected_files.changed_files {
+        output.push_str(&format!("  - {file}\n"));
+    }
+    output.push_str("removed files:\n");
+    if application.affected_files.removed_files.is_empty() {
+        output.push_str("  (none)\n");
+    } else {
+        for file in &application.affected_files.removed_files {
+            output.push_str(&format!("  - {file}\n"));
+        }
+    }
     output
 }
 

@@ -4980,6 +4980,165 @@ impl StructuralWritePreview {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlipboxLinkRewritePreviewParams {
+    pub file_path: String,
+}
+
+impl SlipboxLinkRewritePreviewParams {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_structural_write_file_path_field(&self.file_path, "file_path")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlipboxLinkRewritePreviewEntry {
+    pub line: u32,
+    pub column: u32,
+    pub preview: String,
+    pub link_text: String,
+    pub title_or_alias: String,
+    pub description: String,
+    pub target: NodeRecord,
+    #[serde(default)]
+    pub target_explicit_id: Option<String>,
+    #[serde(default)]
+    pub replacement: Option<String>,
+}
+
+impl SlipboxLinkRewritePreviewEntry {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_positive_position(self.line, "line")
+            .or_else(|| validate_positive_position(self.column, "column"))
+            .or_else(|| validate_required_text_field(&self.preview, "preview"))
+            .or_else(|| validate_required_text_field(&self.link_text, "link_text"))
+            .or_else(|| validate_required_text_field(&self.title_or_alias, "title_or_alias"))
+            .or_else(|| validate_required_text_field(&self.description, "description"))
+            .or_else(|| {
+                validate_structural_write_result_node(&self.target)
+                    .map(|error| format!("target is invalid: {error}"))
+            })
+            .or_else(|| {
+                self.target_explicit_id.as_ref().and_then(|explicit_id| {
+                    validate_required_text_field(explicit_id, "target_explicit_id")
+                })
+            })
+            .or_else(|| {
+                self.replacement.as_ref().and_then(|replacement| {
+                    validate_required_text_field(replacement, "replacement")
+                })
+            })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlipboxLinkRewritePreview {
+    pub file_path: String,
+    #[serde(default)]
+    pub rewrites: Vec<SlipboxLinkRewritePreviewEntry>,
+}
+
+impl SlipboxLinkRewritePreview {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_structural_write_file_path_field(&self.file_path, "file_path").or_else(|| {
+            self.rewrites.iter().enumerate().find_map(|(index, entry)| {
+                entry
+                    .validation_error()
+                    .map(|error| format!("link rewrite preview entry {index} is invalid: {error}"))
+            })
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlipboxLinkRewritePreviewResult {
+    pub preview: SlipboxLinkRewritePreview,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlipboxLinkRewriteApplyParams {
+    pub expected_preview: SlipboxLinkRewritePreview,
+}
+
+impl SlipboxLinkRewriteApplyParams {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        self.expected_preview.validation_error().or_else(|| {
+            self.expected_preview
+                .rewrites
+                .is_empty()
+                .then(|| "link rewrite apply requires at least one previewed rewrite".to_owned())
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlipboxLinkRewriteAppliedEntry {
+    pub line: u32,
+    pub column: u32,
+    pub title_or_alias: String,
+    pub target_node_key: String,
+    pub target_explicit_id: String,
+    pub replacement: String,
+}
+
+impl SlipboxLinkRewriteAppliedEntry {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_positive_position(self.line, "line")
+            .or_else(|| validate_positive_position(self.column, "column"))
+            .or_else(|| validate_required_text_field(&self.title_or_alias, "title_or_alias"))
+            .or_else(|| validate_required_text_field(&self.target_node_key, "target_node_key"))
+            .or_else(|| {
+                validate_required_text_field(&self.target_explicit_id, "target_explicit_id")
+            })
+            .or_else(|| validate_required_text_field(&self.replacement, "replacement"))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlipboxLinkRewriteApplication {
+    pub file_path: String,
+    #[serde(default)]
+    pub rewrites: Vec<SlipboxLinkRewriteAppliedEntry>,
+    #[serde(flatten)]
+    pub affected_files: StructuralWriteAffectedFiles,
+    pub index_refresh: StructuralWriteIndexRefreshStatus,
+}
+
+impl SlipboxLinkRewriteApplication {
+    #[must_use]
+    pub fn validation_error(&self) -> Option<String> {
+        validate_structural_write_file_path_field(&self.file_path, "file_path")
+            .or_else(|| {
+                self.rewrites.is_empty().then(|| {
+                    "link rewrite applications must include at least one rewrite".to_owned()
+                })
+            })
+            .or_else(|| {
+                self.rewrites.iter().enumerate().find_map(|(index, entry)| {
+                    entry.validation_error().map(|error| {
+                        format!("link rewrite application entry {index} is invalid: {error}")
+                    })
+                })
+            })
+            .or_else(|| self.affected_files.validation_error())
+            .or_else(|| {
+                (self.index_refresh != StructuralWriteIndexRefreshStatus::Refreshed).then(|| {
+                    "link rewrite applications must be returned after index refresh".to_owned()
+                })
+            })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlipboxLinkRewriteApplyResult {
+    pub application: SlipboxLinkRewriteApplication,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RewriteFileParams {
     pub file_path: String,
 }
@@ -6087,7 +6246,10 @@ mod tests {
         SaveExplorationArtifactResult, SaveReviewRunParams, SaveReviewRunResult,
         SaveWorkflowReviewParams, SaveWorkflowReviewResult, SavedComparisonArtifact,
         SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep,
-        SearchNodesParams, SearchNodesSort, StructuralWriteAffectedFiles,
+        SearchNodesParams, SearchNodesSort, SlipboxLinkRewriteApplication,
+        SlipboxLinkRewriteAppliedEntry, SlipboxLinkRewriteApplyParams,
+        SlipboxLinkRewriteApplyResult, SlipboxLinkRewritePreview, SlipboxLinkRewritePreviewEntry,
+        SlipboxLinkRewritePreviewResult, StructuralWriteAffectedFiles,
         StructuralWriteIndexRefreshStatus, StructuralWriteOperationKind, StructuralWritePreview,
         StructuralWritePreviewResult, StructuralWriteReport, StructuralWriteResult,
         TrailReplayResult, TrailReplayStepResult, UnlinkedReferencesParams,
@@ -6677,6 +6839,84 @@ mod tests {
                 preview
             );
         }
+    }
+
+    #[test]
+    fn slipbox_link_rewrite_contracts_round_trip_and_validate() {
+        let target = NodeRecord {
+            explicit_id: Some("target-id".to_owned()),
+            file_path: "target.org".to_owned(),
+            kind: NodeKind::File,
+            ..sample_node("file:target.org", "Target")
+        };
+        let preview = SlipboxLinkRewritePreview {
+            file_path: "source.org".to_owned(),
+            rewrites: vec![SlipboxLinkRewritePreviewEntry {
+                line: 3,
+                column: 7,
+                preview: "See [[slipbox:Target][Target Label]].".to_owned(),
+                link_text: "[[slipbox:Target][Target Label]]".to_owned(),
+                title_or_alias: "Target".to_owned(),
+                description: "Target Label".to_owned(),
+                target,
+                target_explicit_id: Some("target-id".to_owned()),
+                replacement: Some("[[id:target-id][Target Label]]".to_owned()),
+            }],
+        };
+        assert_eq!(preview.validation_error(), None);
+        let preview_result = SlipboxLinkRewritePreviewResult {
+            preview: preview.clone(),
+        };
+        let serialized =
+            serde_json::to_value(&preview_result).expect("preview result should serialize");
+        assert_eq!(
+            serde_json::from_value::<SlipboxLinkRewritePreviewResult>(serialized)
+                .expect("preview result should deserialize"),
+            preview_result
+        );
+
+        let apply_params = SlipboxLinkRewriteApplyParams {
+            expected_preview: preview,
+        };
+        assert_eq!(apply_params.validation_error(), None);
+        let application = SlipboxLinkRewriteApplication {
+            file_path: "source.org".to_owned(),
+            rewrites: vec![SlipboxLinkRewriteAppliedEntry {
+                line: 3,
+                column: 7,
+                title_or_alias: "Target".to_owned(),
+                target_node_key: "file:target.org".to_owned(),
+                target_explicit_id: "target-id".to_owned(),
+                replacement: "[[id:target-id][Target Label]]".to_owned(),
+            }],
+            affected_files: StructuralWriteAffectedFiles {
+                changed_files: vec!["source.org".to_owned(), "target.org".to_owned()],
+                removed_files: Vec::new(),
+            },
+            index_refresh: StructuralWriteIndexRefreshStatus::Refreshed,
+        };
+        assert_eq!(application.validation_error(), None);
+        let apply_result = SlipboxLinkRewriteApplyResult { application };
+        let serialized =
+            serde_json::to_value(&apply_result).expect("apply result should serialize");
+        assert_eq!(
+            serde_json::from_value::<SlipboxLinkRewriteApplyResult>(serialized)
+                .expect("apply result should deserialize"),
+            apply_result
+        );
+
+        let empty_apply = SlipboxLinkRewriteApplyParams {
+            expected_preview: SlipboxLinkRewritePreview {
+                file_path: "source.org".to_owned(),
+                rewrites: Vec::new(),
+            },
+        };
+        assert!(
+            empty_apply
+                .validation_error()
+                .expect("empty apply should be invalid")
+                .contains("at least one previewed rewrite")
+        );
     }
 
     #[test]

@@ -31,10 +31,12 @@ use slipbox_core::{
     SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult, SearchFilesParams,
     SearchFilesResult, SearchNodesParams, SearchNodesResult, SearchOccurrencesParams,
     SearchOccurrencesResult, SearchRefsParams, SearchRefsResult, SearchTagsParams,
-    SearchTagsResult, StatusInfo, StructuralWriteReport, UnlinkedReferencesParams,
-    UnlinkedReferencesResult, UpdateNodeMetadataParams, ValidateWorkbenchPackParams,
-    ValidateWorkbenchPackResult, WorkbenchPackIdParams, WorkbenchPackManifest, WorkbenchPackResult,
-    WorkflowIdParams, WorkflowResult,
+    SearchTagsResult, SlipboxLinkRewriteApplyParams, SlipboxLinkRewriteApplyResult,
+    SlipboxLinkRewritePreviewParams, SlipboxLinkRewritePreviewResult, StatusInfo,
+    StructuralWriteReport, UnlinkedReferencesParams, UnlinkedReferencesResult,
+    UpdateNodeMetadataParams, ValidateWorkbenchPackParams, ValidateWorkbenchPackResult,
+    WorkbenchPackIdParams, WorkbenchPackManifest, WorkbenchPackResult, WorkflowIdParams,
+    WorkflowResult,
 };
 use slipbox_rpc::{
     JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse, METHOD_AGENDA, METHOD_ANCHOR_AT_POINT,
@@ -55,7 +57,8 @@ use slipbox_rpc::{
     METHOD_REVIEW_ROUTINE, METHOD_REVIEW_RUN, METHOD_RUN_REVIEW_ROUTINE, METHOD_RUN_WORKFLOW,
     METHOD_SAVE_CORPUS_AUDIT_REVIEW, METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SAVE_REVIEW_RUN,
     METHOD_SAVE_WORKFLOW_REVIEW, METHOD_SEARCH_FILES, METHOD_SEARCH_NODES,
-    METHOD_SEARCH_OCCURRENCES, METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS, METHOD_STATUS,
+    METHOD_SEARCH_OCCURRENCES, METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS,
+    METHOD_SLIPBOX_LINK_REWRITE_APPLY, METHOD_SLIPBOX_LINK_REWRITE_PREVIEW, METHOD_STATUS,
     METHOD_UNLINKED_REFERENCES, METHOD_UPDATE_NODE_METADATA, METHOD_VALIDATE_WORKBENCH_PACK,
     METHOD_WORKBENCH_PACK, METHOD_WORKFLOW, read_framed_message, write_framed_message,
 };
@@ -468,6 +471,20 @@ where
         params: &RewriteFileParams,
     ) -> Result<StructuralWriteReport, DaemonClientError> {
         self.request(METHOD_DEMOTE_ENTIRE_FILE, params)
+    }
+
+    fn slipbox_link_rewrite_preview(
+        &mut self,
+        params: &SlipboxLinkRewritePreviewParams,
+    ) -> Result<SlipboxLinkRewritePreviewResult, DaemonClientError> {
+        self.request(METHOD_SLIPBOX_LINK_REWRITE_PREVIEW, params)
+    }
+
+    fn slipbox_link_rewrite_apply(
+        &mut self,
+        params: &SlipboxLinkRewriteApplyParams,
+    ) -> Result<SlipboxLinkRewriteApplyResult, DaemonClientError> {
+        self.request(METHOD_SLIPBOX_LINK_REWRITE_APPLY, params)
     }
 
     fn list_workflows(&mut self) -> Result<ListWorkflowsResult, DaemonClientError> {
@@ -1043,6 +1060,20 @@ impl DaemonClient {
         self.rpc.demote_entire_file(params)
     }
 
+    pub fn slipbox_link_rewrite_preview(
+        &mut self,
+        params: &SlipboxLinkRewritePreviewParams,
+    ) -> Result<SlipboxLinkRewritePreviewResult, DaemonClientError> {
+        self.rpc.slipbox_link_rewrite_preview(params)
+    }
+
+    pub fn slipbox_link_rewrite_apply(
+        &mut self,
+        params: &SlipboxLinkRewriteApplyParams,
+    ) -> Result<SlipboxLinkRewriteApplyResult, DaemonClientError> {
+        self.rpc.slipbox_link_rewrite_apply(params)
+    }
+
     pub fn list_workflows(&mut self) -> Result<ListWorkflowsResult, DaemonClientError> {
         self.rpc.list_workflows()
     }
@@ -1304,6 +1335,69 @@ mod tests {
         )
     }
 
+    fn slipbox_link_rewrite_preview_response(id: u64) -> JsonRpcResponse {
+        JsonRpcResponse::success(
+            json!(id),
+            json!({
+                "preview": {
+                    "file_path": "source.org",
+                    "rewrites": [{
+                        "line": 3,
+                        "column": 5,
+                        "preview": "See [[slipbox:Target][Target Label]].",
+                        "link_text": "[[slipbox:Target][Target Label]]",
+                        "title_or_alias": "Target",
+                        "description": "Target Label",
+                        "target": {
+                            "node_key": "file:target.org",
+                            "explicit_id": null,
+                            "file_path": "target.org",
+                            "title": "Target",
+                            "outline_path": "Target",
+                            "aliases": [],
+                            "tags": [],
+                            "refs": [],
+                            "todo_keyword": null,
+                            "scheduled_for": null,
+                            "deadline_for": null,
+                            "closed_at": null,
+                            "level": 1,
+                            "line": 1,
+                            "kind": "file",
+                            "file_mtime_ns": 0,
+                            "backlink_count": 0,
+                            "forward_link_count": 0
+                        },
+                        "target_explicit_id": null,
+                        "replacement": null
+                    }]
+                }
+            }),
+        )
+    }
+
+    fn slipbox_link_rewrite_apply_response(id: u64) -> JsonRpcResponse {
+        JsonRpcResponse::success(
+            json!(id),
+            json!({
+                "application": {
+                    "file_path": "source.org",
+                    "rewrites": [{
+                        "line": 3,
+                        "column": 5,
+                        "title_or_alias": "Target",
+                        "target_node_key": "file:target.org",
+                        "target_explicit_id": "target-id",
+                        "replacement": "[[id:target-id][Target Label]]"
+                    }],
+                    "changed_files": ["source.org", "target.org"],
+                    "removed_files": [],
+                    "index_refresh": "refreshed"
+                }
+            }),
+        )
+    }
+
     impl JsonRpcTransport for MockTransport {
         fn round_trip(
             &mut self,
@@ -1544,6 +1638,82 @@ mod tests {
                     "column": 11,
                     "preview": "Points to [[id:missing-id][Missing]].",
                     "replacement_text": "Missing"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn slipbox_link_rewrite_methods_send_canonical_params() {
+        let mut client = RpcClient::new(MockTransport {
+            requests: Vec::new(),
+            responses: VecDeque::from([
+                Ok(slipbox_link_rewrite_preview_response(1)),
+                Ok(slipbox_link_rewrite_apply_response(2)),
+            ]),
+            shutdowns: 0,
+        });
+
+        let preview_result = client
+            .slipbox_link_rewrite_preview(&SlipboxLinkRewritePreviewParams {
+                file_path: "source.org".to_owned(),
+            })
+            .expect("preview result should parse");
+        let apply_result = client
+            .slipbox_link_rewrite_apply(&SlipboxLinkRewriteApplyParams {
+                expected_preview: preview_result.preview.clone(),
+            })
+            .expect("apply result should parse");
+
+        assert_eq!(preview_result.preview.rewrites.len(), 1);
+        assert_eq!(apply_result.application.rewrites.len(), 1);
+        assert_eq!(
+            client.transport.requests[0].method,
+            METHOD_SLIPBOX_LINK_REWRITE_PREVIEW
+        );
+        assert_eq!(
+            client.transport.requests[0].params,
+            json!({"file_path": "source.org"})
+        );
+        assert_eq!(
+            client.transport.requests[1].method,
+            METHOD_SLIPBOX_LINK_REWRITE_APPLY
+        );
+        assert_eq!(
+            client.transport.requests[1].params,
+            json!({
+                "expected_preview": {
+                    "file_path": "source.org",
+                    "rewrites": [{
+                        "line": 3,
+                        "column": 5,
+                        "preview": "See [[slipbox:Target][Target Label]].",
+                        "link_text": "[[slipbox:Target][Target Label]]",
+                        "title_or_alias": "Target",
+                        "description": "Target Label",
+                        "target": {
+                            "node_key": "file:target.org",
+                            "explicit_id": null,
+                            "file_path": "target.org",
+                            "title": "Target",
+                            "outline_path": "Target",
+                            "aliases": [],
+                            "tags": [],
+                            "refs": [],
+                            "todo_keyword": null,
+                            "scheduled_for": null,
+                            "deadline_for": null,
+                            "closed_at": null,
+                            "level": 1,
+                            "line": 1,
+                            "kind": "file",
+                            "file_mtime_ns": 0,
+                            "backlink_count": 0,
+                            "forward_link_count": 0
+                        },
+                        "target_explicit_id": null,
+                        "replacement": null
+                    }]
                 }
             })
         );

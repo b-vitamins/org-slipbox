@@ -47,6 +47,8 @@ enum Command {
     Note(cli::NoteArgs),
     /// Run structural edit operations over the canonical headless connection path.
     Edit(cli::EditArgs),
+    /// Inspect and rewrite Org links over the canonical headless connection path.
+    Link(cli::LinkArgs),
     /// Resolve an exact note target over the canonical headless connection path.
     ResolveNode(cli::ResolveNodeArgs),
     /// Run live declared-lens exploration over the canonical headless connection path.
@@ -98,6 +100,7 @@ fn run() -> Result<(), cli::CliCommandError> {
         Command::Capture(args) => cli::run_capture(&args),
         Command::Note(args) => cli::run_note(&args),
         Command::Edit(args) => cli::run_edit(&args),
+        Command::Link(args) => cli::run_link(&args),
         Command::ResolveNode(args) => cli::run_resolve_node(&args),
         Command::Explore(args) => cli::run_explore(&args),
         Command::Compare(args) => cli::run_compare(&args),
