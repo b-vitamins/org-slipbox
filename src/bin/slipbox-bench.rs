@@ -22,22 +22,26 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use slipbox_core::{
-    AgendaParams, AppendHeadingParams, AuditRemediationPreviewPayload, BacklinkRecord,
-    CaptureNodeParams, CompareNotesParams, CorpusAuditKind, CorpusAuditParams, ExplorationEntry,
-    ExplorationLens, ExplorationSection, ExplorationSectionKind, ExploreResult, ForwardLinkRecord,
-    GraphParams, ImportWorkbenchPackParams, IndexFileParams, MarkReviewFindingParams,
-    NodeFromIdParams, NodeRecord, NoteComparisonResult, ReportJsonlLineKind, ReportProfileMetadata,
-    ReportProfileMode, ReportProfileSpec, ReportProfileSubject,
+    AgendaParams, AppendHeadingParams, AuditRemediationApplyAction, AuditRemediationPreviewPayload,
+    BacklinkRecord, CaptureNodeParams, CompareNotesParams, CorpusAuditEntry, CorpusAuditKind,
+    CorpusAuditParams, ExplorationEntry, ExplorationLens, ExplorationSection,
+    ExplorationSectionKind, ExploreResult, ExtractSubtreeParams, ForwardLinkRecord, GraphParams,
+    ImportWorkbenchPackParams, IndexFileParams, MarkReviewFindingParams, NodeFromIdParams,
+    NodeRecord, NoteComparisonResult, RefileRegionParams, RefileSubtreeParams, ReportJsonlLineKind,
+    ReportProfileMetadata, ReportProfileMode, ReportProfileSpec, ReportProfileSubject,
+    ReviewFindingPayload, ReviewFindingRemediationApplyParams,
     ReviewFindingRemediationPreviewParams, ReviewFindingStatus, ReviewRoutineMetadata,
     ReviewRoutineSaveReviewPolicy, ReviewRoutineSource, ReviewRoutineSpec, ReviewRunDiffParams,
-    ReviewRunIdParams, RunReviewRoutineParams, RunWorkflowParams, SaveCorpusAuditReviewParams,
-    SaveWorkflowReviewParams, SearchNodesParams, SearchNodesSort, SearchOccurrencesParams,
-    UpdateNodeMetadataParams, ValidateWorkbenchPackParams, WorkbenchPackCompatibility,
-    WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackMetadata, WorkflowExecutionResult,
-    WorkflowExploreFocus, WorkflowInputAssignment, WorkflowInputKind, WorkflowInputSpec,
-    WorkflowMetadata, WorkflowResolveTarget, WorkflowResolveTarget as WorkflowSpecResolveTarget,
-    WorkflowSpec, WorkflowSpecCompatibility, WorkflowStepPayload, WorkflowStepReportPayload,
-    WorkflowStepSpec,
+    ReviewRunIdParams, RewriteFileParams, RunReviewRoutineParams, RunWorkflowParams,
+    SaveCorpusAuditReviewParams, SaveWorkflowReviewParams, SearchNodesParams, SearchNodesSort,
+    SearchOccurrencesParams, SlipboxLinkRewriteApplyParams, SlipboxLinkRewritePreviewParams,
+    StructuralWriteIndexRefreshStatus, StructuralWriteOperationKind, StructuralWriteReport,
+    StructuralWriteResult, UpdateNodeMetadataParams, ValidateWorkbenchPackParams,
+    WorkbenchPackCompatibility, WorkbenchPackIssueKind, WorkbenchPackManifest,
+    WorkbenchPackMetadata, WorkflowExecutionResult, WorkflowExploreFocus, WorkflowInputAssignment,
+    WorkflowInputKind, WorkflowInputSpec, WorkflowMetadata, WorkflowResolveTarget,
+    WorkflowResolveTarget as WorkflowSpecResolveTarget, WorkflowSpec, WorkflowSpecCompatibility,
+    WorkflowStepPayload, WorkflowStepReportPayload, WorkflowStepSpec,
 };
 use slipbox_index::{DiscoveryPolicy, scan_path_with_policy, scan_root_with_policy};
 use slipbox_store::Database;
@@ -60,6 +64,7 @@ const BENCHMARK_PACK_REPORT_PROFILE_ID: &str = "profile/pack/benchmark-routine-d
 const AUDIT_REVIEW_BASE_ID: &str = "review/benchmark/audit/base";
 const AUDIT_REVIEW_TARGET_ID: &str = "review/benchmark/audit/target";
 const WORKFLOW_REVIEW_ID: &str = "review/benchmark/workflow/base";
+const REMEDIATION_APPLY_REVIEW_ID: &str = "review/benchmark/remediation/apply";
 const AGENDA_START: &str = "2026-03-01";
 const AGENDA_END: &str = "2026-03-31";
 const DEDICATED_COMPARE_CANDIDATE_LIMIT: usize = 12;
@@ -162,6 +167,14 @@ struct IterationConfig {
     everyday_capture_create: usize,
     everyday_daily_append: usize,
     everyday_metadata_update: usize,
+    structural_refile_subtree: usize,
+    structural_refile_region: usize,
+    structural_extract_subtree: usize,
+    structural_promote_file: usize,
+    structural_demote_file: usize,
+    remediation_apply: usize,
+    slipbox_link_rewrite_preview: usize,
+    slipbox_link_rewrite_apply: usize,
     search_limit: usize,
     backlinks_limit: usize,
     reflinks_limit: usize,
@@ -211,6 +224,14 @@ struct ThresholdConfig {
     everyday_capture_create_p95_ms: f64,
     everyday_daily_append_p95_ms: f64,
     everyday_metadata_update_p95_ms: f64,
+    structural_refile_subtree_p95_ms: f64,
+    structural_refile_region_p95_ms: f64,
+    structural_extract_subtree_p95_ms: f64,
+    structural_promote_file_p95_ms: f64,
+    structural_demote_file_p95_ms: f64,
+    remediation_apply_p95_ms: f64,
+    slipbox_link_rewrite_preview_p95_ms: f64,
+    slipbox_link_rewrite_apply_p95_ms: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -256,6 +277,14 @@ struct BenchmarkReport {
     everyday_capture_create: TimingReport,
     everyday_daily_append: TimingReport,
     everyday_metadata_update: TimingReport,
+    structural_refile_subtree: TimingReport,
+    structural_refile_region: TimingReport,
+    structural_extract_subtree: TimingReport,
+    structural_promote_file: TimingReport,
+    structural_demote_file: TimingReport,
+    remediation_apply: TimingReport,
+    slipbox_link_rewrite_preview: TimingReport,
+    slipbox_link_rewrite_apply: TimingReport,
 }
 
 #[derive(Debug, Serialize)]
@@ -342,6 +371,26 @@ struct DeclarativeExtensionBenchmarkFixture {
     audit_routine_id: String,
     report_routine_id: String,
     report_profile_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct StructuralBenchmarkFixture {
+    refile_subtree: Vec<RefileSubtreeParams>,
+    refile_region: Vec<RefileRegionParams>,
+    extract_subtree: Vec<ExtractSubtreeParams>,
+    promote_file: Vec<RewriteFileParams>,
+    demote_file: Vec<RewriteFileParams>,
+}
+
+#[derive(Debug, Clone)]
+struct RemediationApplyBenchmarkFixture {
+    apply_params: Vec<ReviewFindingRemediationApplyParams>,
+}
+
+#[derive(Debug, Clone)]
+struct SlipboxLinkRewriteBenchmarkFixture {
+    preview_params: SlipboxLinkRewritePreviewParams,
+    apply_params: Vec<SlipboxLinkRewriteApplyParams>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -597,6 +646,28 @@ fn run_profile(
     let everyday_daily_append = benchmark_everyday_daily_append(&mut workbench, profile)?;
     let everyday_metadata_update =
         benchmark_everyday_metadata_update(&mut workbench, profile, &hot_node)?;
+    let structural_fixture =
+        prepare_structural_benchmark_fixture(&mut workbench, profile, fixture)?;
+    let structural_refile_subtree =
+        benchmark_structural_refile_subtree(&mut workbench, profile, &structural_fixture)?;
+    let structural_refile_region =
+        benchmark_structural_refile_region(&mut workbench, profile, &structural_fixture)?;
+    let structural_extract_subtree =
+        benchmark_structural_extract_subtree(&mut workbench, profile, &structural_fixture)?;
+    let structural_promote_file =
+        benchmark_structural_promote_file(&mut workbench, profile, &structural_fixture)?;
+    let structural_demote_file =
+        benchmark_structural_demote_file(&mut workbench, profile, &structural_fixture)?;
+    let remediation_apply_fixture =
+        prepare_remediation_apply_benchmark_fixture(&mut workbench, profile, fixture)?;
+    let remediation_apply =
+        benchmark_remediation_apply(&mut workbench, profile, &remediation_apply_fixture)?;
+    let link_rewrite_fixture =
+        prepare_slipbox_link_rewrite_benchmark_fixture(&mut workbench, profile, fixture)?;
+    let slipbox_link_rewrite_preview =
+        benchmark_slipbox_link_rewrite_preview(&mut workbench, profile, &link_rewrite_fixture)?;
+    let slipbox_link_rewrite_apply =
+        benchmark_slipbox_link_rewrite_apply(&mut workbench, profile, &link_rewrite_fixture)?;
 
     Ok(BenchmarkReport {
         profile: profile_name.to_owned(),
@@ -648,6 +719,14 @@ fn run_profile(
         everyday_capture_create,
         everyday_daily_append,
         everyday_metadata_update,
+        structural_refile_subtree,
+        structural_refile_region,
+        structural_extract_subtree,
+        structural_promote_file,
+        structural_demote_file,
+        remediation_apply,
+        slipbox_link_rewrite_preview,
+        slipbox_link_rewrite_apply,
     })
 }
 
@@ -1220,6 +1299,387 @@ fn benchmark_everyday_metadata_update(
             bail!("everyday metadata update did not persist alias {alias}");
         }
         black_box(result.aliases.len());
+        Ok(())
+    })
+}
+
+fn prepare_structural_benchmark_fixture(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &CorpusFixture,
+) -> Result<StructuralBenchmarkFixture> {
+    let mut refile_subtree = Vec::with_capacity(profile.iterations.structural_refile_subtree);
+    for iteration in 0..profile.iterations.structural_refile_subtree {
+        let source_id = format!("bench-structural-refile-subtree-source-{iteration:04}");
+        let target_id = format!("bench-structural-refile-subtree-target-{iteration:04}");
+        let source_path = format!("bench-structural/refile-subtree/source-{iteration:04}.org");
+        let target_path = format!("bench-structural/refile-subtree/target-{iteration:04}.org");
+        write_indexed_bench_file(
+            workbench,
+            &fixture.root,
+            &source_path,
+            &format!(
+                "#+title: Refile Subtree Source {iteration:04}\n\n* Move Subtree {iteration:04}\n:PROPERTIES:\n:ID: {source_id}\n:END:\nBody before refile.\n** Child {iteration:04}\nChild body.\n"
+            ),
+        )?;
+        write_indexed_bench_file(
+            workbench,
+            &fixture.root,
+            &target_path,
+            &format!(
+                "#+title: Refile Subtree Target {iteration:04}\n:PROPERTIES:\n:ID: {target_id}\n:END:\n\nTarget body.\n"
+            ),
+        )?;
+        refile_subtree.push(RefileSubtreeParams {
+            source_node_key: indexed_node_from_id(workbench, &source_id)?.node_key,
+            target_node_key: indexed_node_from_id(workbench, &target_id)?.node_key,
+        });
+    }
+
+    let mut refile_region = Vec::with_capacity(profile.iterations.structural_refile_region);
+    for iteration in 0..profile.iterations.structural_refile_region {
+        let target_id = format!("bench-structural-refile-region-target-{iteration:04}");
+        let source_path = format!("bench-structural/refile-region/source-{iteration:04}.org");
+        let target_path = format!("bench-structural/refile-region/target-{iteration:04}.org");
+        let prefix = format!(
+            "#+title: Refile Region Source {iteration:04}\n:PROPERTIES:\n:ID: bench-structural-refile-region-source-{iteration:04}\n:END:\n\n"
+        );
+        let selected = format!(
+            "Region paragraph {iteration:04} line one.\nRegion paragraph {iteration:04} line two.\n"
+        );
+        let body = format!("{prefix}{selected}");
+        let start = prefix.chars().count() as u32 + 1;
+        let end = body.chars().count() as u32 + 1;
+        write_indexed_bench_file(workbench, &fixture.root, &source_path, &body)?;
+        write_indexed_bench_file(
+            workbench,
+            &fixture.root,
+            &target_path,
+            &format!(
+                "#+title: Refile Region Target {iteration:04}\n:PROPERTIES:\n:ID: {target_id}\n:END:\n\nTarget body.\n"
+            ),
+        )?;
+        refile_region.push(RefileRegionParams {
+            file_path: source_path,
+            start,
+            end,
+            target_node_key: indexed_node_from_id(workbench, &target_id)?.node_key,
+        });
+    }
+
+    let mut extract_subtree = Vec::with_capacity(profile.iterations.structural_extract_subtree);
+    for iteration in 0..profile.iterations.structural_extract_subtree {
+        let source_id = format!("bench-structural-extract-source-{iteration:04}");
+        let source_path = format!("bench-structural/extract/source-{iteration:04}.org");
+        let target_path = format!("bench-structural/extract/extracted-{iteration:04}.org");
+        write_indexed_bench_file(
+            workbench,
+            &fixture.root,
+            &source_path,
+            &format!(
+                "#+title: Extract Source {iteration:04}\n\n* Extract Me {iteration:04} :bench:\n:PROPERTIES:\n:ID: {source_id}\n:END:\nExtract body.\n** Extract Child {iteration:04}\nChild body.\n"
+            ),
+        )?;
+        extract_subtree.push(ExtractSubtreeParams {
+            source_node_key: indexed_node_from_id(workbench, &source_id)?.node_key,
+            file_path: target_path,
+        });
+    }
+
+    let mut promote_file = Vec::with_capacity(profile.iterations.structural_promote_file);
+    for iteration in 0..profile.iterations.structural_promote_file {
+        let file_path = format!("bench-structural/promote/promote-{iteration:04}.org");
+        write_indexed_bench_file(
+            workbench,
+            &fixture.root,
+            &file_path,
+            &format!(
+                "* Promote Me {iteration:04} :bench:\n:PROPERTIES:\n:ID: bench-structural-promote-{iteration:04}\n:END:\nPromote body.\n\n** Promote Child {iteration:04}\nChild body.\n"
+            ),
+        )?;
+        promote_file.push(RewriteFileParams { file_path });
+    }
+
+    let mut demote_file = Vec::with_capacity(profile.iterations.structural_demote_file);
+    for iteration in 0..profile.iterations.structural_demote_file {
+        let file_path = format!("bench-structural/demote/demote-{iteration:04}.org");
+        write_indexed_bench_file(
+            workbench,
+            &fixture.root,
+            &file_path,
+            &format!(
+                "#+title: Demote Me {iteration:04}\n#+filetags: :bench:\n:PROPERTIES:\n:ID: bench-structural-demote-{iteration:04}\n:END:\n\nDemote body.\n\n* Demote Child {iteration:04}\nChild body.\n"
+            ),
+        )?;
+        demote_file.push(RewriteFileParams { file_path });
+    }
+
+    Ok(StructuralBenchmarkFixture {
+        refile_subtree,
+        refile_region,
+        extract_subtree,
+        promote_file,
+        demote_file,
+    })
+}
+
+fn benchmark_structural_refile_subtree(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &StructuralBenchmarkFixture,
+) -> Result<TimingReport> {
+    measure_iterations(profile.iterations.structural_refile_subtree, |iteration| {
+        let report = workbench.refile_subtree(&fixture.refile_subtree[iteration])?;
+        assert_structural_write_fixture(&report, StructuralWriteOperationKind::RefileSubtree)?;
+        black_box(report.affected_files.changed_files.len());
+        Ok(())
+    })
+}
+
+fn benchmark_structural_refile_region(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &StructuralBenchmarkFixture,
+) -> Result<TimingReport> {
+    measure_iterations(profile.iterations.structural_refile_region, |iteration| {
+        let report = workbench.refile_region(&fixture.refile_region[iteration])?;
+        assert_structural_write_fixture(&report, StructuralWriteOperationKind::RefileRegion)?;
+        black_box(report.affected_files.changed_files.len());
+        Ok(())
+    })
+}
+
+fn benchmark_structural_extract_subtree(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &StructuralBenchmarkFixture,
+) -> Result<TimingReport> {
+    measure_iterations(profile.iterations.structural_extract_subtree, |iteration| {
+        let report = workbench.extract_subtree(&fixture.extract_subtree[iteration])?;
+        assert_structural_write_fixture(&report, StructuralWriteOperationKind::ExtractSubtree)?;
+        black_box(report.affected_files.changed_files.len());
+        Ok(())
+    })
+}
+
+fn benchmark_structural_promote_file(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &StructuralBenchmarkFixture,
+) -> Result<TimingReport> {
+    measure_iterations(profile.iterations.structural_promote_file, |iteration| {
+        let report = workbench.promote_entire_file(&fixture.promote_file[iteration])?;
+        assert_structural_write_fixture(&report, StructuralWriteOperationKind::PromoteFile)?;
+        black_box(report.affected_files.changed_files.len());
+        Ok(())
+    })
+}
+
+fn benchmark_structural_demote_file(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &StructuralBenchmarkFixture,
+) -> Result<TimingReport> {
+    measure_iterations(profile.iterations.structural_demote_file, |iteration| {
+        let report = workbench.demote_entire_file(&fixture.demote_file[iteration])?;
+        assert_structural_write_fixture(&report, StructuralWriteOperationKind::DemoteFile)?;
+        black_box(report.affected_files.changed_files.len());
+        Ok(())
+    })
+}
+
+fn prepare_remediation_apply_benchmark_fixture(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &CorpusFixture,
+) -> Result<RemediationApplyBenchmarkFixture> {
+    let mut expected_missing_ids = BTreeSet::new();
+    for iteration in 0..profile.iterations.remediation_apply {
+        let missing_id = format!("missing-bench-remediation-apply-{iteration:04}");
+        let file_path = format!("bench-remediation/apply/source-{iteration:04}.org");
+        write_indexed_bench_file(
+            workbench,
+            &fixture.root,
+            &file_path,
+            &format!(
+                "#+title: Remediation Apply Source {iteration:04}\n:PROPERTIES:\n:ID: bench-remediation-apply-source-{iteration:04}\n:END:\n\nBroken [[id:{missing_id}][Missing Apply {iteration:04}]].\n"
+            ),
+        )?;
+        expected_missing_ids.insert(missing_id);
+    }
+
+    let saved = workbench.save_corpus_audit_review(&SaveCorpusAuditReviewParams {
+        audit: CorpusAuditKind::DanglingLinks,
+        limit: profile
+            .iterations
+            .audit_limit
+            .max(profile.iterations.remediation_apply + 10),
+        review_id: Some(REMEDIATION_APPLY_REVIEW_ID.to_owned()),
+        title: Some("Benchmark Remediation Apply Review".to_owned()),
+        summary: Some("Per-iteration dangling-link remediation benchmark fixture.".to_owned()),
+        overwrite: true,
+    })?;
+    assert_saved_audit_review_fixture(&saved, REMEDIATION_APPLY_REVIEW_ID)?;
+    let review = workbench.review_run(&ReviewRunIdParams {
+        review_id: REMEDIATION_APPLY_REVIEW_ID.to_owned(),
+    })?;
+    let mut apply_params = Vec::with_capacity(profile.iterations.remediation_apply);
+    for finding in &review.review.findings {
+        let ReviewFindingPayload::Audit { entry } = &finding.payload else {
+            continue;
+        };
+        let CorpusAuditEntry::DanglingLink { record } = entry.as_ref() else {
+            continue;
+        };
+        if !expected_missing_ids.remove(&record.missing_explicit_id) {
+            continue;
+        }
+        let preview = workbench.review_finding_remediation_preview(
+            &ReviewFindingRemediationPreviewParams {
+                review_id: REMEDIATION_APPLY_REVIEW_ID.to_owned(),
+                finding_id: finding.finding_id.clone(),
+            },
+        )?;
+        let action = unlink_dangling_link_action_from_preview(
+            &preview.preview,
+            &record.missing_explicit_id,
+        )?;
+        apply_params.push(ReviewFindingRemediationApplyParams {
+            review_id: REMEDIATION_APPLY_REVIEW_ID.to_owned(),
+            finding_id: finding.finding_id.clone(),
+            expected_preview: preview.preview.preview_identity,
+            action,
+        });
+        if apply_params.len() == profile.iterations.remediation_apply {
+            break;
+        }
+    }
+    if apply_params.len() != profile.iterations.remediation_apply {
+        bail!(
+            "remediation apply benchmark prepared {} fixtures, expected {}",
+            apply_params.len(),
+            profile.iterations.remediation_apply
+        );
+    }
+    Ok(RemediationApplyBenchmarkFixture { apply_params })
+}
+
+fn benchmark_remediation_apply(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &RemediationApplyBenchmarkFixture,
+) -> Result<TimingReport> {
+    measure_iterations(profile.iterations.remediation_apply, |iteration| {
+        let result =
+            workbench.review_finding_remediation_apply(&fixture.apply_params[iteration])?;
+        if let Some(error) = result.application.validation_error() {
+            bail!("remediation apply benchmark returned invalid application: {error}");
+        }
+        if result.application.affected_files.changed_files.is_empty() {
+            bail!("remediation apply benchmark returned no changed files");
+        }
+        black_box(result.application.affected_files.changed_files.len());
+        Ok(())
+    })
+}
+
+fn prepare_slipbox_link_rewrite_benchmark_fixture(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &CorpusFixture,
+) -> Result<SlipboxLinkRewriteBenchmarkFixture> {
+    let preview_target_path = "bench-link-rewrite/preview-target.org";
+    write_indexed_bench_file(
+        workbench,
+        &fixture.root,
+        preview_target_path,
+        "#+title: Benchmark Link Rewrite Preview Target\n:PROPERTIES:\n:ID: bench-link-rewrite-preview-target\n:END:\n",
+    )?;
+    let preview_source_path = "bench-link-rewrite/preview-source.org";
+    write_indexed_bench_file(
+        workbench,
+        &fixture.root,
+        preview_source_path,
+        "#+title: Benchmark Link Rewrite Preview Source\n\nSee [[slipbox:Benchmark Link Rewrite Preview Target][Preview Target]].\n",
+    )?;
+    let preview_params = SlipboxLinkRewritePreviewParams {
+        file_path: preview_source_path.to_owned(),
+    };
+    assert_slipbox_link_rewrite_preview_fixture(
+        &workbench.slipbox_link_rewrite_preview(&preview_params)?,
+    )?;
+
+    let mut apply_params = Vec::with_capacity(profile.iterations.slipbox_link_rewrite_apply);
+    for iteration in 0..profile.iterations.slipbox_link_rewrite_apply {
+        let title = format!("Benchmark Link Rewrite Apply Target {iteration:04}");
+        let target_path = format!("bench-link-rewrite/apply-target-{iteration:04}.org");
+        let source_path = format!("bench-link-rewrite/apply-source-{iteration:04}.org");
+        write_indexed_bench_file(
+            workbench,
+            &fixture.root,
+            &target_path,
+            &format!("#+title: {title}\n\nTarget without ID before rewrite apply.\n"),
+        )?;
+        write_indexed_bench_file(
+            workbench,
+            &fixture.root,
+            &source_path,
+            &format!(
+                "#+title: Benchmark Link Rewrite Apply Source {iteration:04}\n\nSee [[slipbox:{title}][Apply Target {iteration:04}]].\n"
+            ),
+        )?;
+        let expected_preview = workbench
+            .slipbox_link_rewrite_preview(&SlipboxLinkRewritePreviewParams {
+                file_path: source_path,
+            })?
+            .preview;
+        if expected_preview.rewrites.is_empty() {
+            bail!("slipbox link rewrite apply fixture produced no rewrites");
+        }
+        apply_params.push(SlipboxLinkRewriteApplyParams { expected_preview });
+    }
+
+    Ok(SlipboxLinkRewriteBenchmarkFixture {
+        preview_params,
+        apply_params,
+    })
+}
+
+fn benchmark_slipbox_link_rewrite_preview(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &SlipboxLinkRewriteBenchmarkFixture,
+) -> Result<TimingReport> {
+    let sample = workbench.slipbox_link_rewrite_preview(&fixture.preview_params)?;
+    assert_slipbox_link_rewrite_preview_fixture(&sample)?;
+    measure_iterations(profile.iterations.slipbox_link_rewrite_preview, |_| {
+        let result = workbench.slipbox_link_rewrite_preview(&fixture.preview_params)?;
+        assert_slipbox_link_rewrite_preview_fixture(&result)?;
+        black_box(result.preview.rewrites.len());
+        Ok(())
+    })
+}
+
+fn benchmark_slipbox_link_rewrite_apply(
+    workbench: &mut server::WorkbenchBench,
+    profile: &BenchmarkProfile,
+    fixture: &SlipboxLinkRewriteBenchmarkFixture,
+) -> Result<TimingReport> {
+    measure_iterations(profile.iterations.slipbox_link_rewrite_apply, |iteration| {
+        let result = workbench.slipbox_link_rewrite_apply(&fixture.apply_params[iteration])?;
+        if let Some(error) = result.application.validation_error() {
+            bail!("slipbox link rewrite apply benchmark returned invalid application: {error}");
+        }
+        if result.application.rewrites.is_empty() {
+            bail!("slipbox link rewrite apply benchmark returned no rewrites");
+        }
+        if result.application.affected_files.changed_files.len() < 2 {
+            bail!(
+                "slipbox link rewrite apply benchmark expected source and target refreshes, got {:?}",
+                result.application.affected_files.changed_files
+            );
+        }
+        black_box(result.application.rewrites.len());
         Ok(())
     })
 }
@@ -2252,6 +2712,141 @@ fn assert_remediation_preview_fixture(
     Ok(())
 }
 
+fn assert_structural_write_fixture(
+    report: &StructuralWriteReport,
+    operation: StructuralWriteOperationKind,
+) -> Result<()> {
+    if report.operation != operation {
+        bail!(
+            "structural benchmark returned {:?}, expected {:?}",
+            report.operation,
+            operation
+        );
+    }
+    if let Some(error) = report.validation_error() {
+        bail!("structural benchmark returned invalid report: {error}");
+    }
+    if report.index_refresh != StructuralWriteIndexRefreshStatus::Refreshed {
+        bail!("structural benchmark returned a non-refreshed index status");
+    }
+    if report.affected_files.changed_files.is_empty() {
+        bail!("structural benchmark returned no changed files");
+    }
+    match operation {
+        StructuralWriteOperationKind::RefileRegion => {
+            if report.result.is_some() {
+                bail!("refile-region benchmark unexpectedly returned a node result");
+            }
+        }
+        StructuralWriteOperationKind::DemoteFile => match &report.result {
+            Some(StructuralWriteResult::Anchor { anchor }) if !anchor.node_key.is_empty() => {}
+            other => bail!("demote-file benchmark returned unexpected result {other:?}"),
+        },
+        _ => match &report.result {
+            Some(StructuralWriteResult::Node { node }) if !node.node_key.is_empty() => {}
+            other => bail!(
+                "structural benchmark for {:?} returned unexpected result {other:?}",
+                operation
+            ),
+        },
+    }
+    Ok(())
+}
+
+fn assert_slipbox_link_rewrite_preview_fixture(
+    result: &slipbox_core::SlipboxLinkRewritePreviewResult,
+) -> Result<()> {
+    if let Some(error) = result.preview.validation_error() {
+        bail!("slipbox link rewrite preview benchmark returned invalid preview: {error}");
+    }
+    if result.preview.rewrites.is_empty() {
+        bail!("slipbox link rewrite preview benchmark returned no rewrites");
+    }
+    Ok(())
+}
+
+fn unlink_dangling_link_action_from_preview(
+    preview: &slipbox_core::ReviewFindingRemediationPreview,
+    expected_missing_id: &str,
+) -> Result<AuditRemediationApplyAction> {
+    match &preview.payload {
+        AuditRemediationPreviewPayload::DanglingLink {
+            source,
+            missing_explicit_id,
+            file_path,
+            line,
+            column,
+            preview,
+            ..
+        } if missing_explicit_id == expected_missing_id => {
+            let replacement_text = org_link_description(preview)
+                .context("remediation apply benchmark could not derive link label")?;
+            Ok(AuditRemediationApplyAction::UnlinkDanglingLink {
+                source_node_key: source.node_key.clone(),
+                missing_explicit_id: missing_explicit_id.clone(),
+                file_path: file_path.clone(),
+                line: *line,
+                column: *column,
+                preview: preview.clone(),
+                replacement_text,
+            })
+        }
+        other => bail!(
+            "remediation apply benchmark expected dangling-link preview for {expected_missing_id}, got {other:?}"
+        ),
+    }
+}
+
+fn org_link_description(preview: &str) -> Option<String> {
+    let link_start = preview.find("[[")?;
+    let inner_start = link_start + 2;
+    let inner_end = preview[inner_start..].find("]]")? + inner_start;
+    let inner = &preview[inner_start..inner_end];
+    let (_, description) = inner.split_once("][")?;
+    (!description.is_empty()).then(|| description.to_owned())
+}
+
+fn write_indexed_bench_file(
+    workbench: &mut server::WorkbenchBench,
+    root: &Path,
+    relative_path: &str,
+    source: &str,
+) -> Result<()> {
+    let absolute_path = root.join(relative_path);
+    if let Some(parent) = absolute_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    fs::write(&absolute_path, source).with_context(|| {
+        format!(
+            "failed to write benchmark fixture {}",
+            absolute_path.display()
+        )
+    })?;
+    let result = workbench.index_file(&IndexFileParams {
+        file_path: relative_path.to_owned(),
+    })?;
+    if result.file_path != relative_path {
+        bail!(
+            "benchmark fixture indexed {}, expected {}",
+            result.file_path,
+            relative_path
+        );
+    }
+    Ok(())
+}
+
+fn indexed_node_from_id(
+    workbench: &mut server::WorkbenchBench,
+    explicit_id: &str,
+) -> Result<NodeRecord> {
+    workbench
+        .node_from_id(&NodeFromIdParams {
+            id: explicit_id.to_owned(),
+        })?
+        .with_context(|| format!("benchmark fixture node {explicit_id} was not indexed"))
+}
+
 fn assert_pack_catalog_fixture(
     result: &slipbox_core::ListWorkbenchPacksResult,
     fixture: &DeclarativeExtensionBenchmarkFixture,
@@ -3235,6 +3830,46 @@ fn enforce_thresholds(report: &BenchmarkReport, thresholds: &ThresholdConfig) ->
         report.everyday_metadata_update.p95_ms,
         thresholds.everyday_metadata_update_p95_ms,
     )?;
+    check_threshold(
+        "structural_refile_subtree",
+        report.structural_refile_subtree.p95_ms,
+        thresholds.structural_refile_subtree_p95_ms,
+    )?;
+    check_threshold(
+        "structural_refile_region",
+        report.structural_refile_region.p95_ms,
+        thresholds.structural_refile_region_p95_ms,
+    )?;
+    check_threshold(
+        "structural_extract_subtree",
+        report.structural_extract_subtree.p95_ms,
+        thresholds.structural_extract_subtree_p95_ms,
+    )?;
+    check_threshold(
+        "structural_promote_file",
+        report.structural_promote_file.p95_ms,
+        thresholds.structural_promote_file_p95_ms,
+    )?;
+    check_threshold(
+        "structural_demote_file",
+        report.structural_demote_file.p95_ms,
+        thresholds.structural_demote_file_p95_ms,
+    )?;
+    check_threshold(
+        "remediation_apply",
+        report.remediation_apply.p95_ms,
+        thresholds.remediation_apply_p95_ms,
+    )?;
+    check_threshold(
+        "slipbox_link_rewrite_preview",
+        report.slipbox_link_rewrite_preview.p95_ms,
+        thresholds.slipbox_link_rewrite_preview_p95_ms,
+    )?;
+    check_threshold(
+        "slipbox_link_rewrite_apply",
+        report.slipbox_link_rewrite_apply.p95_ms,
+        thresholds.slipbox_link_rewrite_apply_p95_ms,
+    )?;
     Ok(())
 }
 
@@ -3306,6 +3941,23 @@ fn print_summary(report: &BenchmarkReport, check: bool, output_path: &Path) {
     print_metric("everydayCaptureCreate", &report.everyday_capture_create);
     print_metric("everydayDailyAppend", &report.everyday_daily_append);
     print_metric("everydayMetadataUpdate", &report.everyday_metadata_update);
+    print_metric("structuralRefileSubtree", &report.structural_refile_subtree);
+    print_metric("structuralRefileRegion", &report.structural_refile_region);
+    print_metric(
+        "structuralExtractSubtree",
+        &report.structural_extract_subtree,
+    );
+    print_metric("structuralPromoteFile", &report.structural_promote_file);
+    print_metric("structuralDemoteFile", &report.structural_demote_file);
+    print_metric("remediationApply", &report.remediation_apply);
+    print_metric(
+        "slipboxLinkRewritePreview",
+        &report.slipbox_link_rewrite_preview,
+    );
+    print_metric(
+        "slipboxLinkRewriteApply",
+        &report.slipbox_link_rewrite_apply,
+    );
 }
 
 fn print_metric(name: &str, report: &TimingReport) {
@@ -3502,6 +4154,35 @@ impl BenchmarkProfile {
             (
                 "everyday_metadata_update",
                 self.iterations.everyday_metadata_update,
+            ),
+            (
+                "structural_refile_subtree",
+                self.iterations.structural_refile_subtree,
+            ),
+            (
+                "structural_refile_region",
+                self.iterations.structural_refile_region,
+            ),
+            (
+                "structural_extract_subtree",
+                self.iterations.structural_extract_subtree,
+            ),
+            (
+                "structural_promote_file",
+                self.iterations.structural_promote_file,
+            ),
+            (
+                "structural_demote_file",
+                self.iterations.structural_demote_file,
+            ),
+            ("remediation_apply", self.iterations.remediation_apply),
+            (
+                "slipbox_link_rewrite_preview",
+                self.iterations.slipbox_link_rewrite_preview,
+            ),
+            (
+                "slipbox_link_rewrite_apply",
+                self.iterations.slipbox_link_rewrite_apply,
             ),
             ("search_limit", self.iterations.search_limit),
             ("backlinks_limit", self.iterations.backlinks_limit),
@@ -3704,6 +4385,14 @@ mod tests {
                 everyday_capture_create: 1,
                 everyday_daily_append: 1,
                 everyday_metadata_update: 1,
+                structural_refile_subtree: 1,
+                structural_refile_region: 1,
+                structural_extract_subtree: 1,
+                structural_promote_file: 1,
+                structural_demote_file: 1,
+                remediation_apply: 1,
+                slipbox_link_rewrite_preview: 1,
+                slipbox_link_rewrite_apply: 1,
                 search_limit: 5,
                 backlinks_limit: 20,
                 reflinks_limit: 20,
@@ -3751,6 +4440,14 @@ mod tests {
                 everyday_capture_create_p95_ms: 1.0,
                 everyday_daily_append_p95_ms: 1.0,
                 everyday_metadata_update_p95_ms: 1.0,
+                structural_refile_subtree_p95_ms: 1.0,
+                structural_refile_region_p95_ms: 1.0,
+                structural_extract_subtree_p95_ms: 1.0,
+                structural_promote_file_p95_ms: 1.0,
+                structural_demote_file_p95_ms: 1.0,
+                remediation_apply_p95_ms: 1.0,
+                slipbox_link_rewrite_preview_p95_ms: 1.0,
+                slipbox_link_rewrite_apply_p95_ms: 1.0,
             },
         };
         let review_fixture = prepare_review_benchmark_fixtures(
@@ -3848,6 +4545,14 @@ mod tests {
                 everyday_capture_create: 1,
                 everyday_daily_append: 1,
                 everyday_metadata_update: 1,
+                structural_refile_subtree: 1,
+                structural_refile_region: 1,
+                structural_extract_subtree: 1,
+                structural_promote_file: 1,
+                structural_demote_file: 1,
+                remediation_apply: 1,
+                slipbox_link_rewrite_preview: 1,
+                slipbox_link_rewrite_apply: 1,
                 search_limit: 5,
                 backlinks_limit: 20,
                 reflinks_limit: 20,
@@ -3895,6 +4600,14 @@ mod tests {
                 everyday_capture_create_p95_ms: 1.0,
                 everyday_daily_append_p95_ms: 1.0,
                 everyday_metadata_update_p95_ms: 1.0,
+                structural_refile_subtree_p95_ms: 1.0,
+                structural_refile_region_p95_ms: 1.0,
+                structural_extract_subtree_p95_ms: 1.0,
+                structural_promote_file_p95_ms: 1.0,
+                structural_demote_file_p95_ms: 1.0,
+                remediation_apply_p95_ms: 1.0,
+                slipbox_link_rewrite_preview_p95_ms: 1.0,
+                slipbox_link_rewrite_apply_p95_ms: 1.0,
             },
         };
 
@@ -3948,6 +4661,95 @@ mod tests {
         );
         assert_eq!(
             benchmark_everyday_metadata_update(&mut workbench, &profile, &hot_node)?
+                .samples_ms
+                .len(),
+            1
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn generated_corpus_guarantees_structural_write_benchmark_fixtures() -> Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let config = CorpusConfig {
+            files: 3,
+            headings_per_file: 4,
+            workflow_specs: 4,
+            hot_link_stride: 2,
+            ref_stride: 2,
+            scheduled_stride: 2,
+            deadline_stride: 3,
+            query_count: 4,
+        };
+        let fixture = generate_corpus(tempdir.path(), &config)?;
+        let files = scan_root_with_policy(&fixture.root, &DiscoveryPolicy::default())?;
+        let mut database = Database::open(&baseline_db_path(&fixture))?;
+        database.sync_index(&files)?;
+        let mut workbench = server::WorkbenchBench::new(
+            fixture.root.clone(),
+            baseline_db_path(&fixture),
+            fixture.workflow_dirs.clone(),
+            DiscoveryPolicy::default(),
+        )?;
+        let profile = one_iteration_benchmark_profile(config);
+
+        let structural_fixture =
+            prepare_structural_benchmark_fixture(&mut workbench, &profile, &fixture)?;
+        assert_eq!(
+            benchmark_structural_refile_subtree(&mut workbench, &profile, &structural_fixture)?
+                .samples_ms
+                .len(),
+            1
+        );
+        assert_eq!(
+            benchmark_structural_refile_region(&mut workbench, &profile, &structural_fixture)?
+                .samples_ms
+                .len(),
+            1
+        );
+        assert_eq!(
+            benchmark_structural_extract_subtree(&mut workbench, &profile, &structural_fixture)?
+                .samples_ms
+                .len(),
+            1
+        );
+        assert_eq!(
+            benchmark_structural_promote_file(&mut workbench, &profile, &structural_fixture)?
+                .samples_ms
+                .len(),
+            1
+        );
+        assert_eq!(
+            benchmark_structural_demote_file(&mut workbench, &profile, &structural_fixture)?
+                .samples_ms
+                .len(),
+            1
+        );
+
+        let remediation_fixture =
+            prepare_remediation_apply_benchmark_fixture(&mut workbench, &profile, &fixture)?;
+        assert_eq!(
+            benchmark_remediation_apply(&mut workbench, &profile, &remediation_fixture)?
+                .samples_ms
+                .len(),
+            1
+        );
+
+        let link_rewrite_fixture =
+            prepare_slipbox_link_rewrite_benchmark_fixture(&mut workbench, &profile, &fixture)?;
+        assert_eq!(
+            benchmark_slipbox_link_rewrite_preview(
+                &mut workbench,
+                &profile,
+                &link_rewrite_fixture
+            )?
+            .samples_ms
+            .len(),
+            1
+        );
+        assert_eq!(
+            benchmark_slipbox_link_rewrite_apply(&mut workbench, &profile, &link_rewrite_fixture)?
                 .samples_ms
                 .len(),
             1
@@ -4031,6 +4833,14 @@ mod tests {
                 everyday_capture_create: 1,
                 everyday_daily_append: 1,
                 everyday_metadata_update: 1,
+                structural_refile_subtree: 1,
+                structural_refile_region: 1,
+                structural_extract_subtree: 1,
+                structural_promote_file: 1,
+                structural_demote_file: 1,
+                remediation_apply: 1,
+                slipbox_link_rewrite_preview: 1,
+                slipbox_link_rewrite_apply: 1,
                 search_limit: 5,
                 backlinks_limit: 20,
                 reflinks_limit: 20,
@@ -4078,6 +4888,14 @@ mod tests {
                 everyday_capture_create_p95_ms: 1.0,
                 everyday_daily_append_p95_ms: 1.0,
                 everyday_metadata_update_p95_ms: 1.0,
+                structural_refile_subtree_p95_ms: 1.0,
+                structural_refile_region_p95_ms: 1.0,
+                structural_extract_subtree_p95_ms: 1.0,
+                structural_promote_file_p95_ms: 1.0,
+                structural_demote_file_p95_ms: 1.0,
+                remediation_apply_p95_ms: 1.0,
+                slipbox_link_rewrite_preview_p95_ms: 1.0,
+                slipbox_link_rewrite_apply_p95_ms: 1.0,
             },
         };
 
@@ -4119,6 +4937,119 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    fn one_iteration_benchmark_profile(config: CorpusConfig) -> BenchmarkProfile {
+        BenchmarkProfile {
+            corpus: config,
+            iterations: IterationConfig {
+                full_index: 1,
+                index_file: 1,
+                search_nodes: 1,
+                search_nodes_sorted: 1,
+                search_files: 1,
+                search_occurrences: 1,
+                backlinks: 1,
+                forward_links: 1,
+                reflinks: 1,
+                unlinked_references: 1,
+                node_at_point: 1,
+                agenda: 1,
+                persistent_buffer_samples: 1,
+                persistent_buffer_iterations: 1,
+                dedicated_buffer_samples: 1,
+                dedicated_buffer_iterations: 1,
+                dedicated_exploration_buffer_samples: 1,
+                dedicated_exploration_buffer_iterations: 1,
+                workflow_catalog: 1,
+                workflow_run: 1,
+                corpus_audit: 1,
+                review_list: 1,
+                review_show: 1,
+                review_diff: 1,
+                review_mark: 2,
+                audit_save_review: 1,
+                workflow_save_review: 1,
+                remediation_preview: 1,
+                pack_catalog: 1,
+                pack_validation: 2,
+                pack_import: 1,
+                routine_run: 1,
+                report_profile_rendering: 1,
+                everyday_file_sync: 1,
+                everyday_node_show: 1,
+                everyday_node_search: 1,
+                everyday_occurrence_search: 1,
+                everyday_agenda_range: 1,
+                everyday_graph_dot: 1,
+                everyday_capture_create: 1,
+                everyday_daily_append: 1,
+                everyday_metadata_update: 1,
+                structural_refile_subtree: 1,
+                structural_refile_region: 1,
+                structural_extract_subtree: 1,
+                structural_promote_file: 1,
+                structural_demote_file: 1,
+                remediation_apply: 1,
+                slipbox_link_rewrite_preview: 1,
+                slipbox_link_rewrite_apply: 1,
+                search_limit: 5,
+                backlinks_limit: 20,
+                reflinks_limit: 20,
+                unlinked_references_limit: 20,
+                agenda_limit: 20,
+                audit_limit: 20,
+            },
+            thresholds: ThresholdConfig {
+                full_index_p95_ms: 1.0,
+                index_file_p95_ms: 1.0,
+                search_nodes_p95_ms: 1.0,
+                search_nodes_sorted_p95_ms: 1.0,
+                search_files_p95_ms: 1.0,
+                search_occurrences_p95_ms: 1.0,
+                backlinks_p95_ms: 1.0,
+                forward_links_p95_ms: 1.0,
+                reflinks_p95_ms: 1.0,
+                unlinked_references_p95_ms: 1.0,
+                node_at_point_p95_ms: 1.0,
+                agenda_p95_ms: 1.0,
+                persistent_buffer_p95_ms: None,
+                dedicated_buffer_p95_ms: None,
+                dedicated_exploration_buffer_p95_ms: None,
+                workflow_catalog_p95_ms: 1.0,
+                workflow_run_p95_ms: 1.0,
+                corpus_audit_p95_ms: 1.0,
+                review_list_p95_ms: 1.0,
+                review_show_p95_ms: 1.0,
+                review_diff_p95_ms: 1.0,
+                review_mark_p95_ms: 1.0,
+                audit_save_review_p95_ms: 1.0,
+                workflow_save_review_p95_ms: 1.0,
+                remediation_preview_p95_ms: 1.0,
+                pack_catalog_p95_ms: 1.0,
+                pack_validation_p95_ms: 1.0,
+                pack_import_p95_ms: 1.0,
+                routine_run_p95_ms: 1.0,
+                report_profile_rendering_p95_ms: 1.0,
+                everyday_file_sync_p95_ms: 1.0,
+                everyday_node_show_p95_ms: 1.0,
+                everyday_node_search_p95_ms: 1.0,
+                everyday_occurrence_search_p95_ms: 1.0,
+                everyday_agenda_range_p95_ms: 1.0,
+                everyday_graph_dot_p95_ms: 1.0,
+                everyday_capture_create_p95_ms: 1.0,
+                everyday_daily_append_p95_ms: 1.0,
+                everyday_metadata_update_p95_ms: 1.0,
+                structural_refile_subtree_p95_ms: 1.0,
+                structural_refile_region_p95_ms: 1.0,
+                structural_extract_subtree_p95_ms: 1.0,
+                structural_promote_file_p95_ms: 1.0,
+                structural_demote_file_p95_ms: 1.0,
+                remediation_apply_p95_ms: 1.0,
+                slipbox_link_rewrite_preview_p95_ms: 1.0,
+                slipbox_link_rewrite_apply_p95_ms: 1.0,
+            },
+        }
     }
 
     #[test]

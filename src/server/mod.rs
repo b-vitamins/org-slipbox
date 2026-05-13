@@ -10,15 +10,19 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use slipbox_core::{
     AgendaParams, AgendaResult, AnchorRecord, AppendHeadingParams, CaptureNodeParams,
-    CorpusAuditParams, CorpusAuditResult, GraphParams, GraphResult, ImportWorkbenchPackParams,
-    ImportWorkbenchPackResult, IndexFileParams, IndexFileResult, ListReviewRoutinesResult,
-    ListReviewRunsResult, ListWorkbenchPacksResult, ListWorkflowsResult, MarkReviewFindingParams,
-    MarkReviewFindingResult, NodeFromIdParams, NodeRecord, ReviewFindingRemediationPreviewParams,
+    CorpusAuditParams, CorpusAuditResult, ExtractSubtreeParams, GraphParams, GraphResult,
+    ImportWorkbenchPackParams, ImportWorkbenchPackResult, IndexFileParams, IndexFileResult,
+    ListReviewRoutinesResult, ListReviewRunsResult, ListWorkbenchPacksResult, ListWorkflowsResult,
+    MarkReviewFindingParams, MarkReviewFindingResult, NodeFromIdParams, NodeRecord,
+    RefileRegionParams, RefileSubtreeParams, ReviewFindingRemediationApplyParams,
+    ReviewFindingRemediationApplyResult, ReviewFindingRemediationPreviewParams,
     ReviewFindingRemediationPreviewResult, ReviewRunDiffParams, ReviewRunDiffResult,
-    ReviewRunIdParams, ReviewRunResult, RunReviewRoutineParams, RunReviewRoutineResult,
-    RunWorkflowParams, RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
-    SaveWorkflowReviewParams, SaveWorkflowReviewResult, SearchNodesParams, SearchNodesResult,
-    SearchOccurrencesParams, SearchOccurrencesResult, UpdateNodeMetadataParams,
+    ReviewRunIdParams, ReviewRunResult, RewriteFileParams, RunReviewRoutineParams,
+    RunReviewRoutineResult, RunWorkflowParams, RunWorkflowResult, SaveCorpusAuditReviewParams,
+    SaveCorpusAuditReviewResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
+    SearchNodesParams, SearchNodesResult, SearchOccurrencesParams, SearchOccurrencesResult,
+    SlipboxLinkRewriteApplyParams, SlipboxLinkRewriteApplyResult, SlipboxLinkRewritePreviewParams,
+    SlipboxLinkRewritePreviewResult, StructuralWriteReport, UpdateNodeMetadataParams,
     ValidateWorkbenchPackParams, ValidateWorkbenchPackResult,
 };
 use slipbox_index::DiscoveryPolicy;
@@ -163,6 +167,19 @@ impl WorkbenchBench {
             .context("failed to decode review remediation preview benchmark result")
     }
 
+    pub(crate) fn review_finding_remediation_apply(
+        &mut self,
+        params: &ReviewFindingRemediationApplyParams,
+    ) -> Result<ReviewFindingRemediationApplyResult> {
+        let value = handlers::query::review_finding_remediation_apply(
+            &mut self.state,
+            serde_json::to_value(params)?,
+        )
+        .context("review remediation apply benchmark request failed")?;
+        serde_json::from_value(value)
+            .context("failed to decode review remediation apply benchmark result")
+    }
+
     pub(crate) fn mark_review_finding(
         &mut self,
         params: &MarkReviewFindingParams,
@@ -239,6 +256,80 @@ impl WorkbenchBench {
         let value = handlers::query::list_workbench_packs(&mut self.state, serde_json::json!({}))
             .context("workbench pack catalog benchmark request failed")?;
         serde_json::from_value(value).context("failed to decode workbench pack catalog result")
+    }
+
+    pub(crate) fn refile_subtree(
+        &mut self,
+        params: &RefileSubtreeParams,
+    ) -> Result<StructuralWriteReport> {
+        let value = handlers::write::refile_subtree(&mut self.state, serde_json::to_value(params)?)
+            .context("refile-subtree benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode refile-subtree benchmark result")
+    }
+
+    pub(crate) fn refile_region(
+        &mut self,
+        params: &RefileRegionParams,
+    ) -> Result<StructuralWriteReport> {
+        let value = handlers::write::refile_region(&mut self.state, serde_json::to_value(params)?)
+            .context("refile-region benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode refile-region benchmark result")
+    }
+
+    pub(crate) fn extract_subtree(
+        &mut self,
+        params: &ExtractSubtreeParams,
+    ) -> Result<StructuralWriteReport> {
+        let value =
+            handlers::write::extract_subtree(&mut self.state, serde_json::to_value(params)?)
+                .context("extract-subtree benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode extract-subtree benchmark result")
+    }
+
+    pub(crate) fn promote_entire_file(
+        &mut self,
+        params: &RewriteFileParams,
+    ) -> Result<StructuralWriteReport> {
+        let value =
+            handlers::write::promote_entire_file(&mut self.state, serde_json::to_value(params)?)
+                .context("promote-file benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode promote-file benchmark result")
+    }
+
+    pub(crate) fn demote_entire_file(
+        &mut self,
+        params: &RewriteFileParams,
+    ) -> Result<StructuralWriteReport> {
+        let value =
+            handlers::write::demote_entire_file(&mut self.state, serde_json::to_value(params)?)
+                .context("demote-file benchmark request failed")?;
+        serde_json::from_value(value).context("failed to decode demote-file benchmark result")
+    }
+
+    pub(crate) fn slipbox_link_rewrite_preview(
+        &mut self,
+        params: &SlipboxLinkRewritePreviewParams,
+    ) -> Result<SlipboxLinkRewritePreviewResult> {
+        let value = handlers::write::slipbox_link_rewrite_preview(
+            &mut self.state,
+            serde_json::to_value(params)?,
+        )
+        .context("slipbox link rewrite preview benchmark request failed")?;
+        serde_json::from_value(value)
+            .context("failed to decode slipbox link rewrite preview benchmark result")
+    }
+
+    pub(crate) fn slipbox_link_rewrite_apply(
+        &mut self,
+        params: &SlipboxLinkRewriteApplyParams,
+    ) -> Result<SlipboxLinkRewriteApplyResult> {
+        let value = handlers::write::slipbox_link_rewrite_apply(
+            &mut self.state,
+            serde_json::to_value(params)?,
+        )
+        .context("slipbox link rewrite apply benchmark request failed")?;
+        serde_json::from_value(value)
+            .context("failed to decode slipbox link rewrite apply benchmark result")
     }
 }
 

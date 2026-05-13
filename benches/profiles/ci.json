@@ -52,6 +52,14 @@
     "everyday_capture_create": 10,
     "everyday_daily_append": 10,
     "everyday_metadata_update": 10,
+    "structural_refile_subtree": 10,
+    "structural_refile_region": 10,
+    "structural_extract_subtree": 10,
+    "structural_promote_file": 10,
+    "structural_demote_file": 10,
+    "remediation_apply": 10,
+    "slipbox_link_rewrite_preview": 30,
+    "slipbox_link_rewrite_apply": 10,
     "search_limit": 25,
     "backlinks_limit": 200,
     "reflinks_limit": 200,
@@ -98,6 +106,14 @@
     "everyday_graph_dot_p95_ms": 3500.0,
     "everyday_capture_create_p95_ms": 50.0,
     "everyday_daily_append_p95_ms": 50.0,
-    "everyday_metadata_update_p95_ms": 75.0
+    "everyday_metadata_update_p95_ms": 75.0,
+    "structural_refile_subtree_p95_ms": 120.0,
+    "structural_refile_region_p95_ms": 120.0,
+    "structural_extract_subtree_p95_ms": 120.0,
+    "structural_promote_file_p95_ms": 120.0,
+    "structural_demote_file_p95_ms": 120.0,
+    "remediation_apply_p95_ms": 120.0,
+    "slipbox_link_rewrite_preview_p95_ms": 50.0,
+    "slipbox_link_rewrite_apply_p95_ms": 150.0
   }
 }
