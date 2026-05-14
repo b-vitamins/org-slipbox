@@ -1,4 +1,4 @@
-use super::runtime::{ErrorPayload, OutputMode, write_output};
+use super::output::{CliCommandError, ErrorPayload, OutputMode, write_output};
 use slipbox_core::StatusInfo;
 
 #[test]
@@ -23,7 +23,7 @@ fn writes_json_output_from_structured_results() {
 
 #[test]
 fn writes_structured_json_errors() {
-    let error = super::CliCommandError::new(OutputMode::Json, anyhow::anyhow!("broken"));
+    let error = CliCommandError::new(OutputMode::Json, anyhow::anyhow!("broken"));
     let mut stderr = Vec::new();
 
     error.write(&mut stderr).expect("json error should render");

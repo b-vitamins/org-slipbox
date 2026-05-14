@@ -1,23 +1,46 @@
-use super::runtime::{
-    AuditReportOutputResult, CliCommandError, HeadlessArgs, HeadlessCommand, OutputMode,
-    ReportFormat, ReportOutputArgs, SaveReviewArgs, SavedAuditReportOutputResult,
-    parse_review_finding_status, render_report_bytes, run_headless_command, write_output,
+use super::output::{
+    CliCommandError, OutputMode, ReportFormat, ReportOutputArgs, render_report_bytes, write_output,
     write_report_destination,
+};
+use super::render::reviews::{
+    render_corpus_audit_kind, render_corpus_audit_result, render_mark_review_finding_result,
+    render_review_diff, render_review_list, render_review_remediation_application,
+    render_review_remediation_preview, render_review_run, render_saved_review_summary,
+};
+use super::runtime::{
+    HeadlessArgs, HeadlessCommand, SaveReviewArgs, parse_review_finding_status,
+    run_headless_command,
 };
 use anyhow::Result;
 use clap::{Args, Subcommand};
+use serde::Serialize;
 use slipbox_core::{
     AuditRemediationApplyAction, AuditRemediationPreviewPayload, CorpusAuditKind,
     CorpusAuditParams, CorpusAuditResult, DeleteReviewRunResult, ListReviewRunsResult,
     MarkReviewFindingParams, ReviewFindingRemediationApplyParams, ReviewFindingRemediationPreview,
     ReviewFindingRemediationPreviewParams, ReviewFindingRemediationPreviewResult,
-    ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunResult,
+    ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunResult, ReviewRunSummary,
     SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonClientError};
 use std::io::{self};
 
-use super::render::*;
+#[derive(Debug, Serialize)]
+struct AuditReportOutputResult {
+    audit: CorpusAuditKind,
+    format: ReportFormat,
+    output_path: String,
+    entry_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct SavedAuditReportOutputResult {
+    audit: CorpusAuditKind,
+    format: ReportFormat,
+    output_path: String,
+    entry_count: usize,
+    review: ReviewRunSummary,
+}
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct AuditArgs {

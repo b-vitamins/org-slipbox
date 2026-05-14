@@ -1,26 +1,65 @@
+use super::output::{
+    CliCommandError, OutputMode, ReportFormat, ReportOutputArgs, render_report_bytes, write_output,
+    write_report_destination,
+};
+use super::render::{
+    assets::{
+        render_review_routine_execution_result, render_review_routine_list,
+        render_review_routine_spec, render_workbench_pack_list, render_workbench_pack_manifest,
+        render_workbench_pack_validation, render_workflow_execution_result, render_workflow_list,
+        render_workflow_spec,
+    },
+    reviews::render_saved_review_summary,
+};
 use super::runtime::{
-    CliCommandError, HeadlessArgs, HeadlessCommand, OutputMode, PackExportFileResult, ReportFormat,
-    ReportOutputArgs, SaveReviewArgs, SavedWorkflowReportOutputResult, ScopeArgs,
-    WorkflowReportOutputResult, WorkflowShowFileResult, parse_workflow_input_assignments,
-    render_report_bytes, run_headless_command, write_output, write_report_destination,
+    HeadlessArgs, HeadlessCommand, SaveReviewArgs, ScopeArgs, parse_workflow_input_assignments,
+    run_headless_command,
 };
 use anyhow::{Context, Result};
 use clap::{ArgGroup, Args, Subcommand};
+use serde::Serialize;
 use slipbox_core::{
     DeleteWorkbenchPackResult, ImportWorkbenchPackParams, ListReviewRoutinesResult,
     ListWorkbenchPacksResult, ListWorkflowsResult, ReviewRoutineIdParams, ReviewRoutineResult,
-    RunReviewRoutineParams, RunReviewRoutineResult, RunWorkflowParams, RunWorkflowResult,
-    SaveWorkflowReviewParams, SaveWorkflowReviewResult, ValidateWorkbenchPackResult,
-    WorkbenchPackCompatibilityEnvelope, WorkbenchPackIdParams, WorkbenchPackIssue,
-    WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackResult, WorkbenchPackSummary,
-    WorkflowExecutionResult, WorkflowIdParams, WorkflowSpec, WorkflowSpecCompatibilityEnvelope,
+    ReviewRunSummary, RunReviewRoutineParams, RunReviewRoutineResult, RunWorkflowParams,
+    RunWorkflowResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
+    ValidateWorkbenchPackResult, WorkbenchPackCompatibilityEnvelope, WorkbenchPackIdParams,
+    WorkbenchPackIssue, WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackResult,
+    WorkbenchPackSummary, WorkflowExecutionResult, WorkflowIdParams, WorkflowSpec,
+    WorkflowSpecCompatibilityEnvelope, WorkflowSummary,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonClientError};
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
-use super::render::*;
+#[derive(Debug, Serialize)]
+struct PackExportFileResult {
+    pack: WorkbenchPackSummary,
+    output_path: String,
+}
+
+#[derive(Debug, Serialize)]
+struct WorkflowReportOutputResult {
+    workflow: WorkflowSummary,
+    format: ReportFormat,
+    output_path: String,
+    step_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct SavedWorkflowReportOutputResult {
+    workflow: WorkflowSummary,
+    format: ReportFormat,
+    output_path: String,
+    step_count: usize,
+    review: ReviewRunSummary,
+}
+
+#[derive(Debug, Serialize)]
+struct WorkflowShowFileResult {
+    workflow: WorkflowSpec,
+}
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct WorkflowArgs {

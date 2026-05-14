@@ -1,10 +1,16 @@
+use super::output::{CliCommandError, OutputMode, write_output};
+use super::render::explorations::{
+    render_artifact_kind, render_artifact_list, render_compare_result,
+    render_executed_exploration_artifact, render_explore_result, render_saved_artifact_summary,
+    render_saved_exploration_artifact,
+};
 use super::runtime::{
-    ArtifactExportFileResult, CliCommandError, HeadlessArgs, HeadlessCommand, OutputMode,
-    ResolveTarget, ResolveTargetArgs, SaveArtifactArgs, SavedCompareCommandResult,
-    SavedExploreCommandResult, resolve_note_target, run_headless_command, write_output,
+    HeadlessArgs, HeadlessCommand, ResolveTarget, ResolveTargetArgs, SaveArtifactArgs,
+    resolve_note_target, run_headless_command,
 };
 use anyhow::{Context, Result};
 use clap::{ArgGroup, Args, Subcommand, ValueEnum};
+use serde::Serialize;
 use slipbox_core::{
     CompareNotesParams, DeleteExplorationArtifactResult, ExecuteExplorationArtifactResult,
     ExplorationArtifactIdParams, ExplorationArtifactPayload, ExplorationArtifactResult,
@@ -18,7 +24,23 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
-use super::render::*;
+#[derive(Debug, Serialize)]
+struct ArtifactExportFileResult {
+    artifact: ExplorationArtifactSummary,
+    output_path: String,
+}
+
+#[derive(Debug, Serialize)]
+struct SavedExploreCommandResult {
+    result: ExploreResult,
+    artifact: ExplorationArtifactSummary,
+}
+
+#[derive(Debug, Serialize)]
+struct SavedCompareCommandResult {
+    result: NoteComparisonResult,
+    artifact: ExplorationArtifactSummary,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub(crate) enum ExploreLensArg {

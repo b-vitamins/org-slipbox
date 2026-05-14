@@ -1,11 +1,20 @@
+use super::output::{CliCommandError, OutputMode, write_output};
+use super::render::{
+    notes::render_node_summary,
+    relations::{
+        render_agenda_result, render_occurrence_search_result, render_ref_search_result,
+        render_slipbox_link_rewrite_application, render_slipbox_link_rewrite_preview,
+        render_tag_search_result,
+    },
+};
 use super::runtime::{
-    CliCommandError, GraphDotFileResult, HeadlessArgs, HeadlessCommand, OutputMode,
-    invalid_request_error, normalize_edit_file_path, require_resolved_node, run_headless_command,
-    write_output,
+    HeadlessArgs, HeadlessCommand, invalid_request_error, normalize_edit_file_path,
+    require_resolved_node, run_headless_command,
 };
 use anyhow::{Context, Result};
 use chrono::{Local, NaiveDate};
 use clap::{Args, Subcommand, ValueEnum};
+use serde::Serialize;
 use slipbox_core::{
     AgendaParams, AgendaResult, GraphParams, GraphResult, GraphTitleShortening, NodeFromRefParams,
     NodeRecord, SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams,
@@ -17,7 +26,11 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use super::render::*;
+#[derive(Debug, Serialize)]
+struct GraphDotFileResult {
+    output_path: String,
+    format: &'static str,
+}
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct RefArgs {

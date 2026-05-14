@@ -1,8 +1,14 @@
+use super::output::{CliCommandError, write_output};
+use super::render::notes::{
+    render_anchor_summary, render_backlinks_result, render_capture_preview,
+    render_forward_links_result, render_node_search_result, render_node_summary,
+    render_random_node_result, render_structural_write_report,
+};
 use super::runtime::{
-    CliCommandError, HeadlessArgs, HeadlessCommand, ResolveTarget, ResolveTargetArgs,
-    invalid_request_error, normalize_daily_file_path, normalize_edit_file_path,
-    require_resolved_anchor, require_resolved_node, resolve_anchor_or_note_target_key,
-    resolve_note_target, run_headless_command, validate_region_range, write_output,
+    HeadlessArgs, HeadlessCommand, ResolveTarget, ResolveTargetArgs, invalid_request_error,
+    normalize_daily_file_path, normalize_edit_file_path, require_resolved_anchor,
+    require_resolved_node, resolve_anchor_or_note_target_key, resolve_note_target,
+    run_headless_command, validate_region_range,
 };
 use anyhow::{Context, Result};
 use chrono::{Local, NaiveDate};
@@ -19,8 +25,6 @@ use slipbox_daemon_client::{DaemonClient, DaemonClientError};
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-
-use super::render::*;
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct NodeArgs {

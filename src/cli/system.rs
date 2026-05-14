@@ -1,6 +1,11 @@
+use super::output::CliCommandError;
+use super::render::system::{
+    render_file_diagnostics, render_file_search_result, render_index_diagnostics,
+    render_index_stats, render_indexed_files, render_node_diagnostics,
+};
 use super::runtime::{
-    CliCommandError, HeadlessArgs, HeadlessCommand, ResolveTargetArgs,
-    normalize_diagnostic_file_path, resolve_anchor_or_note_target_key, run_headless_command,
+    HeadlessArgs, HeadlessCommand, ResolveTargetArgs, normalize_diagnostic_file_path,
+    resolve_anchor_or_note_target_key, run_headless_command,
 };
 use anyhow::Result;
 use clap::{Args, Subcommand};
@@ -11,8 +16,6 @@ use slipbox_core::{
 };
 use slipbox_daemon_client::{DaemonClient, DaemonClientError};
 use std::path::PathBuf;
-
-use super::render::*;
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct StatusArgs {
