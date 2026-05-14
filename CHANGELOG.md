@@ -6,9 +6,31 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-05-14
+
+### Added
+- Added a compact public model in `doc/model.org`, including the command
+  taxonomy used to keep notes, relations, explorations, reviews, assets, and
+  system surfaces distinct.
+- Added a consolidated compatibility and deprecation policy in
+  `doc/compatibility.org`.
+
+### Changed
+- Rewrote the README and roadmap documents around the normal user path,
+  durable product model, and current command surface instead of release
+  archaeology.
+- Split core domain types, CLI command families, CLI render/output helpers,
+  server query handlers, and the benchmark harness into clearer modules while
+  preserving public CLI, RPC, and JSON behavior.
+- Made CLI help taxonomy-aligned and detailed enough to serve as the command
+  reference for the consolidated surface.
+- Consolidated integration-test and benchmark helper code without changing the
+  tested behavior.
+
 ### Removed
 - Removed duplicate CLI spellings `ref show` and `capture node`; use canonical
   `ref resolve` and `note create` instead.
+- Removed confirmed dead helper code from Rust and Emacs Lisp sources.
 
 ## [0.12.0] - 2026-05-14
 

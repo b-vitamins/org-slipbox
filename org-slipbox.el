@@ -4,7 +4,7 @@
 
 ;; Author: Ayan Das <bvits@riseup.net>
 ;; Maintainer: Ayan Das <bvits@riseup.net>
-;; Version: 0.12.0
+;; Version: 0.13.0
 ;; Package-Requires: ((emacs "29.1") (jsonrpc "1.0.27"))
 ;; Keywords: outlines, files, convenience
 
