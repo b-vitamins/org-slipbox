@@ -112,5 +112,4 @@ Public compatibility covers:
 Compatibility does not cover derived SQLite tables, internal ranking details,
 private helper modules, or benchmark harness implementation internals.
 
-Pre-`1.0` means these contracts can still evolve, but changes should be
-additive where possible and explicit when they are not.
+The authoritative policy lives in [[file:compatibility.org][doc/compatibility.org]].

@@ -1,0 +1,104 @@
+#+title: org-slipbox Compatibility Policy
+
+* Purpose
+
+This document is the authoritative compatibility and deprecation policy for
+public `org-slipbox` surfaces.
+
+`org-slipbox` is pre-`1.0`, so public contracts can still evolve.
+Compatibility-sensitive changes should be additive by default, explicit when
+they are not, and covered by tests when they affect machine-facing behavior.
+
+The public model is defined in [[file:model.org][doc/model.org]].
+
+* Compatibility Status
+
+| Surface | Status | Policy |
+|---------+--------+--------|
+| CLI human output | User-facing, not schema-stable | Keep useful and factual. Human wording may improve without migration notes unless scripts are expected to parse it. |
+| CLI `--json` envelopes | Compatibility-sensitive | Add fields where possible. Renames, removals, enum spelling changes, and wrapper-shape changes require a changelog entry and contract-test coverage. |
+| CLI `--jsonl` report lines | Compatibility-sensitive | Add line kinds or fields deliberately. Changing existing line meaning requires a changelog entry and tests. |
+| JSON-RPC method names | Compatibility-sensitive | Keep method names stable. Replacements require a deprecation period or a documented break before `1.0`. |
+| JSON-RPC params/results | Compatibility-sensitive | Add optional params and result fields where possible. Required-param, enum, or wrapper changes require migration notes and tests. |
+| Durable exploration artifacts | Durable public records | Validate on load. Add fields with defaults where possible. Incompatible format changes require migration guidance. |
+| Durable review runs | Durable public records | Validate on load. Finding status, diff, and remediation evidence shapes are compatibility-sensitive. |
+| Workbench packs | Durable public records | Compatibility version `1` is supported. Future versions are rejected before typed parsing. |
+| Workflow specs | Portable public assets | Compatibility version `1` is supported. Missing compatibility defaults to version `1`; future versions are rejected before typed parsing. |
+| Review routines | Portable public assets | Versioned through their containing pack or built-in catalog. Validate inputs, source, save-review policy, compare policy, and report profile references. |
+| Report profiles | Portable public assets | Versioned through their containing pack or built-in catalog. Validate subjects, modes, status filters, diff buckets, and JSONL line kinds. |
+| Structural write reports | Public task records | Preserve operation kind, affected-file reporting, index-refresh status, and result identity. |
+| Diagnostics | Public task records | Preserve task-shaped file/node/index diagnostic wrappers. SQLite implementation details remain internal. |
+| Link rewrite records | Public task records | Preserve preview/apply identity, affected files, and explicit application records. |
+| Remediation apply records | Public task records | Preserve preview identity, action identity, affected files, and explicit application records. |
+| Benchmark profile JSON | Contributor-facing contract | Keep profile names, metric names, and threshold meaning stable enough for release automation. Harness internals may move. |
+| Derived SQLite schema | Internal | The index may migrate or rebuild. Scripts should use CLI/RPC contracts rather than tables. |
+| Rust module layout | Internal except public crates | Public reexports should remain stable during refactors. Private module paths may change. |
+| Emacs Lisp interactive commands | User-facing | Preserve command names and ordinary interactive behavior unless a deprecation is documented. |
+
+* Additive Evolution
+
+Preferred compatible changes:
+
+- adding optional JSON fields
+- adding result fields with clear default meaning
+- adding optional CLI flags
+- adding new commands under an existing model bucket
+- adding new validation issues without hiding valid catalog entries
+- adding benchmark metrics without weakening existing thresholds
+
+Changes that need explicit migration notes:
+
+- removing or renaming public JSON fields
+- changing enum spellings or command names
+- changing a `--json` wrapper shape
+- changing durable record identity fields
+- changing compatibility-version behavior
+- changing write-report affected-file semantics
+- changing whether a command is local-only or daemon-backed
+
+* Deprecation Process
+
+Deprecation is for public names that should keep working during a transition.
+Use it for targeted compatibility, not broad renaming.
+
+When deprecating a command, alias, flag, JSON field, or enum spelling:
+
+- name the canonical replacement
+- keep the old surface working for the current minor release unless there is a
+  correctness or safety reason to remove it immediately
+- document the deprecation in `CHANGELOG.md`
+- cover the old and new behavior in contract tests when machine output is
+  affected
+- make human warnings clear and concise
+- keep JSON behavior stable; if warning metadata is added, add it additively
+
+For command aliases, prefer compatibility aliases over removals. A removal
+before `1.0` still needs an explicit changelog entry and a reason.
+
+* Versioned Assets And Records
+
+Workflow specs and workbench packs use explicit compatibility objects:
+
+- `workflow-spec/v1`
+- `workbench-pack/v1`
+
+Version `1` is the supported format. Future versions are rejected from a small
+compatibility envelope before typed parsing, so future syntax does not degrade
+into misleading malformed-JSON errors.
+
+Durable exploration artifacts and review runs are validated on load and stored
+outside the derived SQLite index. They survive index rebuilds and remain
+outside note, ref, search, and graph identity.
+
+* Pre-1.0 Discipline
+
+Before `1.0`, the project may still reshape public contracts when the model
+requires it. The standard is:
+
+- prefer additive changes
+- document non-additive changes
+- add or update contract tests for machine-facing behavior
+- keep durable records loadable or provide migration guidance
+- avoid compatibility shims that obscure safety or correctness
+
+The goal is a stable public surface, not frozen internals.

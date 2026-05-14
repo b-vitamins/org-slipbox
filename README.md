@@ -46,6 +46,8 @@ adapter surfaces.
 
 - [doc/model.org](doc/model.org) defines the compact public model and command
   taxonomy.
+- [doc/compatibility.org](doc/compatibility.org) defines compatibility and
+  deprecation policy.
 - [doc/vision.org](doc/vision.org) states the product direction.
 - [doc/milestones.org](doc/milestones.org) describes durable capability
   milestones.
@@ -419,8 +421,8 @@ The daemon persists three durable JSON side stores beside the database:
 - workbench packs: portable workflows, review routines, and report profiles
 
 These stores survive index rebuilds and do not become notes, search hits, refs,
-or graph nodes. See [doc/model.org](doc/model.org) for the ownership and
-compatibility table.
+or graph nodes. See [doc/model.org](doc/model.org) for ownership and
+[doc/compatibility.org](doc/compatibility.org) for compatibility policy.
 
 Workflow specs and workbench packs carry compatibility metadata. Supported
 version is `1`; future versions are rejected before typed parsing attempts to
@@ -483,17 +485,15 @@ the gates measure real paths rather than empty catalog scans.
 
 ## Stability And Compatibility
 
-`org-slipbox` is pre-`1.0`, but the public CLI and durable JSON shapes are
-compatibility-sensitive:
+`org-slipbox` is pre-`1.0`, but public CLI JSON, JSON-RPC params/results,
+durable records, declarative assets, structural write reports, diagnostics,
+link rewrite records, remediation records, and benchmark profiles are
+compatibility-sensitive.
 
-- CLI `--json` wrappers should evolve additively.
-- Durable exploration artifacts, review runs, and workbench packs are
-  validated on load and persist outside the derived SQLite index.
-- Workflow specs and workbench packs use compatibility version `1`.
-- Structural write reports, link rewrite applications, remediation
-  applications, and diagnostics are public task records.
-- The derived SQLite schema remains an internal index; users and scripts
-  should target daemon/CLI contracts.
+The authoritative policy is [doc/compatibility.org](doc/compatibility.org).
+The short rule is: evolve public machine contracts additively where possible,
+document non-additive changes, and treat the derived SQLite schema as an
+internal rebuildable index.
 
 See [CHANGELOG.md](CHANGELOG.md) for shipped history.
 
