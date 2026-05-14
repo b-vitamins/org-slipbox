@@ -1,5 +1,4 @@
 use std::fs;
-use std::process::Command;
 
 use anyhow::Result;
 use serde::Deserialize;
@@ -7,6 +6,10 @@ use slipbox_core::GraphResult;
 use slipbox_index::scan_root;
 use slipbox_store::Database;
 use tempfile::tempdir;
+
+mod support;
+
+use support::{run_slipbox, scoped_server_args};
 
 #[derive(Debug, Deserialize)]
 struct ErrorPayload {
@@ -22,10 +25,6 @@ struct ErrorMessage {
 struct GraphDotFileResult {
     output_path: String,
     format: String,
-}
-
-fn slipbox_binary() -> &'static str {
-    env!("CARGO_BIN_EXE_slipbox")
 }
 
 fn build_indexed_fixture() -> Result<(tempfile::TempDir, String, String)> {
@@ -58,26 +57,11 @@ fn build_indexed_fixture() -> Result<(tempfile::TempDir, String, String)> {
     ))
 }
 
-fn scoped_args(root: &str, db: &str) -> Vec<String> {
-    vec![
-        "--root".to_owned(),
-        root.to_owned(),
-        "--db".to_owned(),
-        db.to_owned(),
-        "--server-program".to_owned(),
-        slipbox_binary().to_owned(),
-    ]
-}
-
-fn run_slipbox(args: &[String]) -> Result<std::process::Output> {
-    Ok(Command::new(slipbox_binary()).args(args).output()?)
-}
-
 #[test]
 fn graph_dot_command_emits_global_dot_to_stdout() -> Result<()> {
     let (_workspace, root, db) = build_indexed_fixture()?;
     let mut args = vec!["graph".to_owned(), "dot".to_owned()];
-    args.extend(scoped_args(&root, &db));
+    args.extend(scoped_server_args(&root, &db));
     args.push("--include-orphans".to_owned());
 
     let output = run_slipbox(&args)?;
@@ -96,7 +80,7 @@ fn graph_dot_command_emits_global_dot_to_stdout() -> Result<()> {
 fn graph_dot_command_supports_neighborhood_json_and_graph_options() -> Result<()> {
     let (_workspace, root, db) = build_indexed_fixture()?;
     let mut args = vec!["graph".to_owned(), "dot".to_owned()];
-    args.extend(scoped_args(&root, &db));
+    args.extend(scoped_server_args(&root, &db));
     args.extend([
         "--root-node-key".to_owned(),
         "file:alpha.org".to_owned(),
@@ -133,7 +117,7 @@ fn graph_dot_command_writes_dot_to_file_and_reports_ack() -> Result<()> {
     let (workspace, root, db) = build_indexed_fixture()?;
     let output_path = workspace.path().join("graph.dot");
     let mut args = vec!["graph".to_owned(), "dot".to_owned()];
-    args.extend(scoped_args(&root, &db));
+    args.extend(scoped_server_args(&root, &db));
     args.extend([
         "--include-orphans".to_owned(),
         "--output".to_owned(),
@@ -159,7 +143,7 @@ fn graph_dot_command_writes_dot_to_file_and_reports_ack() -> Result<()> {
 fn graph_dot_command_reports_unsupported_link_types_as_json_errors() -> Result<()> {
     let (_workspace, root, db) = build_indexed_fixture()?;
     let mut args = vec!["graph".to_owned(), "dot".to_owned()];
-    args.extend(scoped_args(&root, &db));
+    args.extend(scoped_server_args(&root, &db));
     args.extend([
         "--hide-link-type".to_owned(),
         "file".to_owned(),

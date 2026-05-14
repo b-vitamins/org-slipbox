@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::Result;
 use serde::Deserialize;
@@ -11,6 +10,10 @@ use slipbox_index::scan_root;
 use slipbox_store::Database;
 use tempfile::{TempDir, tempdir};
 
+mod support;
+
+use support::{run_slipbox, scoped_server_json_args};
+
 #[derive(Debug, Deserialize)]
 struct ErrorPayload {
     error: ErrorMessage,
@@ -19,10 +22,6 @@ struct ErrorPayload {
 #[derive(Debug, Deserialize)]
 struct ErrorMessage {
     message: String,
-}
-
-fn slipbox_binary() -> &'static str {
-    env!("CARGO_BIN_EXE_slipbox")
 }
 
 struct LinkFixture {
@@ -60,31 +59,15 @@ fn build_link_fixture(extra_files: &[(&str, &str)]) -> Result<LinkFixture> {
     })
 }
 
-fn scoped_args(root: &Path, db: &Path) -> Vec<String> {
-    vec![
-        "--root".to_owned(),
-        root.display().to_string(),
-        "--db".to_owned(),
-        db.display().to_string(),
-        "--server-program".to_owned(),
-        slipbox_binary().to_owned(),
-        "--json".to_owned(),
-    ]
-}
-
 fn link_command(root: &Path, db: &Path, subcommand: &str, extra_args: &[String]) -> Vec<String> {
     let mut args = vec![
         "link".to_owned(),
         "rewrite-slipbox".to_owned(),
         subcommand.to_owned(),
     ];
-    args.extend(scoped_args(root, db));
+    args.extend(scoped_server_json_args(root, db));
     args.extend_from_slice(extra_args);
     args
-}
-
-fn run_slipbox(args: &[String]) -> Result<std::process::Output> {
-    Ok(Command::new(slipbox_binary()).args(args).output()?)
 }
 
 #[test]
@@ -196,7 +179,7 @@ fn link_rewrite_apply_assigns_ids_and_refreshes_backlinks() -> Result<()> {
     assert!(target.contains(explicit_id));
 
     let mut backlink_args = vec!["node".to_owned(), "backlinks".to_owned()];
-    backlink_args.extend(scoped_args(&fixture.root, &fixture.db));
+    backlink_args.extend(scoped_server_json_args(&fixture.root, &fixture.db));
     backlink_args.extend(["--id".to_owned(), explicit_id.clone()]);
     let backlink_output = run_slipbox(&backlink_args)?;
     assert!(backlink_output.status.success(), "{backlink_output:?}");

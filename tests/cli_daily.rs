@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -8,6 +7,10 @@ use chrono::{Local, NaiveDate};
 use serde::Deserialize;
 use slipbox_core::{AgendaResult, AnchorRecord, NodeKind, NodeRecord, SearchNodesResult};
 use tempfile::{TempDir, tempdir};
+
+mod support;
+
+use support::{run_slipbox, scoped_server_args_with_file_extension};
 
 #[derive(Debug, Deserialize)]
 struct ErrorPayload {
@@ -19,10 +22,6 @@ struct ErrorMessage {
     message: String,
 }
 
-fn slipbox_binary() -> &'static str {
-    env!("CARGO_BIN_EXE_slipbox")
-}
-
 fn build_fixture() -> Result<(TempDir, PathBuf, PathBuf)> {
     let workspace = tempdir()?;
     let root = workspace.path().join("notes");
@@ -31,26 +30,9 @@ fn build_fixture() -> Result<(TempDir, PathBuf, PathBuf)> {
     Ok((workspace, root, db))
 }
 
-fn scoped_args(root: &Path, db: &Path) -> Vec<String> {
-    vec![
-        "--root".to_owned(),
-        root.display().to_string(),
-        "--db".to_owned(),
-        db.display().to_string(),
-        "--server-program".to_owned(),
-        slipbox_binary().to_owned(),
-        "--file-extension".to_owned(),
-        "org".to_owned(),
-    ]
-}
-
-fn run_slipbox(args: &[String]) -> Result<std::process::Output> {
-    Ok(Command::new(slipbox_binary()).args(args).output()?)
-}
-
 fn daily_command(root: &Path, db: &Path, subcommand: &str, extra_args: &[String]) -> Vec<String> {
     let mut args = vec!["daily".to_owned(), subcommand.to_owned()];
-    args.extend(scoped_args(root, db));
+    args.extend(scoped_server_args_with_file_extension(root, db, "org"));
     args.extend_from_slice(extra_args);
     args
 }
@@ -121,7 +103,7 @@ fn daily_ensure_show_and_search_fixed_date() -> Result<()> {
         "search".to_owned(),
         "2026-05-12".to_owned(),
     ];
-    search_args.extend(scoped_args(&root, &db));
+    search_args.extend(scoped_server_args_with_file_extension(&root, &db, "org"));
     search_args.push("--json".to_owned());
     let search_output = run_slipbox(&search_args)?;
     assert!(search_output.status.success(), "{search_output:?}");
@@ -171,7 +153,7 @@ fn daily_append_creates_entry_that_is_immediately_indexed_and_on_agenda() -> Res
         "date".to_owned(),
         "2026-05-12".to_owned(),
     ];
-    agenda_args.extend(scoped_args(&root, &db));
+    agenda_args.extend(scoped_server_args_with_file_extension(&root, &db, "org"));
     agenda_args.push("--json".to_owned());
     let agenda_output = run_slipbox(&agenda_args)?;
     assert!(agenda_output.status.success(), "{agenda_output:?}");

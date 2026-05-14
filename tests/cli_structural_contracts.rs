@@ -1,6 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
 
 use anyhow::Result;
 use serde_json::Value;
@@ -8,9 +7,12 @@ use slipbox_index::scan_root;
 use slipbox_store::Database;
 use tempfile::{TempDir, tempdir};
 
-fn slipbox_binary() -> &'static str {
-    env!("CARGO_BIN_EXE_slipbox")
-}
+mod support;
+
+use support::{
+    assert_error_failure, assert_exact_object_keys, assert_file_record_keys,
+    assert_node_record_keys, assert_occurrence_record_keys, assert_success_json, json_command_path,
+};
 
 struct ContractFixture {
     _workspace: TempDir,
@@ -75,120 +77,6 @@ Points to [[id:missing-id][Missing]].
         root,
         db,
     })
-}
-
-fn root_string(path: &Path) -> String {
-    path.to_str().expect("test path should be utf-8").to_owned()
-}
-
-fn base_args(root: &Path, db: &Path) -> Vec<String> {
-    vec![
-        "--root".to_owned(),
-        root_string(root),
-        "--db".to_owned(),
-        root_string(db),
-        "--server-program".to_owned(),
-        slipbox_binary().to_owned(),
-        "--json".to_owned(),
-    ]
-}
-
-fn run_command(args: &[String]) -> Result<std::process::Output> {
-    Ok(Command::new(slipbox_binary()).args(args).output()?)
-}
-
-fn json_command_path(
-    command_path: &[&str],
-    root: &Path,
-    db: &Path,
-    extra: &[&str],
-) -> Result<std::process::Output> {
-    let mut args = command_path
-        .iter()
-        .map(|word| (*word).to_owned())
-        .collect::<Vec<_>>();
-    args.extend(base_args(root, db));
-    args.extend(extra.iter().map(|value| (*value).to_owned()));
-    run_command(&args)
-}
-
-fn sorted_keys(value: &Value) -> Vec<String> {
-    let object = value.as_object().expect("expected JSON object");
-    let mut keys: Vec<String> = object.keys().cloned().collect();
-    keys.sort();
-    keys
-}
-
-fn assert_exact_object_keys(value: &Value, expected: &[&str]) {
-    let mut expected_keys = expected
-        .iter()
-        .map(|key| (*key).to_owned())
-        .collect::<Vec<_>>();
-    expected_keys.sort();
-    assert_eq!(sorted_keys(value), expected_keys);
-}
-
-fn assert_success_json(output: std::process::Output) -> Result<Value> {
-    assert!(output.status.success(), "{output:?}");
-    assert!(output.stderr.is_empty(), "{output:?}");
-    Ok(serde_json::from_slice(&output.stdout)?)
-}
-
-fn assert_error_failure(output: &std::process::Output, needle: &str) {
-    assert_eq!(output.status.code(), Some(1), "{output:?}");
-    assert!(output.stdout.is_empty(), "{output:?}");
-    let parsed: Value =
-        serde_json::from_slice(&output.stderr).expect("stderr should be structured JSON");
-    assert_exact_object_keys(&parsed, &["error"]);
-    let message = parsed["error"]["message"]
-        .as_str()
-        .expect("error message should be a string");
-    assert!(message.contains(needle), "{message}");
-}
-
-fn assert_node_record_keys(value: &Value) {
-    assert_exact_object_keys(
-        value,
-        &[
-            "node_key",
-            "explicit_id",
-            "file_path",
-            "title",
-            "outline_path",
-            "aliases",
-            "tags",
-            "refs",
-            "todo_keyword",
-            "scheduled_for",
-            "deadline_for",
-            "closed_at",
-            "level",
-            "line",
-            "kind",
-            "file_mtime_ns",
-            "backlink_count",
-            "forward_link_count",
-        ],
-    );
-}
-
-fn assert_file_record_keys(value: &Value) {
-    assert_exact_object_keys(value, &["file_path", "title", "mtime_ns", "node_count"]);
-}
-
-fn assert_occurrence_record_keys(value: &Value) {
-    assert_exact_object_keys(
-        value,
-        &[
-            "file_path",
-            "row",
-            "col",
-            "preview",
-            "matched_text",
-            "owning_anchor",
-        ],
-    );
-    assert_node_record_keys(&value["owning_anchor"]);
 }
 
 fn assert_structural_report_keys(value: &Value) {

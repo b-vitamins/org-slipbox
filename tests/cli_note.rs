@@ -1,11 +1,14 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::Result;
 use serde::Deserialize;
 use slipbox_core::{AnchorRecord, NodeKind, NodeRecord};
 use tempfile::{TempDir, tempdir};
+
+mod support;
+
+use support::{run_slipbox, scoped_server_args_with_file_extension};
 
 #[derive(Debug, Deserialize)]
 struct ErrorPayload {
@@ -17,10 +20,6 @@ struct ErrorMessage {
     message: String,
 }
 
-fn slipbox_binary() -> &'static str {
-    env!("CARGO_BIN_EXE_slipbox")
-}
-
 fn build_fixture() -> Result<(TempDir, PathBuf, PathBuf)> {
     let workspace = tempdir()?;
     let root = workspace.path().join("notes");
@@ -29,26 +28,9 @@ fn build_fixture() -> Result<(TempDir, PathBuf, PathBuf)> {
     Ok((workspace, root, db))
 }
 
-fn scoped_args(root: &Path, db: &Path) -> Vec<String> {
-    vec![
-        "--root".to_owned(),
-        root.display().to_string(),
-        "--db".to_owned(),
-        db.display().to_string(),
-        "--server-program".to_owned(),
-        slipbox_binary().to_owned(),
-        "--file-extension".to_owned(),
-        "org".to_owned(),
-    ]
-}
-
-fn run_slipbox(args: &[String]) -> Result<std::process::Output> {
-    Ok(Command::new(slipbox_binary()).args(args).output()?)
-}
-
 fn note_command(root: &Path, db: &Path, subcommand: &str, extra_args: &[String]) -> Vec<String> {
     let mut args = vec!["note".to_owned(), subcommand.to_owned()];
-    args.extend(scoped_args(root, db));
+    args.extend(scoped_server_args_with_file_extension(root, db, "org"));
     args.extend_from_slice(extra_args);
     args
 }
@@ -92,7 +74,7 @@ fn note_create_writes_file_note_with_refs_and_json() -> Result<()> {
     assert!(source.contains(":ROAM_REFS: @captured2026 @extra2026"));
 
     args = vec!["ref".to_owned(), "resolve".to_owned()];
-    args.extend(scoped_args(&root, &db));
+    args.extend(scoped_server_args_with_file_extension(&root, &db, "org"));
     args.extend(["cite:captured2026".to_owned(), "--json".to_owned()]);
     let resolved_output = run_slipbox(&args)?;
     assert!(resolved_output.status.success(), "{resolved_output:?}");
@@ -159,7 +141,7 @@ fn note_ensure_file_creates_nested_file_note_and_is_resolvable() -> Result<()> {
     assert!(output.stderr.is_empty());
 
     let mut show_args = vec!["node".to_owned(), "show".to_owned()];
-    show_args.extend(scoped_args(&root, &db));
+    show_args.extend(scoped_server_args_with_file_extension(&root, &db, "org"));
     show_args.extend([
         "--key".to_owned(),
         "file:daily/2026-05-12.org".to_owned(),
@@ -303,7 +285,7 @@ fn note_append_heading_and_append_to_node_are_immediately_resolvable() -> Result
     assert!(append_output.stderr.is_empty());
 
     let mut at_point_args = vec!["node".to_owned(), "at-point".to_owned()];
-    at_point_args.extend(scoped_args(&root, &db));
+    at_point_args.extend(scoped_server_args_with_file_extension(&root, &db, "org"));
     at_point_args.extend([
         "--file".to_owned(),
         "daily/2026-05-12.org".to_owned(),

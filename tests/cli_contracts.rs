@@ -1,7 +1,5 @@
 use std::fs;
-use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
 
 use anyhow::Result;
 use serde_json::Value;
@@ -22,9 +20,14 @@ use slipbox_index::scan_root;
 use slipbox_store::Database;
 use tempfile::tempdir;
 
-fn slipbox_binary() -> &'static str {
-    env!("CARGO_BIN_EXE_slipbox")
-}
+mod support;
+
+use support::{
+    assert_anchor_record_keys, assert_error_failure, assert_exact_object_keys,
+    assert_file_record_keys, assert_node_record_keys, assert_occurrence_record_keys, json_command,
+    json_command_path, json_command_path_with_bad_server, run_slipbox, run_slipbox_with_stdin,
+    scoped_server_args, slipbox_binary,
+};
 
 fn build_indexed_fixture() -> Result<(tempfile::TempDir, String, String, String)> {
     let workspace = tempdir()?;
@@ -241,86 +244,8 @@ fn contract_review_node(title: &str) -> NodeRecord {
     }
 }
 
-fn run_command(args: &[String]) -> Result<std::process::Output> {
-    Ok(Command::new(slipbox_binary()).args(args).output()?)
-}
-
-fn run_command_with_stdin(args: &[String], stdin: &[u8]) -> Result<std::process::Output> {
-    let mut child = Command::new(slipbox_binary())
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    child
-        .stdin
-        .as_mut()
-        .expect("child stdin should be piped")
-        .write_all(stdin)?;
-    Ok(child.wait_with_output()?)
-}
-
 fn base_args(root: &str, db: &str) -> Vec<String> {
-    vec![
-        "--root".to_owned(),
-        root.to_owned(),
-        "--db".to_owned(),
-        db.to_owned(),
-        "--server-program".to_owned(),
-        slipbox_binary().to_owned(),
-    ]
-}
-
-fn json_command(
-    command: &str,
-    root: &str,
-    db: &str,
-    extra: &[&str],
-) -> Result<std::process::Output> {
-    let mut args = vec![command.to_owned()];
-    args.extend(base_args(root, db));
-    args.push("--json".to_owned());
-    args.extend(extra.iter().map(|value| (*value).to_owned()));
-    run_command(&args)
-}
-
-fn json_command_path(
-    command_path: &[&str],
-    root: &str,
-    db: &str,
-    extra: &[&str],
-) -> Result<std::process::Output> {
-    let mut args = command_path
-        .iter()
-        .map(|word| (*word).to_owned())
-        .collect::<Vec<_>>();
-    args.extend(base_args(root, db));
-    args.push("--json".to_owned());
-    args.extend(extra.iter().map(|value| (*value).to_owned()));
-    run_command(&args)
-}
-
-fn json_command_path_with_bad_server(
-    command_path: &[&str],
-    root: &str,
-    db: &str,
-    extra: &[&str],
-) -> Result<std::process::Output> {
-    let mut args = command_path
-        .iter()
-        .map(|word| (*word).to_owned())
-        .collect::<Vec<_>>();
-    args.extend([
-        "--root".to_owned(),
-        root.to_owned(),
-        "--db".to_owned(),
-        db.to_owned(),
-        "--server-program".to_owned(),
-        "/definitely/not/a/real/slipbox-binary".to_owned(),
-        "--json".to_owned(),
-    ]);
-    args.extend(extra.iter().map(|value| (*value).to_owned()));
-    run_command(&args)
+    scoped_server_args(root, db)
 }
 
 fn artifact_json_command(
@@ -333,7 +258,7 @@ fn artifact_json_command(
     args.extend(base_args(root, db));
     args.push("--json".to_owned());
     args.extend(extra.iter().map(|value| (*value).to_owned()));
-    run_command(&args)
+    run_slipbox(&args)
 }
 
 fn artifact_json_command_with_stdin(
@@ -347,7 +272,7 @@ fn artifact_json_command_with_stdin(
     args.extend(base_args(root, db));
     args.push("--json".to_owned());
     args.extend(extra.iter().map(|value| (*value).to_owned()));
-    run_command_with_stdin(&args, stdin)
+    run_slipbox_with_stdin(&args, stdin)
 }
 
 fn review_json_command(
@@ -360,7 +285,7 @@ fn review_json_command(
     args.extend(base_args(root, db));
     args.push("--json".to_owned());
     args.extend(extra.iter().map(|value| (*value).to_owned()));
-    run_command(&args)
+    run_slipbox(&args)
 }
 
 fn workflow_json_command(
@@ -392,7 +317,7 @@ fn workflow_json_command_with_dirs(
     }
     args.push("--json".to_owned());
     args.extend(extra.iter().map(|value| (*value).to_owned()));
-    run_command(&args)
+    run_slipbox(&args)
 }
 
 fn workflow_json_command_with_stdin(
@@ -406,7 +331,7 @@ fn workflow_json_command_with_stdin(
         "--json".to_owned(),
     ];
     args.extend(extra.iter().map(|value| (*value).to_owned()));
-    run_command_with_stdin(&args, stdin)
+    run_slipbox_with_stdin(&args, stdin)
 }
 
 fn audit_json_command(
@@ -419,7 +344,7 @@ fn audit_json_command(
     args.extend(base_args(root, db));
     args.push("--json".to_owned());
     args.extend(extra.iter().map(|value| (*value).to_owned()));
-    run_command(&args)
+    run_slipbox(&args)
 }
 
 fn pack_json_command(
@@ -432,7 +357,7 @@ fn pack_json_command(
     args.extend(base_args(root, db));
     args.push("--json".to_owned());
     args.extend(extra.iter().map(|value| (*value).to_owned()));
-    run_command(&args)
+    run_slipbox(&args)
 }
 
 fn pack_json_command_with_stdin(
@@ -446,11 +371,11 @@ fn pack_json_command_with_stdin(
     args.extend(base_args(root, db));
     args.push("--json".to_owned());
     args.extend(extra.iter().map(|value| (*value).to_owned()));
-    run_command_with_stdin(&args, stdin)
+    run_slipbox_with_stdin(&args, stdin)
 }
 
 fn pack_validate_json_command(input: &str) -> Result<std::process::Output> {
-    run_command(&[
+    run_slipbox(&[
         "pack".to_owned(),
         "validate".to_owned(),
         "--json".to_owned(),
@@ -459,7 +384,7 @@ fn pack_validate_json_command(input: &str) -> Result<std::process::Output> {
 }
 
 fn pack_validate_json_command_with_stdin(stdin: &[u8]) -> Result<std::process::Output> {
-    run_command_with_stdin(
+    run_slipbox_with_stdin(
         &[
             "pack".to_owned(),
             "validate".to_owned(),
@@ -480,7 +405,7 @@ fn routine_json_command(
     args.extend(base_args(root, db));
     args.push("--json".to_owned());
     args.extend(extra.iter().map(|value| (*value).to_owned()));
-    run_command(&args)
+    run_slipbox(&args)
 }
 
 fn with_bad_server_program(
@@ -500,67 +425,6 @@ fn with_bad_server_program(
     ];
     args.splice(insert_at..insert_at, global.drain(..));
     args
-}
-
-fn sorted_keys(value: &Value) -> Vec<String> {
-    let object = value.as_object().expect("expected JSON object");
-    let mut keys: Vec<String> = object.keys().cloned().collect();
-    keys.sort();
-    keys
-}
-
-fn assert_exact_object_keys(value: &Value, expected: &[&str]) {
-    let mut expected_keys: Vec<String> = expected.iter().map(|key| (*key).to_owned()).collect();
-    expected_keys.sort();
-    assert_eq!(sorted_keys(value), expected_keys);
-}
-
-fn assert_node_record_keys(value: &Value) {
-    assert_exact_object_keys(
-        value,
-        &[
-            "node_key",
-            "explicit_id",
-            "file_path",
-            "title",
-            "outline_path",
-            "aliases",
-            "tags",
-            "refs",
-            "todo_keyword",
-            "scheduled_for",
-            "deadline_for",
-            "closed_at",
-            "level",
-            "line",
-            "kind",
-            "file_mtime_ns",
-            "backlink_count",
-            "forward_link_count",
-        ],
-    );
-}
-
-fn assert_anchor_record_keys(value: &Value) {
-    assert_node_record_keys(value);
-}
-
-fn assert_file_record_keys(value: &Value) {
-    assert_exact_object_keys(value, &["file_path", "title", "mtime_ns", "node_count"]);
-}
-
-fn assert_occurrence_record_keys(value: &Value) {
-    assert_exact_object_keys(
-        value,
-        &[
-            "file_path",
-            "row",
-            "col",
-            "preview",
-            "matched_text",
-            "owning_anchor",
-        ],
-    );
 }
 
 fn assert_preview_node_keys(value: &Value) {
@@ -584,18 +448,6 @@ fn assert_preview_node_keys(value: &Value) {
             "kind",
         ],
     );
-}
-
-fn assert_error_failure(output: &std::process::Output, needle: &str) {
-    assert_eq!(output.status.code(), Some(1), "{output:?}");
-    assert!(output.stdout.is_empty(), "{output:?}");
-    let parsed: Value =
-        serde_json::from_slice(&output.stderr).expect("stderr should be structured JSON");
-    assert_exact_object_keys(&parsed, &["error"]);
-    let message = parsed["error"]["message"]
-        .as_str()
-        .expect("error message should be a string");
-    assert!(message.contains(needle), "{message}");
 }
 
 fn assert_saved_artifact_summary_keys(value: &Value) {
@@ -1984,7 +1836,7 @@ fn workflow_discovery_and_report_outputs_expose_stable_json_shapes() -> Result<(
     );
 
     let workflow_report_path = workspace.path().join("workflow-report.jsonl");
-    let workflow_report = run_command(&[
+    let workflow_report = run_slipbox(&[
         "workflow".to_owned(),
         "run".to_owned(),
         "--root".to_owned(),
@@ -2049,7 +1901,7 @@ fn workflow_discovery_and_report_outputs_expose_stable_json_shapes() -> Result<(
     let mut database = Database::open(Path::new(&db))?;
     database.sync_index(&files)?;
 
-    let audit_jsonl = run_command(&[
+    let audit_jsonl = run_slipbox(&[
         "audit".to_owned(),
         "duplicate-titles".to_owned(),
         "--root".to_owned(),
@@ -2135,7 +1987,7 @@ fn save_review_commands_expose_stable_json_shapes() -> Result<()> {
     );
 
     let workflow_report_path = workspace.path().join("workflow-save-review.jsonl");
-    let workflow_report = run_command(&[
+    let workflow_report = run_slipbox(&[
         "workflow".to_owned(),
         "run".to_owned(),
         "--root".to_owned(),
@@ -2544,7 +2396,7 @@ fn headless_commands_report_structured_daemon_failures() -> Result<()> {
     ];
 
     for command in command_sets {
-        let output = run_command(&command)?;
+        let output = run_slipbox(&command)?;
         assert_error_failure(&output, "failed to start slipbox daemon");
     }
 
@@ -2679,7 +2531,7 @@ fn workflow_and_audit_commands_report_structured_json_failures() -> Result<()> {
     assert_error_failure(&unknown_run, "unknown workflow: workflow/builtin/missing");
 
     let audit_failure_path = workspace.path().join("missing").join("audit.jsonl");
-    let audit_failure = run_command(&[
+    let audit_failure = run_slipbox(&[
         "audit".to_owned(),
         "duplicate-titles".to_owned(),
         "--root".to_owned(),

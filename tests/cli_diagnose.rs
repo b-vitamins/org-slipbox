@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::Result;
 use serde::Deserialize;
@@ -10,6 +9,10 @@ use slipbox_core::{
 use slipbox_index::scan_root;
 use slipbox_store::Database;
 use tempfile::{TempDir, tempdir};
+
+mod support;
+
+use support::{run_slipbox, scoped_server_json_args};
 
 #[derive(Debug, Deserialize)]
 struct ErrorPayload {
@@ -25,10 +28,6 @@ struct DiagnoseFixture {
     _workspace: TempDir,
     root: PathBuf,
     db: PathBuf,
-}
-
-fn slipbox_binary() -> &'static str {
-    env!("CARGO_BIN_EXE_slipbox")
 }
 
 fn build_diagnose_fixture() -> Result<DiagnoseFixture> {
@@ -64,18 +63,6 @@ Healthy body.
     })
 }
 
-fn scoped_args(root: &Path, db: &Path) -> Vec<String> {
-    vec![
-        "--root".to_owned(),
-        root.display().to_string(),
-        "--db".to_owned(),
-        db.display().to_string(),
-        "--server-program".to_owned(),
-        slipbox_binary().to_owned(),
-        "--json".to_owned(),
-    ]
-}
-
 fn diagnose_command(
     root: &Path,
     db: &Path,
@@ -83,7 +70,7 @@ fn diagnose_command(
     extra_args: &[String],
 ) -> Vec<String> {
     let mut args = vec!["diagnose".to_owned(), subcommand.to_owned()];
-    args.extend(scoped_args(root, db));
+    args.extend(scoped_server_json_args(root, db));
     args.extend_from_slice(extra_args);
     args
 }
@@ -102,10 +89,6 @@ fn diagnose_command_with_exclude(
         "excluded\\.org$".to_owned(),
     ]);
     args
-}
-
-fn run_slipbox(args: &[String]) -> Result<std::process::Output> {
-    Ok(Command::new(slipbox_binary()).args(args).output()?)
 }
 
 #[test]

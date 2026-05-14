@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::Result;
 use serde::Deserialize;
@@ -8,6 +7,10 @@ use slipbox_core::{IndexFileResult, IndexStats, IndexedFilesResult, SearchFilesR
 use slipbox_index::scan_root;
 use slipbox_store::Database;
 use tempfile::{TempDir, tempdir};
+
+mod support;
+
+use support::{run_slipbox, scoped_server_args_with_file_extension};
 
 #[derive(Debug, Deserialize)]
 struct ErrorPayload {
@@ -17,10 +20,6 @@ struct ErrorPayload {
 #[derive(Debug, Deserialize)]
 struct ErrorMessage {
     message: String,
-}
-
-fn slipbox_binary() -> &'static str {
-    env!("CARGO_BIN_EXE_slipbox")
 }
 
 fn build_fixture() -> Result<(TempDir, PathBuf, PathBuf)> {
@@ -41,28 +40,11 @@ fn index_fixture(root: &Path, db: &Path) -> Result<()> {
     Ok(())
 }
 
-fn scoped_args(root: &Path, db: &Path) -> Vec<String> {
-    vec![
-        "--root".to_owned(),
-        root.display().to_string(),
-        "--db".to_owned(),
-        db.display().to_string(),
-        "--server-program".to_owned(),
-        slipbox_binary().to_owned(),
-        "--file-extension".to_owned(),
-        "org".to_owned(),
-    ]
-}
-
-fn run_slipbox(args: &[String]) -> Result<std::process::Output> {
-    Ok(Command::new(slipbox_binary()).args(args).output()?)
-}
-
 #[test]
 fn sync_root_refreshes_discovered_files_as_json() -> Result<()> {
     let (_workspace, root, db) = build_fixture()?;
     let mut args = vec!["sync".to_owned(), "root".to_owned()];
-    args.extend(scoped_args(&root, &db));
+    args.extend(scoped_server_args_with_file_extension(&root, &db, "org"));
     args.extend([
         "--exclude-regexp".to_owned(),
         "^archive/".to_owned(),
@@ -79,7 +61,7 @@ fn sync_root_refreshes_discovered_files_as_json() -> Result<()> {
     assert!(output.stderr.is_empty());
 
     let mut list_args = vec!["file".to_owned(), "list".to_owned()];
-    list_args.extend(scoped_args(&root, &db));
+    list_args.extend(scoped_server_args_with_file_extension(&root, &db, "org"));
     list_args.push("--json".to_owned());
     let list_output = run_slipbox(&list_args)?;
     assert!(list_output.status.success(), "{list_output:?}");
@@ -103,7 +85,7 @@ fn sync_file_removes_excluded_file_without_full_root_prune() -> Result<()> {
         "file".to_owned(),
         "archive/hidden.org".to_owned(),
     ];
-    args.extend(scoped_args(&root, &db));
+    args.extend(scoped_server_args_with_file_extension(&root, &db, "org"));
     args.extend([
         "--exclude-regexp".to_owned(),
         "^archive/".to_owned(),
@@ -118,7 +100,7 @@ fn sync_file_removes_excluded_file_without_full_root_prune() -> Result<()> {
     assert!(output.stderr.is_empty());
 
     let mut list_args = vec!["file".to_owned(), "list".to_owned()];
-    list_args.extend(scoped_args(&root, &db));
+    list_args.extend(scoped_server_args_with_file_extension(&root, &db, "org"));
     list_args.push("--json".to_owned());
     let list_output = run_slipbox(&list_args)?;
     assert!(list_output.status.success(), "{list_output:?}");
@@ -137,7 +119,7 @@ fn file_list_prints_compact_human_output() -> Result<()> {
     index_fixture(&root, &db)?;
 
     let mut args = vec!["file".to_owned(), "list".to_owned()];
-    args.extend(scoped_args(&root, &db));
+    args.extend(scoped_server_args_with_file_extension(&root, &db, "org"));
     let output = run_slipbox(&args)?;
 
     assert!(output.status.success(), "{output:?}");
@@ -157,7 +139,7 @@ fn file_search_emits_canonical_json_result() -> Result<()> {
     index_fixture(&root, &db)?;
 
     let mut args = vec!["file".to_owned(), "search".to_owned(), "Alpha".to_owned()];
-    args.extend(scoped_args(&root, &db));
+    args.extend(scoped_server_args_with_file_extension(&root, &db, "org"));
     args.push("--json".to_owned());
     let output = run_slipbox(&args)?;
 

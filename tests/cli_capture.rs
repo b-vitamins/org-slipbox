@@ -1,12 +1,14 @@
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use anyhow::Result;
 use serde::Deserialize;
 use slipbox_core::{AnchorRecord, CaptureTemplatePreviewResult, NodeKind, NodeRecord};
 use tempfile::{TempDir, tempdir};
+
+mod support;
+
+use support::{run_slipbox, run_slipbox_with_stdin, scoped_server_args_with_file_extension};
 
 #[derive(Debug, Deserialize)]
 struct ErrorPayload {
@@ -18,10 +20,6 @@ struct ErrorMessage {
     message: String,
 }
 
-fn slipbox_binary() -> &'static str {
-    env!("CARGO_BIN_EXE_slipbox")
-}
-
 fn build_fixture() -> Result<(TempDir, PathBuf, PathBuf)> {
     let workspace = tempdir()?;
     let root = workspace.path().join("notes");
@@ -30,49 +28,16 @@ fn build_fixture() -> Result<(TempDir, PathBuf, PathBuf)> {
     Ok((workspace, root, db))
 }
 
-fn scoped_args(root: &Path, db: &Path) -> Vec<String> {
-    vec![
-        "--root".to_owned(),
-        root.display().to_string(),
-        "--db".to_owned(),
-        db.display().to_string(),
-        "--server-program".to_owned(),
-        slipbox_binary().to_owned(),
-        "--file-extension".to_owned(),
-        "org".to_owned(),
-    ]
-}
-
-fn run_slipbox(args: &[String]) -> Result<std::process::Output> {
-    Ok(Command::new(slipbox_binary()).args(args).output()?)
-}
-
-fn run_slipbox_with_stdin(args: &[String], stdin: &[u8]) -> Result<std::process::Output> {
-    let mut child = Command::new(slipbox_binary())
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    child
-        .stdin
-        .as_mut()
-        .expect("stdin should be piped")
-        .write_all(stdin)?;
-    drop(child.stdin.take());
-    Ok(child.wait_with_output()?)
-}
-
 fn capture_command(root: &Path, db: &Path, subcommand: &str, extra_args: &[String]) -> Vec<String> {
     let mut args = vec!["capture".to_owned(), subcommand.to_owned()];
-    args.extend(scoped_args(root, db));
+    args.extend(scoped_server_args_with_file_extension(root, db, "org"));
     args.extend_from_slice(extra_args);
     args
 }
 
 fn sync_root(root: &Path, db: &Path) -> Result<()> {
     let mut args = vec!["sync".to_owned(), "root".to_owned()];
-    args.extend(scoped_args(root, db));
+    args.extend(scoped_server_args_with_file_extension(root, db, "org"));
     args.push("--json".to_owned());
     let output = run_slipbox(&args)?;
     assert!(output.status.success(), "{output:?}");
