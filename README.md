@@ -1,91 +1,70 @@
 # org-slipbox
 
-## What It Is
+`org-slipbox` is an Emacs package and companion Rust daemon for personal
+knowledge management in plain Org files.
 
-`org-slipbox` is an Emacs package and companion daemon for personal knowledge
-management with interconnected Org notes.
+Org files are the source of truth. A derived SQLite index makes search,
+backlinks, refs, agenda queries, graph export, exploration, review loops, and
+daemon-owned writes fast enough for interactive use. Emacs owns editing UI,
+session state, and presentation. Rust owns parsing, indexing, ranking, query
+execution, and file mutation.
 
-It keeps a personal slip-box, or Zettelkasten, in plain Org files. Org files
-remain the source of truth, while a derived SQLite index supports interactive
-search, backlinks, refs, agenda queries, and structural edits. The Rust side
-owns indexing, ranking, query execution, and file mutation. The Emacs Lisp
-side owns commands, session state, and presentation.
+The latest shipped release is `0.12.0`, the structural editing and
+stabilization line. Current development is the `0.13.0` consolidation line:
+compact docs, clearer command taxonomy, and internal refactors without new
+public product nouns.
 
-## Status
+For the product model, see [doc/model.org](doc/model.org). The short version
+is:
 
-The latest release is `0.12.0`, the structural editing and stabilization line
-built on the `0.11.0` CLI parity foundation.
+- `Notes`: Org files, file nodes, heading anchors, metadata, capture, dailies,
+  and structural edits.
+- `Relations`: links, refs, tags, backlinks, forward links, occurrence search,
+  agenda entries, and graph edges.
+- `Explorations`: lenses, comparisons, trails, explanations, and saved
+  exploration artifacts.
+- `Reviews`: audits, review runs, status, diffs, remediation previews, and
+  bounded remediation apply records.
+- `Assets`: workflow specs, review routines, report profiles, and workbench
+  packs.
+- `System`: daemon/runtime state, sync, indexed files, diagnostics,
+  compatibility policy, and benchmark profiles.
 
-The documented workflow surface is intended to remain complete enough for
-day-to-day replacement use while the project deepens its exploratory model.
-The released `0.8.x` line broadened the research workbench by composition:
-named workflows, corpus-health audits, bounded workflow discovery, report
-outputs, and stricter scale guarantees over the shipped headless surface.
-The `0.9.x` line makes those recurring loops operational: durable review
-runs, review status, review diffs, and read-only remediation previews for
-supported audit findings. Review records stay distinct from notes and saved
-exploration artifacts. The `0.10.x` line is declarative workbench extension:
-versioned workflow specs, review routines, report profiles, and portable packs
-as data assets rather than executable plugins. Imported declarative workbench
-assets stay separate from notes, review runs, and saved exploration artifacts.
-The `0.11.x` line turns the CLI into a first-class everyday surface for the
-ordinary slipbox operations already modeled by the daemon: sync, search, files,
-nodes, refs, tags, agenda, graph export, note creation, capture, dailies,
-identity, and metadata. In that line, raw-RPC sprawl, plugin-runtime
-ambitions, MCP, agent-adapter claims, structural rewrite flows, and broad
-automated mutation remain deferred.
-The `0.12.x` line completes the highest-risk remaining parity work: structural
-rewrites, affected-file reports, selected preview-backed remediation apply,
-`slipbox:` link rewrite, maintenance diagnostics, compatibility policy, and
-upgrade-style rebuild survival coverage. MCP, agent-adapter, plugin-runtime,
-scheduler, and broad automated mutation claims remain deferred until the two
-first-class surfaces are stable enough to target.
+Boundary statement: daemon-backed work goes through `slipbox serve` over
+JSON-RPC stdio; the CLI and Emacs package expose task-shaped operations rather
+than raw transport sprawl, plugin runtime, MCP implementation, or agent
+adapter surfaces.
 
 ## Requirements
 
 - Emacs `29.1` or newer
-- a `slipbox` daemon binary, either from a release archive or a local source build
-- Graphviz only if you use the optional graph commands
-- `org-protocol` only if you use the optional protocol handlers
+- a `slipbox` daemon binary, from a release archive or a local source build
+- Graphviz only for optional graph rendering
+- `org-protocol` only for optional browser/protocol capture handlers
 
 ## Product Docs
 
-The durable product documents live in `doc/`:
-
-- `doc/model.org` defines the compact public model used by docs, CLI taxonomy,
-  and future MCP mapping
-- `doc/vision.org` states the north star
-- `doc/milestones.org` translates that vision into capability milestones
-- `doc/roadmap.org` maps the milestones onto release bands without date promises
+- [doc/model.org](doc/model.org) defines the compact public model and command
+  taxonomy.
+- [doc/vision.org](doc/vision.org) states the product direction.
+- [doc/milestones.org](doc/milestones.org) describes durable capability
+  milestones.
+- [doc/roadmap.org](doc/roadmap.org) maps near-term release bands.
 
 ## Installation
 
-`org-slipbox` ships as one repository containing:
-
-- the Emacs package
-- the Rust daemon and CLI
-
-The two parts stay separable:
-
-- the Emacs package lives in the repository root for straightforward ELPA-style loading and simple Emacs package builds
-- the daemon is a normal `slipbox` executable that can live on `PATH` or be pointed to explicitly with `org-slipbox-server-program`
+`org-slipbox` ships as one repository containing the Emacs package and the Rust
+daemon/CLI. The two parts stay separable: the root `.el` files can be loaded as
+an Emacs package, and the daemon is an ordinary `slipbox` executable on `PATH`
+or at `org-slipbox-server-program`.
 
 ### Install The Daemon
-
-#### Release Binary
 
 Tagged releases publish platform-specific `slipbox` archives through GitHub
 Actions. Unpack the archive somewhere on `PATH`, or point
 `org-slipbox-server-program` at the unpacked binary.
 
-When `slipbox` is already on `PATH`, the default
-`org-slipbox-server-program` value works as-is and no extra daemon path setting
-is required.
-
-#### Build From Source
-
-The default source build uses bundled SQLite, so no system SQLite development
-package is required:
+To build from source with bundled SQLite:
 
 ```bash
 make build
@@ -97,11 +76,7 @@ This is equivalent to:
 cargo build --release --locked
 ```
 
-The `make` target prefers an available C compiler automatically for the bundled
-SQLite build. The raw `cargo` command assumes your environment already exposes
-one.
-
-If you want the built daemon on `PATH`, you can install it directly:
+To install the built daemon on `PATH`:
 
 ```bash
 make install-daemon
@@ -113,39 +88,34 @@ This is equivalent to:
 cargo install --path . --locked
 ```
 
-If you are packaging against a system SQLite instead of the bundled copy, use:
+Packagers who want system SQLite can use:
 
 ```bash
 make build-system-sqlite
-```
-
-This is equivalent to:
-
-```bash
-cargo build --release --locked --no-default-features --features system-sqlite
-```
-
-To install that variant onto `PATH` directly:
-
-```bash
 make install-daemon-system-sqlite
 ```
 
+Those targets use:
+
+```bash
+cargo build --release --locked --no-default-features --features system-sqlite
+cargo install --path . --locked --no-default-features --features system-sqlite
+```
+
 The `system-sqlite` path expects a discoverable SQLite development
-installation. If your toolchain cannot find it, either expose it through the
-usual compiler and `pkg-config` environment for your platform, or use the
-default bundled build instead.
+installation. The default bundled build is the normal path when that toolchain
+is not available.
 
-### Guix Development Shell
+### Development Shell
 
-The repository includes [manifest.scm](/home/b/projects/org-slipbox/manifest.scm)
-for contributors who want a one-command development environment:
+The repository includes [manifest.scm](manifest.scm) as an optional Guix
+development convenience:
 
 ```bash
 guix shell -m manifest.scm
 ```
 
-The Makefile also exposes matching convenience targets:
+Matching Makefile wrappers are available:
 
 ```bash
 make guix-build
@@ -155,24 +125,19 @@ make guix-lint-rust
 make guix-bench-check
 ```
 
-These are convenience wrappers only. The normal source-build and binary-first
-paths above remain the primary upstream interfaces.
-
-The Guix shell also includes `emacs-org-roam`, so packaged comparison runs can
-use the same shell instead of relying on ad hoc local installs.
+These wrappers are contributor conveniences. Release binaries, source builds,
+and the installed `slipbox` executable remain the primary user paths.
 
 ### Install The Emacs Package
 
-Add the repository root to your Emacs `load-path` and require `org-slipbox`:
+Add the repository root to `load-path` and require `org-slipbox`:
 
 ```emacs-lisp
 (add-to-list 'load-path "/path/to/org-slipbox")
 (require 'org-slipbox)
 ```
 
-### Emacs Setup
-
-If `slipbox` is on `PATH`, the default setup is:
+Then configure the note root and database:
 
 ```emacs-lisp
 (setq org-slipbox-directory (file-truename "~/notes"))
@@ -181,127 +146,80 @@ If `slipbox` is on `PATH`, the default setup is:
 (org-slipbox-mode 1)
 ```
 
-If you built the daemon in a checkout and are not using `PATH`, also set:
+If `slipbox` is not on `PATH`, also set:
 
 ```emacs-lisp
 (setq org-slipbox-server-program
       "/path/to/org-slipbox/target/release/slipbox")
 ```
 
-`org-slipbox-mode` is a single top-level integration mode. It enables:
+`org-slipbox-mode` enables:
 
-- `org-slipbox-autosync-mode` for save, rename, delete, and VC-delete index updates
-- `org-slipbox-id-mode` so indexed IDs cooperate with `org-id`
-- `org-slipbox-completion-mode` in eligible Org buffers under `org-slipbox-directory`
+- `org-slipbox-autosync-mode` for save, rename, delete, and VC-delete index
+  updates.
+- `org-slipbox-id-mode` so indexed IDs cooperate with `org-id`.
+- `org-slipbox-completion-mode` in eligible Org buffers under
+  `org-slipbox-directory`.
 
-Loading `org-slipbox` alone does not install global hooks or mutate user state.
-The setup remains explicit and mode-owned.
-
-If you prefer granular control, you can enable the pieces separately:
-
-- `org-slipbox-autosync-mode`
-- `org-slipbox-id-mode`
-- `org-slipbox-completion-mode`
-
-This upstream layout is intentionally simple for downstream packaging:
-
-- Emacs packaging only needs the root `.el` files.
-- The daemon is a separate executable discovered on `PATH` or through `org-slipbox-server-program`.
-- The default source build works without a system SQLite development package, while packagers can switch to system SQLite explicitly.
+Loading `org-slipbox` alone does not install hooks or mutate user state. The
+integration starts when you enable the mode or one of its narrower component
+modes.
 
 ## First Run
 
-After enabling the mode, build the initial index:
+Build the initial index:
 
 ```text
 M-x org-slipbox-sync
 ```
 
-Then try the core workflow:
+Then run the core note loop:
 
 1. `M-x org-slipbox-node-find`
-2. Enter a new title and press `RET`
-3. Finalize the draft with `C-c C-c`, or abort it with `C-c C-k`
-4. Insert a link from another note with `M-x org-slipbox-node-insert`
-   Use `M-x org-slipbox-node-insert-immediate` to skip the draft buffer for
-   newly captured insertions.
-5. Open the current-node context buffer with `M-x org-slipbox-buffer-toggle`
-   Use `M-x org-slipbox-buffer-display-dedicated` when you want the fuller
-   one-node view, including the more expensive discovery sections.
+2. Enter a new title and press `RET`.
+3. Finalize the draft with `C-c C-c`, or abort with `C-c C-k`.
+4. Insert a link from another note with `M-x org-slipbox-node-insert`.
+5. Open context with `M-x org-slipbox-buffer-toggle`.
+6. Use `M-x org-slipbox-buffer-display-dedicated` for the fuller exploratory
+   cockpit.
 
-The first full sync builds the database. After that, autosync keeps the index
+The first sync builds the database. After that, autosync keeps changed files
 current incrementally.
 
-## Core Workflow
+## Everyday Emacs Use
 
-`org-slipbox` supports the same basic note loop that `org-roam` users expect:
+The main Emacs commands are:
 
-- `org-slipbox-node-find` visits an existing node or starts capture for a new one.
-- `org-slipbox-node-insert` inserts a link to an existing node or captures a new one.
-- `org-slipbox-node-insert-immediate` inserts a link and commits newly captured nodes directly.
-- `org-slipbox-capture` starts the same draft-based capture flow directly.
-- `org-slipbox-buffer-toggle` shows the persistent current-node context buffer.
-- `org-slipbox-buffer-display-dedicated` opens the dedicated one-node context buffer with the fuller discovery surface.
+- `org-slipbox-node-find`: visit an indexed node or capture a new note.
+- `org-slipbox-node-insert`: insert an `id:` link or capture a new target.
+- `org-slipbox-node-insert-immediate`: insert and immediately commit newly
+  captured nodes.
+- `org-slipbox-capture`: start the capture flow directly.
+- `org-slipbox-buffer-toggle`: show the cheap persistent current-node context.
+- `org-slipbox-buffer-display-dedicated`: open the richer one-node cockpit.
 
 File nodes and heading nodes are both first-class. Explicit IDs remain the
-stable identity surface, but `org-slipbox` also supports lazy ID assignment when
-you turn an existing note into a stable link target.
+stable identity surface, and IDs can be assigned lazily when an existing note
+becomes a stable link target.
 
-## Current-Node Buffer
+### Context And Exploration
 
-`org-slipbox` provides the same two buffer entry points that `org-roam` users
-expect:
+The persistent buffer keeps cheap indexed sections on the hot path. The
+dedicated buffer is the richer cockpit for declared lenses, comparisons,
+trails, explanations, and saved artifacts.
 
-- `org-slipbox-buffer-toggle` opens a persistent buffer that tracks the node at point
-- `org-slipbox-buffer-display-dedicated` opens a dedicated buffer for one node without replacing it as point moves
+The dedicated buffer supports:
 
-The persistent buffer keeps the cheap indexed sections on the hot path. By
-default, backlinks and forward links render from indexed daemon queries, while
-expensive discovery sections such as reflinks and unlinked references render
-only in dedicated buffers, where their daemon-backed query cost is explicit.
+- lenses: `structure`, `refs`, `time`, `tasks`, `bridges`, `dormant`, and
+  `unresolved`
+- pivot history with `[` and `]`
+- frozen-root toggling with `f`
+- comparison with `c`, `C`, and `g`
+- trails with `a`, `{`, `}`, and `T`
+- artifact save/load with `s` and `o`
+- explanation blocks for non-obvious results
 
-For migration purposes, the practical rule is simple: use
-`org-slipbox-buffer-toggle` for a cheap tracking buffer that follows point, and
-use `org-slipbox-buffer-display-dedicated` when you want the fuller
-exploratory cockpit without point-driven replacement.
-
-The dedicated buffer currently supports:
-
-- declared lenses for `structure`, `refs`, `time`, `tasks`, `bridges`, `dormant`, and `unresolved`
-- explicit pivot history with `[` and `]`, plus frozen-root toggling with `f`
-- note comparison with `c` to set a compare target, `C` to clear it, and `g` to switch comparison groups across overlap, divergence, and tension
-- explicit trails with `a`, `{`, `}`, and `T`, including replay and detached branching
-- durable exploration artifacts with `s` to save the current lens, comparison, or trail state and `o` to reload a saved artifact into the dedicated cockpit
-- explanation blocks for non-obvious results such as shared refs, bridge candidates, dormant notes, planning-date relations, task-state matches, and weak integration
-
-This is the settled cockpit line through `0.6.x`: the dedicated buffer remains
-the interactive exploratory house, while `0.6.x` adds durable exploration
-artifacts and a first narrow machine-facing surface around them. `0.7.x`
-builds the first usable headless workbench on top of that same model through
-task-shaped `slipbox` commands for node resolution, live exploration,
-comparison, and artifact lifecycle over `slipbox serve`. `0.8.x` broadens the
-same house through named workflows, corpus-health audits, bounded workflow
-discovery, report outputs, and scale gates. `0.9.x` makes those recurring
-workbench loops reviewable and operational through durable review records,
-status, diffs, and read-only remediation previews for supported audit
-findings, while keeping review state distinct from notes and saved exploration
-artifacts. `0.10.x` makes that workbench extensible through declarative assets:
-versioned workflow specs, review routines, report profiles, and packs that can
-be validated, imported, exported, cataloged, and run without becoming notes,
-review runs, saved exploration artifacts, or executable plugin code. Broader
-platform maturity, extension APIs, and agent-adapter work remain later work.
-`0.11.x` extends the same one-model line to everyday operations: the CLI covers
-safe ordinary work over `slipbox serve` without becoming a raw transport
-mirror. `0.12.x` then adds structural editing, diagnostics, link rewrite,
-bounded remediation apply, compatibility policy, and broader stability
-hardening without turning the project into a plugin runtime or automation
-platform.
-
-When the current node record includes indexed metadata, the node summary also
-renders file modification time plus backlink and forward-link counts without
-local filesystem stats.
-
-The buffer surface is configurable:
+Buffer sections are configurable:
 
 ```emacs-lisp
 (setq org-slipbox-buffer-persistent-sections
@@ -319,112 +237,46 @@ The buffer surface is configurable:
 (setq org-slipbox-buffer-expensive-sections 'dedicated)
 ```
 
-Section functions may also take keyword arguments, and the overall buffer render
-can be shaped with:
+### Metadata, Refs, Links, And Completion
 
-- `org-slipbox-buffer-section-filter-function`
-- `org-slipbox-buffer-postrender-functions`
-- `org-slipbox-buffer-expensive-sections`
+File-node titles come from `#+title`; heading-node titles come from headings.
+Aliases, tags, refs, planning dates, and task states are indexed.
 
-Entries in the buffer are ordinary buttons that visit the related node or the
-exact match location. This is an intentional divergence from `org-roam`:
-`org-slipbox` preserves the workflow surface without depending on
-`magit-section`, which keeps the persistent path simpler and cheaper.
+Common metadata commands:
 
-## Node Metadata, Refs, And Citations
+- `org-slipbox-alias-add` / `org-slipbox-alias-remove`
+- `org-slipbox-tag-add` / `org-slipbox-tag-remove`
+- `org-slipbox-ref-add` / `org-slipbox-ref-remove`
+- `org-slipbox-ref-find`
 
-File-node titles come from `#+title`; heading-node titles come from the heading
-text. Aliases, tags, refs, and planning metadata are indexed and available to
-search, completion, and the context buffer.
+`ROAM_REFS` may contain URLs, citation keys, or multiple refs for one note.
+Org-cite forms such as `[cite:@key]` and org-ref forms such as `cite:key`
+normalize into the same ref surface.
 
-- Add or remove aliases with `org-slipbox-alias-add` and `org-slipbox-alias-remove`
-- Add or remove tags with `org-slipbox-tag-add` and `org-slipbox-tag-remove`
-- Add or remove refs with `org-slipbox-ref-add` and `org-slipbox-ref-remove`
-- Find canonical ref-backed nodes with `org-slipbox-ref-find`
+`ROAM_EXCLUDE` excludes file or heading nodes from the derived index, except
+the literal value `nil`, which clears an inherited exclusion.
 
-`ROAM_REFS` may contain URLs, citation keys, or multiple refs for a single
-note. `org-slipbox` normalizes both Org-cite forms like `[cite:@key]` and
-org-ref forms like `cite:key` into the same indexed ref surface, so citation
-backlinks appear through the same reflink workflows instead of requiring a
-separate code path.
+Completion uses `completion-at-point`:
 
-`ROAM_EXCLUDE` is recognized during indexing for file nodes and heading nodes.
-Any present value excludes that node from the derived index except the literal
-value `nil`, which explicitly clears a local or inherited exclusion. File
-discovery stays separate from node membership, so excluded files still remain
-eligible for file-level surfaces and `org-id` compatibility fallback.
+- inside Org links, completion inserts `slipbox:Title` links
+- `org-slipbox-completion-everywhere` enables completion outside links
+- `org-slipbox-link-auto-replace` rewrites `slipbox:` links to stable `id:`
+  links on save
+- ordinary Emacs completion front-ends work through the same CAPF surface
 
-File tags come from standard Org file-tag behavior, including `#+filetags`.
-Heading tags are ordinary Org tags.
+### Capture, Dailies, Protocol, Export, And Graph
 
-## Links And Completion
+Capture templates live in `org-slipbox-capture-templates` and support:
 
-Graph edges are built from `id:` links. `org-slipbox` also supports title-based
-`slipbox:` links as a writing convenience.
+- content kinds: `entry`, `plain`, `item`, `checkitem`, `table-line`
+- targets: `file`, `file+head`, `file+olp`, `file+head+olp`, `file+datetree`,
+  and existing `(node ...)`
+- lifecycle options such as `:immediate-finish`, `:jump-to-captured`,
+  `:no-save`, and finalize hooks
+- placeholders such as `${title}`, `${slug}`, `${ref}`, `${body}`,
+  `${annotation}`, and `${link}`
 
-When `org-slipbox-mode` is enabled, completion is active in eligible Org files.
-You can also enable `org-slipbox-completion-mode` directly if you prefer the
-granular setup path.
-
-`org-slipbox` installs completion through `completion-at-point`, so the normal
-Emacs completion stack applies:
-
-- inside Org bracket links, completion inserts `slipbox:Title` links
-- set `org-slipbox-completion-everywhere` to non-nil to complete outside links too
-- set `org-slipbox-link-auto-replace` to non-nil if you want `slipbox:` links rewritten to stable `id:` links on save
-- completion respects your configured `completion-styles`
-- Corfu, Vertico, Company via `company-capf`, and other CAPF front-ends work through the same surface
-
-The node chooser behind `org-slipbox-node-read` supports configurable display
-templates, annotation hooks, and sorting/filtering hooks.
-
-## Encrypted Files And Discovery
-
-Encrypted Org files are part of the normal discovery story. Files ending in
-`.org.gpg` or `.org.age` are eligible whenever their base extension matches the
-configured discovery policy.
-
-Capture templates can target encrypted notes directly:
-
-```emacs-lisp
-(setq org-slipbox-capture-templates
-      '(("d" "default" plain "${body}"
-         :target (file+head "notes/${slug}.org.gpg"
-                            "#+title: ${title}\n"))))
-```
-
-The discovery policy is shared across indexing, autosync, dailies, and
-discovery sections through:
-
-- `org-slipbox-file-extensions`
-- `org-slipbox-file-exclude-regexp`
-
-One important expectation is the same as in `org-roam`: the SQLite database
-stores indexed metadata in plain text. Encrypt the database separately if that
-metadata is sensitive.
-
-## Capture And Templates
-
-`org-slipbox` treats capture as a first-class workflow, not as a thin wrapper
-around ad hoc file edits.
-
-- `org-slipbox-capture` starts a transient draft buffer
-- `C-c C-c` finalizes the draft through the Rust RPC layer
-- `C-c C-k` aborts the draft without mutating the target note
-- `org-slipbox-node-find` and `org-slipbox-node-insert` reuse the same capture flow for new notes
-
-Capture templates live in `org-slipbox-capture-templates`. They support the
-same workflow shape `org-roam` users expect:
-
-- typed content kinds: `entry`, `plain`, `item`, `checkitem`, `table-line`
-- file targets: `file`, `file+head`, `file+olp`, `file+head+olp`, `file+datetree`
-- existing-node targets with `(node ...)`
-- lifecycle options such as `:immediate-finish`, `:jump-to-captured`, `:no-save`, and finalize hooks
-
-Template expansion uses `${...}` placeholders. Common values include
-`${title}`, `${slug}`, `${ref}`, `${body}`, `${annotation}`, and `${link}`.
-Unknown placeholders prompt once and can take defaults with
-`${name=default}`.
+Example:
 
 ```emacs-lisp
 (setq org-slipbox-capture-templates
@@ -434,989 +286,253 @@ Unknown placeholders prompt once and can take defaults with
          :unnarrowed t)))
 ```
 
-Ref-oriented capture uses `org-slipbox-capture-ref-templates`, which follows
-the same syntax while adding `${ref}`, `${body}`, `${annotation}`, and
-`${link}`.
+Daily notes use `org-slipbox-dailies-directory` and
+`org-slipbox-dailies-capture-templates`. The main dailies commands are
+`org-slipbox-dailies-goto-*`, `org-slipbox-dailies-capture-*`, and
+`org-slipbox-dailies-find-directory`.
 
-This is an intentional divergence from `org-roam` only in architecture: the
-draft/session layer lives in Emacs, but all target writes and target
-preparation still happen behind Rust RPCs.
+Optional surfaces stay opt-in:
 
-## org-protocol
+- `org-slipbox-protocol-mode` registers `roam-node` and `roam-ref`
+  `org-protocol` handlers.
+- `org-slipbox-export-mode` keeps Org ID-backed links aligned with exported
+  HTML anchors.
+- `org-slipbox-graph` renders Graphviz graphs.
+- `org-slipbox-dailies-calendar-mode` marks existing daily files in the
+  calendar.
 
-`org-slipbox` keeps browser and external capture flows opt-in. Enable them with:
+Encrypted Org files ending in `.org.gpg` or `.org.age` are eligible when their
+base extension matches the configured discovery policy. Indexed metadata in
+SQLite remains plaintext; encrypt the database separately if needed.
 
-```emacs-lisp
-(org-slipbox-protocol-mode 1)
-```
+## CLI Surface
 
-This mode registers `roam-node` and `roam-ref` handlers with
-`org-protocol`. The surrounding `org-protocol://` system integration still
-belongs to your Emacs and operating-system setup; `org-slipbox` only owns the
-handler registration.
+The CLI is the scriptable front-end for the same daemon-owned model. Use Emacs
+for interactive editing, completion UI, draft capture buffers, live cockpit
+navigation, calendar UI, and viewer hooks. Use the CLI for repeatable sync,
+lookup, search, graph export, note creation, capture, dailies, reviews,
+assets, diagnostics, and structural writes.
 
-- `roam-node` visits an indexed node by ID
-- `roam-ref` finds or captures the canonical note for a ref
-
-`roam-ref` uses `org-slipbox-capture-ref-templates`, so bookmarklet and browser
-flows reuse the same capture semantics as normal ref capture.
-
-## Dailies
-
-Daily notes are configured independently from the main capture templates:
-
-```emacs-lisp
-(setq org-slipbox-dailies-directory "daily/")
-(setq org-slipbox-dailies-capture-templates
-      '(("d" "default" entry
-         "* ${title}"
-         :target (file+head "%<%Y-%m-%d>.org"
-                            "#+title: %<%Y-%m-%d>\n"))))
-```
-
-When daily templates are configured, the interactive capture commands select
-the template first and only prompt for `Daily entry:` when that template uses
-title-derived placeholders such as `${title}` or `${slug}`. Fixed-content
-templates can therefore capture directly without a meaningless heading prompt.
-
-The main commands mirror the documented `org-roam-dailies` workflow:
-
-- `org-slipbox-dailies-capture-today`
-- `org-slipbox-dailies-goto-today`
-- `org-slipbox-dailies-capture-yesterday`
-- `org-slipbox-dailies-goto-yesterday`
-- `org-slipbox-dailies-capture-tomorrow`
-- `org-slipbox-dailies-goto-tomorrow`
-- `org-slipbox-dailies-capture-date`
-- `org-slipbox-dailies-goto-date`
-- `org-slipbox-dailies-goto-previous-note`
-- `org-slipbox-dailies-goto-next-note`
-- `org-slipbox-dailies-find-directory`
-
-`org-slipbox-dailies-map` provides a public prefix keymap for these commands
-using the conventional bindings:
-
-- `d` today
-- `y` yesterday
-- `t` tomorrow
-- `n` capture today
-- `f` next note
-- `b` previous note
-- `c` goto date
-- `v` capture date
-- `.` dailies directory
-
-Calendar marking remains optional through `org-slipbox-dailies-calendar-mode`,
-so dailies discovery does not bleed into startup or the main buffer hot path.
-
-## Export And Graph
-
-Stable HTML export is opt-in:
-
-```emacs-lisp
-(org-slipbox-export-mode 1)
-```
-
-This keeps Org ID-backed links aligned with exported HTML anchors without
-changing ordinary editing or indexing behavior.
-
-Graph generation is also optional and isolated:
-
-- `org-slipbox-graph` renders and opens a graph
-- `org-slipbox-graph-write-dot` writes the DOT source
-- `org-slipbox-graph-write-file` renders directly to a file
-
-With no prefix argument, `org-slipbox-graph` renders the global graph. With a
-plain `C-u`, it renders the connected component around the node at point. With
-a numeric prefix, it renders the bounded neighborhood around the node at point.
-
-Useful graph options include:
-
-- `org-slipbox-graph-executable`
-- `org-slipbox-graph-viewer`
-- `org-slipbox-graph-filetype`
-- `org-slipbox-graph-node-url-prefix`
-- `org-slipbox-graph-generation-hook`
-
-For local graphs, the default node URL prefix uses `org-protocol`. For
-published graphs, set `org-slipbox-graph-node-url-prefix` to a web URL prefix
-and use `org-slipbox-graph-generation-hook` to copy the rendered artifact into
-your publishing output.
-
-## If You Use org-roam Today
-
-The normal substitution story is local rewiring, not conceptual retraining.
-Start by translating the setup you already know:
-
-| org-roam | org-slipbox | Notes |
-| --- | --- | --- |
-| `org-roam-directory` | `org-slipbox-directory` | Same role: the note root. |
-| `org-roam-db-location` | `org-slipbox-database-file` | Same role: SQLite index path. |
-| `org-roam-db-autosync-mode` | `org-slipbox-mode` or `org-slipbox-autosync-mode` | `org-slipbox-mode` is the one-step integration path; `org-slipbox-autosync-mode` is the narrower sync-only equivalent. |
-| `org-roam-completion-everywhere` | `org-slipbox-completion-everywhere` | Same meaning. |
-| `(require 'org-roam-protocol)` | `(org-slipbox-protocol-mode 1)` | Protocol support stays opt-in and mode-owned. |
-| `(require 'org-roam-export)` | `(org-slipbox-export-mode 1)` | Export support stays opt-in and mode-owned. |
-| `org-roam-dailies-directory` | `org-slipbox-dailies-directory` | Same role. |
-| `org-roam-dailies-capture-templates` | `org-slipbox-dailies-capture-templates` | Same workflow surface. |
-
-For a typical setup, the translation looks like this:
-
-```emacs-lisp
-(setq org-slipbox-directory (file-truename "~/org"))
-(setq org-slipbox-database-file
-      (expand-file-name "org-slipbox.sqlite" user-emacs-directory))
-(setq org-slipbox-completion-everywhere t)
-
-(setq org-slipbox-dailies-directory "daily/")
-(setq org-slipbox-dailies-capture-templates
-      '(("d" "default" entry "* %?"
-         :target (file+head "%<%Y-%m-%d>.org"
-                            "#+title: %<%Y-%m-%d>\n"))))
-
-(org-slipbox-mode 1)
-```
-
-Then run `M-x org-slipbox-sync` once and continue with the usual note loop.
-
-These are the most common command-level equivalents:
-
-| org-roam | org-slipbox | Notes |
-| --- | --- | --- |
-| `org-roam-db-sync` | `org-slipbox-sync` | Full rebuild/sync entry point. |
-| `org-roam-node-find` | `org-slipbox-node-find` | Find existing node or start capture for a new one. |
-| `org-roam-node-insert` | `org-slipbox-node-insert` | Insert an `id:` link or capture a new node. |
-| immediate-insert wrapper | `org-slipbox-node-insert-immediate` | Same insert-link flow, but newly captured nodes commit without opening a draft. |
-| `org-roam-capture` | `org-slipbox-capture` | Direct capture entry point. |
-| `org-roam-buffer-toggle` | `org-slipbox-buffer-toggle` | Persistent current-node buffer that tracks point and keeps expensive discovery off the hot path. |
-| `org-roam-buffer-display-dedicated` | `org-slipbox-buffer-display-dedicated` | Dedicated one-node buffer for the fuller context surface, including expensive discovery sections. |
-| `org-roam-node-at-point` | `org-slipbox-node-at-point` | Indexed node lookup for the current location. |
-| `org-roam-ref-find` | `org-slipbox-ref-find` | Indexed ref chooser. |
-| `org-roam-ref-add` / `org-roam-ref-remove` | `org-slipbox-ref-add` / `org-slipbox-ref-remove` | Ref metadata editing. |
-| `org-roam-dailies-*` | `org-slipbox-dailies-*` | Same workflow family. |
-| `org-roam-graph` | `org-slipbox-graph` | Optional Graphviz surface. |
-
-The important design differences are:
-
-- `org-slipbox` treats Emacs as the client and Rust as the engine.
-- Index freshness is explicit and incremental rather than hidden behind ambient state.
-- Completion and query hot paths stay index-backed instead of materializing the corpus in Elisp.
-- The context buffer preserves the workflow surface without depending on `magit-section`.
-- `org-slipbox` keeps one active root and derived index per Emacs session.
-
-## Optional Surfaces
-
-These stay opt-in and isolated from startup:
-
-- `org-slipbox-protocol-mode` for `roam-node` and `roam-ref`
-- `org-slipbox-export-mode` for stable HTML export anchors
-- `org-slipbox-graph` for Graphviz generation and viewing
-- `org-slipbox-dailies-calendar-mode` for calendar marking
-
-## Current Capabilities
-
-- Scan an Org directory and build a SQLite index.
-- Search indexed nodes through the Rust query engine.
-- Search indexed raw text occurrences through a structured Rust query surface
-  that returns file, location, preview, and owning-node metadata, with indexed
-  literal matching for queries of three or more characters.
-- Format interactive node candidates with configurable display templates or
-  functions, including indexed modification-time and graph-count metadata.
-- Read nodes through a single-step chooser with configurable filter, sort, annotation, and insertion-format hooks.
-- Search nodes by aliases and tags stored in Org metadata.
-- Resolve nodes by exact `ID`, exact title or alias, and current point location.
-- Resolve nodes from indexed refs and citekeys through a dedicated ref chooser, and edit alias/ref/tag metadata from Emacs.
-- Capture notes from refs without duplicating existing ref-backed nodes.
-- Expand capture templates into exact file targets, optional file heads, outline-path targets, datetrees, and existing indexed nodes.
-- Start note capture in a transient draft buffer, or commit prepared drafts directly with `:immediate-finish`, while only writing through Rust RPC.
-- Support org-roam-style typed capture templates with `entry`, `plain`, `item`, `checkitem`, and `table-line` content.
-- Honor capture lifecycle actions such as `:finalize`, `:jump-to-captured`, `:immediate-finish`, `:no-save`, and template finalize handlers.
-- Display a persistent or dedicated context buffer with declared lenses, inline result explanations, pivot history, comparison groups, explicit trails, configurable ordered sections, postrender hooks, unique-backlink variants, and dedicated-buffer discovery sections.
-- Save durable exploration artifacts for dedicated lens views, comparisons, full trails, and detached trail slices, then reload them back into the dedicated cockpit without reconstructing semantics in Elisp.
-- Persist durable exploration artifacts outside the derived SQLite index so they survive schema rebuilds and do not pollute public note, search, ref, or graph surfaces.
-- Expose narrow JSON-RPC operations for saved artifacts: `saveExplorationArtifact`, `explorationArtifact`, `listExplorationArtifacts`, `executeExplorationArtifact`, and `deleteExplorationArtifact`.
-- Complete and follow title-based org-slipbox links, with optional rewrite to stable `id:` links.
-- Refile either the active region or the current subtree between indexed notes, and extract subtrees into new promoted file notes.
-- Query indexed agenda entries from scheduled and deadline planning lines.
-- Register opt-in `org-protocol` handlers for `roam-node` and `roam-ref` browser capture flows.
-- Create and visit daily notes, append daily entries, move between existing daily notes, and opt into calendar marking for existing daily files.
-- Enable optional HTML export support so Org ID-backed targets keep stable exported anchors.
-- Keep indexed state current across Org file saves, renames, deletes, and VC deletes through explicit modes.
-- Apply a shared file-discovery policy across indexing, autosync, dailies, and discovery sections, with configurable extensions, exclude regexps, and `.gpg` / `.age` suffix handling.
-- Export optional global or neighborhood Graphviz graphs from indexed `id:` links, with title shortening, link filtering, DOT output, rendered file generation, viewer integration, and optional `org-protocol` node URLs.
-
-## Performance
-
-`org-slipbox` ships with an explicit corpus benchmark harness instead of
-relying on anecdotal scale claims.
-
-- `cargo run --bin slipbox-bench -- check --profile ci` generates a deterministic corpus, measures full indexing, single-file incremental indexing, indexed search, backlinks, node-at-point lookup, agenda queries, workflow catalog discovery, discovered workflow execution, corpus-health audits, operational review paths, declarative extension paths, everyday CLI engine paths, and batch Emacs benchmarks for the persistent tracking buffer, the dedicated comparison render path, and a guaranteed non-structure dedicated exploration render path rooted in the unresolved lens with trail state.
-- `cargo run --bin slipbox-bench -- run --profile release --keep-corpus` runs the larger local profile and keeps the generated corpus under `target/bench/` for inspection.
-- Benchmark profiles live in [`benches/profiles/ci.json`](/home/b/projects/org-slipbox/benches/profiles/ci.json) and [`benches/profiles/release.json`](/home/b/projects/org-slipbox/benches/profiles/release.json). Reports are written to `target/bench/`.
-- The benchmark corpus includes discovered workflow specs, explicit audit
-  fixtures, persisted review fixtures, and imported pack/routine/report-profile
-  fixtures, so workflow, audit, operational review, declarative extension, and
-  everyday CLI gates measure real behavior rather than empty catalog scans or
-  cheap fallback paths.
-
-This is an intentional divergence from the `org-roam` manual's performance
-guidance. `org-slipbox` does not expose GC-tuning knobs for cache builds,
-because the heavy parse/index/query path lives in Rust rather than in a large
-Elisp caching pass. The replacement answer here is benchmarked behavior, not
-more GC tuning variables.
-
-## Durable Exploration Artifacts
-
-`0.6.x` introduces the first workbench-foundation surface without pretending
-that the whole programmable platform is done.
-
-- In the dedicated cockpit, `s` saves the current lens view, comparison, full trail, or detached trail slice as a durable artifact.
-- `o` asks the daemon to execute a saved artifact and then restores the dedicated session from the executed result.
-- The daemon persists those artifacts outside the derived SQLite index, so rebuilds do not erase them and note-facing query surfaces do not start treating artifacts as notes.
-- The machine-facing surface is deliberately narrow: `saveExplorationArtifact`, `explorationArtifact`, `listExplorationArtifacts`, `executeExplorationArtifact`, and `deleteExplorationArtifact`.
-- `0.7.x` is the shipped step: first usable headless workbench commands over
-  the canonical daemon boundary for live explore, compare, resolve, and
-  artifact lifecycle.
-- `0.8.x` is the shipped broader workbench step: named workflows,
-  corpus-health audits,
-  bounded workflow discovery from configured directories, report output
-  surfaces, and stricter scale guarantees built on that same settled
-  exploratory model.
-- `0.9.x` is the operational workbench step: durable review runs for repeated
-  workflow and audit loops, explicit review status, review diffs, and
-  read-only remediation previews for supported audit findings. Review records
-  are not notes, and they are not saved exploration artifacts.
-- `0.10.x` is the declarative extension step: workflow compatibility metadata,
-  review routine specs, report profile specs, and portable packs for bundling
-  workbench assets as data. Imported pack contents are not notes, review runs,
-  saved exploration artifacts, executable plugins, or raw RPC wrappers.
-- `0.11.x` is the everyday CLI parity step: the CLI becomes a first-class
-  second surface for ordinary slipbox work such as sync, search, files, nodes,
-  refs, agenda, graph export, note creation, capture, dailies, identity, and
-  metadata, while still routing daemon-backed work through task-shaped commands
-  over `slipbox serve`.
-- `0.12.x` is the structural editing and stabilization step: refile, extract,
-  promote/demote, maintenance diagnostics, compatibility policy, `slipbox:`
-  link rewrite, and selected previewable remediation apply paths get explicit
-  product contracts before any later external adapter work.
-- Extension APIs, MCP surfaces, agent adapters, raw RPC mirroring, schedulers,
-  and broad automated mutation remain deferred.
-
-## Headless Workbench
-
-`0.7.x` made the workbench genuinely usable outside Emacs. `0.8.x` composed
-that surface into named workflows, corpus-health audits, bounded workflow
-discovery, and report outputs. `0.9.x` makes repeated workflow and audit loops
-durable, reviewable, and diffable. `0.10.x` extends the workbench
-declaratively through compatible specs, routines, profiles, and packs rather
-than through a plugin runtime. `0.11.x` makes the CLI an everyday companion to
-the Emacs surface for safe ordinary slipbox operations, not a separate product
-model. `0.12.x` adds the remaining structural and stabilization layer:
-structural edits, affected-file write reports, bounded remediation apply,
-`slipbox:` link rewrite, diagnostics, durable-state rebuild coverage, and
-compatibility policy. That work still comes before MCP or agent-adapter
-surfaces because external automation needs dependable scriptable operations to
-target. The CLI stays on the same architectural line as the rest of the
-project:
-
-- daemon-backed headless commands talk to the daemon over canonical JSON-RPC
-  stdio
-- daemon-backed commands auto-spawn `slipbox serve` from the current
-  executable unless you override it with `--server-program`
-- `--json` is first-class for machine use
-- the command surface is task-shaped rather than a thin wrapper over every RPC
-- file mutation remains Rust-owned behind daemon operations; broad apply-style
-  automation remains deferred even though bounded structural and remediation
-  writes now have explicit product contracts
-
-The shipped headless command families are:
-
-- everyday and maintenance operations: `status`, `sync`, `file`, `diagnose`,
-  `node`, `ref`, `tag`, `search`, `agenda`, `graph`, `note`, `capture`,
-  `daily`, `edit`, and `link`
-- exploratory workbench operations: `resolve-node`, `explore`, `compare`, and
-  `artifact`
-- composed workbench operations: `workflow`, `audit`, `review`, `routine`, and
-  `pack`
-
-Daemon-backed headless commands share the same scope arguments:
+Daemon-backed commands share these scope arguments:
 
 ```bash
-slipbox <command> \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --json
+slipbox <command> --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 ```
 
-Local inspection commands, such as `slipbox workflow show --spec` and
-`slipbox pack validate`, do not require daemon scope. Workflow, routine, and
-daemon-backed pack commands also accept repeatable `--workflow-dir` arguments.
+Daemon-backed commands auto-spawn `slipbox serve` from the current executable
+unless `--server-program` is provided. Local inspection commands such as
+`slipbox workflow show --spec` and `slipbox pack validate` do not require
+daemon scope.
 
-### Everyday CLI
+The top-level command families follow the public model:
 
-`0.11.x` makes the CLI a second everyday frontend for the same daemon-owned
-operations that Emacs uses. Use Emacs when you want interactive completion,
-draft capture buffers, calendar UI, Graphviz viewer hooks, capture finalizers,
-or live buffer coordination. Use the CLI when you want scriptable sync,
-lookup, search, graph export, note creation, capture, dailies, identity, and
-metadata updates without opening Emacs.
+| Bucket | Commands |
+| --- | --- |
+| Notes | `node`, `note`, `capture`, `daily`, `edit`, `resolve-node` |
+| Relations | `ref`, `tag`, `search`, `agenda`, `graph`, `link` |
+| Explorations | `explore`, `compare`, `artifact` |
+| Reviews | `audit`, `review` |
+| Assets | `workflow`, `routine`, `pack` |
+| System | `serve`, `status`, `sync`, `file`, `diagnose` |
 
-Refresh the whole index, or refresh exactly one file without pruning unrelated
-indexed files:
+Representative examples:
 
 ```bash
 slipbox sync root --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox sync file notes/project.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-```
-
-Inspect indexed files:
-
-```bash
 slipbox file list --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox file search project --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox diagnose index --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 ```
-
-Resolve and search nodes through the same exact target model used elsewhere:
 
 ```bash
 slipbox node show --id project-alpha --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox node search "planning" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox node at-point --file notes/project.org --line 42 --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox node search planning --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox node backlinks --id project-alpha --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox node forward-links --id project-alpha --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox search occurrences "follow-up" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 ```
-
-Query refs, tags, raw text occurrences, and agenda planning lines:
 
 ```bash
 slipbox ref search cite:smith --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox ref resolve cite:smith2026 --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox tag search project --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox search occurrences "follow-up" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox agenda today --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox agenda range 2026-05-01 2026-05-31 --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-```
-
-Export Graphviz DOT without requiring Graphviz at CLI runtime:
-
-```bash
 slipbox graph dot --root-node-key id:project-alpha --max-distance 2 --output graph.dot --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 ```
 
-Create and extend notes through Rust-owned write paths:
-
 ```bash
 slipbox note create --title "Project Alpha" --file notes/project-alpha.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox note ensure-file --file notes/log.org --title "Log" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox note append-heading --file notes/log.org --title "Log" --heading "Follow up" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox note append-outline --file notes/log.org --outline "Projects" --outline "Alpha" --heading "Decision" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox note append-to-node --id project-alpha --heading "Next step" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-```
-
-Use capture when you want the capture-template engine rather than simple note
-creation:
-
-```bash
-slipbox capture node --title "Web clipping" --ref https://example.test --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-printf 'Captured body\n' | slipbox capture template --file inbox.org --title Inbox --type entry --content-stdin --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox capture preview --file inbox.org --title Inbox --type plain --content "Draft only" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-```
-
-Manage daily notes from scripts:
-
-```bash
-slipbox daily ensure --date 2026-05-13 --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox daily show --date 2026-05-13 --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox daily append --date 2026-05-13 --heading "Reviewed notes" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 ```
 
-Assign identity and edit ordinary metadata through the daemon:
+Structural edits return `StructuralWriteReport` JSON with changed files,
+removed files, refreshed-index status, and any resulting node or anchor:
 
 ```bash
-slipbox node ensure-id --key heading:notes/project.org:42 --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox node metadata show --id project-alpha --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox node alias add --id project-alpha "Alpha Project" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox node ref set --id project-alpha cite:smith2026 --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox node tag add --id project-alpha research active --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-```
-
-### Structural Editing And Maintenance
-
-`0.12.x` adds the higher-risk write paths that were intentionally left out of
-the `0.11.x` everyday CLI cut. Structural edits return
-`StructuralWriteReport` JSON with the operation kind, changed and removed
-files, refreshed-index status, and any node or anchor result. They are still
-daemon-owned Rust mutations, not CLI text rewriting.
-
-Move indexed subtrees or character ranges under exact target notes:
-
-```bash
-slipbox edit refile-subtree \
-  --source-key heading:notes/source.org:12 \
-  --target-id project-alpha \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --json
-
-slipbox edit refile-region \
-  --file notes/inbox.org \
-  --start 148 \
-  --end 420 \
-  --target-id project-alpha \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --json
-```
-
-Extract a subtree into a file note, or convert between file-level metadata and
-a single root heading:
-
-```bash
+slipbox edit refile-subtree --source-key heading:notes/source.org:12 --target-id project-alpha --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox edit extract-subtree --source-key heading:notes/inbox.org:27 --file notes/extracted.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox edit promote-file --file notes/one-root-heading.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox edit demote-file --file notes/file-note.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 ```
 
-Inspect safe maintenance state without opening Emacs or reading SQLite
-directly:
+Exploratory and workbench examples:
 
 ```bash
-slipbox diagnose file --file notes/project.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox diagnose node --key heading:notes/project.org:42 --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox diagnose index --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox explore --title "Project X" --lens dormant --limit 25 --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox compare --left-id left-id --right-id right-id --group tension --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox artifact list --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 ```
 
-Preview and apply supported `slipbox:` link rewrites through the daemon:
+```bash
+slipbox workflow list --workflow-dir ~/.config/org-slipbox/workflows --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox workflow show --spec ~/.config/org-slipbox/workflows/review.json --json
+slipbox workflow run workflow/builtin/unresolved-sweep --input focus=title:Project --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+```
+
+```bash
+slipbox audit dangling-links --limit 200 --save-review --review-id review/dangling/current --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox review list --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox review diff review/old review/new --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox routine list --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox pack validate ~/.config/org-slipbox/packs/research-review.json --json
+```
+
+Preview/apply operations require explicit confirmation flags where mutation is
+possible:
 
 ```bash
 slipbox link rewrite-slipbox preview --file notes/project.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox link rewrite-slipbox apply --file notes/project.org --confirm-replace-slipbox-links --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox review remediation preview review/dangling/current audit/dangling/source/missing-id --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox review remediation apply review/dangling/current audit/dangling/source/missing-id --confirm-unlink-dangling-link --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 ```
 
-Supported review findings can also be applied when the preview identifies an
-exact safe action. Today the bounded apply path is dangling-link unlinking; it
-requires a fresh preview, exact file/line/column evidence, and explicit
-confirmation:
+## Workbench Data
+
+The daemon persists three durable JSON side stores beside the database:
+
+- exploration artifacts: saved lenses, comparisons, trails, and detached trail
+  slices
+- review runs: saved audit/workflow evidence, status, diffs, and remediation
+  evidence
+- workbench packs: portable workflows, review routines, and report profiles
+
+These stores survive index rebuilds and do not become notes, search hits, refs,
+or graph nodes. See [doc/model.org](doc/model.org) for the ownership and
+compatibility table.
+
+Workflow specs and workbench packs carry compatibility metadata. Supported
+version is `1`; future versions are rejected before typed parsing attempts to
+interpret future syntax.
+
+`--json` returns stable task-shaped objects. `--jsonl` is available for report
+surfaces that stream line-oriented machine output. Command-specific details
+belong in `slipbox <command> --help`.
+
+## If You Use org-roam Today
+
+The normal migration path is local rewiring:
+
+| org-roam | org-slipbox |
+| --- | --- |
+| `org-roam-directory` | `org-slipbox-directory` |
+| `org-roam-db-location` | `org-slipbox-database-file` |
+| `org-roam-db-autosync-mode` | `org-slipbox-mode` or `org-slipbox-autosync-mode` |
+| `org-roam-completion-everywhere` | `org-slipbox-completion-everywhere` |
+| `(require 'org-roam-protocol)` | `(org-slipbox-protocol-mode 1)` |
+| `(require 'org-roam-export)` | `(org-slipbox-export-mode 1)` |
+| `org-roam-dailies-directory` | `org-slipbox-dailies-directory` |
+| `org-roam-dailies-capture-templates` | `org-slipbox-dailies-capture-templates` |
+
+Common command equivalents:
+
+| org-roam | org-slipbox |
+| --- | --- |
+| `org-roam-db-sync` | `org-slipbox-sync` |
+| `org-roam-node-find` | `org-slipbox-node-find` |
+| `org-roam-node-insert` | `org-slipbox-node-insert` |
+| `org-roam-capture` | `org-slipbox-capture` |
+| `org-roam-buffer-toggle` | `org-slipbox-buffer-toggle` |
+| `org-roam-buffer-display-dedicated` | `org-slipbox-buffer-display-dedicated` |
+| `org-roam-ref-find` | `org-slipbox-ref-find` |
+| `org-roam-dailies-*` | `org-slipbox-dailies-*` |
+| `org-roam-graph` | `org-slipbox-graph` |
+
+The important architectural difference is that the heavy parse/index/query and
+write paths live in Rust rather than in Emacs Lisp.
+
+## Performance
+
+`org-slipbox` ships with a corpus benchmark harness instead of relying on
+anecdotal scale claims.
 
 ```bash
-slipbox review remediation preview review/dangling-links/current audit/dangling-links/source/missing-id --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox review remediation apply review/dangling-links/current audit/dangling-links/source/missing-id --confirm-unlink-dangling-link --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+cargo run --bin slipbox-bench -- check --profile ci
+cargo run --bin slipbox-bench -- run --profile release --keep-corpus
 ```
 
-### CLI/Emacs Parity Matrix
-
-The `0.12.0` surface leaves a clear parity matrix.
-
-- CLI-capable: status, sync, file list/search, diagnostics, node
-  lookup/search/random/neighborhoods/at-point, ref/tag lookup, occurrence
-  search, agenda queries, graph DOT export, note creation and append flows,
-  capture execution and preview, daily ensure/show/append, identity
-  assignment, metadata updates, structural edits, `slipbox:` link rewrite,
-  bounded remediation apply, exploration, comparison, artifacts, workflows,
-  audits, reviews, routines, and packs.
-- Emacs-specific: draft capture buffers, completion UI, calendar marking,
-  Graphviz viewer hooks, capture finalizers, live buffer save/refresh
-  coordination, `org-protocol` handlers, interactive trail/cockpit navigation,
-  and direct SQLite exploration through `sqlite-mode`.
-- Experimental or narrow: structural write reports, remediation apply records,
-  `slipbox:` link rewrite results, diagnostics output, report-profile JSONL,
-  and benchmark gates are public enough for scripts, but still intentionally
-  scoped to their task-shaped contracts.
-- Intentionally deferred: MCP, agent adapters, plugin runtimes, schedulers,
-  broad automated mutation, raw-RPC mirroring, and a generalized query or
-  remediation language.
-
-Discovery is deliberately narrow:
-
-- only top-level JSON workflow spec files are considered
-- built-in workflows win over discovered ones
-- earlier configured workflow directories win over later ones
-- invalid or colliding discovered workflows are reported as workflow catalog
-  issues without hiding the valid workflows that remain runnable
-
-The built-in workflow IDs are:
-
-- `workflow/builtin/context-sweep`
-- `workflow/builtin/unresolved-sweep`
-- `workflow/builtin/periodic-review`
-- `workflow/builtin/weak-integration-review`
-- `workflow/builtin/comparison-tension-review`
-
-The periodic and weak-integration workflows are intended for recurring saved
-workflow reviews. Dangling-link cleanup remains an audit/review flow rather
-than a named workflow until audits are part of the workflow step model.
-
-### Declarative Extension Assets
-
-`0.10.x` adds a declarative extension layer made of workflow specs, review
-routines, report profiles, and workbench packs. These are portable JSON data
-assets. They are not notes, review runs, saved exploration artifacts,
-executable plugins, Emacs Lisp hooks, MCP servers, agent adapters, or raw RPC
-wrappers.
-
-Workflow specs and workbench packs carry explicit compatibility metadata. The
-current supported version is `1`. Missing workflow compatibility defaults to
-legacy version `1`; future versions such as `{ "version": 2 }` are rejected as
-unsupported before the loader tries to interpret future syntax.
-
-A workbench pack bundles assets under one durable `pack_id`:
-
-```json
-{
-  "pack_id": "pack/research-review",
-  "title": "Research Review Pack",
-  "summary": "Reusable review routine and report profile assets.",
-  "compatibility": { "version": 1 },
-  "workflows": [
-    {
-      "workflow_id": "workflow/pack/context-review",
-      "title": "Pack Context Review",
-      "compatibility": { "version": 1 },
-      "inputs": [
-        {
-          "input_id": "focus",
-          "title": "Focus target",
-          "kind": "focus-target"
-        }
-      ],
-      "steps": [
-        {
-          "step_id": "resolve-focus",
-          "kind": "resolve",
-          "target": { "kind": "input", "input_id": "focus" }
-        },
-        {
-          "step_id": "review-unresolved",
-          "kind": "explore",
-          "focus": { "kind": "resolved-step", "step_id": "resolve-focus" },
-          "lens": "unresolved",
-          "limit": 50
-        }
-      ]
-    }
-  ],
-  "review_routines": [
-    {
-      "routine_id": "routine/pack/context-review",
-      "title": "Pack Context Review",
-      "source": {
-        "kind": "workflow",
-        "workflow_id": "workflow/pack/context-review"
-      },
-      "inputs": [
-        {
-          "input_id": "focus",
-          "title": "Focus target",
-          "kind": "focus-target"
-        }
-      ],
-      "save_review": {
-        "enabled": true,
-        "review_id": "review/pack/context-review/current",
-        "title": "Pack Context Review",
-        "overwrite": true
-      },
-      "report_profile_ids": ["profile/pack/routine-detail"]
-    }
-  ],
-  "report_profiles": [
-    {
-      "profile_id": "profile/pack/routine-detail",
-      "title": "Routine Detail",
-      "subjects": ["routine", "workflow", "review"],
-      "mode": "detail",
-      "jsonl_line_kinds": ["routine", "step", "review", "finding"]
-    }
-  ],
-  "entrypoint_routine_ids": ["routine/pack/context-review"]
-}
-```
-
-Validate a local pack file without connecting to the daemon:
-
-```bash
-slipbox pack validate ~/.config/org-slipbox/packs/research-review.json --json
-```
-
-Import persists a pack through the daemon. It refuses to replace an existing
-pack by default; pass `--overwrite` when replacement is intentional:
-
-```bash
-slipbox pack import \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  ~/.config/org-slipbox/packs/research-review.json \
-  --json
-```
-
-Manage imported packs:
-
-```bash
-slipbox pack list --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox pack show pack/research-review --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox pack export pack/research-review --root ~/notes --db ~/.cache/org-slipbox.sqlite --json --output research-review.json
-slipbox pack import --root ~/notes --db ~/.cache/org-slipbox.sqlite --overwrite --json research-review.json
-slipbox pack delete pack/research-review --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-```
-
-Imported pack assets are merged into the same workflow, routine, and report
-catalogs used by built-ins and configured workflow directories. Built-ins and
-configured workflow directories keep deterministic precedence; invalid or
-shadowed pack entries are reported as catalog issues without hiding valid
-assets.
-
-Review routines are reusable audit or workflow review loops. They execute
-through the daemon, can save a durable review, can compare against the latest
-compatible review, and can apply report profiles:
-
-```bash
-slipbox routine list \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --json
-
-slipbox routine show routine/pack/context-review \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --json
-
-slipbox routine run routine/pack/context-review \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --input 'focus=title:Project X' \
-  --json
-```
-
-Report profiles are bounded output presets. They select subjects such as
-`routine`, `workflow`, `audit`, `review`, or `diff`; choose `summary` or
-`detail` mode; and can filter JSONL line kinds, finding statuses, or diff
-buckets. They do not define a template language and do not plug in custom
-renderers.
-
-Examples:
-
-Resolve an exact note target:
-
-```bash
-slipbox resolve-node \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --id left-id \
-  --json
-```
-
-Run live exploration through the settled declared-lens model:
-
-```bash
-slipbox explore \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --title "Project X" \
-  --lens dormant \
-  --limit 25 \
-  --json
-```
-
-Compare two notes and keep only the tension group:
-
-```bash
-slipbox compare \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --left-id left-id \
-  --right-id right-id \
-  --group tension \
-  --json
-```
-
-List, inspect, and run named workflows discovered from configured directories:
-
-```bash
-slipbox workflow list \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --workflow-dir ~/.config/org-slipbox/workflows \
-  --json
-
-slipbox workflow show workflow/research/unresolved-sweep \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --workflow-dir ~/.config/org-slipbox/workflows \
-  --json
-
-slipbox workflow run workflow/research/unresolved-sweep \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --workflow-dir ~/.config/org-slipbox/workflows \
-  --input focus=key:file:notes.org::42 \
-  --json
-```
-
-Inspect a workflow spec JSON file locally without connecting to the daemon:
-
-```bash
-slipbox workflow show --spec ~/.config/org-slipbox/workflows/review.json --json
-```
-
-Write a workflow report as line-oriented JSON:
-
-```bash
-slipbox workflow run workflow/builtin/unresolved-sweep \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --input focus=key:file:notes.org::42 \
-  --jsonl \
-  --output unresolved-report.jsonl
-```
-
-Run corpus-health audits through the daemon:
-
-```bash
-slipbox audit dangling-links \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --limit 200 \
-  --json
-
-slipbox audit duplicate-titles \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --json
-
-slipbox audit orphan-notes \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --jsonl \
-  --output orphan-notes.jsonl
-
-slipbox audit weakly-integrated-notes \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --limit 100 \
-  --json
-```
-
-Save recurring audit and workflow runs as durable review records:
-
-```bash
-slipbox audit dangling-links \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --limit 200 \
-  --save-review \
-  --review-id review/dangling-links/2026-05-06 \
-  --review-title "Dangling links, 2026-05-06" \
-  --json
-```
-
-```bash
-slipbox workflow run workflow/builtin/periodic-review \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --input 'focus=title:Project X' \
-  --save-review \
-  --review-id review/project-x/periodic/2026-05-06 \
-  --review-title "Project X periodic review" \
-  --json
-```
-
-Review records capture the result evidence plus explicit review status. They
-are not ordinary notes, and they are not saved exploration artifacts. Use the
-review commands to inspect repeated runs, compare compatible runs, triage
-findings, and remove obsolete review records:
-
-```bash
-slipbox review list \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --json
-
-slipbox review show review/project-x/periodic/2026-05-06 \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --json
-
-slipbox review diff \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  review/project-x/periodic/2026-04-29 \
-  review/project-x/periodic/2026-05-06 \
-  --json
-
-slipbox review mark \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  review/project-x/periodic/2026-05-06 \
-  workflow-step/review-unresolved \
-  reviewed \
-  --json
-
-slipbox review delete \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  review/project-x/periodic/2026-04-29 \
-  --json
-```
-
-Supported audit findings can produce daemon-owned remediation previews.
-`0.12.x` adds one bounded apply path for dangling links when the preview names
-the exact file, line, column, missing ID, and replacement action. There is
-still no broad automatic fix/apply surface.
-
-Save a live exploration or comparison as a durable artifact:
-
-```bash
-slipbox explore \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --key file:context.org::42 \
-  --lens time \
-  --save \
-  --artifact-id artifact/current-time-slice \
-  --artifact-title "Current time slice" \
-  --artifact-summary "Anchor-scoped planning context" \
-  --json
-```
-
-```bash
-slipbox compare \
-  --root ~/notes \
-  --db ~/.cache/org-slipbox.sqlite \
-  --left-id left-id \
-  --right-id right-id \
-  --group tension \
-  --save \
-  --artifact-id artifact/left-vs-right \
-  --artifact-title "Left vs right" \
-  --json
-```
-
-List, inspect, execute, export, import, and delete durable artifacts:
-
-```bash
-slipbox artifact list --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox artifact show artifact/left-vs-right --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox artifact run artifact/left-vs-right --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox artifact export artifact/left-vs-right --root ~/notes --db ~/.cache/org-slipbox.sqlite --json > left-vs-right.json
-slipbox artifact import --root ~/notes --db ~/.cache/org-slipbox.sqlite --json left-vs-right.json
-slipbox artifact delete artifact/left-vs-right --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-```
-
-The JSON contracts are intentionally different where the semantics differ:
-
-- `slipbox compare --save --json` returns `{ "result": ..., "artifact": ... }`
-- `slipbox artifact run --json` returns `{ "artifact": ... }`, where that
-  payload is the executed artifact shape
-- `slipbox artifact export --json` emits raw saved-artifact JSON, and
-  `slipbox artifact import --json` consumes that same raw saved-artifact JSON
-- `slipbox audit <kind> --save-review --json` and `slipbox workflow run
-  --save-review --json` return `{ "result": ..., "review": ... }`
-- `slipbox review show --json` returns `{ "review": ... }`, `review diff`
-  returns `{ "diff": ... }`, and `review mark` returns `{ "transition": ... }`
-- `slipbox review delete --json` returns `{ "review_id": ... }`
-- `slipbox pack validate --json` returns `{ "pack": ..., "valid": ...,
-  "issues": ... }`; `pack import/show/list/delete --json` return task-shaped
-  wrappers; `pack export --json` emits raw pack manifest JSON unless
-  `--output` is used
-- `slipbox routine run --json` returns `{ "result": ... }`, including routine
-  source execution, optional saved review, optional compare result, and applied
-  reports
-- `slipbox edit ... --json` returns a `StructuralWriteReport` with
-  `operation`, `changed_files`, `removed_files`, `index_refresh`, and any
-  resulting node or anchor
-- `slipbox review remediation preview --json` returns `{ "preview": ... }`;
-  `review remediation apply --json` returns `{ "application": ... }`
-- `slipbox link rewrite-slipbox preview --json` returns `{ "preview": ... }`;
-  `link rewrite-slipbox apply --json` returns `{ "application": ... }`
-- `slipbox diagnose ... --json` returns task-shaped diagnostic wrappers rather
-  than raw SQLite rows
-
-### Stability And Compatibility Policy
-
-`org-slipbox` is still pre-`1.0`, but `0.12.0` treats the public CLI and
-durable JSON shapes as compatibility-sensitive.
-
-- CLI `--json` wrappers should evolve additively. Removing fields, renaming
-  fields, changing enum spellings, or changing wrapper shape requires an
-  explicit migration note and should be avoided outside a deliberate
-  compatibility release.
-- Durable exploration artifacts, review runs, and workbench packs are validated
-  on load and persist outside the derived SQLite index. Rebuilding the index
-  must not erase them, and note/ref/search/graph surfaces must not treat them
-  as notes.
-- Workflow specs and workbench packs carry explicit compatibility metadata.
-  The current supported version is `1`; missing workflow compatibility
-  defaults to version `1`; future versions are rejected before typed parsing
-  tries to interpret future syntax.
-- Review routines and report profiles are versioned through their containing
-  pack and validated as declarative assets. They are not executable plugins,
-  template engines, schedulers, or adapter hooks.
+Benchmark profiles live in [benches/profiles/ci.json](benches/profiles/ci.json)
+and [benches/profiles/release.json](benches/profiles/release.json). Reports are
+written under `target/bench/`.
+
+The generated corpus includes workflow specs, audit fixtures, review fixtures,
+imported pack/routine/report-profile fixtures, everyday CLI fixtures,
+structural-write fixtures, remediation fixtures, and link-rewrite fixtures, so
+the gates measure real paths rather than empty catalog scans.
+
+## Stability And Compatibility
+
+`org-slipbox` is pre-`1.0`, but the public CLI and durable JSON shapes are
+compatibility-sensitive:
+
+- CLI `--json` wrappers should evolve additively.
+- Durable exploration artifacts, review runs, and workbench packs are
+  validated on load and persist outside the derived SQLite index.
+- Workflow specs and workbench packs use compatibility version `1`.
 - Structural write reports, link rewrite applications, remediation
-  applications, and diagnostics are public task records. They should stay
-  factual and narrow: explicit affected files, refreshed-index status where a
-  mutation occurred, and no hidden CLI-only semantics.
-- The derived SQLite schema remains an internal index. Users and scripts should
-  target daemon/CLI contracts, not database tables.
+  applications, and diagnostics are public task records.
+- The derived SQLite schema remains an internal index; users and scripts
+  should target daemon/CLI contracts.
 
-### 1.0 Readiness
-
-The project is substantially closer to a dependable system after `0.12.0`:
-the cockpit, headless workbench, everyday CLI, structural writes, diagnostics,
-durable side stores, declarative assets, JSON contracts, and scale gates now
-cover the main product line.
-
-The next release should still be one more stabilization cut rather than an
-immediate `1.0.0`. The remaining evidence needed for `1.0` is not more raw
-feature count; it is release-cycle proof that the public JSON contracts,
-durable record formats, packaging paths, bundled-SQLite builds, benchmark
-profiles, and upgrade/rebuild behavior hold up without rescue refactors. MCP,
-agent adapters, plugin runtimes, schedulers, and broad automated mutation
-remain out of scope until after that surface is boringly reliable.
-
-This is now a broader composed research workbench surface, not the whole
-platform. Named workflows, audits, reviews, routines, report profiles, packs,
-structural writes, diagnostics, and bounded remediation compose the settled
-live explore/compare/artifact model without becoming executable plugins or raw
-transport wrappers.
+See [CHANGELOG.md](CHANGELOG.md) for shipped history.
 
 ## FAQ
 
 ### More Than One Slipbox Root
 
-`org-slipbox` currently assumes one active root and one active derived index per
-Emacs session. That is an intentional divergence from `org-roam`'s
-directory-local multi-root story: it keeps daemon state, autosync behavior, and
-index freshness explicit instead of letting correctness depend on hidden
-per-buffer root switching.
-
-The intended layout is one `org-slipbox-directory` with subdirectories under
-it. If you truly need separate slipboxes, use separate Emacs sessions or switch
-the configured root deliberately before reconnecting and reindexing.
+`org-slipbox` assumes one active root and one derived index per Emacs session.
+Use subdirectories under one root, or switch root/database deliberately before
+reconnecting and reindexing.
 
 ### Create A Note Whose Title Matches A Candidate Prefix
 
 `org-slipbox-node-find` and `org-slipbox-node-insert` both allow fresh input
-when the minibuffer text is not resolved to an indexed node. In practice, you
-can type the exact new title you want and confirm it directly; `org-slipbox`
-turns that fresh title into a normal capture flow instead of relying on
-frontend-specific completion hacks.
+when minibuffer text does not resolve to an indexed node. Type the exact new
+title and confirm it directly.
 
 ### Stop Creating IDs Everywhere
 
-`org-slipbox` assigns explicit IDs lazily. Existing notes do not get IDs unless
-they become stable link targets, ref-backed notes, or other explicit identity
-surfaces. This is the default design, not a workaround.
+IDs are assigned lazily. Existing notes do not get IDs unless they become
+stable link targets, ref-backed notes, or other explicit identity surfaces.
 
 ### Publish Notes With An Internet-Friendly Graph
 
-Use `org-slipbox-graph-node-url-prefix` to emit web-facing node links instead
-of local `org-protocol` links, then attach a function to
+Set `org-slipbox-graph-node-url-prefix` to emit web-facing node links, then use
 `org-slipbox-graph-generation-hook` to copy the rendered graph into your
 publishing output.
 
 ## Development
 
-Use `make test` for the current Rust and Emacs checks.
-Use `make build` for the default bundled-SQLite release build.
-Use `make build-system-sqlite` when you want to link against a system SQLite installation.
-Use `make bench-check PROFILE=ci` for the repeatable corpus regression gate.
-Use `make bench PROFILE=release` for the larger local benchmark profile.
+Use:
+
+```bash
+make test
+make build
+make build-system-sqlite
+make bench-check PROFILE=ci
+make bench PROFILE=release
+```
+
+Before milestone commits, run the relevant Rust, Elisp, and benchmark checks
+for the touched surfaces.
