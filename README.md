@@ -52,6 +52,8 @@ first-class surfaces are stable enough to target.
 
 The durable product documents live in `doc/`:
 
+- `doc/model.org` defines the compact public model used by docs, CLI taxonomy,
+  and future MCP mapping
 - `doc/vision.org` states the north star
 - `doc/milestones.org` translates that vision into capability milestones
 - `doc/roadmap.org` maps the milestones onto release bands without date promises

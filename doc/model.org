@@ -1,0 +1,116 @@
+#+title: org-slipbox Public Model
+
+* Purpose
+
+This document defines the public model used by the documentation, CLI
+taxonomy, durable JSON contracts, and future MCP mapping.
+
+`org-slipbox` has six public buckets:
+
+- Notes
+- Relations
+- Explorations
+- Reviews
+- Assets
+- System
+
+Everything shipped by the project should belong to exactly one of these
+buckets. Smaller concepts are named inside their owning bucket rather than
+promoted into separate public domains.
+
+* Model Rules
+
+- Org files are the source of truth for notes and note relations.
+- The SQLite database is a derived index. It may be rebuilt and is not a public
+  data model.
+- Durable side stores live beside the database and remain separate from notes,
+  search, refs, and graph identity.
+- The daemon owns parsing, indexing, querying, ranking, and file mutation.
+- Emacs and the CLI are two front-ends over the same daemon-owned model.
+- JSON-RPC is the transport boundary; public commands and durable records stay
+  task-shaped.
+
+* Public Buckets
+
+| Bucket | Owns | Source of truth | Persistence | Graph/search/ref participation | CLI coverage | Durable JSON status | Future MCP exposure | Compatibility |
+|--------+------+-----------------+-------------+--------------------------------+--------------+---------------------+---------------------+---------------|
+| Notes | Org files, file nodes, heading anchors, IDs, titles, aliases, note metadata, note lookup, capture, daily notes, structural edits | Org files under the configured root | Org files; derived node and anchor rows in SQLite | Nodes appear in node-search and graph surfaces; refs, links, and occurrence search are owned by Relations | `node`, `note`, `capture`, `daily`, `edit`, `resolve-node` | Node, anchor, node-search, capture, metadata, and structural-write result shapes are public JSON; Org files are the durable record | Future note/file resources and note-write tools | CLI/RPC JSON is compatibility-sensitive; SQLite rows are internal |
+| Relations | `id:` links, `slipbox:` links, refs, citations, tags, planning dates, task states, backlinks, forward links, reflinks, unlinked references, occurrence search, agenda entries, graph edges | Org links, Org metadata, Org planning lines, and indexed text occurrences | Org files; derived relation and occurrence rows in SQLite | This bucket defines graph, ref, tag, backlink, forward-link, agenda, occurrence-search, and link-rewrite query surfaces | `ref`, `tag`, `search`, `agenda`, `graph`, `link` | Relation query results, occurrence-search results, graph DOT results, link rewrite previews, and link rewrite applications are public JSON; relation storage is derived | Future relation resources and read tools; link rewrites require write-capable permission | Public JSON evolves additively; derived relation tables are internal |
+| Explorations | Lenses, comparisons, trails, explanations, saved exploration artifacts, executed artifacts | Engine results over Notes and Relations; saved artifacts when explicitly persisted | `.exploration-artifacts/v1` beside the database for saved artifacts | Uses graph, refs, tasks, time, backlinks, and text evidence without becoming a note/relation record | `explore`, `compare`, `artifact`; dedicated cockpit save/load/replay | Saved and executed exploration artifacts are durable JSON contracts | Future exploration views and artifact resources; execution tools can remain read-only when they do not mutate notes | Artifact formats and execution result shapes are compatibility-sensitive |
+| Reviews | Corpus audits, review runs, finding status, review diffs, remediation previews, remediation apply records | Audit/workflow/routine execution evidence and explicit user status decisions | `.review-runs/v1` beside the database for review runs; note files only change for explicit remediation apply | Reviews inspect Notes and Relations but do not participate in note graph/search/ref identity | `audit`, `review` | Review runs, review diffs, remediation previews, and apply records are public JSON contracts | Future review resources and read tools; status changes and remediation apply require write-capable permission | Review record formats and status transitions are compatibility-sensitive |
+| Assets | Workflow specs, built-in workflows, discovered workflows, review routines, report profiles, workbench packs | Built-in catalog, configured workflow directories, local JSON files, and imported pack manifests | Workflow files in configured directories; `.workbench-packs/v1` beside the database for imported packs | Assets can execute queries over notes, relations, explorations, and reviews, but are not indexed as notes | `workflow`, `routine`, `pack`; report output options on workflow/audit/routine commands | Workflow specs, routines, report profiles, and pack manifests are portable JSON assets with validation | Future asset resources and catalog tools | Workflow and pack compatibility version `1` is supported; future versions are rejected before typed parsing |
+| System | Daemon, CLI runtime, scope, index freshness, file discovery, indexed-file surfaces, diagnostics, benchmark profiles, compatibility policy | Configured root, database path, daemon process state, repository benchmark profiles | SQLite index and db-adjacent side stores; benchmark profile JSON in the repository | Maintains the index used by every other bucket; diagnostics describe file/index state without making SQLite public | `serve`, `status`, `sync`, `file`, `diagnose`; shared `--root`, `--db`, `--json`, `--jsonl`, and daemon-spawn behavior | Status, sync, file, diagnostic, and benchmark report shapes are public task records; SQLite schema is internal | Future system/status/diagnostic tools | CLI/RPC envelopes are compatibility-sensitive; internal schema can change with rebuild/migration support |
+
+Command ownership and record ownership are separate. For example,
+`workflow run --save-review` and `routine run` remain Asset commands, but the
+review records they create belong to Reviews. `node search` remains part of
+the Notes command family, while top-level `search occurrences` belongs to
+Relations.
+
+* Demoted Concepts
+
+The following names remain useful, but they are subordinate concepts:
+
+| Concept | Owning bucket | Reason |
+|---------+---------------+--------|
+| Lens | Explorations | A lens is one way to ask for exploratory evidence. |
+| Trail | Explorations | A trail is exploratory session state. |
+| Comparison | Explorations | A comparison is an exploratory result over two notes. |
+| Saved view | Explorations | Saved views are exploration artifacts. |
+| Corpus audit | Reviews | Audits produce findings for review. |
+| Review diff | Reviews | Diffs compare review runs. |
+| Remediation preview/apply | Reviews | Remediation is driven by review findings. |
+| Workflow | Assets | A workflow is declarative workbench data. |
+| Review routine | Assets | A routine is reusable review-workbench data. |
+| Report profile | Assets | A profile is a bounded output preset. |
+| Workbench pack | Assets | A pack bundles declarative assets. |
+| Diagnostic | System | Diagnostics report index/file/daemon health. |
+| Benchmark profile | System | Benchmarks describe system performance gates. |
+
+* Command Ownership
+
+This table is the compact command taxonomy. It is deliberately about ownership,
+not exhaustive command help.
+
+| Bucket | Commands |
+|--------+----------|
+| Notes | `node`, `note`, `capture`, `daily`, `edit`, `resolve-node` |
+| Relations | `ref`, `tag`, `search`, `agenda`, `graph`, `link` |
+| Explorations | `explore`, `compare`, `artifact` |
+| Reviews | `audit`, `review` |
+| Assets | `workflow`, `routine`, `pack` |
+| System | `serve`, `status`, `sync`, `file`, `diagnose` |
+
+* Persistence Boundaries
+
+Notes and Relations are persisted in Org files. The SQLite database accelerates
+queries over them and may be rebuilt.
+
+Explorations, Reviews, and imported Assets use explicit durable JSON side
+stores next to the database:
+
+- exploration artifacts: `<database-name>.exploration-artifacts/v1/`
+- review runs: `<database-name>.review-runs/v1/`
+- imported workbench packs: `<database-name>.workbench-packs/v1/`
+
+Those side stores survive index rebuilds. They do not create note identity,
+ref identity, search hits, or graph edges.
+
+* Compatibility Boundary
+
+Public compatibility covers:
+
+- CLI `--json` and `--jsonl` envelopes
+- JSON-RPC method params and results
+- durable exploration artifacts
+- durable review runs
+- workflow specs and workbench packs with compatibility version `1`
+- review routines and report profiles carried by packs
+- structural write reports, diagnostics, link rewrite records, and remediation
+  apply records
+
+Compatibility does not cover derived SQLite tables, internal ranking details,
+private helper modules, or benchmark harness implementation internals.
+
+Pre-`1.0` means these contracts can still evolve, but changes should be
+additive where possible and explicit when they are not.
