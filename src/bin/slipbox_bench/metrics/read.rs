@@ -15,7 +15,7 @@ use slipbox_store::Database;
 
 use crate::occurrences_query::query_occurrences;
 use crate::reflinks_query::query_reflinks;
-use crate::server;
+use crate::slipbox_bench::WorkbenchBench;
 use crate::slipbox_bench::constants::{AGENDA_END, AGENDA_START};
 use crate::slipbox_bench::corpus::assert_expected_counts;
 use crate::slipbox_bench::fixtures::CorpusFixture;
@@ -387,7 +387,7 @@ pub(crate) fn benchmark_index_file(
 }
 
 pub(crate) fn benchmark_everyday_file_sync(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &CorpusFixture,
 ) -> Result<TimingReport> {
@@ -430,7 +430,7 @@ pub(crate) fn benchmark_everyday_file_sync(
 }
 
 pub(crate) fn benchmark_everyday_node_show(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     node: &NodeRecord,
 ) -> Result<TimingReport> {
@@ -456,7 +456,7 @@ pub(crate) fn benchmark_everyday_node_show(
 }
 
 pub(crate) fn benchmark_everyday_node_search(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &CorpusFixture,
 ) -> Result<TimingReport> {
@@ -476,7 +476,7 @@ pub(crate) fn benchmark_everyday_node_search(
 }
 
 pub(crate) fn benchmark_everyday_occurrence_search(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &CorpusFixture,
 ) -> Result<TimingReport> {
@@ -495,7 +495,7 @@ pub(crate) fn benchmark_everyday_occurrence_search(
 }
 
 pub(crate) fn benchmark_everyday_agenda_range(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
 ) -> Result<TimingReport> {
     measure_iterations(profile.iterations.everyday_agenda_range, |_| {
@@ -513,7 +513,7 @@ pub(crate) fn benchmark_everyday_agenda_range(
 }
 
 pub(crate) fn benchmark_everyday_graph_dot(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     node: &NodeRecord,
 ) -> Result<TimingReport> {
@@ -536,7 +536,7 @@ pub(crate) fn benchmark_everyday_graph_dot(
 }
 
 pub(crate) fn benchmark_everyday_capture_create(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
 ) -> Result<TimingReport> {
     measure_iterations(profile.iterations.everyday_capture_create, |iteration| {
@@ -560,7 +560,7 @@ pub(crate) fn benchmark_everyday_capture_create(
 }
 
 pub(crate) fn benchmark_everyday_daily_append(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
 ) -> Result<TimingReport> {
     measure_iterations(profile.iterations.everyday_daily_append, |iteration| {
@@ -584,7 +584,7 @@ pub(crate) fn benchmark_everyday_daily_append(
 }
 
 pub(crate) fn benchmark_everyday_metadata_update(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     node: &NodeRecord,
 ) -> Result<TimingReport> {

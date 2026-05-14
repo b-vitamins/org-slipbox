@@ -6,8 +6,10 @@ pub(crate) mod metrics;
 pub(crate) mod profile;
 pub(crate) mod report;
 mod runner;
+pub(crate) mod workbench;
 
 pub(crate) use runner::main;
+pub(crate) use workbench::WorkbenchBench;
 
 #[cfg(test)]
 mod tests;

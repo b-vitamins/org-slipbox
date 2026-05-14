@@ -425,11 +425,6 @@ impl WorkflowSpec {
     }
 
     #[must_use]
-    pub fn has_unsupported_compatibility_version(&self) -> bool {
-        self.compatibility.version > WORKFLOW_SPEC_COMPATIBILITY_VERSION
-    }
-
-    #[must_use]
     pub fn input_assignments_validation_error(
         &self,
         inputs: &[WorkflowInputAssignment],

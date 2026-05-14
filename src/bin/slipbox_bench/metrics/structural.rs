@@ -10,7 +10,7 @@ use slipbox_core::{
     StructuralWriteOperationKind,
 };
 
-use crate::server;
+use crate::slipbox_bench::WorkbenchBench;
 use crate::slipbox_bench::assertions::{
     assert_saved_audit_review_fixture, assert_slipbox_link_rewrite_preview_fixture,
     assert_structural_write_fixture, indexed_node_from_id,
@@ -25,7 +25,7 @@ use crate::slipbox_bench::profile::BenchmarkProfile;
 use crate::slipbox_bench::report::{TimingReport, measure_iterations};
 
 pub(crate) fn prepare_structural_benchmark_fixture(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &CorpusFixture,
 ) -> Result<StructuralBenchmarkFixture> {
@@ -145,7 +145,7 @@ pub(crate) fn prepare_structural_benchmark_fixture(
 }
 
 pub(crate) fn benchmark_structural_refile_subtree(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &StructuralBenchmarkFixture,
 ) -> Result<TimingReport> {
@@ -158,7 +158,7 @@ pub(crate) fn benchmark_structural_refile_subtree(
 }
 
 pub(crate) fn benchmark_structural_refile_region(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &StructuralBenchmarkFixture,
 ) -> Result<TimingReport> {
@@ -171,7 +171,7 @@ pub(crate) fn benchmark_structural_refile_region(
 }
 
 pub(crate) fn benchmark_structural_extract_subtree(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &StructuralBenchmarkFixture,
 ) -> Result<TimingReport> {
@@ -184,7 +184,7 @@ pub(crate) fn benchmark_structural_extract_subtree(
 }
 
 pub(crate) fn benchmark_structural_promote_file(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &StructuralBenchmarkFixture,
 ) -> Result<TimingReport> {
@@ -197,7 +197,7 @@ pub(crate) fn benchmark_structural_promote_file(
 }
 
 pub(crate) fn benchmark_structural_demote_file(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &StructuralBenchmarkFixture,
 ) -> Result<TimingReport> {
@@ -210,7 +210,7 @@ pub(crate) fn benchmark_structural_demote_file(
 }
 
 pub(crate) fn prepare_remediation_apply_benchmark_fixture(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &CorpusFixture,
 ) -> Result<RemediationApplyBenchmarkFixture> {
@@ -286,7 +286,7 @@ pub(crate) fn prepare_remediation_apply_benchmark_fixture(
 }
 
 pub(crate) fn benchmark_remediation_apply(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &RemediationApplyBenchmarkFixture,
 ) -> Result<TimingReport> {
@@ -305,7 +305,7 @@ pub(crate) fn benchmark_remediation_apply(
 }
 
 pub(crate) fn prepare_slipbox_link_rewrite_benchmark_fixture(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &CorpusFixture,
 ) -> Result<SlipboxLinkRewriteBenchmarkFixture> {
@@ -367,7 +367,7 @@ pub(crate) fn prepare_slipbox_link_rewrite_benchmark_fixture(
 }
 
 pub(crate) fn benchmark_slipbox_link_rewrite_preview(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &SlipboxLinkRewriteBenchmarkFixture,
 ) -> Result<TimingReport> {
@@ -382,7 +382,7 @@ pub(crate) fn benchmark_slipbox_link_rewrite_preview(
 }
 
 pub(crate) fn benchmark_slipbox_link_rewrite_apply(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &SlipboxLinkRewriteBenchmarkFixture,
 ) -> Result<TimingReport> {

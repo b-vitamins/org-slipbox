@@ -9,7 +9,7 @@ use slipbox_core::{
     WorkflowResolveTarget,
 };
 
-use crate::server;
+use crate::slipbox_bench::WorkbenchBench;
 use crate::slipbox_bench::assertions::{
     assert_benchmark_workflow_execution_result, assert_benchmark_workflow_result,
     assert_pack_catalog_fixture, assert_pack_validation_fixture,
@@ -30,7 +30,7 @@ use crate::slipbox_bench::profile::BenchmarkProfile;
 use crate::slipbox_bench::report::{TimingReport, measure_iterations};
 
 pub(crate) fn benchmark_workflow_catalog(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &CorpusFixture,
 ) -> Result<TimingReport> {
@@ -45,7 +45,7 @@ pub(crate) fn benchmark_workflow_catalog(
 }
 
 pub(crate) fn benchmark_workflow_run(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &CorpusFixture,
     focus_node_key: &str,
@@ -62,7 +62,7 @@ pub(crate) fn benchmark_workflow_run(
 }
 
 pub(crate) fn benchmark_corpus_audit(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
 ) -> Result<TimingReport> {
     const AUDITS: [CorpusAuditKind; 4] = [
@@ -103,7 +103,7 @@ pub(crate) fn benchmark_corpus_audit(
 }
 
 pub(crate) fn prepare_review_benchmark_fixtures(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &CorpusFixture,
     focus_node_key: &str,
@@ -191,7 +191,7 @@ pub(crate) fn prepare_review_benchmark_fixtures(
 }
 
 pub(crate) fn benchmark_review_list(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &ReviewBenchmarkFixture,
 ) -> Result<TimingReport> {
@@ -206,7 +206,7 @@ pub(crate) fn benchmark_review_list(
 }
 
 pub(crate) fn benchmark_review_show(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &ReviewBenchmarkFixture,
 ) -> Result<TimingReport> {
@@ -224,7 +224,7 @@ pub(crate) fn benchmark_review_show(
 }
 
 pub(crate) fn benchmark_review_diff(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &ReviewBenchmarkFixture,
 ) -> Result<TimingReport> {
@@ -243,7 +243,7 @@ pub(crate) fn benchmark_review_diff(
 }
 
 pub(crate) fn benchmark_review_mark(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &ReviewBenchmarkFixture,
 ) -> Result<TimingReport> {
@@ -271,7 +271,7 @@ pub(crate) fn benchmark_review_mark(
 }
 
 pub(crate) fn benchmark_audit_save_review(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
 ) -> Result<TimingReport> {
     measure_iterations(profile.iterations.audit_save_review, |iteration| {
@@ -291,7 +291,7 @@ pub(crate) fn benchmark_audit_save_review(
 }
 
 pub(crate) fn benchmark_workflow_save_review(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &CorpusFixture,
     focus_node_key: &str,
@@ -316,7 +316,7 @@ pub(crate) fn benchmark_workflow_save_review(
 }
 
 pub(crate) fn benchmark_remediation_preview(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &ReviewBenchmarkFixture,
 ) -> Result<TimingReport> {
@@ -335,7 +335,7 @@ pub(crate) fn benchmark_remediation_preview(
 }
 
 pub(crate) fn prepare_declarative_extension_benchmark_fixture(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
 ) -> Result<DeclarativeExtensionBenchmarkFixture> {
     let pack = benchmark_pack_manifest(
         BENCHMARK_PACK_ID,
@@ -391,7 +391,7 @@ pub(crate) fn prepare_declarative_extension_benchmark_fixture(
 }
 
 pub(crate) fn benchmark_pack_catalog(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &DeclarativeExtensionBenchmarkFixture,
 ) -> Result<TimingReport> {
@@ -406,7 +406,7 @@ pub(crate) fn benchmark_pack_catalog(
 }
 
 pub(crate) fn benchmark_pack_validation(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &DeclarativeExtensionBenchmarkFixture,
 ) -> Result<TimingReport> {
@@ -425,7 +425,7 @@ pub(crate) fn benchmark_pack_validation(
 }
 
 pub(crate) fn benchmark_routine_run(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &DeclarativeExtensionBenchmarkFixture,
 ) -> Result<TimingReport> {
@@ -444,7 +444,7 @@ pub(crate) fn benchmark_routine_run(
 }
 
 pub(crate) fn benchmark_report_profile_rendering(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
     fixture: &DeclarativeExtensionBenchmarkFixture,
     focus_node_key: &str,
@@ -469,7 +469,7 @@ pub(crate) fn benchmark_report_profile_rendering(
 }
 
 pub(crate) fn benchmark_pack_import(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
 ) -> Result<TimingReport> {
     measure_iterations(profile.iterations.pack_import, |iteration| {

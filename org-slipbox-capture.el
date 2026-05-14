@@ -84,18 +84,6 @@
     (org-slipbox--visit-node captured)
     captured))
 
-(defun org-slipbox--select-or-capture-node (query)
-  "Return a node selected for QUERY, or create one."
-  (let* ((choices (org-slipbox--search-node-choices query))
-         (create-choice (format "[Create] %s" query))
-         (collection (append choices (list (cons create-choice :create))))
-         (selection (completing-read "Node: " collection nil t nil nil create-choice))
-         (choice (cdr (assoc selection collection))))
-    (cond
-     ((eq choice :create) (org-slipbox--capture-node query))
-     (choice choice)
-     (t nil))))
-
 (defun org-slipbox--capture-node
     (title &optional template refs variables session)
   "Start a capture draft for TITLE using TEMPLATE, REFS, VARIABLES, and SESSION."

@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
 use slipbox_index::DiscoveryPolicy;
 
-use crate::server;
+use crate::slipbox_bench::WorkbenchBench;
 use crate::slipbox_bench::corpus::generate_corpus;
 use crate::slipbox_bench::fixtures::CorpusFixture;
 use crate::slipbox_bench::metrics::{
@@ -172,7 +172,7 @@ pub(crate) fn run_profile(
 
     let full_index = benchmark_full_index(profile, fixture, &policy)?;
     let mut database = prepare_database(fixture, &policy)?;
-    let mut workbench = server::WorkbenchBench::new(
+    let mut workbench = WorkbenchBench::new(
         fixture.root.clone(),
         baseline_db_path(fixture),
         fixture.workflow_dirs.clone(),

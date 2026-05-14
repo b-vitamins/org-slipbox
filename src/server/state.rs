@@ -13,7 +13,7 @@ use slipbox_write::{CaptureOutcome, CapturePreviewOutcome, RegionRewriteOutcome,
 
 use crate::server::rpc::internal_error;
 
-pub(super) struct ServerState {
+pub(crate) struct ServerState {
     pub(super) root: PathBuf,
     pub(super) db_path: PathBuf,
     pub(super) workflow_dirs: Vec<PathBuf>,
@@ -22,7 +22,7 @@ pub(super) struct ServerState {
 }
 
 impl ServerState {
-    pub(super) fn new(
+    pub(crate) fn new(
         root: PathBuf,
         db_path: PathBuf,
         workflow_dirs: Vec<PathBuf>,

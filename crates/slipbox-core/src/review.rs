@@ -14,8 +14,7 @@ use crate::{
         validate_workflow_review_source,
     },
     workflow::{
-        RunWorkflowParams, WorkflowExecutionResult, WorkflowInputAssignment, WorkflowStepReport,
-        WorkflowSummary,
+        WorkflowExecutionResult, WorkflowInputAssignment, WorkflowStepReport, WorkflowSummary,
     },
     write::{StructuralWriteAffectedFiles, StructuralWriteIndexRefreshStatus},
 };
@@ -935,14 +934,6 @@ pub struct SaveWorkflowReviewParams {
 }
 
 impl SaveWorkflowReviewParams {
-    #[must_use]
-    pub fn run_workflow_params(&self) -> RunWorkflowParams {
-        RunWorkflowParams {
-            workflow_id: self.workflow_id.clone(),
-            inputs: self.inputs.clone(),
-        }
-    }
-
     #[must_use]
     pub fn validation_error(&self) -> Option<String> {
         validate_workflow_id_field(&self.workflow_id)

@@ -1,2 +1,2 @@
-pub(super) mod query;
-pub(super) mod write;
+pub(crate) mod query;
+pub(crate) mod write;

@@ -15,7 +15,7 @@ use slipbox_core::{
     WorkflowStepPayload, WorkflowStepReportPayload, WorkflowStepSpec,
 };
 
-use crate::server;
+use crate::slipbox_bench::WorkbenchBench;
 use crate::slipbox_bench::constants::{BENCHMARK_PACK_AUDIT_ROUTINE_ID, WORKFLOW_BENCHMARK_ID};
 use crate::slipbox_bench::fixtures::{
     CorpusFixture, DeclarativeExtensionBenchmarkFixture, ReviewBenchmarkFixture,
@@ -353,7 +353,7 @@ pub(crate) fn org_link_description(preview: &str) -> Option<String> {
 }
 
 pub(crate) fn write_indexed_bench_file(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     root: &Path,
     relative_path: &str,
     source: &str,
@@ -383,7 +383,7 @@ pub(crate) fn write_indexed_bench_file(
 }
 
 pub(crate) fn indexed_node_from_id(
-    workbench: &mut server::WorkbenchBench,
+    workbench: &mut WorkbenchBench,
     explicit_id: &str,
 ) -> Result<NodeRecord> {
     workbench

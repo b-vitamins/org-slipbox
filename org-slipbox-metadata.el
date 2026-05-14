@@ -228,11 +228,6 @@ FILTER-FN filters nodes attached to refs."
                  refs)))
     (mapcar #'org-slipbox--ref-completion-candidate refs)))
 
-(defun org-slipbox-ref-read--completions (query &optional filter-fn)
-  "Return formatted ref completion candidates for QUERY.
-FILTER-FN filters nodes attached to refs."
-  (org-slipbox-ref-completion-candidates query filter-fn))
-
 (defun org-slipbox-ref-read--annotation (entry)
   "Return the default completion annotation for ref ENTRY."
   (let* ((node (plist-get entry :node))

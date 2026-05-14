@@ -2,19 +2,18 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+#[cfg(test)]
+use slipbox_core::{ReportProfileCatalog, ReviewRoutineCatalog};
 use slipbox_core::{
-    ReportProfileCatalog, ReportProfileSpec, ReviewRoutineCatalog, ReviewRoutineSource,
-    ReviewRoutineSpec, WORKFLOW_SPEC_COMPATIBILITY_VERSION, WorkbenchPackManifest,
-    WorkflowCatalogIssue, WorkflowCatalogIssueKind, WorkflowInputSpec, WorkflowSpec,
-    WorkflowSpecCompatibilityEnvelope, WorkflowSummary, built_in_review_routines,
+    ReportProfileSpec, ReviewRoutineSource, ReviewRoutineSpec, WORKFLOW_SPEC_COMPATIBILITY_VERSION,
+    WorkbenchPackManifest, WorkflowCatalogIssue, WorkflowCatalogIssueKind, WorkflowInputSpec,
+    WorkflowSpec, WorkflowSpecCompatibilityEnvelope, WorkflowSummary, built_in_review_routines,
     built_in_workflows,
 };
 
 pub(super) struct WorkflowCatalog {
     workflows: Vec<WorkflowSpec>,
-    #[allow(dead_code)]
     review_routines: Vec<ReviewRoutineSpec>,
-    #[allow(dead_code)]
     report_profiles: Vec<ReportProfileSpec>,
     issues: Vec<WorkflowCatalogIssue>,
 }
@@ -65,14 +64,14 @@ impl WorkflowCatalog {
             .cloned()
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(super) fn review_routine_catalog(&self) -> ReviewRoutineCatalog {
         ReviewRoutineCatalog {
             routines: self.review_routines.clone(),
         }
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(super) fn report_profile_catalog(&self) -> ReportProfileCatalog {
         ReportProfileCatalog {
             profiles: self.report_profiles.clone(),

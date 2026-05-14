@@ -191,11 +191,6 @@ provides a custom comparator."
         (seq-sort comparator completions)
       completions)))
 
-(defun org-slipbox-node-read--completions (query &optional filter-fn sort)
-  "Return formatted completion candidates for QUERY.
-FILTER-FN filters indexed nodes. SORT configures ordering."
-  (org-slipbox-node-completion-candidates query filter-fn sort))
-
 (defun org-slipbox-node-completion-annotation (candidate)
   "Return the annotation string for node completion CANDIDATE."
   (if-let ((node (get-text-property 0 'node candidate)))

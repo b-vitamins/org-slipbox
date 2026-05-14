@@ -6,7 +6,7 @@ use slipbox_core::{
 use slipbox_index::{DiscoveryPolicy, scan_root_with_policy};
 use slipbox_store::Database;
 
-use crate::server;
+use crate::slipbox_bench::WorkbenchBench;
 use crate::slipbox_bench::assertions::{
     assert_benchmark_workflow_result, assert_remediation_preview_fixture,
     assert_review_diff_fixture, assert_review_list_fixture, assert_review_show_fixture,
@@ -129,7 +129,7 @@ fn generated_corpus_guarantees_workflow_and_audit_benchmark_fixtures() -> Result
         )?
         .context("workflow focus anchor should exist")?;
 
-    let mut workbench = server::WorkbenchBench::new(
+    let mut workbench = WorkbenchBench::new(
         fixture.root.clone(),
         baseline_db_path(&fixture),
         fixture.workflow_dirs.clone(),
@@ -311,7 +311,7 @@ fn generated_corpus_guarantees_everyday_operation_benchmark_fixtures() -> Result
     let hot_node = database
         .node_from_id(&fixture.hot_node_id)?
         .context("hot node should exist")?;
-    let mut workbench = server::WorkbenchBench::new(
+    let mut workbench = WorkbenchBench::new(
         fixture.root.clone(),
         baseline_db_path(&fixture),
         fixture.workflow_dirs.clone(),
@@ -503,7 +503,7 @@ fn generated_corpus_guarantees_structural_write_benchmark_fixtures() -> Result<(
     let files = scan_root_with_policy(&fixture.root, &DiscoveryPolicy::default())?;
     let mut database = Database::open(&baseline_db_path(&fixture))?;
     database.sync_index(&files)?;
-    let mut workbench = server::WorkbenchBench::new(
+    let mut workbench = WorkbenchBench::new(
         fixture.root.clone(),
         baseline_db_path(&fixture),
         fixture.workflow_dirs.clone(),
@@ -595,7 +595,7 @@ fn generated_corpus_guarantees_declarative_extension_benchmark_fixtures() -> Res
         )?
         .context("workflow focus anchor should exist")?;
 
-    let mut workbench = server::WorkbenchBench::new(
+    let mut workbench = WorkbenchBench::new(
         fixture.root.clone(),
         baseline_db_path(&fixture),
         fixture.workflow_dirs.clone(),
