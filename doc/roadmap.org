@@ -2,299 +2,98 @@
 
 * Purpose
 
-This roadmap maps release bands to the vision and milestones. It intentionally
-avoids time promises.
+This roadmap maps near-term release bands to the public model in
+[[file:model.org][doc/model.org]]. It covers direction, not dates.
 
-* 0.2.x
+* 0.13.x: Consolidation
 
-Theme: settle the first release and lay the cockpit foundation.
-
-Focus:
-
-- strengthen the dedicated buffer as an exploratory surface
-- improve explanatory and navigational affordances
-- deepen diagnostics, docs, and operator confidence
-- preserve the thin-client architecture under this new UI pressure
-
-Watchpoints:
-
-- do not let buffer richness reintroduce expensive Emacs-side hot paths
-- do not let exploratory features become ad hoc grep or shell glue
-
-* 0.4.x
-
-Theme: real conversational exploration.
+Theme: make the project smaller and easier to reason about before external
+adapter work.
 
 Focus:
 
-- multiple relatedness lenses
-- explicit pivots, comparisons, and trails
-- surfacing bridges, dormant threads, and unresolved material
-- richer index-backed reasoning over tasks, refs, and time
-- only the minimum shared exploratory semantics needed to make the cockpit
-  real, not the broader programmable workbench surface
-- keep saved views, broader CLI/headless flows, and extension/platform work
-  deferred until the cockpit model has genuinely settled
+- compact public ontology and command taxonomy
+- README, roadmap, milestone, compatibility, and readiness docs cleaned up
+  around the shared model
+- `slipbox-core`, CLI, server handlers, benchmark harness, and test helpers
+  split along product-domain seams
+- no-behavior-change contract matrix kept green through refactors
+- deliberate decisions for duplicate command affordances
+- manpage-grade command help aligned with the taxonomy
+- consolidation scorecard with line-count and term-count evidence
 
-Watchpoints:
+Exit signal:
 
-- keep every surprising result explainable
-- do not replace structural discovery with vague ranking theatrics
-- do not let transport, CLI, or extension concerns freeze the model too early
+- largest files are visibly smaller or mechanically split
+- docs read as durable guidance rather than release notes
+- CLI/RPC/JSON behavior is preserved except for reviewed aliases or
+  deprecations
+- public concepts map cleanly to Notes, Relations, Explorations, Reviews,
+  Assets, and System
 
-* 0.5.x
+* 0.14.x: Read-Only MCP
 
-Theme: settle the cockpit model.
-
-Focus:
-
-- coherent lens-local rendering and explanation presentation
-- richer task, ref, and time reasoning inside dedicated exploration
-- factual comparison of overlap, divergence, ambiguity, and tension
-- clearer trail replay, detached branching, and cockpit legibility
-- benchmark and regression coverage for real dedicated exploration paths
-- keep saved views, broader headless workflows, and public workbench
-  extraction explicitly deferred
-
-Watchpoints:
-
-- do not mistake cockpit settlement for programmable-workbench readiness
-- do not let docs imply saved-view or headless maturity that does not yet
-  exist
-- do not let “polish” work dissolve the hard persistent-versus-dedicated
-  cost split
-
-* 0.6.x
-
-Theme: first workbench foundation.
+Theme: expose the cleaned model through read-only resources and tools.
 
 Focus:
 
-- durable exploration artifacts for saved views, trails, and comparisons
-- Rust-owned artifact semantics, persistence, and execution
-- dedicated-cockpit save, load, and replay over those artifacts
-- first narrow task-shaped machine operations around those artifacts:
-  save, inspect, list, execute, and delete
-- keep everyday CLI parity, extension APIs, and agent adapters deferred until
-  the artifact surface has proven the daemon boundary
+- resource mapping for notes, files, refs, tags, artifacts, reviews,
+  workflows, routines, packs, selected graph views, and selected exploration
+  views
+- read-only tools for lookup, search, backlinks, refs, tags, agenda, graph
+  export, exploration, comparison, artifact execution, audit inspection,
+  review inspection, workflow/routine catalog inspection, and diagnostics
+- permission and scope model for local slipbox roots
+- contract tests proving adapter output agrees with existing CLI/RPC semantics
+- docs showing the mapping from the compact model to resources and tools
 
-Watchpoints:
+Exit signal:
 
-- do not let saved artifacts pollute public note semantics
-- do not reconstruct artifact semantics in Emacs Lisp
-- do not mirror raw transport methods when the public unit is a meaningful
-  exploratory operation
-- do not let workbench extraction weaken the persistent-versus-dedicated cost
-  split
+- read-only clients can inspect and explore the corpus without mutating Org
+  files or durable side stores
+- the adapter reuses daemon-owned operations
+- adapter naming follows the compact public ontology
 
-* 0.7.x
+* 0.15.x: Write-Capable MCP
 
-Theme: first usable headless workbench.
-
-Focus:
-
-- a typed Rust daemon client over the canonical JSON-RPC stdio boundary
-- shared CLI runtime, connection, and JSON-first output scaffolding
-- task-shaped live headless operations for resolve, explore, and compare
-- durable artifact lifecycle commands for list, show, run, delete, import,
-  export, and save from live exploration/comparison flows
-- end-to-end CLI coverage that proves the headless surface is real rather than
-  transport-shaped aspiration
-- documentation that treats this as the first usable headless workbench rather
-  than as broad platform completion
-
-Watchpoints:
-
-- do not bypass `slipbox serve` through in-process shortcuts
-- do not turn the CLI into a thin wrapper over every RPC method
-- do not invent a second ontology for headless work that drifts from cockpit
-  semantics
-- do not let JSON-first machine use turn into “just use raw RPCs” instead of
-  documenting the actual CLI house
-- do not let extension APIs, MCP, or agent-adapter ambitions leak into this
-  milestone
-
-* 0.8.x
-
-Theme: broader research workbench.
+Theme: add selected write-capable tools after read-only semantics have proven
+stable.
 
 Focus:
 
-- named workflows for common research routines over the first usable headless
-  workbench and the durable artifacts from the settled cockpit model
-- corpus-health audit surfaces over the canonical daemon boundary
-- bounded workflow discovery from configured directories
-- workflow and audit report outputs for JSON and line-oriented machine use
-- broader headless composition without widening into transport-shaped CLI
-  sprawl
-- larger benchmark corpora and stricter scale guarantees for the larger
-  workbench surface
-
-Watchpoints:
-
-- do not mirror raw RPCs when the real unit of value is a named workflow or
-  audit operation
-- treat workflow discovery as declarative extension, not as a plugin runtime
-- document JSON and JSONL workflow/audit output through the actual CLI
-  contract rather than through raw RPC examples
-- keep MCP, agent-adapter, and broader extension ambitions out of this band
-- keep the store, write engine, and protocol growth modular
-- do not let “broader workbench” turn into a fuzzy platform bucket
-
-* 0.9.x
-
-Theme: operational research workbench.
-
-Focus:
-
-- durable review runs for recurring named-workflow and corpus-audit loops
-- explicit review status so repeated runs can be triaged without becoming a
-  task-manager clone
-- review diffs that show what changed since an earlier run
-- read-only remediation previews for supported audit findings before any write
-  occurs
-- a clear boundary between review records, ordinary notes, and saved
-  exploration artifacts
-- operational loops over the composed `0.8.x` workbench without widening into
-  raw-RPC sprawl or broad automation
-
-Watchpoints:
-
-- do not make review records part of note identity, search identity, ref
-  identity, or saved exploration-artifact identity
-- do not imply that review status is a general task-management system
-- do not execute broad structural writes when the right product surface is a
-  preview and an explicit later decision
-- do not let remediation previews imply or bypass a Rust-owned write path
-- keep extension APIs, plugin-runtime work, MCP, and agent-adapter ambitions
-  out of this band
-- keep the one exploratory model intact across cockpit, daemon, CLI,
-  workflows, audits, and reviews
-
-* 0.10.x
-
-Theme: declarative workbench extension.
-
-Focus:
-
-- explicit workflow-spec compatibility so portable workflow JSON has a clear
-  version story before it becomes packaged workbench material
-- report profile specs for bounded, reusable output presets without arbitrary
-  template languages or renderer plugins
-- review routine specs for recurring audit and workflow review loops without
-  schedulers, task-manager semantics, or hidden automation
-- workbench pack manifests that bundle workflows, review routines, report
-  profiles, and metadata as declarative assets
-- imported declarative assets that remain distinct from ordinary notes, review
-  runs, and saved exploration artifacts
-- deterministic cataloging, local validation, daemon-backed import/export, and
-  lifecycle semantics for packaged assets without making packs executable code
-- routine list, show, and run commands over daemon-owned audit, workflow,
-  save-review, compare, and report-profile semantics
-- benchmark and contract coverage that proves pack, routine, and report
-  profile paths run over non-empty real fixtures
-
-Watchpoints:
-
-- do not introduce a plugin runtime, executable hook system, scripting layer,
-  MCP surface, or agent adapter in this band
-- do not expose raw RPC sprawl when the useful product surface is a workflow,
-  routine, report profile, or pack
-- do not let imported pack contents become note identity, review-run identity,
-  saved exploration-artifact identity, search identity, ref identity, or graph
-  identity
-- do not let report profiles become templates or renderer plugins
-- do not let routines become background schedulers, task-management state, or
-  broad mutation flows
-- keep declarative extension compatible with the one exploratory model across
-  cockpit, daemon, CLI, workflows, audits, and reviews
-
-* 0.11.x
-
-Theme: everyday CLI parity.
-
-Status: shipped in `0.11.0`.
-
-Focus:
-
-- make the CLI a first-class second surface for ordinary slipbox operations
-- cover everyday read and constructive write operations through daemon-owned,
-  task-shaped commands
-- preserve read-your-writes behavior, JSON contracts, and benchmark gates for
-  the everyday surface
-- keep Emacs-specific interaction and external automation out of this band
-
-Watchpoints:
-
-- do not bypass `slipbox serve` or add in-process shortcuts for the CLI
-- do not turn the CLI into a raw JSON-RPC mirror; commands must remain
-  meaningful product operations
-- do not rebuild parsing, indexing, query, or write semantics in CLI glue
-- keep exact target resolution explicit; no fallback guessing that creates
-  hidden correctness rules
-- keep file mutation behind Rust RPCs with read-your-writes behavior
-- keep structural rewrites such as refile, extract, promote, and demote out of
-  this band
-- keep Emacs-specific draft-buffer, completion, calendar, viewer-hook, and
-  live-buffer coordination UX out of the CLI claim
-- keep MCP, agent adapters, plugin runtimes, schedulers, and broad automated
-  remediation out of this band
-
-* 0.12.x
-
-Theme: structural editing and stability.
-
-Status: release-candidate line.
-
-Focus:
-
-- make structural rewrites and bounded remediation safe, daemon-owned, and
-  scriptable
-- publish the CLI/Emacs parity boundary and compatibility expectations for
-  public JSON and durable records
-- harden diagnostics, rebuild survival, and benchmark gates around higher-risk
-  write paths
-- use the release evidence to decide whether the next line is `1.0.0` or
-  another stabilization cut
-
-Watchpoints:
-
-- do not treat structural editing as a thin wrapper over low-level file
+- permission-gated note creation, capture, metadata, identity, and daily-note
   operations
-- do not introduce broad remediation apply flows without explicit previews,
-  user intent, and Rust-owned mutation semantics
-- do not break the `0.11.0` everyday CLI JSON shapes while adding write-report
-  structure for newer higher-risk operations
-- do not turn diagnostics into a raw SQLite explorer or support burden around
-  internal schema details
-- keep `org-protocol`, completion, draft capture buffers, calendar marking,
-  viewer hooks, capture finalizers, and live buffer coordination Emacs-specific
-  unless a real non-UI product surface emerges
-- do not collapse CLI parity into platform or extension-runtime claims
-- do not claim `1.0.0` until compatibility, packaging, benchmark, and
-  rebuild/upgrade behavior have survived a stabilization cycle
+- permission-gated structural edits with existing `StructuralWriteReport`
+  records
+- preview/apply tools for supported remediation and link rewrite operations
+- explicit affected-file, confirmation, and read-your-writes behavior
+- tests that compare adapter write results with CLI/RPC write contracts
 
-* 1.0.x
+Exit signal:
 
-Theme: dependable system.
+- write-capable tools mutate only through existing Rust-owned daemon paths
+- every write returns the same task evidence as the CLI/RPC surface
+- preview/apply flows remain bounded and auditable
+
+* 1.0.x: Stability Line
+
+Theme: make the public surface dependable enough for ordinary users,
+packagers, scripts, and integration authors.
 
 Focus:
 
-- stable public surfaces
-- explicit upgrade and compatibility expectations
-- mature manual, declarative extension guidance, and release engineering
+- stable public JSON and durable record compatibility policy
+- documented upgrade and rebuild behavior
+- reliable release binaries and source builds
+- benchmark gates that cover everyday, exploratory, review, asset, structural,
+  and adapter paths
+- cleaned module boundaries that allow ordinary maintenance without rescue
+  refactors
+- complete user-facing documentation and command help
 
-Watchpoints:
+Exit signal:
 
-- do not rush a `1.0.0` label until the exploratory model, not just the
-  replacement surface, has proven stable
-
-* Release Discipline
-
-Every release band should satisfy the following:
-
-- architecture first, then feature count
-- measured performance, not inferred performance
-- clean packaging and installation
-- deliberate documentation of any meaningful divergences
-- no work that makes future rescue refactors more likely
+- one full release cycle passes with the public contracts holding steady
+- bundled and system-SQLite build paths are verified in release automation
+- compatibility-sensitive changes have explicit migration guidance
+- the project can evolve through modules instead of monolith pressure

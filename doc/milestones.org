@@ -2,184 +2,152 @@
 
 * Purpose
 
-This document translates the product vision into concrete software milestones.
-These are capability milestones, not date commitments.
+This document names durable capability milestones rather than release history.
+
+The public model is defined in [[file:model.org][doc/model.org]].
 
 * Milestone 1: Stable Replacement Foundation
 
-The first milestone is already achieved.
+Purpose: make Org notes, IDs, refs, capture, backlinks, graph export, dailies,
+and agenda work through a clean Emacs package plus Rust daemon.
 
 Outcomes:
 
-- `org-slipbox` is a credible day-to-day replacement for `org-roam`
-- the daemon and Emacs package are cleanly separable
-- manual-backed workflows are covered
-- correctness, scale, and packaging are proven rather than assumed
+- Org files stay authoritative.
+- The daemon and Emacs package are separable.
+- Indexing, search, backlinks, refs, graph, capture, dailies, and agenda are
+  covered.
+- Packaging and installation are routine.
+- Benchmark gates exist for core paths.
 
 Exit criteria:
 
-- the core node, capture, backlinks, refs, dailies, export, graph, and agenda
-  surfaces are present
-- packaging and installation are routine
-- benchmark gates exist
+- ordinary note creation, lookup, linking, ref lookup, and context inspection
+  are reliable
+- index state can be rebuilt from Org files
+- interactive hot paths avoid corpus-wide Emacs Lisp work
 
-* Milestone 2: Cockpit Foundation
+* Milestone 2: Exploratory Cockpit
 
-Turn the dedicated context buffer into a first-class exploratory surface rather
-than a status panel.
+Purpose: turn the current-node buffer into a real thinking surface.
 
 Outcomes:
 
-- richer indexed section families
-- explicit dedicated-buffer navigation and session state
-- explicit pivot controls between relatedness lenses
-- stable explanation of why sections and nodes are shown
-- cheap persistent buffer, deeper dedicated buffer
+- cheap persistent context buffer
+- richer dedicated cockpit
+- declared lenses over structure, refs, time, tasks, bridges, dormant material,
+  unresolved material, and local graph evidence
+- factual comparison and explicit trails
+- explanation blocks for non-obvious results
 
 Exit criteria:
 
-- a user can navigate through the dedicated buffer rather than merely inspect
-  it
-- the persistent buffer remains cheap by design
-- new buffer power does not move hot work back into Emacs Lisp
+- users can pivot, compare, branch, and return to lines of inquiry
+- exploratory results are explainable and index-backed
+- persistent redisplay remains cheap
 
-* Milestone 3: Conversational Exploration
+* Milestone 3: Durable Workbench
 
-Let the system surface lines of thought rather than only direct graph
-adjacencies.
+Purpose: make exploration, review, and reusable workbench behavior durable and
+scriptable through the daemon boundary.
 
 Outcomes:
 
-- bridge detection between distant regions
-- dormant or weakly connected material surfacing around the current context
-- explicit comparison and trail management
-- better support for ambiguity, tension, and unresolved work across refs,
-  planning dates, and task states
-- the exploratory model becomes durable enough to extract beyond the cockpit
+- saved exploration artifacts for lenses, comparisons, trails, and detached
+  trail slices
+- headless resolve, explore, compare, and artifact lifecycle commands
+- named workflows and bounded workflow discovery
+- corpus-health audits and report output surfaces
+- durable review runs with status, diffs, and remediation previews
+- declarative workflow specs, review routines, report profiles, and workbench
+  packs
+- first-class everyday CLI operations across Notes, Relations, Explorations,
+  Reviews, Assets, and System
 
 Exit criteria:
 
-- the system can show more than backlinks and nearest neighbors
-- exploratory results remain explainable and index-backed
-- users can revisit and branch explicit lines of inquiry in the cockpit,
-  while durable saved views remain later workbench work
-- cockpit behavior rests on explicit shared semantics rather than buffer-local
-  improvisation
-- the cockpit is documented and tested as a coherent exploratory surface, not
-  a bag of sections
+- saved artifacts can be persisted, replayed, and executed
+- reviews are durable records separate from notes and artifacts
+- assets are portable JSON data with validation and compatibility metadata
+- CLI commands remain task-shaped and daemon-backed
+- contract tests cover machine-readable JSON envelopes
 
-* Milestone 4: Programmable Research Workbench
+* Milestone 4: Safe Structural Operations
 
-Expose the engine and exploratory model as a serious programmable environment.
+Purpose: expose higher-risk writes through explicit daemon-owned contracts.
 
 Outcomes:
 
-- durable exploration artifacts for saved views, trails, and comparisons
-- query surfaces and first task-shaped public operations around those artifacts
-  such as save, inspect, list, execute, and delete
-- a first usable headless workbench around resolve, live explore, compare, and
-  artifact lifecycle over the canonical daemon boundary
-- named workflows for common research routines over that settled headless
-  model
-- corpus-health audit surfaces that expose maintenance pressure and weak
-  integration as first-class workbench operations
-- bounded workflow discovery from configured directories as declarative
-  extension rather than a plugin runtime
-- workflow and audit report outputs for machine-readable review and archival
-  flows
-- stricter benchmark corpora and gates for workflow discovery, workflow
-  execution, and audit query paths
-- durable review runs for recurring workflow and audit loops
-- review status, review diffs, and read-only remediation previews for
-  supported audit findings over the composed workbench surface
-- declarative workflow compatibility, review routines, report profiles, and
-  workbench packs that package reusable workbench assets as data rather than
-  executable plugin code
-- stronger CLI and headless workflows built from that same exploratory model
-- first-class everyday CLI operations for sync, search, files, nodes, refs,
-  agenda, graph export, safe note creation, capture, dailies, identity, and
-  metadata over the canonical daemon boundary
-- stable hooks and extension points around exploration only after the first
-  composed workbench has proven its shape
-- richer task, ref, and citation-driven navigation
+- refile, extract, promote, and demote operations with structural write reports
+- link rewrite preview/apply records
+- selected remediation apply records
+- diagnostics for file, node, and index state
+- rebuild-survival coverage for durable side stores
 
 Exit criteria:
 
-- saved artifacts can be persisted, replayed, and executed through the same
-  exploration semantics already proven in the cockpit
-- the first public headless surface remains task-shaped rather than becoming a
-  broad CLI or extension platform story
-- JSON-first machine use is real and documented without claiming broader
-  platform maturity
-- common research routines can be executed as named workflows rather than only
-  as isolated commands
-- corpus-health audits are first-class query surfaces over the canonical
-  daemon boundary
-- workflow discovery remains bounded and declarative rather than becoming a
-  plugin runtime
-- workflow and audit output surfaces are documented as CLI contracts rather
-  than raw transport guidance
-- scale gates cover the composed workbench paths directly
-- review state is explicit, durable, and separate from ordinary notes and saved
-  exploration artifacts
-- users can compare repeated workflow and audit runs before deciding whether
-  any remediation is appropriate
-- remediation surfaces preview safe audit cleanups without implying broad
-  automated mutation
-- imported declarative workbench assets are explicit and separate from notes,
-  review runs, and saved exploration artifacts
-- workflows, review routines, report profiles, and packs can be shared and
-  validated without implying a plugin runtime, MCP surface, agent adapter, or
-  raw RPC wrapper layer
-- pack validation, import/export, cataloging, and routine execution are
-  documented as the declarative workbench extension surface, not as executable
-  plugin or raw transport guidance
-- everyday CLI operations cover ordinary slipbox work across sync, file, node,
-  ref, tag, search, agenda, graph, note, capture, daily, identity, and
-  metadata commands without bypassing `slipbox serve`, rebuilding semantics in
-  the CLI, or widening into raw RPC wrappers
-- Emacs and CLI are documented as two first-class surfaces over one source of
-  truth and one daemon-owned read/write model
-- structural rewrite, link rewrite, diagnostics, and bounded remediation-apply
-  flows are exposed through explicit daemon-owned contracts rather than
-  frontend text mutation
-- users can script and automate meaningful exploratory workflows
-- buffer and query surfaces compose without reaching into unstable internals
-- headless surfaces reuse the exploratory model already proven in the cockpit
-- any later extension surface adds capability without bending core architecture
+- every structural write reports affected files and refreshed-index state
+- preview/apply operations require explicit intent
+- follow-up reads observe the written state
+- durable side stores survive index rebuilds without polluting note surfaces
 
-* Milestone 5: Dependable Platform
+* Milestone 5: Consolidated Public Surface
 
-Make the system boring in the best sense: dependable, extensible, and stable.
+Purpose: make the product model, command taxonomy, docs, and code structure
+small enough to support future adapters without carrying release-history
+weight.
 
 Outcomes:
 
-- stable public surfaces
-- documented compatibility and upgrade expectations
-- clear performance envelopes
-- routine release engineering
-- stable daemon-owned contracts for structural writes and bounded remediation
-- maintenance diagnostics that help users recover file and index state without
-  reaching into database internals
-- a documented CLI/Emacs parity boundary
+- six-bucket public ontology
+- compact README and strategic docs
+- compatibility policy in one authoritative place
+- CLI taxonomy and help aligned with the model
+- core, CLI, server, benchmark, and test code split by product domain
+- duplicate command affordances resolved deliberately
 
 Exit criteria:
 
-- the project can evolve without repeated rescue refactors
-- packagers and users can rely on stable interfaces
-- the codebase still grows by module rather than monolith
-- higher-risk write surfaces have stable task reports, read-your-writes
-  behavior, and rebuild-safe verification
-- public JSON and durable record formats are compatibility-sensitive and
-  covered by contract tests
-- release evidence supports either a `1.0.0` cut or one explicit stabilization
-  release
+- public names map cleanly to Notes, Relations, Explorations, Reviews, Assets,
+  and System
+- largest omnibus files are split behind stable reexports or facades
+- contract matrix proves behavior preservation through refactors
+- consolidation scorecard shows line-count, doc-count, and term-count evidence
 
-* Non-Milestones
+* Milestone 6: External Integration Surface
 
-The following are explicitly not milestones by themselves:
+Purpose: map the cleaned model to external tools without changing the source
+of truth or duplicating semantics.
 
-- adding visually impressive graph features
-- increasing the raw command count
-- imitating every historical detail of `org-roam`
-- adding large speculative surfaces without a clear relation to the vision
+Outcomes:
+
+- read-only resources and tools over existing daemon semantics
+- optional write-capable tools for selected safe operations
+- permission model for read and write operations
+- adapter tests matched against CLI/RPC contracts
+
+Exit criteria:
+
+- external clients can inspect the corpus through the same model as Emacs and
+  CLI
+- write tools use existing daemon-owned mutations and task reports
+- adapter naming follows the compact ontology
+
+* Milestone 7: Dependable System
+
+Purpose: reach a stable, boring public surface.
+
+Outcomes:
+
+- stable compatibility and deprecation policy
+- reliable release engineering
+- verified bundled and system-SQLite build paths
+- documented upgrade and rebuild behavior
+- benchmark profiles that cover the public product surface
+
+Exit criteria:
+
+- public JSON and durable record formats hold steady across a release cycle
+- packaging and installation are predictable
+- users and scripts can rely on documented contracts
+- new work lands through focused modules rather than monolith growth
