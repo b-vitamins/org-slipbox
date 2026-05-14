@@ -81,6 +81,87 @@ not exhaustive command help.
 | Assets | `workflow`, `routine`, `pack` |
 | System | `serve`, `status`, `sync`, `file`, `diagnose` |
 
+** Full CLI Inventory
+
+Every public command has one conceptual owner. Some commands return evidence
+from another bucket; command ownership follows the user-facing command family.
+
+| Bucket | Command | Role |
+|--------+---------+------|
+| Notes | `node show` | inspect one note target |
+| Notes | `node search` | search note titles, aliases, refs, and text-backed note records |
+| Notes | `node random` | select one indexed note |
+| Notes | `node backlinks` | show note targets that link to one note |
+| Notes | `node forward-links` | show note targets linked from one note |
+| Notes | `node at-point` | resolve an indexed anchor by file and line |
+| Notes | `node ensure-id` | assign explicit identity to one indexed anchor |
+| Notes | `node metadata show` | inspect aliases, refs, and tags |
+| Notes | `node alias add/remove/set` | mutate aliases |
+| Notes | `node ref add/remove/set` | mutate refs |
+| Notes | `node tag add/remove/set` | mutate tags |
+| Notes | `note create` | create a file note |
+| Notes | `note ensure-file` | ensure a file note exists |
+| Notes | `note append-heading` | append a heading to a file note |
+| Notes | `note append-to-node` | append below an exact note target |
+| Notes | `note append-outline` | append under an outline path |
+| Notes | `capture node` | capture a file note |
+| Notes | `capture template` | execute a capture template |
+| Notes | `capture preview` | preview a capture template |
+| Notes | `daily ensure` | ensure a daily note exists |
+| Notes | `daily show` | inspect a daily note |
+| Notes | `daily append` | append to a daily note |
+| Notes | `edit refile-subtree` | move an indexed subtree |
+| Notes | `edit refile-region` | move a character range |
+| Notes | `edit extract-subtree` | extract a subtree into a file note |
+| Notes | `edit promote-file` | promote a root heading to file metadata |
+| Notes | `edit demote-file` | demote file metadata to a root heading |
+| Notes | `resolve-node` | resolve an exact note target |
+| Relations | `ref search` | search indexed refs |
+| Relations | `ref show` | resolve a ref to its note |
+| Relations | `ref resolve` | canonical ref resolution command |
+| Relations | `tag search` | search indexed tags |
+| Relations | `search occurrences` | search indexed text occurrences |
+| Relations | `agenda today` | query today's planning entries |
+| Relations | `agenda date` | query one date's planning entries |
+| Relations | `agenda range` | query a planning-date range |
+| Relations | `graph dot` | export relation graph DOT |
+| Relations | `link rewrite-slipbox preview` | preview `slipbox:` link rewrites |
+| Relations | `link rewrite-slipbox apply` | apply confirmed `slipbox:` link rewrites |
+| Explorations | `explore` | run a live lens |
+| Explorations | `compare` | compare two notes |
+| Explorations | `artifact list/show/run/export/import/delete` | manage saved exploration artifacts |
+| Reviews | `audit dangling-links` | find missing explicit-ID links |
+| Reviews | `audit duplicate-titles` | find title collisions |
+| Reviews | `audit orphan-notes` | find isolated notes |
+| Reviews | `audit weakly-integrated-notes` | find weakly integrated ref-backed notes |
+| Reviews | `review list/show/diff/mark/delete` | manage review runs |
+| Reviews | `review remediation preview/apply` | preview or apply supported finding remediation |
+| Assets | `workflow list/show/run` | manage and run workflow specs |
+| Assets | `routine list/show/run` | manage and run review routines |
+| Assets | `pack list/show/validate/import/export/delete` | manage workbench packs |
+| System | `serve` | run the daemon |
+| System | `status` | inspect daemon/index status |
+| System | `sync root` | refresh the indexed root |
+| System | `sync file` | refresh one indexed file |
+| System | `file list/search` | inspect indexed file inventory |
+| System | `diagnose file/node/index` | inspect file, node, or index health |
+
+** Duplicate Affordances
+
+These decisions feed later alias/deprecation work. This section records the
+taxonomy decision only; it does not change command behavior.
+
+| Affordance | Bucket | Decision |
+|------------+--------+----------|
+| `ref show` and `ref resolve` | Relations | Prefer `ref resolve` as the canonical verb because the command resolves a ref to a note. Keep `ref show` as a compatibility alias for now; consider a deprecation notice only after command-help and contract policy work make warnings consistent. |
+| `note create` and `capture node` | Notes | Prefer `note create` as the canonical everyday command for creating a file note. Keep `capture node` as the capture-namespace spelling for users working from capture flows. The implementation may stay shared. |
+| `node backlinks` / `node forward-links` returning relation evidence | Notes / Relations | Keep command ownership under Notes because the user starts from an exact note target. The returned backlink/forward-link evidence belongs to Relations. |
+| `node metadata show` and top-level `node alias/ref/tag` mutators | Notes | Keep. `node metadata show` is the read surface; `node alias`, `node ref`, and `node tag` are focused write shortcuts over the same note metadata. |
+| `workflow show --spec` and `pack validate` local inspection | Assets | Keep. Both are local asset-inspection paths, but one inspects a workflow spec and the other validates a pack manifest. Help should make the local-vs-daemon distinction clear. |
+| `artifact run` and `explore` / `compare` live commands | Explorations | Keep. `artifact run` executes a saved exploration artifact; `explore` and `compare` run live queries and can optionally save new artifacts. |
+| `audit ... --save-review`, `workflow run --save-review`, and `routine run` review output | Reviews / Assets | Keep the command owners as-is. Assets own workflow/routine execution; Reviews own the review records produced by save-review paths. |
+| `diagnose file` and `file list/search` | System | Keep. File commands expose indexed file inventory; diagnostics explain eligibility and index drift. |
+
 * Persistence Boundaries
 
 Notes and Relations are persisted in Org files. The SQLite database accelerates
