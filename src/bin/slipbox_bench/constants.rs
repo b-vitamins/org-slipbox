@@ -1,0 +1,17 @@
+pub(crate) const HOT_NODE_ID: &str = "node-000000";
+pub(crate) const EXPLORATION_FOCUS_INDEX: usize = 2;
+pub(crate) const EXPLORATION_SHARED_REF: &str = "cite:bench-explore2026";
+pub(crate) const EXPLORATION_FOCUS_REF: &str = "cite:bench-explore-focus2026";
+pub(crate) const WORKFLOW_DISCOVERY_DIR: &str = "workflows";
+pub(crate) const WORKFLOW_BENCHMARK_ID: &str = "workflow/discovered/benchmark-research-sweep";
+pub(crate) const BENCHMARK_PACK_ID: &str = "pack/benchmark/declarative-extension";
+pub(crate) const BENCHMARK_PACK_AUDIT_ROUTINE_ID: &str = "routine/pack/benchmark-audit-review";
+pub(crate) const BENCHMARK_PACK_REPORT_ROUTINE_ID: &str = "routine/pack/benchmark-report-review";
+pub(crate) const BENCHMARK_PACK_REPORT_PROFILE_ID: &str = "profile/pack/benchmark-routine-detail";
+pub(crate) const AUDIT_REVIEW_BASE_ID: &str = "review/benchmark/audit/base";
+pub(crate) const AUDIT_REVIEW_TARGET_ID: &str = "review/benchmark/audit/target";
+pub(crate) const WORKFLOW_REVIEW_ID: &str = "review/benchmark/workflow/base";
+pub(crate) const REMEDIATION_APPLY_REVIEW_ID: &str = "review/benchmark/remediation/apply";
+pub(crate) const AGENDA_START: &str = "2026-03-01";
+pub(crate) const AGENDA_END: &str = "2026-03-31";
+pub(crate) const DEDICATED_COMPARE_CANDIDATE_LIMIT: usize = 12;
