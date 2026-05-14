@@ -29,11 +29,16 @@
 - Do not claim `1.0.0`, stable-platform finality, or full replacement status until the project genuinely reaches that bar.
 - Use Conventional Commits for every commit message.
 - Keep history readable: commit at coherent milestones after tests pass.
+- Before cutting any release, run the release metadata gate and do not proceed
+  if package versions, README release text, or Elisp copyright/package headers
+  disagree with the intended shipped version.
 
 ## Repository Conventions
 - Prefer a single repository containing the Rust workspace and the Emacs package.
 - Keep Emacs package entry files at the repository root for straightforward ELPA packaging.
-- Keep package headers strict: lexical binding, `Package-Requires`, `Version`, commentary, and no false metadata.
+- Keep package headers strict: lexical binding, `Package-Requires`, `Version`,
+  `Copyright`, commentary, and no false metadata. Elisp package copyright
+  headers use `Ayan Das`, not generic project-maintainer placeholders.
 - Maintain GPL-3.0-or-later licensing across Rust and Elisp code.
 - Keep automation credentials out of version control. For GitHub API work in this repository, use the ignored `/.env.github.local` path when a repo-local token is needed, prefer least-privilege fine-grained tokens, and keep expirations short.
 - Favor stable protocol boundaries over in-process integration tricks. JSON-RPC over stdio is the default boundary.
@@ -44,5 +49,6 @@
 ## Verification
 - Run `cargo fmt`, `cargo test`, and `cargo clippy --all-targets --all-features` before milestone commits when the codebase supports them.
 - Run Emacs batch checks before milestone commits once Elisp commands exist.
+- Run `make check-release-metadata` before every release-prep commit.
 - Add regression tests with every bug fix touching parsing, indexing, query semantics, or protocol behavior.
 - When a local machine lacks the C or packaging toolchain needed for a clean build, prefer `guix shell -m manifest.scm -- <command>` over repo-specific environment hacks.

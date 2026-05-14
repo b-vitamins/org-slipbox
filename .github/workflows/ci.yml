@@ -32,6 +32,9 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all --check
 
+      - name: Check release metadata
+        run: make check-release-metadata
+
       - name: Run Rust tests
         run: make test-rust
 

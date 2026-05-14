@@ -1,10 +1,10 @@
 ;;; org-slipbox-maintenance.el --- Diagnostics and maintenance for org-slipbox -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026 org-slipbox contributors
+;; Copyright (C) 2026 Ayan Das
 
 ;; Author: Ayan Das <bvits@riseup.net>
 ;; Maintainer: Ayan Das <bvits@riseup.net>
-;; Version: 0.10.0
+;; Version: 0.13.1
 ;; Package-Requires: ((emacs "29.1") (jsonrpc "1.0.27"))
 ;; Keywords: outlines, files, convenience
 

@@ -1,6 +1,6 @@
 ;;; test-org-slipbox.el --- Tests for org-slipbox -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026 org-slipbox contributors
+;; Copyright (C) 2026 Ayan Das
 
 ;;; Commentary:
 

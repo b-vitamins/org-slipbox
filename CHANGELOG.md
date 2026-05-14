@@ -6,6 +6,14 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-05-14
+
+### Fixed
+- Corrected Elisp package headers so shipped package files report the current
+  release version and use `Ayan Das` as the copyright holder.
+- Added a release metadata gate covering Cargo, README, and Elisp package
+  headers so version and copyright drift is caught in CI.
+
 ## [0.13.0] - 2026-05-14
 
 ### Added
