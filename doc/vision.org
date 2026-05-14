@@ -2,7 +2,7 @@
 
 * North Star
 
-`org-slipbox` is a local-first Org slip-box for serious personal knowledge
+`org-slipbox` is an Org knowledge-management system for serious personal knowledge
 work.
 
 Its job is to help a user think with a corpus of notes: find stable facts,

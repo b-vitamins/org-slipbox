@@ -32,7 +32,7 @@
 (require 'subr-x)
 
 (defgroup org-slipbox nil
-  "Local-first Org knowledge tools."
+  "Org knowledge management tools."
   :group 'applications
   :prefix "org-slipbox-")
 

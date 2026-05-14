@@ -51,6 +51,7 @@ pub(crate) struct RefSearchArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// Reference query.
+    #[arg(value_name = "QUERY")]
     pub(crate) query: String,
     /// Maximum reference records to return.
     #[arg(long, default_value_t = 50)]
@@ -61,7 +62,8 @@ pub(crate) struct RefSearchArgs {
 pub(crate) struct RefResolveArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
-    /// Reference to resolve.
+    /// Reference to resolve, for example `cite:smith2026`.
+    #[arg(value_name = "REF")]
     pub(crate) reference: String,
 }
 
@@ -82,6 +84,7 @@ pub(crate) struct TagSearchArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// Tag query.
+    #[arg(value_name = "QUERY")]
     pub(crate) query: String,
     /// Maximum tags to return.
     #[arg(long, default_value_t = 50)]
@@ -105,6 +108,7 @@ pub(crate) struct OccurrencesSearchArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// Text query.
+    #[arg(value_name = "QUERY")]
     pub(crate) query: String,
     /// Maximum occurrences to return.
     #[arg(long, default_value_t = 50)]
@@ -141,6 +145,7 @@ pub(crate) struct AgendaDateArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// ISO date to query, YYYY-MM-DD.
+    #[arg(value_name = "DATE")]
     pub(crate) date: String,
     /// Maximum agenda entries to return.
     #[arg(long, default_value_t = 200)]
@@ -152,8 +157,10 @@ pub(crate) struct AgendaRangeArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// Inclusive ISO start date, YYYY-MM-DD.
+    #[arg(value_name = "START")]
     pub(crate) start: String,
     /// Inclusive ISO end date, YYYY-MM-DD.
+    #[arg(value_name = "END")]
     pub(crate) end: String,
     /// Maximum agenda entries to return.
     #[arg(long, default_value_t = 200)]
@@ -192,7 +199,7 @@ pub(crate) struct GraphDotArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// Exact root node key for a neighborhood graph.
-    #[arg(long)]
+    #[arg(long, value_name = "KEY")]
     pub(crate) root_node_key: Option<String>,
     /// Maximum graph distance from --root-node-key.
     #[arg(long)]
@@ -201,7 +208,7 @@ pub(crate) struct GraphDotArgs {
     #[arg(long)]
     pub(crate) include_orphans: bool,
     /// Link type to hide. Only `id` is currently supported.
-    #[arg(long = "hide-link-type")]
+    #[arg(long = "hide-link-type", value_name = "TYPE")]
     pub(crate) hidden_link_types: Vec<String>,
     /// Maximum graph label length before shortening.
     #[arg(long, default_value_t = 100)]
@@ -210,10 +217,10 @@ pub(crate) struct GraphDotArgs {
     #[arg(long, value_enum)]
     pub(crate) shorten_titles: Option<GraphShortenArg>,
     /// URL prefix for nodes with explicit IDs.
-    #[arg(long)]
+    #[arg(long, value_name = "PREFIX")]
     pub(crate) node_url_prefix: Option<String>,
     /// Write DOT to this path instead of stdout.
-    #[arg(long)]
+    #[arg(long, value_name = "PATH")]
     pub(crate) output: Option<PathBuf>,
 }
 
@@ -240,6 +247,9 @@ pub(crate) enum LinkRewriteSlipboxCommand {
     /// Preview supported `slipbox:` link rewrites in one file.
     Preview(LinkRewriteSlipboxPreviewArgs),
     /// Apply supported `slipbox:` link rewrites in one file after confirmation.
+    #[command(
+        long_about = "Apply supported `slipbox:` link rewrites in one file. Requires --confirm-replace-slipbox-links and returns changed-file refresh status."
+    )]
     Apply(LinkRewriteSlipboxApplyArgs),
 }
 
@@ -248,7 +258,7 @@ pub(crate) struct LinkRewriteSlipboxFileArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// File path to inspect or rewrite, absolute or relative to --root.
-    #[arg(long)]
+    #[arg(long, value_name = "FILE")]
     pub(crate) file: PathBuf,
 }
 

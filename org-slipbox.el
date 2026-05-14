@@ -1,4 +1,4 @@
-;;; org-slipbox.el --- Local-first Org slipbox tools -*- lexical-binding: t; -*-
+;;; org-slipbox.el --- Org knowledge management tools -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 org-slipbox contributors
 
@@ -25,7 +25,7 @@
 
 ;;; Commentary:
 
-;; org-slipbox provides a local-first Org knowledge workflow backed by a
+;; org-slipbox provides an Org knowledge-management workflow backed by a
 ;; dedicated index and query engine.  This file contains the package entry
 ;; points and user-facing commands.
 

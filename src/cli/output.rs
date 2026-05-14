@@ -48,9 +48,9 @@ impl ReportFormat {
 #[derive(Debug, Clone, Args, Default)]
 pub(crate) struct ReportOutputArgs {
     /// Write the rendered report to this path instead of stdout. Use `-` for stdout.
-    #[arg(long)]
+    #[arg(long, value_name = "PATH")]
     pub(crate) output: Option<PathBuf>,
-    /// Emit line-oriented JSON instead of a single structured result document.
+    /// Emit JSON Lines report output. Mutually exclusive with --json.
     #[arg(long)]
     pub(crate) jsonl: bool,
 }

@@ -65,7 +65,7 @@ pub(crate) struct AuditRunArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// Maximum audit entries to return.
-    #[arg(long, default_value_t = 200)]
+    #[arg(long, default_value_t = 200, value_name = "N")]
     pub(crate) limit: usize,
     #[command(flatten)]
     pub(crate) report: ReportOutputArgs,
@@ -106,6 +106,7 @@ pub(crate) struct ReviewIdArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// Durable review run identifier.
+    #[arg(value_name = "REVIEW_ID")]
     pub(crate) review_id: String,
 }
 
@@ -120,8 +121,10 @@ pub(crate) struct ReviewDiffArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// Baseline durable review run identifier.
+    #[arg(value_name = "BASE_REVIEW_ID")]
     pub(crate) base_review_id: String,
     /// Target durable review run identifier.
+    #[arg(value_name = "TARGET_REVIEW_ID")]
     pub(crate) target_review_id: String,
 }
 
@@ -136,6 +139,9 @@ pub(crate) enum ReviewRemediationCommand {
     /// Inspect the daemon-owned remediation preview for one finding.
     Preview(ReviewRemediationPreviewArgs),
     /// Apply one supported remediation action after explicit confirmation.
+    #[command(
+        long_about = "Apply one supported remediation action. The daemon revalidates the saved preview against current file contents before writing; use preview first when unsure."
+    )]
     Apply(ReviewRemediationApplyArgs),
 }
 
@@ -144,8 +150,10 @@ pub(crate) struct ReviewFindingIdArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// Durable review run identifier.
+    #[arg(value_name = "REVIEW_ID")]
     pub(crate) review_id: String,
     /// Typed durable finding identifier within the review run.
+    #[arg(value_name = "FINDING_ID")]
     pub(crate) finding_id: String,
 }
 
@@ -163,7 +171,7 @@ pub(crate) struct ReviewRemediationApplyArgs {
     #[arg(long)]
     pub(crate) confirm_unlink_dangling_link: bool,
     /// Replacement text for the removed id link. Defaults to the current link label.
-    #[arg(long)]
+    #[arg(long, value_name = "TEXT")]
     pub(crate) replacement_text: Option<String>,
 }
 
@@ -172,10 +180,13 @@ pub(crate) struct ReviewMarkArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// Durable review run identifier.
+    #[arg(value_name = "REVIEW_ID")]
     pub(crate) review_id: String,
     /// Typed durable finding identifier within the review run.
+    #[arg(value_name = "FINDING_ID")]
     pub(crate) finding_id: String,
     /// New finding status: open, reviewed, dismissed, or accepted.
+    #[arg(value_name = "STATUS")]
     pub(crate) status: String,
 }
 

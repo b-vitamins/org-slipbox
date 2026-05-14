@@ -11,7 +11,23 @@ use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 
 #[derive(Debug, Parser)]
-#[command(author, version, about = "Org slipbox tools")]
+#[command(
+    author,
+    version,
+    about = "Knowledge management using Org",
+    long_about = "Knowledge management using Org.
+
+slipbox indexes and edits an Org directory through a Rust daemon. Org files remain the source of truth; SQLite is a derived index. Most commands spawn `slipbox serve` over JSON-RPC stdio using --root and --db, then exit after the requested operation.",
+    after_help = "Command families:
+  Notes:       node, note, capture, daily, edit, resolve-node
+  Relations:   ref, tag, search, agenda, graph, link
+  Exploration: explore, compare, artifact
+  Reviews:     audit, review
+  Assets:      workflow, routine, pack
+  System:      serve, status, sync, file, diagnose
+
+Use --json on daemon-backed commands for stable machine output. Local inspection commands such as `workflow show --spec` and `pack validate` say so in their own help."
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -20,54 +36,129 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Run the JSON-RPC daemon over stdio.
+    #[command(
+        long_about = "Run the JSON-RPC daemon over stdio for daemon-backed commands and editor clients."
+    )]
     Serve(ServeArgs),
-    /// Show daemon status over the canonical headless connection path.
+    /// Show daemon and index status.
+    #[command(
+        long_about = "Show daemon and derived-index status. This is a read-only daemon-backed command; use --json for the stable machine envelope."
+    )]
     Status(cli::StatusArgs),
-    /// Refresh indexed files over the canonical headless connection path.
+    /// Refresh derived index state from Org files.
+    #[command(
+        long_about = "Refresh derived index state from Org files. Root sync applies discovery rules to the tree; file sync refreshes one file without pruning unrelated index rows."
+    )]
     Sync(cli::SyncArgs),
-    /// List and search indexed files over the canonical headless connection path.
+    /// List and search indexed Org files.
+    #[command(
+        long_about = "List and search indexed Org files from the derived index. These commands are read-only and report canonical file records with --json."
+    )]
     File(cli::FileArgs),
-    /// Run maintenance diagnostics over the canonical headless connection path.
+    /// Explain file, node, and index health.
+    #[command(
+        long_about = "Explain file, node, and index health. Diagnostics are read-only and describe discovery eligibility, indexed state, and source-location consistency."
+    )]
     Diagnose(cli::DiagnoseArgs),
-    /// Inspect nodes and node neighborhoods over the canonical headless connection path.
+    /// Inspect notes, anchors, metadata, and note neighborhoods.
+    #[command(
+        long_about = "Inspect and mutate note records and anchor identity. Read commands return indexed records; write commands mutate Org files through the daemon and refresh affected index state before returning."
+    )]
     Node(cli::NodeArgs),
-    /// Search and resolve indexed references over the canonical headless connection path.
+    /// Search and resolve indexed refs.
+    #[command(
+        long_about = "Search and resolve indexed references. Refs are normalized during indexing; resolution returns the note that owns the exact ref."
+    )]
     Ref(cli::RefArgs),
-    /// Search indexed tags over the canonical headless connection path.
+    /// Search indexed tags.
+    #[command(
+        long_about = "Search indexed tags. Tags are derived from Org metadata and heading tags."
+    )]
     Tag(cli::TagArgs),
-    /// Search indexed note text over the canonical headless connection path.
+    /// Search indexed note text occurrences.
+    #[command(
+        long_about = "Search raw indexed text occurrences. Results include the owning anchor and source location."
+    )]
     Search(cli::SearchArgs),
-    /// Query agenda entries over the canonical headless connection path.
+    /// Query scheduled, deadline, and closed planning entries.
+    #[command(
+        long_about = "Query planning entries from indexed Org planning lines. `today` uses the local system date; `date` and `range` require ISO dates."
+    )]
     Agenda(cli::AgendaArgs),
-    /// Create and append daily notes over the canonical headless connection path.
+    /// Ensure, inspect, and append daily notes.
+    #[command(
+        long_about = "Ensure, inspect, and append daily notes. Daily paths are generated relative to --root, must stay inside the root, and must end in .org."
+    )]
     Daily(cli::DailyArgs),
-    /// Export graph DOT over the canonical headless connection path.
+    /// Export relation graph DOT.
+    #[command(
+        long_about = "Export relation graph DOT. This command does not run Graphviz; it emits DOT to stdout or writes it to --output."
+    )]
     Graph(cli::GraphArgs),
-    /// Run capture operations over the canonical headless connection path.
+    /// Run capture-template operations.
+    #[command(
+        long_about = "Run capture-template operations. `template` mutates Org files through the daemon and refreshes affected index state; `preview` renders the daemon-owned capture result without writing files."
+    )]
     Capture(cli::CaptureArgs),
-    /// Create and append notes over the canonical headless connection path.
+    /// Create file notes and append headings.
+    #[command(
+        long_about = "Create file notes and append headings. This family mutates Org files through the daemon, then refreshes affected files before returning so follow-up reads observe the write."
+    )]
     Note(cli::NoteArgs),
-    /// Run structural edit operations over the canonical headless connection path.
+    /// Move or rewrite Org structure through daemon-owned edits.
+    #[command(
+        long_about = "Move or rewrite Org structure through daemon-owned edits. Every edit reports changed/removed files and refreshed-index status; use --json for the stable StructuralWriteReport."
+    )]
     Edit(cli::EditArgs),
-    /// Inspect and rewrite Org links over the canonical headless connection path.
+    /// Inspect and rewrite supported Org links.
+    #[command(
+        long_about = "Inspect and rewrite supported Org link forms. Preview commands are read-only; apply commands require explicit confirmation and report refreshed affected files."
+    )]
     Link(cli::LinkArgs),
-    /// Resolve an exact note target over the canonical headless connection path.
+    /// Resolve an exact note target.
+    #[command(
+        long_about = "Resolve an exact note target to the indexed note record selected by --id, --title, --ref, or --key."
+    )]
     ResolveNode(cli::ResolveNodeArgs),
-    /// Run live declared-lens exploration over the canonical headless connection path.
+    /// Run a live exploration lens.
+    #[command(
+        long_about = "Run a live exploration lens from one focus. `--key` may target an anchor for anchor-aware lenses; other target selectors resolve notes. Use --save with artifact metadata to persist the live result."
+    )]
     Explore(cli::ExploreArgs),
-    /// Compare two resolved notes over the canonical headless connection path.
+    /// Compare two resolved notes.
+    #[command(
+        long_about = "Compare two exact note targets through the daemon. The JSON output is the canonical comparison result; --group filters the returned sections without changing comparison semantics. Use --save with artifact metadata to persist the comparison."
+    )]
     Compare(cli::CompareArgs),
-    /// Run corpus-health audits over the canonical headless connection path.
+    /// Run corpus-health audits.
+    #[command(
+        long_about = "Run corpus-health audits over the derived index. Audits are read-only unless --save-review is set; report output can be human, JSON, JSONL, or written to a file."
+    )]
     Audit(cli::AuditArgs),
-    /// Discover, inspect, and run named workflows over the canonical headless connection path.
+    /// Discover, inspect, and run named workflows.
+    #[command(
+        long_about = "Discover, inspect, and run named workflows. Built-in and discovered workflows run through the daemon; `workflow show --spec` is local JSON inspection and does not require --root or --db."
+    )]
     Workflow(cli::WorkflowArgs),
-    /// Discover, inspect, and run review routines over the canonical headless connection path.
+    /// Discover, inspect, and run review routines.
+    #[command(
+        long_about = "List, inspect, and run review routines. Routines compose audits or workflows and may save durable review runs through daemon-owned semantics."
+    )]
     Routine(cli::RoutineArgs),
-    /// Manage durable exploration artifacts over the canonical headless connection path.
+    /// Manage durable exploration artifacts.
+    #[command(
+        long_about = "Manage durable exploration artifacts. Artifacts are explicit JSON records stored beside the database and executed through live daemon semantics."
+    )]
     Artifact(cli::ArtifactArgs),
-    /// Manage declarative workbench packs over the canonical headless connection path.
+    /// Manage declarative workbench packs.
+    #[command(
+        long_about = "Manage declarative workbench packs. `pack validate` is local file/stdin inspection; import, export, list, show, and delete use the daemon and durable pack store."
+    )]
     Pack(cli::PackArgs),
-    /// Inspect and manage durable operational review runs over the canonical headless connection path.
+    /// Inspect and manage durable operational review runs.
+    #[command(
+        long_about = "Inspect, diff, mark, delete, and remediate durable review runs. Remediation preview is read-only; apply requires explicit confirmation and reports changed-file refresh status."
+    )]
     Review(cli::ReviewArgs),
 }
 

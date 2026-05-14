@@ -70,7 +70,8 @@ pub(crate) struct NodeShowArgs {
 pub(crate) struct NodeSearchArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
-    /// Search query matched against indexed note titles, aliases, refs, and text.
+    /// Search text matched against indexed note titles, aliases, refs, and body text.
+    #[arg(value_name = "QUERY")]
     pub(crate) query: String,
     /// Maximum nodes to return.
     #[arg(long, default_value_t = 50)]
@@ -116,7 +117,7 @@ pub(crate) struct NodeAtPointArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// File path to inspect, absolute or relative to --root.
-    #[arg(long)]
+    #[arg(long, value_name = "FILE")]
     pub(crate) file: PathBuf,
     /// 1-based line number.
     #[arg(long)]
@@ -174,7 +175,7 @@ pub(crate) struct NodeMetadataValuesArgs {
     #[command(flatten)]
     pub(crate) target: ResolveTargetArgs,
     /// Metadata values to add or remove.
-    #[arg(required = true)]
+    #[arg(required = true, value_name = "VALUE")]
     pub(crate) values: Vec<String>,
 }
 
@@ -185,6 +186,7 @@ pub(crate) struct NodeMetadataSetArgs {
     #[command(flatten)]
     pub(crate) target: ResolveTargetArgs,
     /// Complete metadata values to keep. Omit all values to clear the list.
+    #[arg(value_name = "VALUE")]
     pub(crate) values: Vec<String>,
 }
 
@@ -207,16 +209,24 @@ pub(crate) enum DailyCommand {
 #[derive(Debug, Clone, Args)]
 pub(crate) struct DailyTargetArgs {
     /// ISO date to use, YYYY-MM-DD. Defaults to today's local date.
-    #[arg(long)]
+    #[arg(long, value_name = "DATE")]
     pub(crate) date: Option<String>,
     /// Daily note directory inside --root.
-    #[arg(long, default_value = "daily")]
+    #[arg(long, default_value = "daily", value_name = "DIR")]
     pub(crate) directory: String,
     /// strftime-compatible daily note filename format.
-    #[arg(long = "file-format", default_value = "%Y-%m-%d.org")]
+    #[arg(
+        long = "file-format",
+        default_value = "%Y-%m-%d.org",
+        value_name = "FORMAT"
+    )]
     pub(crate) file_format: String,
     /// strftime-compatible daily note title format.
-    #[arg(long = "title-format", default_value = "%Y-%m-%d")]
+    #[arg(
+        long = "title-format",
+        default_value = "%Y-%m-%d",
+        value_name = "FORMAT"
+    )]
     pub(crate) title_format: String,
 }
 
@@ -227,7 +237,7 @@ pub(crate) struct DailyEnsureArgs {
     #[command(flatten)]
     pub(crate) target: DailyTargetArgs,
     /// Optional strftime-compatible file head used when creating the daily note.
-    #[arg(long)]
+    #[arg(long, value_name = "ORG")]
     pub(crate) head: Option<String>,
 }
 
@@ -246,13 +256,13 @@ pub(crate) struct DailyAppendArgs {
     #[command(flatten)]
     pub(crate) target: DailyTargetArgs,
     /// Heading title to append.
-    #[arg(long)]
+    #[arg(long, value_name = "HEADING")]
     pub(crate) heading: String,
     /// Org heading level.
     #[arg(long, default_value_t = 1)]
     pub(crate) level: u32,
     /// Optional strftime-compatible file head used when creating the daily note.
-    #[arg(long)]
+    #[arg(long, value_name = "ORG")]
     pub(crate) head: Option<String>,
 }
 
@@ -305,7 +315,7 @@ pub(crate) struct CaptureArgs {
 
 #[derive(Debug, Clone, Subcommand)]
 pub(crate) enum CaptureCommand {
-    /// Capture content through the Rust capture-template engine.
+    /// Write content through the daemon-owned capture-template engine.
     Template(CaptureTemplateCommandArgs),
     /// Preview capture-template output without writing files.
     Preview(CapturePreviewCommandArgs),
@@ -340,34 +350,34 @@ impl From<CaptureTypeArg> for CaptureContentType {
 ))]
 pub(crate) struct CaptureTemplateFields {
     /// Optional title used by file creation and entry captures.
-    #[arg(long, default_value = "")]
+    #[arg(long, default_value = "", value_name = "TITLE")]
     pub(crate) title: String,
-    /// File path target, absolute or relative to --root.
-    #[arg(long)]
+    /// File target, absolute or relative to --root.
+    #[arg(long, value_name = "FILE")]
     pub(crate) file: Option<PathBuf>,
     /// Exact target node key.
-    #[arg(long = "node-key")]
+    #[arg(long = "node-key", value_name = "KEY")]
     pub(crate) node_key: Option<String>,
     /// Optional leading Org content used when the file must be created.
-    #[arg(long)]
+    #[arg(long, value_name = "ORG")]
     pub(crate) head: Option<String>,
     /// One or more outline path segments.
-    #[arg(long = "outline", num_args = 1..)]
+    #[arg(long = "outline", num_args = 1.., value_name = "HEADING")]
     pub(crate) outline_path: Vec<String>,
     /// Capture content type.
     #[arg(long = "type", value_enum, default_value_t = CaptureTypeArg::Plain)]
     pub(crate) capture_type: CaptureTypeArg,
     /// Capture content supplied directly on the command line.
-    #[arg(long)]
+    #[arg(long, value_name = "TEXT")]
     pub(crate) content: Option<String>,
     /// Read capture content from a file.
-    #[arg(long = "content-file")]
+    #[arg(long = "content-file", value_name = "PATH")]
     pub(crate) content_file: Option<PathBuf>,
     /// Read capture content from stdin.
     #[arg(long = "content-stdin")]
     pub(crate) content_stdin: bool,
     /// Reference to attach when creating a new target file.
-    #[arg(long = "ref", num_args = 1..)]
+    #[arg(long = "ref", num_args = 1.., value_name = "REF")]
     pub(crate) refs: Vec<String>,
     /// Insert before existing target body content when supported.
     #[arg(long)]
@@ -379,7 +389,7 @@ pub(crate) struct CaptureTemplateFields {
     #[arg(long, default_value_t = 0)]
     pub(crate) empty_lines_after: u32,
     /// Org table insertion position used for table-line captures.
-    #[arg(long = "table-line-pos")]
+    #[arg(long = "table-line-pos", value_name = "POSITION")]
     pub(crate) table_line_pos: Option<String>,
 }
 
@@ -403,10 +413,10 @@ pub(crate) struct CapturePreviewCommandArgs {
     #[command(flatten)]
     pub(crate) template: CaptureTemplateFields,
     /// Source text to preview against instead of reading the target file.
-    #[arg(long = "source")]
+    #[arg(long = "source", value_name = "TEXT")]
     pub(crate) source_override: Option<String>,
     /// Read source text to preview against from a file.
-    #[arg(long = "source-file")]
+    #[arg(long = "source-file", value_name = "PATH")]
     pub(crate) source_file: Option<PathBuf>,
     /// Ensure the previewed target node has an explicit ID in rendered output.
     #[arg(long)]
@@ -508,16 +518,16 @@ pub(crate) struct NoteCreateArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// Note title.
-    #[arg(long)]
+    #[arg(long, value_name = "TITLE")]
     pub(crate) title: String,
     /// File path to create, absolute or relative to --root.
-    #[arg(long)]
+    #[arg(long, value_name = "FILE")]
     pub(crate) file: Option<PathBuf>,
     /// Optional leading Org content to preserve before generated metadata.
-    #[arg(long)]
+    #[arg(long, value_name = "ORG")]
     pub(crate) head: Option<String>,
     /// Reference to attach to the created note.
-    #[arg(long = "ref", num_args = 1..)]
+    #[arg(long = "ref", num_args = 1.., value_name = "REF")]
     pub(crate) refs: Vec<String>,
 }
 
@@ -526,10 +536,10 @@ pub(crate) struct NoteEnsureFileArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// File path to ensure, absolute or relative to --root.
-    #[arg(long)]
+    #[arg(long, value_name = "FILE")]
     pub(crate) file: PathBuf,
     /// File note title.
-    #[arg(long)]
+    #[arg(long, value_name = "TITLE")]
     pub(crate) title: String,
 }
 
@@ -538,13 +548,13 @@ pub(crate) struct NoteAppendHeadingArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// File path to append within, absolute or relative to --root.
-    #[arg(long)]
+    #[arg(long, value_name = "FILE")]
     pub(crate) file: PathBuf,
     /// File note title used when the file must be created.
-    #[arg(long)]
+    #[arg(long, value_name = "TITLE")]
     pub(crate) title: String,
     /// Heading title to append.
-    #[arg(long)]
+    #[arg(long, value_name = "HEADING")]
     pub(crate) heading: String,
     /// Org heading level.
     #[arg(long, default_value_t = 1)]
@@ -558,7 +568,7 @@ pub(crate) struct NoteAppendToNodeArgs {
     #[command(flatten)]
     pub(crate) target: ResolveTargetArgs,
     /// Child heading title to append.
-    #[arg(long)]
+    #[arg(long, value_name = "HEADING")]
     pub(crate) heading: String,
 }
 
@@ -567,16 +577,16 @@ pub(crate) struct NoteAppendOutlineArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// File path to append within, absolute or relative to --root.
-    #[arg(long)]
+    #[arg(long, value_name = "FILE")]
     pub(crate) file: PathBuf,
     /// Heading title to append under the outline path.
-    #[arg(long)]
+    #[arg(long, value_name = "HEADING")]
     pub(crate) heading: String,
     /// One or more outline path segments.
-    #[arg(long = "outline", required = true, num_args = 1..)]
+    #[arg(long = "outline", required = true, num_args = 1.., value_name = "HEADING")]
     pub(crate) outline_path: Vec<String>,
     /// Optional leading Org content used when the file must be created.
-    #[arg(long)]
+    #[arg(long, value_name = "ORG")]
     pub(crate) head: Option<String>,
 }
 
@@ -615,7 +625,7 @@ pub(crate) struct EditRefileRegionArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// Source file path, absolute or relative to --root.
-    #[arg(long)]
+    #[arg(long, value_name = "FILE")]
     pub(crate) file: PathBuf,
     /// 1-based start character position.
     #[arg(long)]
@@ -634,7 +644,7 @@ pub(crate) struct EditExtractSubtreeArgs {
     #[command(flatten)]
     pub(crate) source: EditSourceTargetArgs,
     /// Destination file path, absolute or relative to --root.
-    #[arg(long)]
+    #[arg(long, value_name = "FILE")]
     pub(crate) file: PathBuf,
 }
 
@@ -643,7 +653,7 @@ pub(crate) struct EditPromoteFileArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// File path to rewrite, absolute or relative to --root.
-    #[arg(long)]
+    #[arg(long, value_name = "FILE")]
     pub(crate) file: PathBuf,
 }
 
@@ -652,7 +662,7 @@ pub(crate) struct EditDemoteFileArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// File path to rewrite, absolute or relative to --root.
-    #[arg(long)]
+    #[arg(long, value_name = "FILE")]
     pub(crate) file: PathBuf,
 }
 
@@ -665,16 +675,16 @@ pub(crate) struct EditDemoteFileArgs {
 ))]
 pub(crate) struct EditSourceTargetArgs {
     /// Resolve the source anchor by exact explicit Org ID.
-    #[arg(long = "source-id", group = "source-target")]
+    #[arg(long = "source-id", group = "source-target", value_name = "ID")]
     pub(crate) source_id: Option<String>,
     /// Resolve the source anchor by exact title or alias.
-    #[arg(long = "source-title", group = "source-target")]
+    #[arg(long = "source-title", group = "source-target", value_name = "TITLE")]
     pub(crate) source_title: Option<String>,
     /// Resolve the source anchor by exact reference.
-    #[arg(long = "source-ref", group = "source-target")]
+    #[arg(long = "source-ref", group = "source-target", value_name = "REF")]
     pub(crate) source_reference: Option<String>,
     /// Use an exact source node key. This may be an anonymous heading anchor.
-    #[arg(long = "source-key", group = "source-target")]
+    #[arg(long = "source-key", group = "source-target", value_name = "KEY")]
     pub(crate) source_key: Option<String>,
 }
 
@@ -704,16 +714,16 @@ impl EditSourceTargetArgs {
 ))]
 pub(crate) struct EditTargetArgs {
     /// Resolve the target note by exact explicit Org ID.
-    #[arg(long = "target-id", group = "edit-target")]
+    #[arg(long = "target-id", group = "edit-target", value_name = "ID")]
     pub(crate) target_id: Option<String>,
     /// Resolve the target note by exact title or alias.
-    #[arg(long = "target-title", group = "edit-target")]
+    #[arg(long = "target-title", group = "edit-target", value_name = "TITLE")]
     pub(crate) target_title: Option<String>,
     /// Resolve the target note by exact reference.
-    #[arg(long = "target-ref", group = "edit-target")]
+    #[arg(long = "target-ref", group = "edit-target", value_name = "REF")]
     pub(crate) target_reference: Option<String>,
     /// Resolve the target note by exact node key.
-    #[arg(long = "target-key", group = "edit-target")]
+    #[arg(long = "target-key", group = "edit-target", value_name = "KEY")]
     pub(crate) target_key: Option<String>,
 }
 

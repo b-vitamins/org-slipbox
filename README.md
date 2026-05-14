@@ -337,77 +337,41 @@ The top-level command families follow the public model:
 | Assets | `workflow`, `routine`, `pack` |
 | System | `serve`, `status`, `sync`, `file`, `diagnose` |
 
-Representative examples:
+Use `slipbox --help`, `slipbox <family> --help`, and
+`slipbox <family> <command> --help` as the command reference. Help output now
+documents target selectors, local-vs-daemon behavior, write safety, report
+output modes, and JSON intent. Representative commands:
 
 ```bash
 slipbox sync root --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox sync file notes/project.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox file list --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox diagnose index --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-```
-
-```bash
 slipbox node show --id project-alpha --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox node search planning --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox node backlinks --id project-alpha --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox search occurrences "follow-up" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-```
-
-```bash
-slipbox ref search cite:smith --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox ref resolve cite:smith2026 --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox tag search project --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox agenda today --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox graph dot --root-node-key id:project-alpha --max-distance 2 --output graph.dot --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-```
-
-```bash
 slipbox note create --title "Project Alpha" --file notes/project-alpha.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox note append-to-node --id project-alpha --heading "Next step" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox capture preview --file inbox.org --title Inbox --type plain --content "Draft only" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox daily append --date 2026-05-13 --heading "Reviewed notes" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 ```
 
-Structural edits return `StructuralWriteReport` JSON with changed files,
-removed files, refreshed-index status, and any resulting node or anchor:
+Writes return read-your-writes results after daemon-owned index refresh. For
+structural edits, JSON output is a `StructuralWriteReport` with changed files,
+removed files, refreshed-index status, and any resulting node or anchor.
 
-```bash
-slipbox edit refile-subtree --source-key heading:notes/source.org:12 --target-id project-alpha --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox edit extract-subtree --source-key heading:notes/inbox.org:27 --file notes/extracted.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox edit promote-file --file notes/one-root-heading.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox edit demote-file --file notes/file-note.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-```
-
-Exploratory and workbench examples:
+Exploration, review, and asset examples:
 
 ```bash
 slipbox explore --title "Project X" --lens dormant --limit 25 --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox compare --left-id left-id --right-id right-id --group tension --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox artifact list --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-```
-
-```bash
 slipbox workflow list --workflow-dir ~/.config/org-slipbox/workflows --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox workflow show --spec ~/.config/org-slipbox/workflows/review.json --json
 slipbox workflow run workflow/builtin/unresolved-sweep --input focus=title:Project --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-```
-
-```bash
 slipbox audit dangling-links --limit 200 --save-review --review-id review/dangling/current --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox review list --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox review diff review/old review/new --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox routine list --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox pack validate ~/.config/org-slipbox/packs/research-review.json --json
 ```
 
-Preview/apply operations require explicit confirmation flags where mutation is
-possible:
+Preview/apply pairs keep mutation explicit:
 
 ```bash
 slipbox link rewrite-slipbox preview --file notes/project.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox link rewrite-slipbox apply --file notes/project.org --confirm-replace-slipbox-links --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox review remediation preview review/dangling/current audit/dangling/source/missing-id --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
-slipbox review remediation apply review/dangling/current audit/dangling/source/missing-id --confirm-unlink-dangling-link --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 ```
 
 ## Workbench Data

@@ -73,7 +73,7 @@ pub(crate) enum WorkflowCommand {
     List(WorkflowListArgs),
     /// Show a built-in workflow or inspect a workflow spec JSON file/stdin.
     Show(WorkflowShowArgs),
-    /// Run a built-in workflow over the canonical daemon boundary.
+    /// Run a workflow through daemon-owned execution.
     Run(WorkflowRunArgs),
 }
 
@@ -91,32 +91,32 @@ pub(crate) struct WorkflowListArgs {
         .multiple(false)
 ))]
 pub(crate) struct WorkflowShowArgs {
-    /// Root directory containing Org files when showing a built-in workflow through the daemon.
-    #[arg(long)]
+    /// Org source root when showing a catalog workflow through the daemon.
+    #[arg(long, value_name = "ROOT")]
     pub(crate) root: Option<PathBuf>,
-    /// SQLite database path when showing a built-in workflow through the daemon.
-    #[arg(long)]
+    /// Derived SQLite index path when showing a catalog workflow through the daemon.
+    #[arg(long, value_name = "DB")]
     pub(crate) db: Option<PathBuf>,
-    /// Directories containing declarative workflow spec JSON files.
-    #[arg(long = "workflow-dir")]
+    /// Extra directory containing workflow spec JSON files.
+    #[arg(long = "workflow-dir", value_name = "DIR")]
     pub(crate) workflow_dirs: Vec<PathBuf>,
-    /// File extensions eligible for discovery and indexing.
-    #[arg(long = "file-extension")]
+    /// File extension eligible for discovery and indexing.
+    #[arg(long = "file-extension", value_name = "EXT")]
     pub(crate) file_extensions: Vec<String>,
-    /// Relative-path regular expressions to exclude from discovery.
-    #[arg(long = "exclude-regexp")]
+    /// Relative-path regular expression to exclude from discovery.
+    #[arg(long = "exclude-regexp", value_name = "REGEXP")]
     pub(crate) exclude_regexps: Vec<String>,
-    /// Path to the slipbox executable used to spawn `slipbox serve`.
-    #[arg(long)]
+    /// Executable used to spawn `slipbox serve`.
+    #[arg(long, value_name = "PATH")]
     pub(crate) server_program: Option<PathBuf>,
-    /// Emit structured JSON to stdout and structured errors to stderr.
+    /// Emit stable JSON to stdout and structured JSON errors to stderr.
     #[arg(long)]
     pub(crate) json: bool,
     /// Built-in workflow identifier to inspect through the daemon.
-    #[arg(group = "workflow-source")]
+    #[arg(group = "workflow-source", value_name = "WORKFLOW_ID")]
     pub(crate) workflow_id: Option<String>,
-    /// Read workflow spec JSON from this path, or `-` for stdin.
-    #[arg(long, group = "workflow-source")]
+    /// Local workflow spec JSON path, or `-` for stdin. Does not start the daemon.
+    #[arg(long, group = "workflow-source", value_name = "PATH")]
     pub(crate) spec: Option<String>,
 }
 
@@ -157,10 +157,11 @@ impl WorkflowShowArgs {
 pub(crate) struct WorkflowRunArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
-    /// Built-in workflow identifier to run.
+    /// Workflow identifier to run.
+    #[arg(value_name = "WORKFLOW_ID")]
     pub(crate) workflow_id: String,
     /// Workflow input assignment as `input-id=kind:value` where kind is `id`, `title`, `ref`, or `key`.
-    #[arg(long = "input")]
+    #[arg(long = "input", value_name = "INPUT=KIND:VALUE")]
     pub(crate) inputs: Vec<String>,
     #[command(flatten)]
     pub(crate) report: ReportOutputArgs,
@@ -195,6 +196,7 @@ pub(crate) struct RoutineIdArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// Durable review routine identifier.
+    #[arg(value_name = "ROUTINE_ID")]
     pub(crate) routine_id: String,
 }
 
@@ -209,9 +211,10 @@ pub(crate) struct RoutineRunArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// Review routine identifier to run.
+    #[arg(value_name = "ROUTINE_ID")]
     pub(crate) routine_id: String,
     /// Routine input assignment as `input-id=kind:value` where kind is `id`, `title`, `ref`, or `key`.
-    #[arg(long = "input")]
+    #[arg(long = "input", value_name = "INPUT=KIND:VALUE")]
     pub(crate) inputs: Vec<String>,
 }
 
@@ -248,6 +251,7 @@ pub(crate) struct PackIdArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// Durable workbench pack identifier.
+    #[arg(value_name = "PACK_ID")]
     pub(crate) pack_id: String,
 }
 
@@ -259,10 +263,10 @@ pub(crate) struct PackShowArgs {
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct PackValidateArgs {
-    /// Read workbench pack JSON from this path, or `-` for stdin.
-    #[arg(default_value = "-")]
+    /// Read workbench pack JSON from this path, or `-` for stdin. Does not start the daemon.
+    #[arg(default_value = "-", value_name = "PATH")]
     pub(crate) input: String,
-    /// Emit structured JSON to stdout and structured errors to stderr.
+    /// Emit stable JSON to stdout and structured JSON errors to stderr.
     #[arg(long)]
     pub(crate) json: bool,
 }
@@ -283,7 +287,7 @@ pub(crate) struct PackImportArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// Read imported workbench pack JSON from this path, or `-` for stdin.
-    #[arg(default_value = "-")]
+    #[arg(default_value = "-", value_name = "PATH")]
     pub(crate) input: String,
     /// Replace an existing pack with the same durable identifier.
     #[arg(long)]
@@ -295,7 +299,7 @@ pub(crate) struct PackExportArgs {
     #[command(flatten)]
     pub(crate) pack: PackIdArgs,
     /// Write exported JSON to this path instead of stdout. Use `-` for stdout.
-    #[arg(long)]
+    #[arg(long, value_name = "PATH")]
     pub(crate) output: Option<PathBuf>,
 }
 

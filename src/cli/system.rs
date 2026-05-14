@@ -31,9 +31,9 @@ pub(crate) struct SyncArgs {
 
 #[derive(Debug, Clone, Subcommand)]
 pub(crate) enum SyncCommand {
-    /// Refresh the full indexed root through daemon-owned discovery.
+    /// Refresh the full root from current discovery rules.
     Root(SyncRootArgs),
-    /// Refresh one file's indexed state without pruning the rest of the root.
+    /// Refresh one file without pruning unrelated index rows.
     File(SyncFileArgs),
 }
 
@@ -47,7 +47,8 @@ pub(crate) struct SyncRootArgs {
 pub(crate) struct SyncFileArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
-    /// File path to refresh, absolute or relative to --root.
+    /// Org file to refresh, absolute or relative to --root.
+    #[arg(value_name = "FILE")]
     pub(crate) path: PathBuf,
 }
 
@@ -59,9 +60,9 @@ pub(crate) struct FileArgs {
 
 #[derive(Debug, Clone, Subcommand)]
 pub(crate) enum FileCommand {
-    /// List indexed files.
+    /// List files currently present in the derived index.
     List(FileListArgs),
-    /// Search indexed file paths and titles.
+    /// Search indexed file paths and file-note titles.
     Search(FileSearchArgs),
 }
 
@@ -75,7 +76,8 @@ pub(crate) struct FileListArgs {
 pub(crate) struct FileSearchArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
-    /// Search query matched against indexed file paths and titles.
+    /// Search text matched against indexed file paths and titles.
+    #[arg(value_name = "QUERY")]
     pub(crate) query: String,
     /// Maximum file records to return.
     #[arg(long, default_value_t = 50)]
@@ -90,11 +92,11 @@ pub(crate) struct DiagnoseArgs {
 
 #[derive(Debug, Clone, Subcommand)]
 pub(crate) enum DiagnoseCommand {
-    /// Diagnose one file's discovery eligibility and indexed state.
+    /// Explain one file's discovery eligibility and indexed state.
     File(DiagnoseFileArgs),
-    /// Diagnose one indexed node's source file and line state.
+    /// Explain one indexed node's source file and line state.
     Node(DiagnoseNodeArgs),
-    /// Diagnose eligible-vs-indexed file drift and status consistency.
+    /// Explain eligible-vs-indexed file drift and status consistency.
     Index(DiagnoseIndexArgs),
 }
 
@@ -102,8 +104,8 @@ pub(crate) enum DiagnoseCommand {
 pub(crate) struct DiagnoseFileArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
-    /// File path to diagnose, absolute or relative to --root.
-    #[arg(long)]
+    /// File to diagnose, absolute or relative to --root.
+    #[arg(long, value_name = "FILE")]
     pub(crate) file: PathBuf,
 }
 

@@ -74,7 +74,7 @@ pub(crate) struct ExploreArgs {
     #[command(flatten)]
     pub(crate) target: ResolveTargetArgs,
     /// Declared exploration lens to execute.
-    #[arg(long, value_enum)]
+    #[arg(long, value_enum, value_name = "LENS")]
     pub(crate) lens: ExploreLensArg,
     /// Maximum entries per section.
     #[arg(long, default_value_t = 200)]
@@ -95,16 +95,16 @@ pub(crate) struct ExploreArgs {
 ))]
 pub(crate) struct CompareLeftTargetArgs {
     /// Resolve the left note by exact explicit Org ID.
-    #[arg(long = "left-id", group = "left-target")]
+    #[arg(long = "left-id", group = "left-target", value_name = "ID")]
     pub(crate) left_id: Option<String>,
     /// Resolve the left note by exact title or alias.
-    #[arg(long = "left-title", group = "left-target")]
+    #[arg(long = "left-title", group = "left-target", value_name = "TITLE")]
     pub(crate) left_title: Option<String>,
     /// Resolve the left note by exact reference.
-    #[arg(long = "left-ref", group = "left-target")]
+    #[arg(long = "left-ref", group = "left-target", value_name = "REF")]
     pub(crate) left_reference: Option<String>,
     /// Resolve the left note by exact node key.
-    #[arg(long = "left-key", group = "left-target")]
+    #[arg(long = "left-key", group = "left-target", value_name = "KEY")]
     pub(crate) left_key: Option<String>,
 }
 
@@ -134,16 +134,16 @@ impl CompareLeftTargetArgs {
 ))]
 pub(crate) struct CompareRightTargetArgs {
     /// Resolve the right note by exact explicit Org ID.
-    #[arg(long = "right-id", group = "right-target")]
+    #[arg(long = "right-id", group = "right-target", value_name = "ID")]
     pub(crate) right_id: Option<String>,
     /// Resolve the right note by exact title or alias.
-    #[arg(long = "right-title", group = "right-target")]
+    #[arg(long = "right-title", group = "right-target", value_name = "TITLE")]
     pub(crate) right_title: Option<String>,
     /// Resolve the right note by exact reference.
-    #[arg(long = "right-ref", group = "right-target")]
+    #[arg(long = "right-ref", group = "right-target", value_name = "REF")]
     pub(crate) right_reference: Option<String>,
     /// Resolve the right note by exact node key.
-    #[arg(long = "right-key", group = "right-target")]
+    #[arg(long = "right-key", group = "right-target", value_name = "KEY")]
     pub(crate) right_key: Option<String>,
 }
 
@@ -192,7 +192,7 @@ pub(crate) struct CompareArgs {
     #[command(flatten)]
     pub(crate) right: CompareRightTargetArgs,
     /// Comparison group to retain in the output.
-    #[arg(long, value_enum, default_value_t = CompareGroupArg::All)]
+    #[arg(long, value_enum, default_value_t = CompareGroupArg::All, value_name = "GROUP")]
     pub(crate) group: CompareGroupArg,
     /// Maximum entries per comparison section.
     #[arg(long, default_value_t = 200)]
@@ -234,6 +234,7 @@ pub(crate) struct ArtifactIdArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// Durable saved artifact identifier.
+    #[arg(value_name = "ARTIFACT_ID")]
     pub(crate) artifact_id: String,
 }
 
@@ -260,7 +261,7 @@ pub(crate) struct ArtifactExportArgs {
     #[command(flatten)]
     pub(crate) artifact: ArtifactIdArgs,
     /// Write exported JSON to this path instead of stdout. Use `-` for stdout.
-    #[arg(long)]
+    #[arg(long, value_name = "PATH")]
     pub(crate) output: Option<PathBuf>,
 }
 
@@ -269,7 +270,7 @@ pub(crate) struct ArtifactImportArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// Read imported JSON from this path, or `-` for stdin.
-    #[arg(default_value = "-")]
+    #[arg(default_value = "-", value_name = "PATH")]
     pub(crate) input: String,
     /// Replace an existing artifact with the same durable identifier.
     #[arg(long)]

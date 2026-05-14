@@ -1,7 +1,7 @@
 # AGENTS
 
 ## Purpose
-- Build `org-slipbox` as a local-first Org knowledge engine with an Emacs front-end.
+- Build `org-slipbox` as an Org knowledge engine with an Emacs front-end.
 - Keep the architecture honest: Org files are the source of truth, the index is derived, and interactive paths must stay sublinear in corpus size.
 - Use `/tmp/org-roam` as a reference implementation when evaluating replacement status, but never mention that path inside this repository.
 

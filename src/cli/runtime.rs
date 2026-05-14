@@ -18,20 +18,20 @@ use super::output::{CliCommandError, OutputMode, write_output};
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct ScopeArgs {
-    /// Root directory containing Org files.
-    #[arg(long)]
+    /// Org source root. Commands only read or write files inside this tree.
+    #[arg(long, value_name = "ROOT")]
     pub(crate) root: PathBuf,
-    /// SQLite database path.
-    #[arg(long)]
+    /// Derived SQLite index path. The daemon may rebuild it from Org files.
+    #[arg(long, value_name = "DB")]
     pub(crate) db: PathBuf,
-    /// Directories containing declarative workflow spec JSON files.
-    #[arg(long = "workflow-dir")]
+    /// Extra directory containing workflow spec JSON files. Repeat for multiple directories.
+    #[arg(long = "workflow-dir", value_name = "DIR")]
     pub(crate) workflow_dirs: Vec<PathBuf>,
-    /// File extensions eligible for discovery and indexing.
-    #[arg(long = "file-extension")]
+    /// File extension eligible for discovery and indexing. Defaults to `org`.
+    #[arg(long = "file-extension", value_name = "EXT")]
     pub(crate) file_extensions: Vec<String>,
-    /// Relative-path regular expressions to exclude from discovery.
-    #[arg(long = "exclude-regexp")]
+    /// Relative-path regular expression to exclude from discovery. Repeat as needed.
+    #[arg(long = "exclude-regexp", value_name = "REGEXP")]
     pub(crate) exclude_regexps: Vec<String>,
 }
 
@@ -60,10 +60,10 @@ impl ScopeArgs {
 pub(crate) struct HeadlessArgs {
     #[command(flatten)]
     pub(crate) scope: ScopeArgs,
-    /// Path to the slipbox executable used to spawn `slipbox serve`.
-    #[arg(long)]
+    /// Executable used to spawn `slipbox serve`. Defaults to the current binary.
+    #[arg(long, value_name = "PATH")]
     pub(crate) server_program: Option<PathBuf>,
-    /// Emit structured JSON to stdout and structured errors to stderr.
+    /// Emit stable JSON to stdout and structured JSON errors to stderr.
     #[arg(long)]
     pub(crate) json: bool,
 }
@@ -210,17 +210,17 @@ pub(crate) fn validate_region_range(start: u32, end: u32) -> Result<(), DaemonCl
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct ResolveTargetArgs {
-    /// Resolve an exact explicit Org ID.
-    #[arg(long, group = "target")]
+    /// Resolve by exact explicit Org ID.
+    #[arg(long, group = "target", value_name = "ID")]
     pub(crate) id: Option<String>,
-    /// Resolve an exact title or alias.
-    #[arg(long, group = "target")]
+    /// Resolve by exact title or alias.
+    #[arg(long, group = "target", value_name = "TITLE")]
     pub(crate) title: Option<String>,
-    /// Resolve an exact reference.
-    #[arg(long = "ref", group = "target")]
+    /// Resolve by exact reference, for example `cite:smith2026`.
+    #[arg(long = "ref", group = "target", value_name = "REF")]
     pub(crate) reference: Option<String>,
-    /// Resolve an exact node key.
-    #[arg(long, group = "target")]
+    /// Resolve by exact node key, for example `file:note.org`.
+    #[arg(long, group = "target", value_name = "KEY")]
     pub(crate) key: Option<String>,
 }
 
@@ -263,13 +263,13 @@ pub(crate) struct SaveReviewArgs {
     #[arg(long = "save-review")]
     pub(crate) save_review: bool,
     /// Durable identifier to assign to the saved review.
-    #[arg(long = "review-id")]
+    #[arg(long = "review-id", value_name = "ID")]
     pub(crate) review_id: Option<String>,
     /// Human title to assign to the saved review.
-    #[arg(long = "review-title")]
+    #[arg(long = "review-title", value_name = "TITLE")]
     pub(crate) review_title: Option<String>,
     /// Optional human summary for the saved review.
-    #[arg(long = "review-summary")]
+    #[arg(long = "review-summary", value_name = "TEXT")]
     pub(crate) review_summary: Option<String>,
     /// Replace an existing saved review with the same durable identifier.
     #[arg(long)]
@@ -282,13 +282,13 @@ pub(crate) struct SaveArtifactArgs {
     #[arg(long)]
     pub(crate) save: bool,
     /// Durable identifier to assign to the saved artifact.
-    #[arg(long = "artifact-id")]
+    #[arg(long = "artifact-id", value_name = "ID")]
     pub(crate) artifact_id: Option<String>,
     /// Human title to assign to the saved artifact.
-    #[arg(long = "artifact-title")]
+    #[arg(long = "artifact-title", value_name = "TITLE")]
     pub(crate) artifact_title: Option<String>,
     /// Optional human summary for the saved artifact.
-    #[arg(long = "artifact-summary")]
+    #[arg(long = "artifact-summary", value_name = "TEXT")]
     pub(crate) artifact_summary: Option<String>,
     /// Replace an existing saved artifact with the same durable identifier.
     #[arg(long)]
