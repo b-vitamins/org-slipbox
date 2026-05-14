@@ -119,7 +119,7 @@ fn ref_commands_search_and_resolve_refs_as_json() -> Result<()> {
 
     let mut show_args = vec![
         "ref".to_owned(),
-        "show".to_owned(),
+        "resolve".to_owned(),
         "cite:alpha2024".to_owned(),
     ];
     show_args.extend(scoped_args(&root, &db));

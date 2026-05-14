@@ -64,8 +64,8 @@ fn everyday_writes_are_visible_across_separate_cli_invocations() -> Result<()> {
     let shown: NodeRecord = run_json(&show_seed)?;
     assert_eq!(shown.node_key, created.node_key);
 
-    let mut capture_node = command(&root, &db, &["capture", "node"]);
-    capture_node.extend([
+    let mut captured_note = command(&root, &db, &["note", "create"]);
+    captured_note.extend([
         "--title".to_owned(),
         "Captured Node".to_owned(),
         "--file".to_owned(),
@@ -73,14 +73,14 @@ fn everyday_writes_are_visible_across_separate_cli_invocations() -> Result<()> {
         "--ref".to_owned(),
         "cite:captured2026".to_owned(),
     ]);
-    let captured: NodeRecord = run_json(&capture_node)?;
+    let captured: NodeRecord = run_json(&captured_note)?;
     let captured_id = captured
         .explicit_id
         .as_deref()
-        .expect("capture node assigns an explicit ID")
+        .expect("note create assigns an explicit ID")
         .to_owned();
 
-    let mut resolve_captured_ref = command(&root, &db, &["ref", "show"]);
+    let mut resolve_captured_ref = command(&root, &db, &["ref", "resolve"]);
     resolve_captured_ref.push("cite:captured2026".to_owned());
     let captured_by_ref: NodeRecord = run_json(&resolve_captured_ref)?;
     assert_eq!(captured_by_ref.node_key, captured.node_key);
@@ -219,7 +219,7 @@ fn everyday_writes_are_visible_across_separate_cli_invocations() -> Result<()> {
     let refed: NodeRecord = run_json(&ref_set)?;
     assert_eq!(refed.refs, vec!["@seed-updated"]);
 
-    let mut resolve_updated_ref = command(&root, &db, &["ref", "show"]);
+    let mut resolve_updated_ref = command(&root, &db, &["ref", "resolve"]);
     resolve_updated_ref.push("cite:seed-updated".to_owned());
     let updated_ref_target: NodeRecord = run_json(&resolve_updated_ref)?;
     assert_eq!(updated_ref_target.node_key, "file:seed.org");

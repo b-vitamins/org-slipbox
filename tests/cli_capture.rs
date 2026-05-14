@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use serde::Deserialize;
-use slipbox_core::{AnchorRecord, CaptureTemplatePreviewResult, NodeKind, NodeRecord};
+use slipbox_core::{AnchorRecord, CaptureTemplatePreviewResult, NodeKind};
 use tempfile::{TempDir, tempdir};
 
 mod support;
@@ -41,37 +41,6 @@ fn sync_root(root: &Path, db: &Path) -> Result<()> {
     args.push("--json".to_owned());
     let output = run_slipbox(&args)?;
     assert!(output.status.success(), "{output:?}");
-    Ok(())
-}
-
-#[test]
-fn capture_node_command_writes_ref_backed_file_note() -> Result<()> {
-    let (_workspace, root, db) = build_fixture()?;
-    let args = capture_command(
-        &root,
-        &db,
-        "node",
-        &[
-            "--title".to_owned(),
-            "Captured Node".to_owned(),
-            "--file".to_owned(),
-            "captures/node.org".to_owned(),
-            "--ref".to_owned(),
-            "cite:node2026".to_owned(),
-            "--json".to_owned(),
-        ],
-    );
-
-    let output = run_slipbox(&args)?;
-
-    assert!(output.status.success(), "{output:?}");
-    let node: NodeRecord = serde_json::from_slice(&output.stdout)?;
-    assert_eq!(node.file_path, "captures/node.org");
-    assert_eq!(node.title, "Captured Node");
-    assert_eq!(node.refs, vec!["@node2026"]);
-    assert!(node.explicit_id.is_some());
-    assert!(output.stderr.is_empty());
-
     Ok(())
 }
 

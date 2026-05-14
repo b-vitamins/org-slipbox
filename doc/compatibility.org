@@ -72,8 +72,10 @@ When deprecating a command, alias, flag, JSON field, or enum spelling:
 - make human warnings clear and concise
 - keep JSON behavior stable; if warning metadata is added, add it additively
 
-For command aliases, prefer compatibility aliases over removals. A removal
-before `1.0` still needs an explicit changelog entry and a reason.
+Do not add aliases for redundant command names that carry no distinct meaning.
+Before `1.0`, those duplicates may be removed during consolidation when the
+canonical replacement is clear. A removal still needs an explicit changelog
+entry and a reason.
 
 * Versioned Assets And Records
 

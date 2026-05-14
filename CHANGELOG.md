@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+### Removed
+- Removed duplicate CLI spellings `ref show` and `capture node`; use canonical
+  `ref resolve` and `note create` instead.
+
 ## [0.12.0] - 2026-05-14
 
 ### Added

@@ -104,7 +104,6 @@ from another bucket; command ownership follows the user-facing command family.
 | Notes | `note append-heading` | append a heading to a file note |
 | Notes | `note append-to-node` | append below an exact note target |
 | Notes | `note append-outline` | append under an outline path |
-| Notes | `capture node` | capture a file note |
 | Notes | `capture template` | execute a capture template |
 | Notes | `capture preview` | preview a capture template |
 | Notes | `daily ensure` | ensure a daily note exists |
@@ -117,8 +116,7 @@ from another bucket; command ownership follows the user-facing command family.
 | Notes | `edit demote-file` | demote file metadata to a root heading |
 | Notes | `resolve-node` | resolve an exact note target |
 | Relations | `ref search` | search indexed refs |
-| Relations | `ref show` | resolve a ref to its note |
-| Relations | `ref resolve` | canonical ref resolution command |
+| Relations | `ref resolve` | resolve a ref to its note |
 | Relations | `tag search` | search indexed tags |
 | Relations | `search occurrences` | search indexed text occurrences |
 | Relations | `agenda today` | query today's planning entries |
@@ -148,13 +146,14 @@ from another bucket; command ownership follows the user-facing command family.
 
 ** Duplicate Affordances
 
-These decisions feed later alias/deprecation work. This section records the
-taxonomy decision only; it does not change command behavior.
+These decisions define the authoritative public command surface. Redundant
+spellings are removed instead of kept as aliases unless they carry distinct
+semantics.
 
 | Affordance | Bucket | Decision |
 |------------+--------+----------|
-| `ref show` and `ref resolve` | Relations | Prefer `ref resolve` as the canonical verb because the command resolves a ref to a note. Keep `ref show` as a compatibility alias for now; consider a deprecation notice only after command-help and contract policy work make warnings consistent. |
-| `note create` and `capture node` | Notes | Prefer `note create` as the canonical everyday command for creating a file note. Keep `capture node` as the capture-namespace spelling for users working from capture flows. The implementation may stay shared. |
+| `ref show` and `ref resolve` | Relations | Use `ref resolve` only. `ref show` duplicated the same operation without adding a distinct concept. |
+| `note create` and `capture node` | Notes | Use `note create` only for file-note creation. `capture template` remains the capture engine surface. |
 | `node backlinks` / `node forward-links` returning relation evidence | Notes / Relations | Keep command ownership under Notes because the user starts from an exact note target. The returned backlink/forward-link evidence belongs to Relations. |
 | `node metadata show` and top-level `node alias/ref/tag` mutators | Notes | Keep. `node metadata show` is the read surface; `node alias`, `node ref`, and `node tag` are focused write shortcuts over the same note metadata. |
 | `workflow show --spec` and `pack validate` local inspection | Assets | Keep. Both are local asset-inspection paths, but one inspects a workflow spec and the other validates a pack manifest. Help should make the local-vs-daemon distinction clear. |

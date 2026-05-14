@@ -305,8 +305,6 @@ pub(crate) struct CaptureArgs {
 
 #[derive(Debug, Clone, Subcommand)]
 pub(crate) enum CaptureCommand {
-    /// Capture a file note.
-    Node(CaptureNodeCommandArgs),
     /// Capture content through the Rust capture-template engine.
     Template(CaptureTemplateCommandArgs),
     /// Preview capture-template output without writing files.
@@ -332,24 +330,6 @@ impl From<CaptureTypeArg> for CaptureContentType {
             CaptureTypeArg::TableLine => Self::TableLine,
         }
     }
-}
-
-#[derive(Debug, Clone, Args)]
-pub(crate) struct CaptureNodeCommandArgs {
-    #[command(flatten)]
-    pub(crate) headless: HeadlessArgs,
-    /// Note title.
-    #[arg(long)]
-    pub(crate) title: String,
-    /// File path to create, absolute or relative to --root.
-    #[arg(long)]
-    pub(crate) file: Option<PathBuf>,
-    /// Optional leading Org content to preserve before generated metadata.
-    #[arg(long)]
-    pub(crate) head: Option<String>,
-    /// Reference to attach to the created note.
-    #[arg(long = "ref", num_args = 1..)]
-    pub(crate) refs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -938,7 +918,6 @@ pub(crate) fn run_daily(args: &DailyArgs) -> Result<(), CliCommandError> {
 
 pub(crate) fn run_capture(args: &CaptureArgs) -> Result<(), CliCommandError> {
     match &args.command {
-        CaptureCommand::Node(command) => run_headless_command(command),
         CaptureCommand::Template(command) => run_capture_template(command),
         CaptureCommand::Preview(command) => run_capture_preview(command),
     }
@@ -1136,27 +1115,6 @@ impl HeadlessCommand for NodeAtPointArgs {
 
     fn render_human(&self, output: &Self::Output) -> String {
         render_anchor_summary(output)
-    }
-}
-
-impl HeadlessCommand for CaptureNodeCommandArgs {
-    type Output = NodeRecord;
-
-    fn headless_args(&self) -> &HeadlessArgs {
-        &self.headless
-    }
-
-    fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
-        client.capture_node(&CaptureNodeParams {
-            title: self.title.clone(),
-            file_path: self.file.as_ref().map(|path| path.display().to_string()),
-            head: self.head.clone(),
-            refs: self.refs.clone(),
-        })
-    }
-
-    fn render_human(&self, output: &Self::Output) -> String {
-        render_node_summary(output)
     }
 }
 

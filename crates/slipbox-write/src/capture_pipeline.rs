@@ -225,7 +225,7 @@ fn ensure_capture_node_identity(document: &mut OrgDocument, node_key: &str) -> R
     }
 
     let Some(line_number) = capture_heading_line_number(node_key) else {
-        bail!("unsupported capture node key: {node_key}");
+        bail!("unsupported capture target node key: {node_key}");
     };
     let explicit_id = document
         .heading_property_value(line_number, "ID")?

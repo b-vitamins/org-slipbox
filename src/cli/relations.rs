@@ -43,9 +43,7 @@ pub(crate) enum RefCommand {
     /// Search indexed references.
     Search(RefSearchArgs),
     /// Resolve one reference to its note.
-    Show(RefShowArgs),
-    /// Resolve one reference to its note.
-    Resolve(RefShowArgs),
+    Resolve(RefResolveArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -60,7 +58,7 @@ pub(crate) struct RefSearchArgs {
 }
 
 #[derive(Debug, Clone, Args)]
-pub(crate) struct RefShowArgs {
+pub(crate) struct RefResolveArgs {
     #[command(flatten)]
     pub(crate) headless: HeadlessArgs,
     /// Reference to resolve.
@@ -272,7 +270,7 @@ pub(crate) struct LinkRewriteSlipboxApplyArgs {
 pub(crate) fn run_ref(args: &RefArgs) -> Result<(), CliCommandError> {
     match &args.command {
         RefCommand::Search(command) => run_headless_command(command),
-        RefCommand::Show(command) | RefCommand::Resolve(command) => run_headless_command(command),
+        RefCommand::Resolve(command) => run_headless_command(command),
     }
 }
 
@@ -405,7 +403,7 @@ impl HeadlessCommand for RefSearchArgs {
     }
 }
 
-impl HeadlessCommand for RefShowArgs {
+impl HeadlessCommand for RefResolveArgs {
     type Output = NodeRecord;
 
     fn headless_args(&self) -> &HeadlessArgs {

@@ -1185,10 +1185,10 @@ Body mentions durable phrase.
     assert_exact_object_keys(&ref_search_json["refs"][0], &["reference", "node"]);
     assert_node_record_keys(&ref_search_json["refs"][0]["node"]);
 
-    let ref_show = json_command_path(&["ref", "show"], &root, &db, &["cite:everyday2026"])?;
-    assert!(ref_show.status.success(), "{ref_show:?}");
-    let ref_show_json: Value = serde_json::from_slice(&ref_show.stdout)?;
-    assert_node_record_keys(&ref_show_json);
+    let ref_resolve = json_command_path(&["ref", "resolve"], &root, &db, &["cite:everyday2026"])?;
+    assert!(ref_resolve.status.success(), "{ref_resolve:?}");
+    let ref_resolve_json: Value = serde_json::from_slice(&ref_resolve.stdout)?;
+    assert_node_record_keys(&ref_resolve_json);
 
     let tag_search = json_command_path(&["tag", "search"], &root, &db, &["scriptable"])?;
     assert!(tag_search.status.success(), "{tag_search:?}");
@@ -1319,21 +1319,6 @@ Body mentions durable phrase.
     );
     let note_append_outline_json: Value = serde_json::from_slice(&note_append_outline.stdout)?;
     assert_anchor_record_keys(&note_append_outline_json);
-
-    let capture_node = json_command_path(
-        &["capture", "node"],
-        &root,
-        &db,
-        &[
-            "--title",
-            "Captured Contract",
-            "--file",
-            "captured-contract.org",
-        ],
-    )?;
-    assert!(capture_node.status.success(), "{capture_node:?}");
-    let capture_node_json: Value = serde_json::from_slice(&capture_node.stdout)?;
-    assert_node_record_keys(&capture_node_json);
 
     let capture_template = json_command_path(
         &["capture", "template"],
@@ -2132,6 +2117,24 @@ fn workflow_show_json_round_trips_into_local_spec_inspection() -> Result<()> {
 }
 
 #[test]
+fn duplicate_command_affordances_are_absent_from_public_help() -> Result<()> {
+    let ref_help = run_slipbox(&["ref".to_owned(), "--help".to_owned()])?;
+    assert!(ref_help.status.success(), "{ref_help:?}");
+    let ref_help = String::from_utf8(ref_help.stdout)?;
+    assert!(ref_help.contains("resolve"));
+    assert!(!ref_help.contains("show"));
+
+    let capture_help = run_slipbox(&["capture".to_owned(), "--help".to_owned()])?;
+    assert!(capture_help.status.success(), "{capture_help:?}");
+    let capture_help = String::from_utf8(capture_help.stdout)?;
+    assert!(capture_help.contains("template"));
+    assert!(capture_help.contains("preview"));
+    assert!(!capture_help.contains("node"));
+
+    Ok(())
+}
+
+#[test]
 fn headless_commands_report_structured_daemon_failures() -> Result<()> {
     let (_workspace, root, db, anonymous_anchor_key) = build_indexed_fixture()?;
     let import_payload = serde_json::to_string(&SavedExplorationArtifact {
@@ -2274,8 +2277,10 @@ fn headless_commands_report_structured_daemon_failures() -> Result<()> {
         with_bad_server_program(
             vec![
                 "capture".to_owned(),
-                "node".to_owned(),
-                "--title".to_owned(),
+                "template".to_owned(),
+                "--file".to_owned(),
+                "bad-daemon-capture.org".to_owned(),
+                "--content".to_owned(),
                 "Bad Daemon Capture".to_owned(),
             ],
             &root,

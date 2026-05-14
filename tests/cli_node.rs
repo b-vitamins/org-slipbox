@@ -365,7 +365,7 @@ fn node_metadata_commands_update_heading_refs_and_tags() -> Result<()> {
     let ref_show = Command::new(slipbox_binary())
         .args([
             "ref",
-            "show",
+            "resolve",
             "--root",
             &root,
             "--db",

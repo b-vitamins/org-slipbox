@@ -48,7 +48,7 @@ pub(crate) fn capture_node(
         }
         None => slipbox_write::capture_file_note_with_refs(&state.root, &params.title, &refs),
     }
-    .map_err(|error| internal_error(error.context("failed to capture node")))?;
+    .map_err(|error| internal_error(error.context("failed to create file note")))?;
     to_value(state.sync_capture(&captured, "captured node")?)
 }
 
