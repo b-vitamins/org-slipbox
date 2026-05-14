@@ -6,6 +6,13 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+## [0.13.2] - 2026-05-14
+
+### Added
+- Added `org-slipbox-buffer-load-artifact-by-id` as a public helper for
+  restoring a saved exploration artifact into the dedicated cockpit by durable
+  artifact id, preserving the existing cockpit restore semantics.
+
 ## [0.13.1] - 2026-05-14
 
 ### Fixed

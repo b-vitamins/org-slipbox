@@ -9,7 +9,7 @@ daemon-owned writes fast enough for interactive use. Emacs owns editing UI,
 session state, and presentation. Rust owns parsing, indexing, ranking, query
 execution, and file mutation.
 
-The latest shipped release is `0.13.1`, the consolidation line: compact docs,
+The latest shipped release is `0.13.2`, the consolidation line: compact docs,
 clearer command taxonomy, and internal refactors without new public product
 nouns.
 

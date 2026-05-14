@@ -3640,6 +3640,52 @@ ROOT-NODE defaults to NODE."
                                     header-line-format)))
         (kill-buffer (current-buffer))))))
 
+(ert-deftest org-slipbox-test-buffer-load-artifact-by-id-restores-lens-view-session ()
+  "Public artifact-id loader should restore through the existing cockpit path."
+  (let* ((stale '(:node_key "file:stale.org" :title "Stale" :file_path "stale.org" :line 1))
+         (root '(:node_key "file:root.org" :title "Root" :file_path "root.org" :line 1))
+         (current '(:node_key "file:current.org"
+                    :title "Current"
+                    :file_path "current.org"
+                    :line 1))
+         (executed (org-slipbox-test--lens-artifact-execution
+                    "saved-structure"
+                    "Saved Structure"
+                    root
+                    current
+                    'structure
+                    25
+                    t
+                    t))
+         executed-id
+         explore-args)
+    (with-current-buffer (get-buffer-create "*org-slipbox load artifact by id test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session 'dedicated stale))
+            (cl-letf (((symbol-function 'org-slipbox-rpc-execute-exploration-artifact)
+                       (lambda (artifact-id)
+                         (setq executed-id artifact-id)
+                         `(:artifact ,executed)))
+                      ((symbol-function 'org-slipbox-rpc-explore)
+                       (lambda (node-key lens &optional limit unique)
+                         (setq explore-args (list node-key lens limit unique))
+                         (org-slipbox-test--structure-explore-result)))
+                      ((symbol-function 'message)
+                       #'ignore))
+              (should
+               (equal (org-slipbox-buffer-load-artifact-by-id "saved-structure")
+                      executed)))
+            (should (equal executed-id "saved-structure"))
+            (should (equal (org-slipbox-buffer-session-current-node org-slipbox-buffer-session)
+                           current))
+            (should (equal (org-slipbox-buffer-session-root-node org-slipbox-buffer-session)
+                           root))
+            (should (eq (org-slipbox-buffer--current-lens) 'structure))
+            (should (equal explore-args '("file:current.org" structure 25 t))))
+        (kill-buffer (current-buffer))))))
+
 (ert-deftest org-slipbox-test-buffer-load-artifact-preserves-anchor-focused-lens-view-session ()
   "Dedicated load should keep anchor-scoped lens focus faithful."
   (let* ((stale '(:node_key "file:stale.org" :title "Stale" :file_path "stale.org" :line 1))

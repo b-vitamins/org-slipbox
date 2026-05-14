@@ -4,7 +4,7 @@
 
 ;; Author: Ayan Das <bvits@riseup.net>
 ;; Maintainer: Ayan Das <bvits@riseup.net>
-;; Version: 0.13.1
+;; Version: 0.13.2
 ;; Package-Requires: ((emacs "29.1") (jsonrpc "1.0.27"))
 ;; Keywords: outlines, files, convenience
 
@@ -415,16 +415,22 @@ Return non-nil to render the section, or nil to skip it."
       (message "Saved exploration artifact %s" (plist-get saved :artifact_id))
       saved)))
 
-(defun org-slipbox-buffer-load-artifact ()
-  "Load a saved exploration artifact into the current dedicated cockpit."
-  (interactive)
+(defun org-slipbox-buffer-load-artifact-by-id (artifact-id)
+  "Load saved exploration artifact ARTIFACT-ID into the dedicated cockpit.
+Return the executed artifact payload produced by the daemon."
   (let* ((session (org-slipbox-buffer--require-dedicated-session))
-         (summary (org-slipbox-buffer--read-artifact-summary))
-         (artifact-id (plist-get summary :artifact_id))
          (response (org-slipbox-rpc-execute-exploration-artifact artifact-id))
          (executed (plist-get response :artifact)))
     (org-slipbox-buffer--restore-executed-artifact session executed)
     (message "Loaded exploration artifact %s" artifact-id)
+    executed))
+
+(defun org-slipbox-buffer-load-artifact ()
+  "Load a saved exploration artifact into the current dedicated cockpit."
+  (interactive)
+  (let* ((summary (org-slipbox-buffer--read-artifact-summary))
+         (artifact-id (plist-get summary :artifact_id)))
+    (org-slipbox-buffer-load-artifact-by-id artifact-id)
     summary))
 
 (defun org-slipbox-buffer-history-back ()
