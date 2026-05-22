@@ -6,6 +6,11 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+### Changed
+- Split the daemon-client crate and Emacs context-buffer implementation into
+  focused internal modules while preserving the public client API, package load
+  path, and buffer behavior.
+
 ## [0.13.2] - 2026-05-14
 
 ### Added
