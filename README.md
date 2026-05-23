@@ -162,9 +162,10 @@ If `slipbox` is not on `PATH`, also set:
 - `org-slipbox-completion-mode` in eligible Org buffers under
   `org-slipbox-directory`.
 
-Loading `org-slipbox` alone does not install hooks or mutate user state. The
-integration starts when you enable the mode or one of its narrower component
-modes.
+Loading `org-slipbox` alone registers the `slipbox` Org link type so existing
+links can be followed, but it does not install hooks, start the daemon, sync
+files, or otherwise mutate user note or index state. The integration starts when
+you enable the mode or one of its narrower component modes.
 
 ## First Run
 
