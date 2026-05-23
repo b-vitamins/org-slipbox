@@ -18,10 +18,11 @@ use super::{
     ListWorkbenchPacksResult, MarkReviewFindingParams, NodeFromKeyParams,
     NodeFromTitleOrAliasParams, NodeKind, NodeRecord, NoteComparisonEntry,
     NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult, NoteComparisonSection,
-    NoteComparisonSectionKind, NoteConnectivityAuditRecord, PlanningField, PlanningRelationRecord,
-    PreviewNodeRecord, ReportJsonlLineKind, ReportProfileCatalog, ReportProfileMetadata,
-    ReportProfileMode, ReportProfileSpec, ReportProfileSubject, ReviewFinding,
-    ReviewFindingPayload, ReviewFindingRemediationApplication, ReviewFindingRemediationApplyParams,
+    NoteComparisonSectionKind, NoteConnectivityAuditRecord, NoteContextParams, PlanningField,
+    PlanningRelationRecord, PreviewNodeRecord, ReadFileSourceParams, ReadNodeSourceParams,
+    ReportJsonlLineKind, ReportProfileCatalog, ReportProfileMetadata, ReportProfileMode,
+    ReportProfileSpec, ReportProfileSubject, ReviewFinding, ReviewFindingPayload,
+    ReviewFindingRemediationApplication, ReviewFindingRemediationApplyParams,
     ReviewFindingRemediationApplyResult, ReviewFindingRemediationPreview,
     ReviewFindingRemediationPreviewParams, ReviewFindingRemediationPreviewResult,
     ReviewFindingStatus, ReviewFindingStatusTransition, ReviewRoutineCatalog,
@@ -5025,6 +5026,39 @@ fn node_from_key_params_round_trip() {
             "node_key": "file:alpha.org"
         })
     );
+}
+
+#[test]
+fn source_read_params_normalize_bounds() {
+    let file = ReadFileSourceParams {
+        file_path: "alpha.org".to_owned(),
+        start_line: Some(0),
+        max_lines: Some(0),
+    };
+    assert_eq!(file.normalized_start_line(), 1);
+    assert_eq!(file.normalized_max_lines(), 1);
+
+    let node = ReadNodeSourceParams {
+        node_key: "heading:alpha.org:8".to_owned(),
+        context_before: Some(500),
+        context_after: Some(1),
+        max_lines: Some(2_000),
+    };
+    assert_eq!(node.normalized_context_before(), 200);
+    assert_eq!(node.normalized_context_after(), 1);
+    assert_eq!(node.normalized_max_lines(), 1_000);
+
+    let context = NoteContextParams {
+        node_key: "file:alpha.org".to_owned(),
+        source_context_before: None,
+        source_context_after: Some(500),
+        source_max_lines: None,
+        relation_limit: Some(0),
+    };
+    assert_eq!(context.normalized_source_context_before(), 0);
+    assert_eq!(context.normalized_source_context_after(), 200);
+    assert_eq!(context.normalized_source_max_lines(), 200);
+    assert_eq!(context.normalized_relation_limit(), 1);
 }
 
 #[test]

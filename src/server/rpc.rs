@@ -31,3 +31,15 @@ where
 pub(super) fn internal_error(error: anyhow::Error) -> JsonRpcError {
     JsonRpcError::new(JsonRpcErrorObject::internal_error(error.to_string()))
 }
+
+pub(super) fn not_found(message: impl Into<String>) -> JsonRpcError {
+    JsonRpcError::new(JsonRpcErrorObject::not_found(message.into()))
+}
+
+pub(super) fn path_denied(message: impl Into<String>) -> JsonRpcError {
+    JsonRpcError::new(JsonRpcErrorObject::path_denied(message.into()))
+}
+
+pub(super) fn invalid_params(message: impl Into<String>) -> JsonRpcError {
+    JsonRpcError::new(JsonRpcErrorObject::invalid_request(message.into()))
+}

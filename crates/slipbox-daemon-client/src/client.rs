@@ -2,20 +2,22 @@ use std::path::PathBuf;
 use std::process::Child;
 
 use slipbox_core::{
-    AgendaParams, AgendaResult, AnchorRecord, AppendHeadingAtOutlinePathParams,
-    AppendHeadingParams, AppendHeadingToNodeParams, BacklinksParams, BacklinksResult,
-    CaptureNodeParams, CaptureTemplateParams, CaptureTemplatePreviewParams,
-    CaptureTemplatePreviewResult, CompareNotesParams, CorpusAuditParams, CorpusAuditResult,
-    EnsureFileNodeParams, EnsureNodeIdParams, ExecuteExplorationArtifactResult,
-    ExplorationArtifactIdParams, ExplorationArtifactResult, ExploreParams, ExploreResult,
-    ExtractSubtreeParams, FileDiagnosticsParams, FileDiagnosticsResult, ForwardLinksParams,
-    ForwardLinksResult, GraphParams, GraphResult, ImportWorkbenchPackParams,
-    ImportWorkbenchPackResult, IndexDiagnosticsResult, IndexFileParams, IndexFileResult,
-    IndexStats, IndexedFilesResult, ListExplorationArtifactsResult, ListReviewRoutinesResult,
-    ListReviewRunsResult, ListWorkbenchPacksResult, ListWorkflowsResult, MarkReviewFindingParams,
-    MarkReviewFindingResult, NodeAtPointParams, NodeDiagnosticsParams, NodeDiagnosticsResult,
-    NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
-    NoteComparisonResult, PingInfo, RandomNodeResult, RefileRegionParams, RefileSubtreeParams,
+    AgendaParams, AgendaResult, AnchorFromKeyParams, AnchorRecord,
+    AppendHeadingAtOutlinePathParams, AppendHeadingParams, AppendHeadingToNodeParams,
+    BacklinksParams, BacklinksResult, CaptureNodeParams, CaptureTemplateParams,
+    CaptureTemplatePreviewParams, CaptureTemplatePreviewResult, CompareNotesParams,
+    CorpusAuditParams, CorpusAuditResult, EnsureFileNodeParams, EnsureNodeIdParams,
+    ExecuteExplorationArtifactResult, ExplorationArtifactIdParams, ExplorationArtifactResult,
+    ExploreParams, ExploreResult, ExtractSubtreeParams, FileDiagnosticsParams,
+    FileDiagnosticsResult, ForwardLinksParams, ForwardLinksResult, GraphParams, GraphResult,
+    ImportWorkbenchPackParams, ImportWorkbenchPackResult, IndexDiagnosticsResult, IndexFileParams,
+    IndexFileResult, IndexStats, IndexedFilesResult, ListExplorationArtifactsResult,
+    ListReviewRoutinesResult, ListReviewRunsResult, ListWorkbenchPacksResult, ListWorkflowsResult,
+    MarkReviewFindingParams, MarkReviewFindingResult, NodeAtPointParams, NodeDiagnosticsParams,
+    NodeDiagnosticsResult, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
+    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, NoteContextParams,
+    NoteContextResult, PingInfo, RandomNodeResult, ReadFileSourceParams, ReadFileSourceResult,
+    ReadNodeSourceParams, ReadNodeSourceResult, RefileRegionParams, RefileSubtreeParams,
     ReflinksParams, ReflinksResult, ReviewFindingRemediationApplyParams,
     ReviewFindingRemediationApplyResult, ReviewFindingRemediationPreviewParams,
     ReviewFindingRemediationPreviewResult, ReviewRoutineIdParams, ReviewRoutineResult,
@@ -176,6 +178,34 @@ impl DaemonClient {
         params: &NodeAtPointParams,
     ) -> Result<Option<AnchorRecord>, DaemonClientError> {
         self.rpc.anchor_at_point(params)
+    }
+
+    pub fn anchor_from_key(
+        &mut self,
+        params: &AnchorFromKeyParams,
+    ) -> Result<Option<AnchorRecord>, DaemonClientError> {
+        self.rpc.anchor_from_key(params)
+    }
+
+    pub fn read_file_source(
+        &mut self,
+        params: &ReadFileSourceParams,
+    ) -> Result<ReadFileSourceResult, DaemonClientError> {
+        self.rpc.read_file_source(params)
+    }
+
+    pub fn read_node_source(
+        &mut self,
+        params: &ReadNodeSourceParams,
+    ) -> Result<ReadNodeSourceResult, DaemonClientError> {
+        self.rpc.read_node_source(params)
+    }
+
+    pub fn note_context(
+        &mut self,
+        params: &NoteContextParams,
+    ) -> Result<NoteContextResult, DaemonClientError> {
+        self.rpc.note_context(params)
     }
 
     pub fn backlinks(

@@ -289,7 +289,7 @@ fn search_nodes_sends_structured_params() {
 
 #[test]
 fn everyday_read_methods_send_canonical_rpc_contracts() {
-    let mut client = RpcClient::new(error_transport(24));
+    let mut client = RpcClient::new(error_transport(28));
 
     expect_rpc_error(client.status());
     expect_rpc_error(client.index());
@@ -349,6 +349,27 @@ fn everyday_read_methods_send_canonical_rpc_contracts() {
         file_path: "alpha.org".to_owned(),
         line: 4,
     }));
+    expect_rpc_error(client.anchor_from_key(&AnchorFromKeyParams {
+        node_key: "heading:alpha.org:4".to_owned(),
+    }));
+    expect_rpc_error(client.read_file_source(&ReadFileSourceParams {
+        file_path: "alpha.org".to_owned(),
+        start_line: Some(3),
+        max_lines: Some(20),
+    }));
+    expect_rpc_error(client.read_node_source(&ReadNodeSourceParams {
+        node_key: "heading:alpha.org:4".to_owned(),
+        context_before: Some(1),
+        context_after: Some(2),
+        max_lines: Some(30),
+    }));
+    expect_rpc_error(client.note_context(&NoteContextParams {
+        node_key: "file:alpha.org".to_owned(),
+        source_context_before: Some(1),
+        source_context_after: Some(2),
+        source_max_lines: Some(30),
+        relation_limit: Some(12),
+    }));
     expect_rpc_error(client.backlinks(&BacklinksParams {
         node_key: "file:alpha.org".to_owned(),
         limit: 10,
@@ -379,7 +400,7 @@ fn everyday_read_methods_send_canonical_rpc_contracts() {
         limit: 15,
     }));
 
-    assert_eq!(client.transport.requests.len(), 24);
+    assert_eq!(client.transport.requests.len(), 28);
     assert_request(&client.transport.requests[0], METHOD_STATUS, Value::Null);
     assert_request(&client.transport.requests[1], METHOD_INDEX, Value::Null);
     assert_request(
@@ -472,26 +493,57 @@ fn everyday_read_methods_send_canonical_rpc_contracts() {
     );
     assert_request(
         &client.transport.requests[18],
+        METHOD_ANCHOR_FROM_KEY,
+        json!({"node_key": "heading:alpha.org:4"}),
+    );
+    assert_request(
+        &client.transport.requests[19],
+        METHOD_READ_FILE_SOURCE,
+        json!({"file_path": "alpha.org", "start_line": 3, "max_lines": 20}),
+    );
+    assert_request(
+        &client.transport.requests[20],
+        METHOD_READ_NODE_SOURCE,
+        json!({
+            "node_key": "heading:alpha.org:4",
+            "context_before": 1,
+            "context_after": 2,
+            "max_lines": 30
+        }),
+    );
+    assert_request(
+        &client.transport.requests[21],
+        METHOD_NOTE_CONTEXT,
+        json!({
+            "node_key": "file:alpha.org",
+            "source_context_before": 1,
+            "source_context_after": 2,
+            "source_max_lines": 30,
+            "relation_limit": 12
+        }),
+    );
+    assert_request(
+        &client.transport.requests[22],
         METHOD_BACKLINKS,
         json!({"node_key": "file:alpha.org", "limit": 10, "unique": true}),
     );
     assert_request(
-        &client.transport.requests[19],
+        &client.transport.requests[23],
         METHOD_FORWARD_LINKS,
         json!({"node_key": "file:alpha.org", "limit": 11, "unique": false}),
     );
     assert_request(
-        &client.transport.requests[20],
+        &client.transport.requests[24],
         METHOD_REFLINKS,
         json!({"node_key": "file:alpha.org", "limit": 12}),
     );
     assert_request(
-        &client.transport.requests[21],
+        &client.transport.requests[25],
         METHOD_UNLINKED_REFERENCES,
         json!({"node_key": "file:alpha.org", "limit": 13}),
     );
     assert_request(
-        &client.transport.requests[22],
+        &client.transport.requests[26],
         METHOD_EXPLORE,
         json!({
             "node_key": "file:alpha.org",
@@ -501,7 +553,7 @@ fn everyday_read_methods_send_canonical_rpc_contracts() {
         }),
     );
     assert_request(
-        &client.transport.requests[23],
+        &client.transport.requests[27],
         METHOD_AGENDA,
         json!({
             "start": "2026-05-13T00:00:00",

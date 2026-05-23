@@ -11,8 +11,7 @@ use slipbox_core::{
 };
 use slipbox_rpc::JsonRpcError;
 
-use super::common::invalid_request;
-use crate::server::rpc::{internal_error, parse_params, to_value};
+use crate::server::rpc::{internal_error, parse_params, path_denied, to_value};
 use crate::server::state::ServerState;
 
 pub(crate) fn ping(state: &ServerState) -> Result<serde_json::Value, JsonRpcError> {
@@ -164,7 +163,7 @@ pub(crate) fn diagnose_index(state: &ServerState) -> Result<serde_json::Value, J
 fn file_diagnostics(state: &ServerState, file_path: &str) -> Result<FileDiagnostics, JsonRpcError> {
     let (relative_path, absolute_path) = state
         .resolve_index_path(file_path)
-        .map_err(|error| invalid_request(error.to_string()))?;
+        .map_err(|error| path_denied(error.to_string()))?;
     let exists = absolute_path.is_file();
     let eligible = exists && state.discovery.matches_path(&state.root, &absolute_path);
     let index_record = state

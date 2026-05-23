@@ -2,6 +2,9 @@
 mod occurrences_query;
 #[path = "../src/reflinks_query.rs"]
 mod reflinks_query;
+mod root_path {
+    pub use slipbox::root_path::resolve_root_path_from_canonical_root;
+}
 #[path = "../src/text_query.rs"]
 mod text_query;
 #[path = "../src/unlinked_references_query.rs"]

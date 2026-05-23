@@ -7,12 +7,12 @@ use slipbox_core::{
     StructuralWriteReport, StructuralWriteResult,
 };
 use slipbox_index::DiscoveryPolicy;
-use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
+use slipbox_rpc::JsonRpcError;
 use slipbox_store::Database;
 use slipbox_write::{CaptureOutcome, CapturePreviewOutcome, RegionRewriteOutcome, RewriteOutcome};
 
 use crate::root_path::resolve_root_path_from_canonical_root;
-use crate::server::rpc::internal_error;
+use crate::server::rpc::{internal_error, not_found};
 
 pub(crate) struct ServerState {
     pub(super) root: PathBuf,
@@ -167,11 +167,7 @@ impl ServerState {
             .map_err(|error| {
                 internal_error(error.context(format!("failed to fetch {description}")))
             })?
-            .ok_or_else(|| {
-                JsonRpcError::new(JsonRpcErrorObject::invalid_request(format!(
-                    "unknown {description}: {node_key}"
-                )))
-            })
+            .ok_or_else(|| not_found(format!("unknown {description}: {node_key}")))
     }
 
     pub(super) fn known_note_for_node_or_anchor(
@@ -227,11 +223,7 @@ impl ServerState {
             .map_err(|error| {
                 internal_error(error.context(format!("failed to fetch {description}")))
             })?
-            .ok_or_else(|| {
-                JsonRpcError::new(JsonRpcErrorObject::invalid_request(format!(
-                    "unknown {description}: {node_key}"
-                )))
-            })
+            .ok_or_else(|| not_found(format!("unknown {description}: {node_key}")))
     }
 
     pub(super) fn sync_capture(

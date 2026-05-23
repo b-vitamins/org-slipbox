@@ -26,6 +26,10 @@ pub const METHOD_NODE_FROM_KEY: &str = "slipbox/nodeFromKey";
 pub const METHOD_NODE_FROM_TITLE_OR_ALIAS: &str = "slipbox/nodeFromTitleOrAlias";
 pub const METHOD_NODE_AT_POINT: &str = "slipbox/nodeAtPoint";
 pub const METHOD_ANCHOR_AT_POINT: &str = "slipbox/anchorAtPoint";
+pub const METHOD_ANCHOR_FROM_KEY: &str = "slipbox/anchorFromKey";
+pub const METHOD_READ_FILE_SOURCE: &str = "slipbox/readFileSource";
+pub const METHOD_READ_NODE_SOURCE: &str = "slipbox/readNodeSource";
+pub const METHOD_NOTE_CONTEXT: &str = "slipbox/noteContext";
 pub const METHOD_BACKLINKS: &str = "slipbox/backlinks";
 pub const METHOD_FORWARD_LINKS: &str = "slipbox/forwardLinks";
 pub const METHOD_REFLINKS: &str = "slipbox/reflinks";
@@ -151,6 +155,46 @@ where
 pub struct JsonRpcErrorObject {
     pub code: i64,
     pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<JsonRpcErrorData>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JsonRpcErrorData {
+    pub kind: JsonRpcErrorKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<Value>,
+}
+
+impl JsonRpcErrorData {
+    #[must_use]
+    pub fn new(kind: JsonRpcErrorKind) -> Self {
+        Self {
+            kind,
+            details: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_details(kind: JsonRpcErrorKind, details: Value) -> Self {
+        Self {
+            kind,
+            details: Some(details),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum JsonRpcErrorKind {
+    ParseError,
+    InvalidParams,
+    MethodNotFound,
+    NotFound,
+    Conflict,
+    PathDenied,
+    StaleRequest,
+    Internal,
 }
 
 impl fmt::Display for JsonRpcErrorObject {
@@ -165,6 +209,7 @@ impl JsonRpcErrorObject {
         Self {
             code: -32700,
             message,
+            data: Some(JsonRpcErrorData::new(JsonRpcErrorKind::ParseError)),
         }
     }
 
@@ -173,6 +218,7 @@ impl JsonRpcErrorObject {
         Self {
             code: -32600,
             message,
+            data: Some(JsonRpcErrorData::new(JsonRpcErrorKind::InvalidParams)),
         }
     }
 
@@ -181,6 +227,7 @@ impl JsonRpcErrorObject {
         Self {
             code: -32601,
             message,
+            data: Some(JsonRpcErrorData::new(JsonRpcErrorKind::MethodNotFound)),
         }
     }
 
@@ -189,7 +236,40 @@ impl JsonRpcErrorObject {
         Self {
             code: -32603,
             message,
+            data: Some(JsonRpcErrorData::new(JsonRpcErrorKind::Internal)),
         }
+    }
+
+    #[must_use]
+    pub fn not_found(message: String) -> Self {
+        Self::invalid_request(message).with_kind(JsonRpcErrorKind::NotFound)
+    }
+
+    #[must_use]
+    pub fn conflict(message: String) -> Self {
+        Self::invalid_request(message).with_kind(JsonRpcErrorKind::Conflict)
+    }
+
+    #[must_use]
+    pub fn path_denied(message: String) -> Self {
+        Self::invalid_request(message).with_kind(JsonRpcErrorKind::PathDenied)
+    }
+
+    #[must_use]
+    pub fn stale_request(message: String) -> Self {
+        Self::invalid_request(message).with_kind(JsonRpcErrorKind::StaleRequest)
+    }
+
+    #[must_use]
+    pub fn with_kind(mut self, kind: JsonRpcErrorKind) -> Self {
+        self.data = Some(JsonRpcErrorData::new(kind));
+        self
+    }
+
+    #[must_use]
+    pub fn with_data(mut self, data: JsonRpcErrorData) -> Self {
+        self.data = Some(data);
+        self
     }
 }
 
@@ -274,7 +354,10 @@ mod tests {
 
     use serde_json::json;
 
-    use super::{JsonRpcRequest, JsonRpcResponse, read_framed_message, write_framed_message};
+    use super::{
+        JsonRpcErrorData, JsonRpcErrorKind, JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse,
+        read_framed_message, write_framed_message,
+    };
 
     #[test]
     fn framed_messages_round_trip() {
@@ -313,5 +396,30 @@ mod tests {
 
         assert_eq!(response.result, Some(serde_json::Value::Null));
         assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn error_objects_carry_structured_kind_data() {
+        let error = JsonRpcErrorObject::path_denied("outside root".to_owned()).with_data(
+            JsonRpcErrorData::with_details(
+                JsonRpcErrorKind::PathDenied,
+                json!({"file_path": "../outside.org"}),
+            ),
+        );
+
+        assert_eq!(error.code, -32600);
+        assert_eq!(
+            serde_json::to_value(&error).expect("error should serialize"),
+            json!({
+                "code": -32600,
+                "message": "outside root",
+                "data": {
+                    "kind": "path-denied",
+                    "details": {
+                        "file_path": "../outside.org"
+                    }
+                }
+            })
+        );
     }
 }

@@ -2,21 +2,23 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use slipbox_core::{
-    AgendaParams, AgendaResult, AnchorRecord, AppendHeadingAtOutlinePathParams,
-    AppendHeadingParams, AppendHeadingToNodeParams, BacklinksParams, BacklinksResult,
-    CaptureNodeParams, CaptureTemplateParams, CaptureTemplatePreviewParams,
-    CaptureTemplatePreviewResult, CompareNotesParams, CorpusAuditParams, CorpusAuditResult,
-    EnsureFileNodeParams, EnsureNodeIdParams, ExecuteExplorationArtifactResult,
-    ExplorationArtifactIdParams, ExplorationArtifactResult, ExploreParams, ExploreResult,
-    ExtractSubtreeParams, FileDiagnosticsParams, FileDiagnosticsResult, ForwardLinksParams,
-    ForwardLinksResult, GraphParams, GraphResult, ImportWorkbenchPackParams,
-    ImportWorkbenchPackResult, IndexDiagnosticsResult, IndexFileParams, IndexFileResult,
-    IndexStats, IndexedFilesResult, ListExplorationArtifactsParams, ListExplorationArtifactsResult,
-    ListReviewRoutinesParams, ListReviewRoutinesResult, ListReviewRunsParams, ListReviewRunsResult,
-    ListWorkbenchPacksParams, ListWorkbenchPacksResult, ListWorkflowsParams, ListWorkflowsResult,
-    MarkReviewFindingParams, MarkReviewFindingResult, NodeAtPointParams, NodeDiagnosticsParams,
-    NodeDiagnosticsResult, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
-    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, PingInfo, RandomNodeResult,
+    AgendaParams, AgendaResult, AnchorFromKeyParams, AnchorRecord,
+    AppendHeadingAtOutlinePathParams, AppendHeadingParams, AppendHeadingToNodeParams,
+    BacklinksParams, BacklinksResult, CaptureNodeParams, CaptureTemplateParams,
+    CaptureTemplatePreviewParams, CaptureTemplatePreviewResult, CompareNotesParams,
+    CorpusAuditParams, CorpusAuditResult, EnsureFileNodeParams, EnsureNodeIdParams,
+    ExecuteExplorationArtifactResult, ExplorationArtifactIdParams, ExplorationArtifactResult,
+    ExploreParams, ExploreResult, ExtractSubtreeParams, FileDiagnosticsParams,
+    FileDiagnosticsResult, ForwardLinksParams, ForwardLinksResult, GraphParams, GraphResult,
+    ImportWorkbenchPackParams, ImportWorkbenchPackResult, IndexDiagnosticsResult, IndexFileParams,
+    IndexFileResult, IndexStats, IndexedFilesResult, ListExplorationArtifactsParams,
+    ListExplorationArtifactsResult, ListReviewRoutinesParams, ListReviewRoutinesResult,
+    ListReviewRunsParams, ListReviewRunsResult, ListWorkbenchPacksParams, ListWorkbenchPacksResult,
+    ListWorkflowsParams, ListWorkflowsResult, MarkReviewFindingParams, MarkReviewFindingResult,
+    NodeAtPointParams, NodeDiagnosticsParams, NodeDiagnosticsResult, NodeFromIdParams,
+    NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
+    NoteComparisonResult, NoteContextParams, NoteContextResult, PingInfo, RandomNodeResult,
+    ReadFileSourceParams, ReadFileSourceResult, ReadNodeSourceParams, ReadNodeSourceResult,
     RefileRegionParams, RefileSubtreeParams, ReflinksParams, ReflinksResult,
     ReviewFindingRemediationApplyParams, ReviewFindingRemediationApplyResult,
     ReviewFindingRemediationPreviewParams, ReviewFindingRemediationPreviewResult,
@@ -35,21 +37,22 @@ use slipbox_core::{
     WorkflowIdParams, WorkflowResult,
 };
 use slipbox_rpc::{
-    JsonRpcRequest, JsonRpcResponse, METHOD_AGENDA, METHOD_ANCHOR_AT_POINT, METHOD_APPEND_HEADING,
-    METHOD_APPEND_HEADING_AT_OUTLINE_PATH, METHOD_APPEND_HEADING_TO_NODE, METHOD_BACKLINKS,
-    METHOD_CAPTURE_NODE, METHOD_CAPTURE_TEMPLATE, METHOD_CAPTURE_TEMPLATE_PREVIEW,
-    METHOD_COMPARE_NOTES, METHOD_CORPUS_AUDIT, METHOD_DELETE_EXPLORATION_ARTIFACT,
-    METHOD_DELETE_REVIEW_RUN, METHOD_DELETE_WORKBENCH_PACK, METHOD_DEMOTE_ENTIRE_FILE,
-    METHOD_DIAGNOSE_FILE, METHOD_DIAGNOSE_INDEX, METHOD_DIAGNOSE_NODE, METHOD_DIFF_REVIEW_RUNS,
-    METHOD_ENSURE_FILE_NODE, METHOD_ENSURE_NODE_ID, METHOD_EXECUTE_EXPLORATION_ARTIFACT,
-    METHOD_EXPLORATION_ARTIFACT, METHOD_EXPLORE, METHOD_EXPORT_WORKBENCH_PACK,
-    METHOD_EXTRACT_SUBTREE, METHOD_FORWARD_LINKS, METHOD_GRAPH_DOT, METHOD_IMPORT_WORKBENCH_PACK,
-    METHOD_INDEX, METHOD_INDEX_FILE, METHOD_INDEXED_FILES, METHOD_LIST_EXPLORATION_ARTIFACTS,
-    METHOD_LIST_REVIEW_ROUTINES, METHOD_LIST_REVIEW_RUNS, METHOD_LIST_WORKBENCH_PACKS,
-    METHOD_LIST_WORKFLOWS, METHOD_MARK_REVIEW_FINDING, METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID,
-    METHOD_NODE_FROM_KEY, METHOD_NODE_FROM_REF, METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_PING,
-    METHOD_PROMOTE_ENTIRE_FILE, METHOD_RANDOM_NODE, METHOD_REFILE_REGION, METHOD_REFILE_SUBTREE,
-    METHOD_REFLINKS, METHOD_REVIEW_FINDING_REMEDIATION_APPLY,
+    JsonRpcRequest, JsonRpcResponse, METHOD_AGENDA, METHOD_ANCHOR_AT_POINT, METHOD_ANCHOR_FROM_KEY,
+    METHOD_APPEND_HEADING, METHOD_APPEND_HEADING_AT_OUTLINE_PATH, METHOD_APPEND_HEADING_TO_NODE,
+    METHOD_BACKLINKS, METHOD_CAPTURE_NODE, METHOD_CAPTURE_TEMPLATE,
+    METHOD_CAPTURE_TEMPLATE_PREVIEW, METHOD_COMPARE_NOTES, METHOD_CORPUS_AUDIT,
+    METHOD_DELETE_EXPLORATION_ARTIFACT, METHOD_DELETE_REVIEW_RUN, METHOD_DELETE_WORKBENCH_PACK,
+    METHOD_DEMOTE_ENTIRE_FILE, METHOD_DIAGNOSE_FILE, METHOD_DIAGNOSE_INDEX, METHOD_DIAGNOSE_NODE,
+    METHOD_DIFF_REVIEW_RUNS, METHOD_ENSURE_FILE_NODE, METHOD_ENSURE_NODE_ID,
+    METHOD_EXECUTE_EXPLORATION_ARTIFACT, METHOD_EXPLORATION_ARTIFACT, METHOD_EXPLORE,
+    METHOD_EXPORT_WORKBENCH_PACK, METHOD_EXTRACT_SUBTREE, METHOD_FORWARD_LINKS, METHOD_GRAPH_DOT,
+    METHOD_IMPORT_WORKBENCH_PACK, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_INDEXED_FILES,
+    METHOD_LIST_EXPLORATION_ARTIFACTS, METHOD_LIST_REVIEW_ROUTINES, METHOD_LIST_REVIEW_RUNS,
+    METHOD_LIST_WORKBENCH_PACKS, METHOD_LIST_WORKFLOWS, METHOD_MARK_REVIEW_FINDING,
+    METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_NODE_FROM_REF,
+    METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_NOTE_CONTEXT, METHOD_PING, METHOD_PROMOTE_ENTIRE_FILE,
+    METHOD_RANDOM_NODE, METHOD_READ_FILE_SOURCE, METHOD_READ_NODE_SOURCE, METHOD_REFILE_REGION,
+    METHOD_REFILE_SUBTREE, METHOD_REFLINKS, METHOD_REVIEW_FINDING_REMEDIATION_APPLY,
     METHOD_REVIEW_FINDING_REMEDIATION_PREVIEW, METHOD_REVIEW_ROUTINE, METHOD_REVIEW_RUN,
     METHOD_RUN_REVIEW_ROUTINE, METHOD_RUN_WORKFLOW, METHOD_SAVE_CORPUS_AUDIT_REVIEW,
     METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SAVE_REVIEW_RUN, METHOD_SAVE_WORKFLOW_REVIEW,
@@ -246,6 +249,34 @@ where
         params: &NodeAtPointParams,
     ) -> Result<Option<AnchorRecord>, DaemonClientError> {
         self.request(METHOD_ANCHOR_AT_POINT, params)
+    }
+
+    pub(crate) fn anchor_from_key(
+        &mut self,
+        params: &AnchorFromKeyParams,
+    ) -> Result<Option<AnchorRecord>, DaemonClientError> {
+        self.request(METHOD_ANCHOR_FROM_KEY, params)
+    }
+
+    pub(crate) fn read_file_source(
+        &mut self,
+        params: &ReadFileSourceParams,
+    ) -> Result<ReadFileSourceResult, DaemonClientError> {
+        self.request(METHOD_READ_FILE_SOURCE, params)
+    }
+
+    pub(crate) fn read_node_source(
+        &mut self,
+        params: &ReadNodeSourceParams,
+    ) -> Result<ReadNodeSourceResult, DaemonClientError> {
+        self.request(METHOD_READ_NODE_SOURCE, params)
+    }
+
+    pub(crate) fn note_context(
+        &mut self,
+        params: &NoteContextParams,
+    ) -> Result<NoteContextResult, DaemonClientError> {
+        self.request(METHOD_NOTE_CONTEXT, params)
     }
 
     pub(crate) fn backlinks(

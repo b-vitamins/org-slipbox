@@ -13,6 +13,7 @@ pub(super) fn with_step_context(step_id: &str, error: JsonRpcError) -> JsonRpcEr
     JsonRpcError::new(JsonRpcErrorObject {
         code: inner.code,
         message: format!("workflow step {step_id} failed: {}", inner.message),
+        data: inner.data,
     })
 }
 

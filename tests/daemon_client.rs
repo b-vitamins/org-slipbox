@@ -4,20 +4,21 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result};
 use slipbox_core::{
-    AgendaParams, AnchorRecord, AppendHeadingAtOutlinePathParams, AppendHeadingParams,
-    AppendHeadingToNodeParams, AuditRemediationApplyAction, AuditRemediationConfidence,
-    AuditRemediationPreviewPayload, BUILT_IN_REVIEW_ROUTINE_DUPLICATE_TITLE_ID,
-    BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID, BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID,
-    BacklinksParams, CaptureContentType, CaptureNodeParams, CaptureTemplateParams,
-    CaptureTemplatePreviewParams, CompareNotesParams, CorpusAuditEntry, CorpusAuditKind,
-    DanglingLinkAuditRecord, EnsureFileNodeParams, EnsureNodeIdParams,
-    ExecuteExplorationArtifactResult, ExplorationArtifactIdParams, ExplorationArtifactMetadata,
-    ExplorationArtifactPayload, ExplorationLens, ExploreParams, ExtractSubtreeParams,
-    FileDiagnosticsParams, ForwardLinksParams, GraphParams, ImportWorkbenchPackParams,
-    IndexFileParams, NodeFromIdParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeKind,
-    RefileRegionParams, RefileSubtreeParams, ReflinksParams, ReportProfileMetadata,
-    ReportProfileMode, ReportProfileSpec, ReportProfileSubject, ReviewFinding,
-    ReviewFindingPayload, ReviewFindingRemediationApplyParams,
+    AgendaParams, AnchorFromKeyParams, AnchorRecord, AppendHeadingAtOutlinePathParams,
+    AppendHeadingParams, AppendHeadingToNodeParams, AuditRemediationApplyAction,
+    AuditRemediationConfidence, AuditRemediationPreviewPayload,
+    BUILT_IN_REVIEW_ROUTINE_DUPLICATE_TITLE_ID, BUILT_IN_WORKFLOW_COMPARISON_TENSION_ID,
+    BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID, BacklinksParams, CaptureContentType,
+    CaptureNodeParams, CaptureTemplateParams, CaptureTemplatePreviewParams, CompareNotesParams,
+    CorpusAuditEntry, CorpusAuditKind, DanglingLinkAuditRecord, EnsureFileNodeParams,
+    EnsureNodeIdParams, ExecuteExplorationArtifactResult, ExplorationArtifactIdParams,
+    ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationLens, ExploreParams,
+    ExtractSubtreeParams, FileDiagnosticsParams, ForwardLinksParams, GraphParams,
+    ImportWorkbenchPackParams, IndexFileParams, NodeFromIdParams, NodeFromRefParams,
+    NodeFromTitleOrAliasParams, NodeKind, NoteContextParams, ReadFileSourceParams,
+    ReadNodeSourceParams, RefileRegionParams, RefileSubtreeParams, ReflinksParams,
+    ReportProfileMetadata, ReportProfileMode, ReportProfileSpec, ReportProfileSubject,
+    ReviewFinding, ReviewFindingPayload, ReviewFindingRemediationApplyParams,
     ReviewFindingRemediationPreviewParams, ReviewFindingStatus, ReviewRoutineIdParams, ReviewRun,
     ReviewRunDiffParams, ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload, RewriteFileParams,
     RunReviewRoutineParams, RunWorkflowParams, SaveCorpusAuditReviewParams,
@@ -31,6 +32,7 @@ use slipbox_core::{
 };
 use slipbox_daemon_client::{DaemonClient, DaemonClientError, DaemonServeConfig};
 use slipbox_index::scan_root;
+use slipbox_rpc::JsonRpcErrorKind;
 use slipbox_store::Database;
 use tempfile::{TempDir, tempdir};
 
@@ -173,7 +175,7 @@ fn sample_workbench_pack() -> WorkbenchPackManifest {
 
 #[test]
 fn daemon_client_exposes_everyday_read_operations() -> Result<()> {
-    let (_workspace, root, db, _anonymous_anchor_key) = build_indexed_fixture()?;
+    let (_workspace, root, db, anonymous_anchor_key) = build_indexed_fixture()?;
     let mut client = DaemonClient::spawn(daemon_binary(), &DaemonServeConfig::new(&root, &db))?;
 
     let stats = client.index()?;
@@ -228,6 +230,11 @@ fn daemon_client_exposes_everyday_read_operations() -> Result<()> {
             id: "beta-id".to_owned(),
         })?
         .context("Beta should resolve by ID")?;
+    let beta_task = client
+        .node_from_id(&NodeFromIdParams {
+            id: "beta-task-id".to_owned(),
+        })?
+        .context("Beta task should resolve by ID")?;
 
     let beta_anchor = client
         .anchor_at_point(&slipbox_core::NodeAtPointParams {
@@ -236,6 +243,55 @@ fn daemon_client_exposes_everyday_read_operations() -> Result<()> {
         })?
         .context("anonymous heading anchor should resolve at point")?;
     assert_eq!(beta_anchor.title, "Anonymous Follow Up");
+    assert_eq!(beta_anchor.node_key, anonymous_anchor_key);
+
+    let alpha_anchor = client
+        .anchor_from_key(&AnchorFromKeyParams {
+            node_key: alpha.node_key.clone(),
+        })?
+        .context("Alpha anchor should resolve by key")?;
+    assert_eq!(alpha_anchor.title, "Alpha");
+
+    let file_source = client.read_file_source(&ReadFileSourceParams {
+        file_path: root.join("alpha.org").display().to_string(),
+        start_line: Some(5),
+        max_lines: Some(2),
+    })?;
+    assert_eq!(file_source.source.file_path, "alpha.org");
+    assert_eq!(file_source.source.start_line, 5);
+    assert_eq!(file_source.source.line_count, 2);
+    assert!(file_source.source.content.contains("#+title: Alpha"));
+
+    let task_source = client.read_node_source(&ReadNodeSourceParams {
+        node_key: beta_task.node_key.clone(),
+        context_before: Some(0),
+        context_after: Some(1),
+        max_lines: Some(8),
+    })?;
+    assert_eq!(task_source.anchor.title, "Follow Up");
+    assert_eq!(task_source.node_start_line, 7);
+    assert!(task_source.source.content.contains("* TODO Follow Up"));
+    assert!(task_source.source.content.contains("SCHEDULED"));
+
+    let context = client.note_context(&NoteContextParams {
+        node_key: alpha.node_key.clone(),
+        source_context_before: Some(0),
+        source_context_after: Some(0),
+        source_max_lines: Some(20),
+        relation_limit: Some(10),
+    })?;
+    assert_eq!(context.note.title, "Alpha");
+    assert!(context.source.content.contains("#+title: Alpha"));
+    assert_eq!(context.forward_links.len(), 1);
+
+    let owner_context = client.note_context(&NoteContextParams {
+        node_key: anonymous_anchor_key,
+        source_context_before: Some(0),
+        source_context_after: Some(0),
+        source_max_lines: Some(20),
+        relation_limit: Some(10),
+    })?;
+    assert_eq!(owner_context.note.title, "Beta");
 
     let backlinks = client.backlinks(&BacklinksParams {
         node_key: beta.node_key.clone(),
@@ -330,6 +386,10 @@ fn daemon_client_diagnostics_reject_root_escape_paths() -> Result<()> {
     match error {
         DaemonClientError::Rpc(error) => {
             assert_eq!(error.code, -32600);
+            assert_eq!(
+                error.data.as_ref().map(|data| data.kind),
+                Some(JsonRpcErrorKind::PathDenied)
+            );
             assert!(
                 error.message.contains("must stay within the slipbox root"),
                 "{}",
@@ -367,6 +427,10 @@ fn daemon_client_diagnostics_reject_symlink_components() -> Result<()> {
     match error {
         DaemonClientError::Rpc(error) => {
             assert_eq!(error.code, -32600);
+            assert_eq!(
+                error.data.as_ref().map(|data| data.kind),
+                Some(JsonRpcErrorKind::PathDenied)
+            );
             assert!(
                 error.message.contains("crosses symlink component"),
                 "{}",
@@ -374,6 +438,57 @@ fn daemon_client_diagnostics_reject_symlink_components() -> Result<()> {
             );
         }
         other => panic!("expected JSON-RPC invalid_request, got {other:?}"),
+    }
+
+    client.shutdown()?;
+    Ok(())
+}
+
+#[test]
+fn daemon_client_source_reads_surface_structured_errors() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    fs::write(workspace.path().join("outside.org"), "#+title: Outside\n")?;
+    let db = workspace.path().join("slipbox.sqlite");
+    let mut client = DaemonClient::spawn(daemon_binary(), &DaemonServeConfig::new(&root, &db))?;
+
+    let missing = client
+        .read_file_source(&ReadFileSourceParams {
+            file_path: "missing.org".to_owned(),
+            start_line: None,
+            max_lines: None,
+        })
+        .expect_err("missing source file should fail");
+    match missing {
+        DaemonClientError::Rpc(error) => {
+            assert_eq!(error.code, -32600);
+            assert_eq!(
+                error.data.as_ref().map(|data| data.kind),
+                Some(JsonRpcErrorKind::NotFound)
+            );
+            assert!(error.message.contains("source file not found"));
+        }
+        other => panic!("expected JSON-RPC not-found error, got {other:?}"),
+    }
+
+    let escape = client
+        .read_file_source(&ReadFileSourceParams {
+            file_path: "../outside.org".to_owned(),
+            start_line: None,
+            max_lines: None,
+        })
+        .expect_err("source reads must reject root escapes");
+    match escape {
+        DaemonClientError::Rpc(error) => {
+            assert_eq!(error.code, -32600);
+            assert_eq!(
+                error.data.as_ref().map(|data| data.kind),
+                Some(JsonRpcErrorKind::PathDenied)
+            );
+            assert!(error.message.contains("must stay within the slipbox root"));
+        }
+        other => panic!("expected JSON-RPC path-denied error, got {other:?}"),
     }
 
     client.shutdown()?;

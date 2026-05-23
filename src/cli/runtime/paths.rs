@@ -61,7 +61,17 @@ pub(crate) fn normalize_root_relative_path(
 ) -> Result<String, DaemonClientError> {
     slipbox::root_path::resolve_root_path(root, file_path)
         .map(|resolved| resolved.relative_path)
-        .map_err(|error| invalid_request_error(format!("{description} is invalid: {error}")))
+        .map_err(|error| {
+            let message = error.to_string();
+            if message.contains("must stay within the slipbox root")
+                || message.contains(" is not under ")
+                || message.contains("must not contain parent-directory components")
+            {
+                invalid_request_error(format!("{description} must stay within --root"))
+            } else {
+                invalid_request_error(format!("{description} is invalid: {message}"))
+            }
+        })
 }
 
 pub(crate) fn validate_region_range(start: u32, end: u32) -> Result<(), DaemonClientError> {
