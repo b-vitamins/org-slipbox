@@ -157,20 +157,11 @@ impl Database {
 }
 
 fn backlink_count_sql(alias: &str) -> String {
-    format!(
-        "COALESCE((SELECT COUNT(*)
-                    FROM links AS incoming
-                   WHERE incoming.destination_explicit_id = {alias}.explicit_id), 0)"
-    )
+    format!("{alias}.backlink_count")
 }
 
 fn forward_link_count_sql(alias: &str) -> String {
-    format!(
-        "COALESCE((SELECT COUNT(*)
-                    FROM links AS outgoing
-                    JOIN nodes AS dest ON dest.explicit_id = outgoing.destination_explicit_id
-                   WHERE outgoing.source_note_key = {alias}.node_key), 0)"
-    )
+    format!("{alias}.forward_link_count")
 }
 
 fn outgoing_link_count_any_sql(alias: &str) -> String {

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
-use rusqlite::{Transaction, params};
+use rusqlite::{Transaction, params, params_from_iter};
 use slipbox_core::{IndexStats, IndexedFile, IndexedNode, NodeKind};
 
 use crate::Database;
@@ -24,6 +24,33 @@ impl Database {
 
     pub fn sync_file_indexes(&mut self, files: &[IndexedFile]) -> Result<IndexStats> {
         let transaction = self.connection.transaction()?;
+        let changed_paths = files
+            .iter()
+            .map(|file| file.file_path.clone())
+            .collect::<Vec<_>>();
+        let rebuild_counts = should_rebuild_relation_counts(files);
+        let old_destination_ids = if rebuild_counts {
+            HashSet::new()
+        } else {
+            indexed_explicit_ids_for_paths(&transaction, &changed_paths)?
+        };
+        let new_destination_ids = if rebuild_counts {
+            HashSet::new()
+        } else {
+            scanned_explicit_ids(files)
+        };
+        let removed_destination_ids = difference(&old_destination_ids, &new_destination_ids);
+        let added_destination_ids = difference(&new_destination_ids, &old_destination_ids);
+
+        if !rebuild_counts {
+            apply_backlink_delta_for_source_paths(&transaction, &changed_paths, -1)?;
+            apply_external_forward_delta_for_destination_ids(
+                &transaction,
+                &removed_destination_ids,
+                &changed_paths,
+                -1,
+            )?;
+        }
 
         for file in files {
             delete_file_rows(&transaction, &file.file_path)?;
@@ -34,6 +61,24 @@ impl Database {
             let file_stats = insert_file_rows(&transaction, file)?;
             stats.accumulate(&file_stats);
         }
+        if rebuild_counts {
+            rebuild_relation_counts(&transaction)?;
+        } else {
+            apply_backlink_delta_for_source_paths(&transaction, &changed_paths, 1)?;
+            apply_forward_delta_for_source_paths(&transaction, &changed_paths, 1)?;
+            apply_external_backlink_delta_for_destination_ids(
+                &transaction,
+                &new_destination_ids,
+                &changed_paths,
+                1,
+            )?;
+            apply_external_forward_delta_for_destination_ids(
+                &transaction,
+                &added_destination_ids,
+                &changed_paths,
+                1,
+            )?;
+        }
 
         transaction.commit()?;
         Ok(stats)
@@ -41,6 +86,15 @@ impl Database {
 
     pub fn remove_file_index(&mut self, file_path: &str) -> Result<()> {
         let transaction = self.connection.transaction()?;
+        let changed_paths = vec![file_path.to_owned()];
+        let old_destination_ids = indexed_explicit_ids_for_paths(&transaction, &changed_paths)?;
+        apply_backlink_delta_for_source_paths(&transaction, &changed_paths, -1)?;
+        apply_external_forward_delta_for_destination_ids(
+            &transaction,
+            &old_destination_ids,
+            &changed_paths,
+            -1,
+        )?;
         delete_file_rows(&transaction, file_path)?;
         transaction.commit()?;
         Ok(())
@@ -57,6 +111,16 @@ impl Database {
         for path in indexed_paths {
             if !present_paths.contains(&path) {
                 let transaction = self.connection.transaction()?;
+                let changed_paths = vec![path.clone()];
+                let old_destination_ids =
+                    indexed_explicit_ids_for_paths(&transaction, &changed_paths)?;
+                apply_backlink_delta_for_source_paths(&transaction, &changed_paths, -1)?;
+                apply_external_forward_delta_for_destination_ids(
+                    &transaction,
+                    &old_destination_ids,
+                    &changed_paths,
+                    -1,
+                )?;
                 delete_file_rows(&transaction, &path)?;
                 transaction.commit()?;
             }
@@ -64,6 +128,315 @@ impl Database {
 
         Ok(())
     }
+}
+
+const RELATION_COUNT_REBUILD_FILE_THRESHOLD: usize = 32;
+const RELATION_COUNT_REBUILD_ROW_THRESHOLD: usize = 4_096;
+const SQLITE_PARAM_CHUNK: usize = 900;
+
+fn should_rebuild_relation_counts(files: &[IndexedFile]) -> bool {
+    files.len() > RELATION_COUNT_REBUILD_FILE_THRESHOLD
+        || files
+            .iter()
+            .map(|file| file.nodes.len() + file.links.len())
+            .sum::<usize>()
+            > RELATION_COUNT_REBUILD_ROW_THRESHOLD
+}
+
+fn difference(left: &HashSet<String>, right: &HashSet<String>) -> HashSet<String> {
+    left.difference(right).cloned().collect()
+}
+
+fn rebuild_relation_counts(transaction: &Transaction<'_>) -> Result<()> {
+    transaction.execute_batch(
+        "DROP TABLE IF EXISTS temp_relation_backlink_counts;
+         DROP TABLE IF EXISTS temp_relation_forward_link_counts;
+
+         CREATE TEMP TABLE temp_relation_backlink_counts (
+           explicit_id TEXT PRIMARY KEY,
+           backlink_count INTEGER NOT NULL
+         ) WITHOUT ROWID;
+
+         INSERT INTO temp_relation_backlink_counts (explicit_id, backlink_count)
+         SELECT destination_explicit_id, COUNT(*)
+           FROM links
+          GROUP BY destination_explicit_id;
+
+         UPDATE nodes
+            SET backlink_count = COALESCE((
+                  SELECT counts.backlink_count
+                    FROM temp_relation_backlink_counts AS counts
+                   WHERE counts.explicit_id = nodes.explicit_id
+                ), 0)
+          WHERE kind = 'file' OR explicit_id IS NOT NULL;
+
+         CREATE TEMP TABLE temp_relation_forward_link_counts (
+           node_key TEXT PRIMARY KEY,
+           forward_link_count INTEGER NOT NULL
+         ) WITHOUT ROWID;
+
+         INSERT INTO temp_relation_forward_link_counts (node_key, forward_link_count)
+         SELECT outgoing.source_note_key, COUNT(*)
+           FROM links AS outgoing
+           JOIN nodes AS dest ON dest.explicit_id = outgoing.destination_explicit_id
+          GROUP BY outgoing.source_note_key;
+
+         UPDATE nodes
+            SET forward_link_count = COALESCE((
+                  SELECT counts.forward_link_count
+                    FROM temp_relation_forward_link_counts AS counts
+                   WHERE counts.node_key = nodes.node_key
+                ), 0)
+          WHERE kind = 'file' OR explicit_id IS NOT NULL;
+
+         DROP TABLE IF EXISTS temp_relation_backlink_counts;
+         DROP TABLE IF EXISTS temp_relation_forward_link_counts;",
+    )?;
+    Ok(())
+}
+
+fn indexed_explicit_ids_for_paths(
+    transaction: &Transaction<'_>,
+    file_paths: &[String],
+) -> Result<HashSet<String>> {
+    let mut explicit_ids = HashSet::new();
+    if file_paths.is_empty() {
+        return Ok(explicit_ids);
+    }
+    let sql = format!(
+        "SELECT explicit_id
+           FROM nodes
+          WHERE file_path IN ({})
+            AND explicit_id IS NOT NULL",
+        placeholders(file_paths.len())
+    );
+    let mut statement = transaction.prepare(&sql)?;
+    let rows = statement.query_map(
+        params_from_iter(file_paths.iter().map(String::as_str)),
+        |row| row.get::<_, String>(0),
+    )?;
+    for row in rows {
+        explicit_ids.insert(row?);
+    }
+    Ok(explicit_ids)
+}
+
+fn scanned_explicit_ids(files: &[IndexedFile]) -> HashSet<String> {
+    files
+        .iter()
+        .flat_map(|file| file.nodes.iter())
+        .filter_map(|node| node.explicit_id.clone())
+        .collect()
+}
+
+fn apply_backlink_delta_for_source_paths(
+    transaction: &Transaction<'_>,
+    file_paths: &[String],
+    sign: i64,
+) -> Result<()> {
+    if file_paths.is_empty() {
+        return Ok(());
+    }
+    let multiplier = delta_multiplier(sign);
+    transaction.execute_batch(
+        "DROP TABLE IF EXISTS temp_relation_backlink_delta;
+         CREATE TEMP TABLE temp_relation_backlink_delta (
+           explicit_id TEXT PRIMARY KEY,
+           delta INTEGER NOT NULL
+         ) WITHOUT ROWID;",
+    )?;
+    let sql = format!(
+        "INSERT INTO temp_relation_backlink_delta (explicit_id, delta)
+         SELECT destination_explicit_id, COUNT(*) * {multiplier}
+           FROM links
+          WHERE source_file_path IN ({})
+          GROUP BY destination_explicit_id",
+        placeholders(file_paths.len())
+    );
+    transaction.execute(
+        &sql,
+        params_from_iter(file_paths.iter().map(String::as_str)),
+    )?;
+    transaction.execute(
+        "UPDATE nodes
+            SET backlink_count = backlink_count + (
+                  SELECT delta
+                    FROM temp_relation_backlink_delta AS delta
+                   WHERE delta.explicit_id = nodes.explicit_id
+                )
+          WHERE explicit_id IN (
+                SELECT explicit_id
+                  FROM temp_relation_backlink_delta
+          )",
+        [],
+    )?;
+    transaction.execute_batch("DROP TABLE IF EXISTS temp_relation_backlink_delta;")?;
+    Ok(())
+}
+
+fn apply_forward_delta_for_source_paths(
+    transaction: &Transaction<'_>,
+    file_paths: &[String],
+    sign: i64,
+) -> Result<()> {
+    if file_paths.is_empty() {
+        return Ok(());
+    }
+    let multiplier = delta_multiplier(sign);
+    transaction.execute_batch(
+        "DROP TABLE IF EXISTS temp_relation_forward_delta;
+         CREATE TEMP TABLE temp_relation_forward_delta (
+           node_key TEXT PRIMARY KEY,
+           delta INTEGER NOT NULL
+         ) WITHOUT ROWID;",
+    )?;
+    let sql = format!(
+        "INSERT INTO temp_relation_forward_delta (node_key, delta)
+         SELECT outgoing.source_note_key, COUNT(*) * {multiplier}
+           FROM links AS outgoing
+           JOIN nodes AS dest ON dest.explicit_id = outgoing.destination_explicit_id
+          WHERE outgoing.source_file_path IN ({})
+          GROUP BY outgoing.source_note_key",
+        placeholders(file_paths.len())
+    );
+    transaction.execute(
+        &sql,
+        params_from_iter(file_paths.iter().map(String::as_str)),
+    )?;
+    transaction.execute(
+        "UPDATE nodes
+            SET forward_link_count = forward_link_count + (
+                  SELECT delta
+                    FROM temp_relation_forward_delta AS delta
+                   WHERE delta.node_key = nodes.node_key
+                )
+          WHERE node_key IN (
+                SELECT node_key
+                  FROM temp_relation_forward_delta
+          )",
+        [],
+    )?;
+    transaction.execute_batch("DROP TABLE IF EXISTS temp_relation_forward_delta;")?;
+    Ok(())
+}
+
+fn apply_external_backlink_delta_for_destination_ids(
+    transaction: &Transaction<'_>,
+    explicit_ids: &HashSet<String>,
+    excluded_source_paths: &[String],
+    sign: i64,
+) -> Result<()> {
+    if explicit_ids.is_empty() {
+        return Ok(());
+    }
+    let multiplier = delta_multiplier(sign);
+    for chunk in sorted_chunks(explicit_ids) {
+        transaction.execute_batch(
+            "DROP TABLE IF EXISTS temp_relation_backlink_delta;
+             CREATE TEMP TABLE temp_relation_backlink_delta (
+               explicit_id TEXT PRIMARY KEY,
+               delta INTEGER NOT NULL
+             ) WITHOUT ROWID;",
+        )?;
+        let sql = format!(
+            "INSERT INTO temp_relation_backlink_delta (explicit_id, delta)
+             SELECT destination_explicit_id, COUNT(*) * {multiplier}
+               FROM links
+              WHERE destination_explicit_id IN ({})
+                AND source_file_path NOT IN ({})
+              GROUP BY destination_explicit_id",
+            placeholders(chunk.len()),
+            placeholders(excluded_source_paths.len())
+        );
+        let params = chunk
+            .iter()
+            .copied()
+            .chain(excluded_source_paths.iter().map(String::as_str));
+        transaction.execute(&sql, params_from_iter(params))?;
+        transaction.execute(
+            "UPDATE nodes
+                SET backlink_count = backlink_count + (
+                      SELECT delta
+                        FROM temp_relation_backlink_delta AS delta
+                       WHERE delta.explicit_id = nodes.explicit_id
+                    )
+              WHERE explicit_id IN (
+                    SELECT explicit_id
+                      FROM temp_relation_backlink_delta
+              )",
+            [],
+        )?;
+        transaction.execute_batch("DROP TABLE IF EXISTS temp_relation_backlink_delta;")?;
+    }
+    Ok(())
+}
+
+fn apply_external_forward_delta_for_destination_ids(
+    transaction: &Transaction<'_>,
+    explicit_ids: &HashSet<String>,
+    excluded_source_paths: &[String],
+    sign: i64,
+) -> Result<()> {
+    if explicit_ids.is_empty() {
+        return Ok(());
+    }
+    let multiplier = delta_multiplier(sign);
+    for chunk in sorted_chunks(explicit_ids) {
+        transaction.execute_batch(
+            "DROP TABLE IF EXISTS temp_relation_forward_delta;
+             CREATE TEMP TABLE temp_relation_forward_delta (
+               node_key TEXT PRIMARY KEY,
+               delta INTEGER NOT NULL
+             ) WITHOUT ROWID;",
+        )?;
+        let sql = format!(
+            "INSERT INTO temp_relation_forward_delta (node_key, delta)
+             SELECT source_note_key, COUNT(*) * {multiplier}
+               FROM links
+              WHERE destination_explicit_id IN ({})
+                AND source_file_path NOT IN ({})
+              GROUP BY source_note_key",
+            placeholders(chunk.len()),
+            placeholders(excluded_source_paths.len())
+        );
+        let params = chunk
+            .iter()
+            .copied()
+            .chain(excluded_source_paths.iter().map(String::as_str));
+        transaction.execute(&sql, params_from_iter(params))?;
+        transaction.execute(
+            "UPDATE nodes
+                SET forward_link_count = forward_link_count + (
+                      SELECT delta
+                        FROM temp_relation_forward_delta AS delta
+                       WHERE delta.node_key = nodes.node_key
+                    )
+              WHERE node_key IN (
+                    SELECT node_key
+                      FROM temp_relation_forward_delta
+              )",
+            [],
+        )?;
+        transaction.execute_batch("DROP TABLE IF EXISTS temp_relation_forward_delta;")?;
+    }
+    Ok(())
+}
+
+fn delta_multiplier(sign: i64) -> &'static str {
+    if sign < 0 { "-1" } else { "1" }
+}
+
+fn sorted_chunks(values: &HashSet<String>) -> Vec<Vec<&str>> {
+    let mut sorted = values.iter().map(String::as_str).collect::<Vec<_>>();
+    sorted.sort_unstable();
+    sorted
+        .chunks(SQLITE_PARAM_CHUNK)
+        .map(|chunk| chunk.to_vec())
+        .collect()
+}
+
+fn placeholders(count: usize) -> String {
+    vec!["?"; count].join(", ")
 }
 
 fn insert_file_rows(transaction: &Transaction<'_>, file: &IndexedFile) -> Result<IndexStats> {

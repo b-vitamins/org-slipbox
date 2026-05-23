@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 
 use slipbox_core::{ExplorationExplanation, ForwardLinkRecord};
 
@@ -15,7 +15,22 @@ impl Database {
         limit: usize,
         unique: bool,
     ) -> Result<Vec<ForwardLinkRecord>> {
-        let Some(source_note) = self.note_by_key(node_key)? else {
+        let Some(source_note_key) = self
+            .connection
+            .query_row(
+                &format!(
+                    "SELECT n.node_key
+                       FROM nodes AS n
+                      WHERE n.node_key = ?1
+                        AND {}",
+                    note_where("n"),
+                ),
+                params![node_key],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .context("failed to resolve source note for forward links")?
+        else {
             return Ok(Vec::new());
         };
 
@@ -33,7 +48,7 @@ impl Database {
                                 l.preview,
                                 ROW_NUMBER() OVER (
                                     PARTITION BY dest.node_key
-                                    ORDER BY l.line, l.column, dest.file_path, dest.line
+                                    ORDER BY l.line, l.column, l.destination_explicit_id
                                 ) AS occurrence_rank
                            FROM links AS l
                            JOIN nodes AS dest ON dest.explicit_id = l.destination_explicit_id
@@ -42,7 +57,7 @@ impl Database {
                         ) AS matches
                    JOIN nodes AS dest ON dest.node_key = matches.destination_note_key
                   WHERE matches.occurrence_rank = 1
-                  ORDER BY matches.line, matches.column, dest.file_path, dest.line
+                  ORDER BY matches.line, matches.column, dest.explicit_id
                   LIMIT ?2",
                 anchor_select_columns("dest"),
                 note_where("dest"),
@@ -57,17 +72,15 @@ impl Database {
                    JOIN nodes AS dest ON dest.explicit_id = l.destination_explicit_id
                   WHERE l.source_note_key = ?1
                     AND {}
-                  ORDER BY l.line, l.column, dest.file_path, dest.line
+                  ORDER BY l.line, l.column, l.destination_explicit_id
                   LIMIT ?2",
                 anchor_select_columns("dest"),
                 note_where("dest"),
             )
         };
         let mut statement = self.connection.prepare(&sql)?;
-        let rows = statement.query_map(
-            params![source_note.node_key, limit as i64],
-            row_to_forward_link,
-        )?;
+        let rows =
+            statement.query_map(params![source_note_key, limit as i64], row_to_forward_link)?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .context("failed to read forward links")
     }

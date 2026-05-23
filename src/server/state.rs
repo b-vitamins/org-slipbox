@@ -85,7 +85,7 @@ impl ServerState {
         self.reconcile_paths(&outcome.changed_paths, &outcome.removed_paths)
     }
 
-    fn sync_paths(&mut self, paths: &[PathBuf]) -> Result<(), JsonRpcError> {
+    pub(super) fn sync_paths(&mut self, paths: &[PathBuf]) -> Result<(), JsonRpcError> {
         let mut indexed_files = Vec::with_capacity(paths.len());
         for path in paths {
             let indexed_file =

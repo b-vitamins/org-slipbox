@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::Database;
 
-const SCHEMA_VERSION: i32 = 17;
+const SCHEMA_VERSION: i32 = 19;
 
 impl Database {
     pub(crate) fn migrate(&self) -> Result<()> {
@@ -62,7 +62,9 @@ impl Database {
                closed_at TEXT,
                level INTEGER NOT NULL,
                line INTEGER NOT NULL,
-               kind TEXT NOT NULL
+               kind TEXT NOT NULL,
+               backlink_count INTEGER NOT NULL DEFAULT 0,
+               forward_link_count INTEGER NOT NULL DEFAULT 0
              );
 
              CREATE VIRTUAL TABLE IF NOT EXISTS node_fts USING fts5(
@@ -135,14 +137,11 @@ impl Database {
              CREATE INDEX IF NOT EXISTS idx_links_source_node_key
                ON links (source_node_key);
 
-             CREATE INDEX IF NOT EXISTS idx_links_source_note_key
-               ON links (source_note_key);
-
              CREATE INDEX IF NOT EXISTS idx_links_destination_explicit_id
                ON links (destination_explicit_id);
 
              CREATE INDEX IF NOT EXISTS idx_links_destination_source_file_line
-               ON links (destination_explicit_id, source_file_path, line, column);
+               ON links (destination_explicit_id, source_file_path, line, column, source_note_key, source_node_key);
 
              CREATE INDEX IF NOT EXISTS idx_links_source_file_line
                ON links (source_file_path, line, column, source_node_key);
@@ -183,7 +182,10 @@ impl Database {
              CREATE INDEX IF NOT EXISTS idx_links_source_note_destination
                ON links (source_note_key, destination_explicit_id);
 
-             PRAGMA user_version = 17;",
+             CREATE INDEX IF NOT EXISTS idx_links_source_note_line
+               ON links (source_note_key, line, column, destination_explicit_id);
+
+             PRAGMA user_version = 19;",
         )?;
         Ok(())
     }

@@ -15,7 +15,9 @@ pub use capture::{
     capture_file_note_at, capture_file_note_at_with_head_and_refs, capture_file_note_at_with_refs,
     capture_file_note_with_refs, capture_template, ensure_file_note, preview_capture_template,
 };
-pub use metadata::{ensure_node_id, update_node_metadata};
+pub use metadata::{
+    EnsureNodeIdOutcome, ensure_node_id, ensure_node_id_with_value, update_node_metadata,
+};
 pub use rewrite::{
     RegionRewriteOutcome, demote_entire_file, extract_subtree, promote_entire_file, refile_region,
     refile_subtree,

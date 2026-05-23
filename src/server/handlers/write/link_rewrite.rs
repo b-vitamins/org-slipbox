@@ -65,12 +65,7 @@ pub(crate) fn slipbox_link_rewrite_apply(
     )?;
     changed_paths.push(absolute_path.clone());
     dedup_paths(&mut changed_paths);
-    state.sync_path(&absolute_path)?;
-    for path in &changed_paths {
-        if path != &absolute_path {
-            state.sync_path(path)?;
-        }
-    }
+    state.sync_paths(&changed_paths)?;
     let affected_files = state.structural_affected_files(&changed_paths, &[])?;
     let application = SlipboxLinkRewriteApplication {
         file_path: relative_path,
@@ -127,29 +122,19 @@ fn ensure_slipbox_link_rewrite_target_ids(
     changed_paths: &mut Vec<PathBuf>,
 ) -> Result<HashMap<String, String>, JsonRpcError> {
     let mut explicit_ids = HashMap::new();
-    let mut ensured_targets = HashSet::new();
     for entry in entries {
         if let Some(explicit_id) = &entry.target_explicit_id {
             explicit_ids.insert(entry.target.node_key.clone(), explicit_id.clone());
             continue;
         }
-        if ensured_targets.insert(entry.target.node_key.clone()) {
+        if !explicit_ids.contains_key(&entry.target.node_key) {
             let target = entry.target.clone().into();
-            let updated_path =
-                slipbox_write::ensure_node_id(&state.root, &target).map_err(|error| {
-                    internal_error(error.context("failed to assign target node ID"))
-                })?;
-            changed_paths.push(updated_path.clone());
-            state.sync_path(&updated_path)?;
+            let outcome = slipbox_write::ensure_node_id_with_value(&state.root, &target).map_err(
+                |error| internal_error(error.context("failed to assign target node ID")),
+            )?;
+            changed_paths.push(outcome.absolute_path);
+            explicit_ids.insert(entry.target.node_key.clone(), outcome.explicit_id);
         }
-        let updated_target = state.require_anchor(&entry.target.node_key, "updated target node")?;
-        let explicit_id = updated_target.explicit_id.ok_or_else(|| {
-            internal_error(anyhow!(
-                "updated target node {} still has no explicit ID",
-                entry.target.node_key
-            ))
-        })?;
-        explicit_ids.insert(entry.target.node_key.clone(), explicit_id);
     }
     Ok(explicit_ids)
 }

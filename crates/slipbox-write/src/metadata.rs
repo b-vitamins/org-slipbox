@@ -10,10 +10,22 @@ use crate::document::{OrgDocument, keyword_value, property_value};
 use crate::path::checked_absolute_org_path;
 use crate::transaction::FileRewriteTransaction;
 
+pub struct EnsureNodeIdOutcome {
+    pub absolute_path: PathBuf,
+    pub explicit_id: String,
+}
+
 pub fn ensure_node_id(root: &Path, node: &AnchorRecord) -> Result<PathBuf> {
+    Ok(ensure_node_id_with_value(root, node)?.absolute_path)
+}
+
+pub fn ensure_node_id_with_value(root: &Path, node: &AnchorRecord) -> Result<EnsureNodeIdOutcome> {
     let (_, absolute_path) = checked_absolute_org_path(root, &node.file_path)?;
-    if node.explicit_id.is_some() {
-        return Ok(absolute_path);
+    if let Some(explicit_id) = &node.explicit_id {
+        return Ok(EnsureNodeIdOutcome {
+            absolute_path,
+            explicit_id: explicit_id.clone(),
+        });
     }
 
     let source = fs::read_to_string(&absolute_path)
@@ -26,7 +38,10 @@ pub fn ensure_node_id(root: &Path, node: &AnchorRecord) -> Result<PathBuf> {
     let mut transaction = FileRewriteTransaction::new();
     transaction.write(&absolute_path, updated);
     transaction.commit()?;
-    Ok(absolute_path)
+    Ok(EnsureNodeIdOutcome {
+        absolute_path,
+        explicit_id,
+    })
 }
 
 pub fn update_node_metadata(

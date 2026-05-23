@@ -978,6 +978,71 @@ fn incremental_file_sync_keeps_unrelated_files_indexed() -> Result<()> {
 }
 
 #[test]
+fn incremental_file_sync_refreshes_relation_counts_for_resolved_targets() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    let alpha = root.join("alpha.org");
+    let beta = root.join("beta.org");
+
+    fs::write(
+        &alpha,
+        "#+title: Alpha\n\n* Source\n:PROPERTIES:\n:ID: alpha-source\n:END:\nSee [[id:beta-target][Beta]].\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let source = database
+        .node_from_id("alpha-source")?
+        .expect("source should be indexed");
+    assert_eq!(source.forward_link_count, 0);
+
+    fs::write(
+        &beta,
+        "#+title: Beta\n\n* Target\n:PROPERTIES:\n:ID: beta-target\n:END:\n",
+    )?;
+    let indexed = scan_path(&root, &beta)?;
+    database.sync_file_index(&indexed)?;
+
+    let source = database
+        .node_from_id("alpha-source")?
+        .expect("source should still be indexed");
+    let target = database
+        .node_from_id("beta-target")?
+        .expect("target should be indexed");
+    assert_eq!(source.forward_link_count, 1);
+    assert_eq!(target.backlink_count, 1);
+
+    fs::write(
+        &beta,
+        "#+title: Beta Updated\n\n* Target\n:PROPERTIES:\n:ID: beta-target\n:END:\n",
+    )?;
+    let indexed = scan_path(&root, &beta)?;
+    database.sync_file_index(&indexed)?;
+
+    let source = database
+        .node_from_id("alpha-source")?
+        .expect("source should remain indexed");
+    let target = database
+        .node_from_id("beta-target")?
+        .expect("target should remain indexed");
+    assert_eq!(source.forward_link_count, 1);
+    assert_eq!(target.backlink_count, 1);
+
+    database.remove_file_index("beta.org")?;
+    let source = database
+        .node_from_id("alpha-source")?
+        .expect("source should remain indexed");
+    assert_eq!(source.forward_link_count, 0);
+    assert!(database.node_from_id("beta-target")?.is_none());
+
+    Ok(())
+}
+
+#[test]
 fn scan_root_respects_configured_discovery_policy() -> Result<()> {
     let workspace = tempdir()?;
     let root = workspace.path().join("notes");

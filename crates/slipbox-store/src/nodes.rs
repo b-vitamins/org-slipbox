@@ -362,13 +362,8 @@ pub(crate) fn anchor_select_columns(alias: &str) -> String {
          COALESCE((SELECT f.mtime_ns
                      FROM files AS f
                     WHERE f.path = {alias}.file_path), 0) AS file_mtime_ns,
-         COALESCE((SELECT COUNT(*)
-                     FROM links AS incoming
-                    WHERE incoming.destination_explicit_id = {alias}.explicit_id), 0) AS backlink_count,
-         COALESCE((SELECT COUNT(*)
-                     FROM links AS outgoing
-                     JOIN nodes AS dest ON dest.explicit_id = outgoing.destination_explicit_id
-                    WHERE outgoing.source_note_key = {alias}.node_key), 0) AS forward_link_count"
+         {alias}.backlink_count,
+         {alias}.forward_link_count"
     )
 }
 
