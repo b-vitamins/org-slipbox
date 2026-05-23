@@ -6,6 +6,7 @@ use slipbox_core::{AnchorRecord, NodeKind, NodeRecord};
 
 use crate::document::{OrgDocument, shift_subtree_levels};
 use crate::path::normalize_relative_org_path;
+use crate::transaction::FileRewriteTransaction;
 use crate::{CaptureOutcome, RewriteOutcome};
 
 pub struct RegionRewriteOutcome {
@@ -69,8 +70,9 @@ pub fn refile_subtree(
         };
         source_document.insert_subtree(adjusted_insert, target.kind, subtree_lines);
 
-        fs::write(&source_path, source_document.render())
-            .with_context(|| format!("failed to write {}", source_path.display()))?;
+        let mut transaction = FileRewriteTransaction::new();
+        transaction.write(&source_path, source_document.render());
+        transaction.commit()?;
 
         return Ok(RewriteOutcome {
             changed_paths: vec![source_path],
@@ -88,27 +90,25 @@ pub fn refile_subtree(
 
     let mut changed_paths = vec![target_path.clone()];
     let mut removed_paths = Vec::new();
+    let mut transaction = FileRewriteTransaction::new();
+    transaction.write(&target_path, target_document.render());
 
     if source.kind == NodeKind::File {
-        fs::remove_file(&source_path)
-            .with_context(|| format!("failed to remove {}", source_path.display()))?;
+        transaction.remove(&source_path);
         removed_paths.push(source_path);
     } else {
         let (source_start, source_end) = source_document.subtree_range(source.line as usize)?;
         source_document.remove_range(source_start, source_end);
         if source_document.has_meaningful_content() {
-            fs::write(&source_path, source_document.render())
-                .with_context(|| format!("failed to write {}", source_path.display()))?;
+            transaction.write(&source_path, source_document.render());
             changed_paths.push(source_path);
         } else {
-            fs::remove_file(&source_path)
-                .with_context(|| format!("failed to remove {}", source_path.display()))?;
+            transaction.remove(&source_path);
             removed_paths.push(source_path);
         }
     }
 
-    fs::write(&target_path, target_document.render())
-        .with_context(|| format!("failed to write {}", target_path.display()))?;
+    transaction.commit()?;
 
     Ok(RewriteOutcome {
         changed_paths,
@@ -174,8 +174,9 @@ pub fn refile_region(
             target_insert
         };
         let rewritten_source = insert_region_text(rewritten_source, adjusted_insert, &region_text);
-        fs::write(&source_path, &rewritten_source)
-            .with_context(|| format!("failed to write {}", source_path.display()))?;
+        let mut transaction = FileRewriteTransaction::new();
+        transaction.write(&source_path, rewritten_source);
+        transaction.commit()?;
         return Ok(RegionRewriteOutcome {
             changed_paths: vec![source_path],
             removed_paths: Vec::new(),
@@ -191,22 +192,21 @@ pub fn refile_region(
 
     let mut changed_paths = vec![target_path.clone()];
     let mut removed_paths = Vec::new();
+    let mut transaction = FileRewriteTransaction::new();
+    transaction.write(&target_path, rewritten_target);
 
     let mut rewritten_source = String::new();
     rewritten_source.push_str(&source_source[..selection_start]);
     rewritten_source.push_str(&source_source[selection_end..]);
     if rewritten_source.trim().is_empty() {
-        fs::remove_file(&source_path)
-            .with_context(|| format!("failed to remove {}", source_path.display()))?;
+        transaction.remove(&source_path);
         removed_paths.push(source_path);
     } else {
-        fs::write(&source_path, &rewritten_source)
-            .with_context(|| format!("failed to write {}", source_path.display()))?;
+        transaction.write(&source_path, rewritten_source);
         changed_paths.push(source_path);
     }
 
-    fs::write(&target_path, rewritten_target)
-        .with_context(|| format!("failed to write {}", target_path.display()))?;
+    transaction.commit()?;
 
     Ok(RegionRewriteOutcome {
         changed_paths,
@@ -241,15 +241,10 @@ pub fn extract_subtree(
     let (source_start, source_end) = source_document.subtree_range(source.line as usize)?;
     source_document.remove_range(source_start, source_end);
 
-    if let Some(parent) = target_path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create directory {}", parent.display()))?;
-    }
-
-    fs::write(&source_path, source_document.render())
-        .with_context(|| format!("failed to write {}", source_path.display()))?;
-    fs::write(&target_path, target_document.render())
-        .with_context(|| format!("failed to write {}", target_path.display()))?;
+    let mut transaction = FileRewriteTransaction::new();
+    transaction.write(&target_path, target_document.render());
+    transaction.write(&source_path, source_document.render());
+    transaction.commit()?;
 
     Ok(RewriteOutcome {
         changed_paths: vec![source_path, target_path],
@@ -265,8 +260,9 @@ pub fn demote_entire_file(root: &Path, file_path: &str) -> Result<CaptureOutcome
         .with_context(|| format!("failed to read {}", absolute_path.display()))?;
     let mut document = OrgDocument::from_source(&source);
     document.demote_entire_file(&relative_path);
-    fs::write(&absolute_path, document.render())
-        .with_context(|| format!("failed to write {}", absolute_path.display()))?;
+    let mut transaction = FileRewriteTransaction::new();
+    transaction.write(&absolute_path, document.render());
+    transaction.commit()?;
     Ok(CaptureOutcome {
         absolute_path,
         node_key: format!("heading:{}:1", relative_path.replace('\\', "/")),
@@ -280,8 +276,9 @@ pub fn promote_entire_file(root: &Path, file_path: &str) -> Result<CaptureOutcom
         .with_context(|| format!("failed to read {}", absolute_path.display()))?;
     let mut document = OrgDocument::from_source(&source);
     document.promote_entire_file()?;
-    fs::write(&absolute_path, document.render())
-        .with_context(|| format!("failed to write {}", absolute_path.display()))?;
+    let mut transaction = FileRewriteTransaction::new();
+    transaction.write(&absolute_path, document.render());
+    transaction.commit()?;
     Ok(CaptureOutcome {
         absolute_path,
         node_key: format!("file:{}", relative_path.replace('\\', "/")),

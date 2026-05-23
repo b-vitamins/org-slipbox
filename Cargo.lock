@@ -635,6 +635,7 @@ dependencies = [
  "anyhow",
  "serde_json",
  "slipbox-core",
+ "tempfile",
  "uuid",
 ]
 

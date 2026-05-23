@@ -1029,6 +1029,51 @@ fn refile_subtree_moves_heading_between_files_and_preserves_source_file_note() -
     Ok(())
 }
 
+#[cfg(unix)]
+#[test]
+fn refile_subtree_preserves_source_when_target_write_cannot_be_staged() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    let source_dir = root.join("source");
+    let target_dir = root.join("target");
+    fs::create_dir_all(&source_dir)?;
+    fs::create_dir_all(&target_dir)?;
+    let source_path = source_dir.join("source.org");
+    let target_path = target_dir.join("target.org");
+    let source_body = "#+title: Source\n\n* Move Me\nBody\n";
+    let target_body = "#+title: Target\n\n* Parent\n:PROPERTIES:\n:ID: parent-id\n:END:\n";
+    fs::write(&source_path, source_body)?;
+    fs::write(&target_path, target_body)?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let source = database
+        .search_anchors("move me", 10, None)?
+        .into_iter()
+        .find(|candidate| candidate.title == "Move Me")
+        .expect("source heading should exist");
+    let target = database
+        .search_nodes("parent", 10, None)?
+        .into_iter()
+        .find(|candidate| candidate.title == "Parent")
+        .expect("target heading should exist");
+
+    fs::set_permissions(&target_dir, fs::Permissions::from_mode(0o555))?;
+    let result = refile_subtree(&root, &source, &target);
+    fs::set_permissions(&target_dir, fs::Permissions::from_mode(0o755))?;
+
+    assert!(result.is_err());
+    assert_eq!(fs::read_to_string(&source_path)?, source_body);
+    assert_eq!(fs::read_to_string(&target_path)?, target_body);
+
+    Ok(())
+}
+
 #[test]
 fn refile_region_moves_selected_text_under_target_heading() -> Result<()> {
     let workspace = tempdir()?;

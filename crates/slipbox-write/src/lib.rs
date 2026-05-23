@@ -6,6 +6,7 @@ mod document;
 mod metadata;
 mod path;
 mod rewrite;
+mod transaction;
 
 use std::path::PathBuf;
 
