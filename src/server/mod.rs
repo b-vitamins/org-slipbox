@@ -1,5 +1,6 @@
 mod dispatch;
 pub(crate) mod handlers;
+pub mod operations;
 mod rpc;
 pub(crate) mod state;
 mod workflows;
@@ -7,23 +8,20 @@ mod workflows;
 use std::io::{self, BufReader};
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use slipbox_index::DiscoveryPolicy;
 use slipbox_rpc::{JsonRpcErrorObject, JsonRpcResponse, read_framed_message, write_framed_message};
 
 use self::dispatch::handle_request;
-use self::state::ServerState;
+use crate::service::SlipboxService;
 
-pub(crate) fn serve(
+pub fn serve(
     root: PathBuf,
     db: PathBuf,
     workflow_dirs: Vec<PathBuf>,
     discovery: DiscoveryPolicy,
 ) -> Result<()> {
-    let root = root
-        .canonicalize()
-        .with_context(|| format!("failed to canonicalize root {}", root.display()))?;
-    let mut state = ServerState::new(root, db, workflow_dirs, discovery)?;
+    let mut service = SlipboxService::new(root, db, workflow_dirs, discovery)?;
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut reader = BufReader::new(stdin.lock());
@@ -32,7 +30,7 @@ pub(crate) fn serve(
     loop {
         match read_framed_message(&mut reader) {
             Ok(Some(request)) => {
-                let response = handle_request(&mut state, request);
+                let response = handle_request(&mut service, request);
                 write_framed_message(&mut writer, &response)?;
             }
             Ok(None) => break,

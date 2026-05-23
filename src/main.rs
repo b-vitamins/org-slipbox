@@ -1,14 +1,10 @@
 mod cli;
-mod occurrences_query;
-mod reflinks_query;
-mod server;
-mod text_query;
-mod unlinked_references_query;
 
 use std::process::ExitCode;
 
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
+use slipbox::server;
 
 #[derive(Debug, Parser)]
 #[command(
