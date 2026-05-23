@@ -1,231 +1,77 @@
-use std::fs;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use slipbox_core::SavedExplorationArtifact;
-use urlencoding::encode;
 
-use crate::Database;
+use crate::{
+    Database,
+    json_store::{JsonFileStore, JsonStoreSpec},
+};
 
 const ARTIFACT_STORE_DIR_SUFFIX: &str = ".exploration-artifacts";
 const ARTIFACT_STORE_LAYOUT_VERSION: &str = "v1";
 const ARTIFACT_FILE_EXTENSION: &str = "json";
 
 pub(crate) struct ExplorationArtifactStore {
-    root: PathBuf,
+    store: JsonFileStore<SavedExplorationArtifact>,
 }
 
 impl ExplorationArtifactStore {
     pub(crate) fn for_database_path(path: &Path) -> Self {
-        let file_name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("index.sqlite3");
         Self {
-            root: path.with_file_name(format!("{file_name}{ARTIFACT_STORE_DIR_SUFFIX}")),
+            store: JsonFileStore::for_database_path(
+                path,
+                JsonStoreSpec {
+                    directory_suffix: ARTIFACT_STORE_DIR_SUFFIX,
+                    layout_version: ARTIFACT_STORE_LAYOUT_VERSION,
+                    file_extension: ARTIFACT_FILE_EXTENSION,
+                    item_name: "exploration artifact",
+                    plural_name: "exploration artifacts",
+                    id_field_name: "artifact_id",
+                    default_database_file_name: "index.sqlite3",
+                },
+            ),
         }
     }
 
     pub(crate) fn migrate(&self) -> Result<()> {
-        fs::create_dir_all(self.version_dir()).with_context(|| {
-            format!(
-                "failed to create exploration artifact store {}",
-                self.version_dir().display()
-            )
-        })?;
-        Ok(())
+        self.store.migrate()
     }
 
-    fn version_dir(&self) -> PathBuf {
-        self.root.join(ARTIFACT_STORE_LAYOUT_VERSION)
-    }
-
-    fn artifact_path(&self, artifact_id: &str) -> PathBuf {
-        self.version_dir().join(format!(
-            "{}.{}",
-            encode(artifact_id),
-            ARTIFACT_FILE_EXTENSION
-        ))
-    }
-
-    fn temporary_artifact_path(&self, artifact_id: &str) -> PathBuf {
-        self.version_dir().join(format!(
-            ".{}.tmp-{}-{}",
-            encode(artifact_id),
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ))
-    }
-
-    fn validate_artifact_id(&self, artifact_id: &str) -> Result<()> {
-        if artifact_id.trim().is_empty() {
-            anyhow::bail!("artifact_id must not be empty");
-        }
-        if artifact_id.trim() != artifact_id {
-            anyhow::bail!("artifact_id must not have leading or trailing whitespace");
-        }
-        Ok(())
-    }
-
-    fn load_artifact_file(&self, path: &Path) -> Result<SavedExplorationArtifact> {
-        let contents = fs::read_to_string(path)
-            .with_context(|| format!("failed to read exploration artifact {}", path.display()))?;
-        let artifact = serde_json::from_str::<SavedExplorationArtifact>(&contents)
-            .with_context(|| format!("failed to parse exploration artifact {}", path.display()))?;
-        if let Some(error) = artifact.validation_error() {
-            anyhow::bail!(
-                "stored exploration artifact {} is invalid: {}",
-                path.display(),
-                error
-            );
-        }
-        let expected_path = self.artifact_path(&artifact.metadata.artifact_id);
-        if expected_path != path {
-            anyhow::bail!(
-                "stored exploration artifact {} does not match artifact_id {}",
-                path.display(),
-                artifact.metadata.artifact_id
-            );
-        }
-        Ok(artifact)
-    }
-
-    fn list_artifact_paths(&self) -> Result<Vec<PathBuf>> {
-        let mut paths = Vec::new();
-        if !self.version_dir().exists() {
-            return Ok(paths);
-        }
-
-        for entry in fs::read_dir(self.version_dir()).with_context(|| {
-            format!(
-                "failed to list exploration artifacts in {}",
-                self.version_dir().display()
-            )
-        })? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) == Some(ARTIFACT_FILE_EXTENSION) {
-                paths.push(path);
-            }
-        }
-
-        paths.sort();
-        Ok(paths)
-    }
-
-    fn write_temporary_artifact_file(
-        &self,
-        artifact: &SavedExplorationArtifact,
-    ) -> Result<PathBuf> {
-        let temporary_path = self.temporary_artifact_path(&artifact.metadata.artifact_id);
-        let json = serde_json::to_vec_pretty(artifact)
-            .context("failed to serialize exploration artifact")?;
-        let mut file = match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary_path)
-        {
-            Ok(file) => file,
-            Err(error) => {
-                return Err(error).with_context(|| {
-                    format!(
-                        "failed to create temporary exploration artifact {}",
-                        temporary_path.display()
-                    )
-                });
-            }
-        };
-        if let Err(error) = file.write_all(&json).and_then(|_| file.sync_all()) {
-            drop(file);
-            let _ = fs::remove_file(&temporary_path);
-            return Err(error).with_context(|| {
-                format!(
-                    "failed to write temporary exploration artifact {}",
-                    temporary_path.display()
-                )
-            });
-        }
-        Ok(temporary_path)
+    #[cfg(test)]
+    fn version_dir(&self) -> std::path::PathBuf {
+        self.store.version_dir()
     }
 
     fn save(&self, artifact: &SavedExplorationArtifact) -> Result<()> {
-        if let Some(error) = artifact.validation_error() {
-            anyhow::bail!("exploration artifact is invalid: {error}");
-        }
-
-        let path = self.artifact_path(&artifact.metadata.artifact_id);
-        let temporary_path = self.write_temporary_artifact_file(artifact)?;
-        #[cfg(windows)]
-        if path.exists() {
-            fs::remove_file(&path).with_context(|| {
-                format!(
-                    "failed to replace existing exploration artifact {}",
-                    path.display()
-                )
-            })?;
-        }
-        if let Err(error) = fs::rename(&temporary_path, &path) {
-            let _ = fs::remove_file(&temporary_path);
-            return Err(error).with_context(|| {
-                format!("failed to finalize exploration artifact {}", path.display())
-            });
-        }
-        Ok(())
+        self.store.save(
+            &artifact.metadata.artifact_id,
+            artifact,
+            SavedExplorationArtifact::validation_error,
+        )
     }
 
     fn save_if_absent(&self, artifact: &SavedExplorationArtifact) -> Result<bool> {
-        if let Some(error) = artifact.validation_error() {
-            anyhow::bail!("exploration artifact is invalid: {error}");
-        }
-
-        let path = self.artifact_path(&artifact.metadata.artifact_id);
-        let temporary_path = self.write_temporary_artifact_file(artifact)?;
-        match fs::hard_link(&temporary_path, &path) {
-            Ok(()) => {
-                fs::remove_file(&temporary_path).with_context(|| {
-                    format!(
-                        "failed to clean up temporary exploration artifact {}",
-                        temporary_path.display()
-                    )
-                })?;
-                Ok(true)
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                let _ = fs::remove_file(&temporary_path);
-                Ok(false)
-            }
-            Err(error) => {
-                let _ = fs::remove_file(&temporary_path);
-                Err(error).with_context(|| {
-                    format!(
-                        "failed to finalize new exploration artifact {}",
-                        path.display()
-                    )
-                })
-            }
-        }
+        self.store.save_if_absent(
+            &artifact.metadata.artifact_id,
+            artifact,
+            SavedExplorationArtifact::validation_error,
+        )
     }
 
     fn load(&self, artifact_id: &str) -> Result<Option<SavedExplorationArtifact>> {
-        self.validate_artifact_id(artifact_id)?;
-        let path = self.artifact_path(artifact_id);
-        if !path.exists() {
-            return Ok(None);
-        }
-        self.load_artifact_file(&path).map(Some)
+        self.store.load(
+            artifact_id,
+            |artifact| artifact.metadata.artifact_id.as_str(),
+            SavedExplorationArtifact::validation_error,
+        )
     }
 
     fn list(&self) -> Result<Vec<SavedExplorationArtifact>> {
-        let mut artifacts = self
-            .list_artifact_paths()?
-            .into_iter()
-            .map(|path| self.load_artifact_file(&path))
-            .collect::<Result<Vec<_>>>()?;
+        let mut artifacts = self.store.list(
+            |artifact| artifact.metadata.artifact_id.as_str(),
+            SavedExplorationArtifact::validation_error,
+        )?;
         artifacts.sort_by(|left, right| {
             let left_title = left.metadata.title.to_ascii_lowercase();
             let right_title = right.metadata.title.to_ascii_lowercase();
@@ -238,14 +84,7 @@ impl ExplorationArtifactStore {
     }
 
     fn delete(&self, artifact_id: &str) -> Result<bool> {
-        self.validate_artifact_id(artifact_id)?;
-        let path = self.artifact_path(artifact_id);
-        if !path.exists() {
-            return Ok(false);
-        }
-        fs::remove_file(&path)
-            .with_context(|| format!("failed to delete exploration artifact {}", path.display()))?;
-        Ok(true)
+        self.store.delete(artifact_id)
     }
 }
 
@@ -289,7 +128,7 @@ mod tests {
 
     use crate::{Database, test_support::indexed_database};
 
-    use super::{ARTIFACT_STORE_LAYOUT_VERSION, ExplorationArtifactStore};
+    use super::ExplorationArtifactStore;
 
     #[test]
     fn exploration_artifacts_round_trip_and_support_update_delete() -> Result<()> {
@@ -427,8 +266,7 @@ mod tests {
         );
         assert!(
             ExplorationArtifactStore::for_database_path(&db_path)
-                .root
-                .join(ARTIFACT_STORE_LAYOUT_VERSION)
+                .version_dir()
                 .exists()
         );
 
@@ -479,8 +317,7 @@ mod tests {
             .join("index.sqlite3");
         assert!(
             ExplorationArtifactStore::for_database_path(&db_path)
-                .root
-                .join(ARTIFACT_STORE_LAYOUT_VERSION)
+                .version_dir()
                 .exists()
         );
 

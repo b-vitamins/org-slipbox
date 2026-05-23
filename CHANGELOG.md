@@ -16,6 +16,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Split the remaining large CLI adapters for explorations, relations, and
   reviews into product-surface modules, and moved live artifact/remediation
   construction semantics into core helpers for reuse by non-CLI adapters.
+- Split server workflow/pack/routine query handlers and write handlers into
+  focused modules, keeping RPC behavior stable while making durable command
+  boundaries easier to audit.
+- Extracted the shared durable JSON file-store used by saved artifacts,
+  workbench packs, and review runs so atomic persistence semantics are defined
+  in one place.
 
 ## [0.13.2] - 2026-05-14
 

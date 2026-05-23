@@ -620,6 +620,7 @@ version = "0.13.2"
 dependencies = [
  "anyhow",
  "rusqlite",
+ "serde",
  "serde_json",
  "slipbox-core",
  "slipbox-index",

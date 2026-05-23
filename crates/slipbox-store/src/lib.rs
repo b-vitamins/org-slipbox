@@ -8,6 +8,7 @@ mod exploration;
 mod files;
 mod forward_links;
 mod graph;
+mod json_store;
 mod links;
 mod nodes;
 mod occurrences;

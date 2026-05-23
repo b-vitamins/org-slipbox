@@ -1,220 +1,82 @@
-use std::fs;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use slipbox_core::WorkbenchPackManifest;
-use urlencoding::encode;
 
-use crate::Database;
+use crate::{
+    Database,
+    json_store::{JsonFileStore, JsonStoreSpec},
+};
 
 const PACK_STORE_DIR_SUFFIX: &str = ".workbench-packs";
 const PACK_STORE_LAYOUT_VERSION: &str = "v1";
 const PACK_FILE_EXTENSION: &str = "json";
 
 pub(crate) struct WorkbenchPackStore {
-    root: PathBuf,
+    store: JsonFileStore<WorkbenchPackManifest>,
 }
 
 impl WorkbenchPackStore {
     pub(crate) fn for_database_path(path: &Path) -> Self {
-        let file_name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("index.sqlite3");
         Self {
-            root: path.with_file_name(format!("{file_name}{PACK_STORE_DIR_SUFFIX}")),
+            store: JsonFileStore::for_database_path(
+                path,
+                JsonStoreSpec {
+                    directory_suffix: PACK_STORE_DIR_SUFFIX,
+                    layout_version: PACK_STORE_LAYOUT_VERSION,
+                    file_extension: PACK_FILE_EXTENSION,
+                    item_name: "workbench pack",
+                    plural_name: "workbench packs",
+                    id_field_name: "pack_id",
+                    default_database_file_name: "index.sqlite3",
+                },
+            ),
         }
     }
 
     pub(crate) fn migrate(&self) -> Result<()> {
-        fs::create_dir_all(self.version_dir()).with_context(|| {
-            format!(
-                "failed to create workbench pack store {}",
-                self.version_dir().display()
-            )
-        })?;
-        Ok(())
+        self.store.migrate()
     }
 
-    fn version_dir(&self) -> PathBuf {
-        self.root.join(PACK_STORE_LAYOUT_VERSION)
+    #[cfg(test)]
+    fn version_dir(&self) -> std::path::PathBuf {
+        self.store.version_dir()
     }
 
-    fn pack_path(&self, pack_id: &str) -> PathBuf {
-        self.version_dir()
-            .join(format!("{}.{}", encode(pack_id), PACK_FILE_EXTENSION))
-    }
-
-    fn temporary_pack_path(&self, pack_id: &str) -> PathBuf {
-        self.version_dir().join(format!(
-            ".{}.tmp-{}-{}",
-            encode(pack_id),
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ))
-    }
-
-    fn validate_pack_id(&self, pack_id: &str) -> Result<()> {
-        if pack_id.trim().is_empty() {
-            anyhow::bail!("pack_id must not be empty");
-        }
-        if pack_id.trim() != pack_id {
-            anyhow::bail!("pack_id must not have leading or trailing whitespace");
-        }
-        Ok(())
-    }
-
-    fn load_pack_file(&self, path: &Path) -> Result<WorkbenchPackManifest> {
-        let contents = fs::read_to_string(path)
-            .with_context(|| format!("failed to read workbench pack {}", path.display()))?;
-        let pack = serde_json::from_str::<WorkbenchPackManifest>(&contents)
-            .with_context(|| format!("failed to parse workbench pack {}", path.display()))?;
-        if let Some(error) = pack.validation_error() {
-            anyhow::bail!(
-                "stored workbench pack {} is invalid: {}",
-                path.display(),
-                error
-            );
-        }
-        let expected_path = self.pack_path(&pack.metadata.pack_id);
-        if expected_path != path {
-            anyhow::bail!(
-                "stored workbench pack {} does not match pack_id {}",
-                path.display(),
-                pack.metadata.pack_id
-            );
-        }
-        Ok(pack)
-    }
-
-    fn list_pack_paths(&self) -> Result<Vec<PathBuf>> {
-        let mut paths = Vec::new();
-        if !self.version_dir().exists() {
-            return Ok(paths);
-        }
-
-        for entry in fs::read_dir(self.version_dir()).with_context(|| {
-            format!(
-                "failed to list workbench packs in {}",
-                self.version_dir().display()
-            )
-        })? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) == Some(PACK_FILE_EXTENSION) {
-                paths.push(path);
-            }
-        }
-
-        paths.sort();
-        Ok(paths)
-    }
-
-    fn write_temporary_pack_file(&self, pack: &WorkbenchPackManifest) -> Result<PathBuf> {
-        let temporary_path = self.temporary_pack_path(&pack.metadata.pack_id);
-        let json = serde_json::to_vec_pretty(pack).context("failed to serialize workbench pack")?;
-        let mut file = match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary_path)
-        {
-            Ok(file) => file,
-            Err(error) => {
-                return Err(error).with_context(|| {
-                    format!(
-                        "failed to create temporary workbench pack {}",
-                        temporary_path.display()
-                    )
-                });
-            }
-        };
-        if let Err(error) = file.write_all(&json).and_then(|_| file.sync_all()) {
-            drop(file);
-            let _ = fs::remove_file(&temporary_path);
-            return Err(error).with_context(|| {
-                format!(
-                    "failed to write temporary workbench pack {}",
-                    temporary_path.display()
-                )
-            });
-        }
-        Ok(temporary_path)
+    #[cfg(test)]
+    fn pack_path(&self, pack_id: &str) -> std::path::PathBuf {
+        self.store.path_for_id(pack_id)
     }
 
     fn save(&self, pack: &WorkbenchPackManifest) -> Result<()> {
-        if let Some(error) = pack.validation_error() {
-            anyhow::bail!("workbench pack is invalid: {error}");
-        }
-
-        let path = self.pack_path(&pack.metadata.pack_id);
-        let temporary_path = self.write_temporary_pack_file(pack)?;
-        #[cfg(windows)]
-        if path.exists() {
-            fs::remove_file(&path).with_context(|| {
-                format!(
-                    "failed to replace existing workbench pack {}",
-                    path.display()
-                )
-            })?;
-        }
-        if let Err(error) = fs::rename(&temporary_path, &path) {
-            let _ = fs::remove_file(&temporary_path);
-            return Err(error)
-                .with_context(|| format!("failed to finalize workbench pack {}", path.display()));
-        }
-        Ok(())
+        self.store.save(
+            &pack.metadata.pack_id,
+            pack,
+            WorkbenchPackManifest::validation_error,
+        )
     }
 
     fn save_if_absent(&self, pack: &WorkbenchPackManifest) -> Result<bool> {
-        if let Some(error) = pack.validation_error() {
-            anyhow::bail!("workbench pack is invalid: {error}");
-        }
-
-        let path = self.pack_path(&pack.metadata.pack_id);
-        let temporary_path = self.write_temporary_pack_file(pack)?;
-        match fs::hard_link(&temporary_path, &path) {
-            Ok(()) => {
-                fs::remove_file(&temporary_path).with_context(|| {
-                    format!(
-                        "failed to clean up temporary workbench pack {}",
-                        temporary_path.display()
-                    )
-                })?;
-                Ok(true)
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                let _ = fs::remove_file(&temporary_path);
-                Ok(false)
-            }
-            Err(error) => {
-                let _ = fs::remove_file(&temporary_path);
-                Err(error).with_context(|| {
-                    format!("failed to finalize new workbench pack {}", path.display())
-                })
-            }
-        }
+        self.store.save_if_absent(
+            &pack.metadata.pack_id,
+            pack,
+            WorkbenchPackManifest::validation_error,
+        )
     }
 
     fn load(&self, pack_id: &str) -> Result<Option<WorkbenchPackManifest>> {
-        self.validate_pack_id(pack_id)?;
-        let path = self.pack_path(pack_id);
-        if !path.exists() {
-            return Ok(None);
-        }
-        self.load_pack_file(&path).map(Some)
+        self.store.load(
+            pack_id,
+            |pack| pack.metadata.pack_id.as_str(),
+            WorkbenchPackManifest::validation_error,
+        )
     }
 
     fn list(&self) -> Result<Vec<WorkbenchPackManifest>> {
-        let mut packs = self
-            .list_pack_paths()?
-            .into_iter()
-            .map(|path| self.load_pack_file(&path))
-            .collect::<Result<Vec<_>>>()?;
+        let mut packs = self.store.list(
+            |pack| pack.metadata.pack_id.as_str(),
+            WorkbenchPackManifest::validation_error,
+        )?;
         packs.sort_by(|left, right| {
             let left_title = left.metadata.title.to_ascii_lowercase();
             let right_title = right.metadata.title.to_ascii_lowercase();
@@ -227,14 +89,7 @@ impl WorkbenchPackStore {
     }
 
     fn delete(&self, pack_id: &str) -> Result<bool> {
-        self.validate_pack_id(pack_id)?;
-        let path = self.pack_path(pack_id);
-        if !path.exists() {
-            return Ok(false);
-        }
-        fs::remove_file(&path)
-            .with_context(|| format!("failed to delete workbench pack {}", path.display()))?;
-        Ok(true)
+        self.store.delete(pack_id)
     }
 }
 
@@ -277,7 +132,7 @@ mod tests {
 
     use crate::{Database, test_support::indexed_database};
 
-    use super::{PACK_STORE_LAYOUT_VERSION, WorkbenchPackStore};
+    use super::WorkbenchPackStore;
 
     #[test]
     fn workbench_packs_round_trip_and_support_update_delete() -> Result<()> {
@@ -472,8 +327,7 @@ mod tests {
         assert_eq!(database.workbench_pack("pack/research-review")?, Some(pack));
         assert!(
             WorkbenchPackStore::for_database_path(&db_path)
-                .root
-                .join(PACK_STORE_LAYOUT_VERSION)
+                .version_dir()
                 .exists()
         );
 
@@ -557,8 +411,7 @@ mod tests {
             .join("index.sqlite3");
         assert!(
             WorkbenchPackStore::for_database_path(&db_path)
-                .root
-                .join(PACK_STORE_LAYOUT_VERSION)
+                .version_dir()
                 .exists()
         );
 

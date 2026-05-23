@@ -1,213 +1,84 @@
 use std::fs;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::path::Path;
+use std::time::UNIX_EPOCH;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use slipbox_core::ReviewRun;
-use urlencoding::encode;
 
-use crate::Database;
+use crate::{
+    Database,
+    json_store::{JsonFileStore, JsonStoreSpec},
+};
 
 const REVIEW_STORE_DIR_SUFFIX: &str = ".review-runs";
 const REVIEW_STORE_LAYOUT_VERSION: &str = "v1";
 const REVIEW_FILE_EXTENSION: &str = "json";
 
 pub(crate) struct ReviewRunStore {
-    root: PathBuf,
+    store: JsonFileStore<ReviewRun>,
 }
 
 impl ReviewRunStore {
     pub(crate) fn for_database_path(path: &Path) -> Self {
-        let file_name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("index.sqlite3");
         Self {
-            root: path.with_file_name(format!("{file_name}{REVIEW_STORE_DIR_SUFFIX}")),
+            store: JsonFileStore::for_database_path(
+                path,
+                JsonStoreSpec {
+                    directory_suffix: REVIEW_STORE_DIR_SUFFIX,
+                    layout_version: REVIEW_STORE_LAYOUT_VERSION,
+                    file_extension: REVIEW_FILE_EXTENSION,
+                    item_name: "review run",
+                    plural_name: "review runs",
+                    id_field_name: "review_id",
+                    default_database_file_name: "index.sqlite3",
+                },
+            ),
         }
     }
 
     pub(crate) fn migrate(&self) -> Result<()> {
-        fs::create_dir_all(self.version_dir()).with_context(|| {
-            format!(
-                "failed to create review run store {}",
-                self.version_dir().display()
-            )
-        })?;
-        Ok(())
+        self.store.migrate()
     }
 
-    fn version_dir(&self) -> PathBuf {
-        self.root.join(REVIEW_STORE_LAYOUT_VERSION)
+    #[cfg(test)]
+    fn version_dir(&self) -> std::path::PathBuf {
+        self.store.version_dir()
     }
 
-    fn review_path(&self, review_id: &str) -> PathBuf {
-        self.version_dir()
-            .join(format!("{}.{}", encode(review_id), REVIEW_FILE_EXTENSION))
-    }
-
-    fn temporary_review_path(&self, review_id: &str) -> PathBuf {
-        self.version_dir().join(format!(
-            ".{}.tmp-{}-{}",
-            encode(review_id),
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ))
-    }
-
-    fn validate_review_id(&self, review_id: &str) -> Result<()> {
-        if review_id.trim().is_empty() {
-            anyhow::bail!("review_id must not be empty");
-        }
-        if review_id.trim() != review_id {
-            anyhow::bail!("review_id must not have leading or trailing whitespace");
-        }
-        Ok(())
-    }
-
-    fn load_review_file(&self, path: &Path) -> Result<ReviewRun> {
-        let contents = fs::read_to_string(path)
-            .with_context(|| format!("failed to read review run {}", path.display()))?;
-        let review = serde_json::from_str::<ReviewRun>(&contents)
-            .with_context(|| format!("failed to parse review run {}", path.display()))?;
-        if let Some(error) = review.validation_error() {
-            anyhow::bail!("stored review run {} is invalid: {}", path.display(), error);
-        }
-        let expected_path = self.review_path(&review.metadata.review_id);
-        if expected_path != path {
-            anyhow::bail!(
-                "stored review run {} does not match review_id {}",
-                path.display(),
-                review.metadata.review_id
-            );
-        }
-        Ok(review)
-    }
-
-    fn list_review_paths(&self) -> Result<Vec<PathBuf>> {
-        let mut paths = Vec::new();
-        if !self.version_dir().exists() {
-            return Ok(paths);
-        }
-
-        for entry in fs::read_dir(self.version_dir()).with_context(|| {
-            format!(
-                "failed to list review runs in {}",
-                self.version_dir().display()
-            )
-        })? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) == Some(REVIEW_FILE_EXTENSION) {
-                paths.push(path);
-            }
-        }
-
-        paths.sort();
-        Ok(paths)
-    }
-
-    fn write_temporary_review_file(&self, review: &ReviewRun) -> Result<PathBuf> {
-        let temporary_path = self.temporary_review_path(&review.metadata.review_id);
-        let json = serde_json::to_vec_pretty(review).context("failed to serialize review run")?;
-        let mut file = match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary_path)
-        {
-            Ok(file) => file,
-            Err(error) => {
-                return Err(error).with_context(|| {
-                    format!(
-                        "failed to create temporary review run {}",
-                        temporary_path.display()
-                    )
-                });
-            }
-        };
-        if let Err(error) = file.write_all(&json).and_then(|_| file.sync_all()) {
-            drop(file);
-            let _ = fs::remove_file(&temporary_path);
-            return Err(error).with_context(|| {
-                format!(
-                    "failed to write temporary review run {}",
-                    temporary_path.display()
-                )
-            });
-        }
-        Ok(temporary_path)
+    #[cfg(test)]
+    fn review_path(&self, review_id: &str) -> std::path::PathBuf {
+        self.store.path_for_id(review_id)
     }
 
     fn save(&self, review: &ReviewRun) -> Result<()> {
-        if let Some(error) = review.validation_error() {
-            anyhow::bail!("review run is invalid: {error}");
-        }
-
-        let path = self.review_path(&review.metadata.review_id);
-        let temporary_path = self.write_temporary_review_file(review)?;
-        #[cfg(windows)]
-        if path.exists() {
-            fs::remove_file(&path).with_context(|| {
-                format!("failed to replace existing review run {}", path.display())
-            })?;
-        }
-        if let Err(error) = fs::rename(&temporary_path, &path) {
-            let _ = fs::remove_file(&temporary_path);
-            return Err(error)
-                .with_context(|| format!("failed to finalize review run {}", path.display()));
-        }
-        Ok(())
+        self.store.save(
+            &review.metadata.review_id,
+            review,
+            ReviewRun::validation_error,
+        )
     }
 
     fn save_if_absent(&self, review: &ReviewRun) -> Result<bool> {
-        if let Some(error) = review.validation_error() {
-            anyhow::bail!("review run is invalid: {error}");
-        }
-
-        let path = self.review_path(&review.metadata.review_id);
-        let temporary_path = self.write_temporary_review_file(review)?;
-        match fs::hard_link(&temporary_path, &path) {
-            Ok(()) => {
-                fs::remove_file(&temporary_path).with_context(|| {
-                    format!(
-                        "failed to clean up temporary review run {}",
-                        temporary_path.display()
-                    )
-                })?;
-                Ok(true)
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                let _ = fs::remove_file(&temporary_path);
-                Ok(false)
-            }
-            Err(error) => {
-                let _ = fs::remove_file(&temporary_path);
-                Err(error).with_context(|| {
-                    format!("failed to finalize new review run {}", path.display())
-                })
-            }
-        }
+        self.store.save_if_absent(
+            &review.metadata.review_id,
+            review,
+            ReviewRun::validation_error,
+        )
     }
 
     fn load(&self, review_id: &str) -> Result<Option<ReviewRun>> {
-        self.validate_review_id(review_id)?;
-        let path = self.review_path(review_id);
-        if !path.exists() {
-            return Ok(None);
-        }
-        self.load_review_file(&path).map(Some)
+        self.store.load(
+            review_id,
+            |review| review.metadata.review_id.as_str(),
+            ReviewRun::validation_error,
+        )
     }
 
     fn list(&self) -> Result<Vec<ReviewRun>> {
-        let mut reviews = self
-            .list_review_paths()?
-            .into_iter()
-            .map(|path| self.load_review_file(&path))
-            .collect::<Result<Vec<_>>>()?;
+        let mut reviews = self.store.list(
+            |review| review.metadata.review_id.as_str(),
+            ReviewRun::validation_error,
+        )?;
         reviews.sort_by(|left, right| {
             let left_title = left.metadata.title.to_ascii_lowercase();
             let right_title = right.metadata.title.to_ascii_lowercase();
@@ -221,13 +92,19 @@ impl ReviewRunStore {
 
     fn list_newest_first(&self) -> Result<Vec<ReviewRun>> {
         let mut reviews = self
-            .list_review_paths()?
+            .store
+            .list_paths()?
             .into_iter()
             .map(|path| {
                 let modified = fs::metadata(&path)
                     .and_then(|metadata| metadata.modified())
                     .unwrap_or(UNIX_EPOCH);
-                self.load_review_file(&path)
+                self.store
+                    .load_file(
+                        &path,
+                        |review| review.metadata.review_id.as_str(),
+                        ReviewRun::validation_error,
+                    )
                     .map(|review| (modified, review))
             })
             .collect::<Result<Vec<_>>>()?;
@@ -240,14 +117,7 @@ impl ReviewRunStore {
     }
 
     fn delete(&self, review_id: &str) -> Result<bool> {
-        self.validate_review_id(review_id)?;
-        let path = self.review_path(review_id);
-        if !path.exists() {
-            return Ok(false);
-        }
-        fs::remove_file(&path)
-            .with_context(|| format!("failed to delete review run {}", path.display()))?;
-        Ok(true)
+        self.store.delete(review_id)
     }
 }
 
@@ -290,7 +160,7 @@ mod tests {
 
     use crate::{Database, test_support::indexed_database};
 
-    use super::{REVIEW_STORE_LAYOUT_VERSION, ReviewRunStore};
+    use super::ReviewRunStore;
 
     #[test]
     fn review_runs_round_trip_and_support_update_delete() -> Result<()> {
@@ -471,8 +341,7 @@ mod tests {
         );
         assert!(
             ReviewRunStore::for_database_path(&db_path)
-                .root
-                .join(REVIEW_STORE_LAYOUT_VERSION)
+                .version_dir()
                 .exists()
         );
 
@@ -562,8 +431,7 @@ mod tests {
             .join("index.sqlite3");
         assert!(
             ReviewRunStore::for_database_path(&db_path)
-                .root
-                .join(REVIEW_STORE_LAYOUT_VERSION)
+                .version_dir()
                 .exists()
         );
 
