@@ -12,6 +12,7 @@ use crate::path::{
     checked_absolute_org_path, next_available_path, next_available_relative_path,
     normalized_head_source, normalized_title, slugify,
 };
+use crate::transaction::FileRewriteTransaction;
 
 pub fn capture_file_note(root: &Path, title: &str) -> Result<CaptureOutcome> {
     capture_file_note_with_refs(root, title, &[])
@@ -81,8 +82,9 @@ pub fn append_heading(
     let source = fs::read_to_string(&file_note.absolute_path)
         .with_context(|| format!("failed to read {}", file_note.absolute_path.display()))?;
     let (updated, line_number) = append_heading_to_source(&source, heading, level.max(1));
-    fs::write(&file_note.absolute_path, updated)
-        .with_context(|| format!("failed to write {}", file_note.absolute_path.display()))?;
+    let mut transaction = FileRewriteTransaction::new();
+    transaction.write(&file_note.absolute_path, updated);
+    transaction.commit()?;
 
     Ok(CaptureOutcome {
         absolute_path: file_note.absolute_path,
@@ -112,8 +114,9 @@ pub fn append_heading_to_node(
             append_heading_under_node(&source, node.line as usize, node.level as usize, heading)?
         }
     };
-    fs::write(&absolute_path, updated)
-        .with_context(|| format!("failed to write {}", absolute_path.display()))?;
+    let mut transaction = FileRewriteTransaction::new();
+    transaction.write(&absolute_path, updated);
+    transaction.commit()?;
 
     Ok(CaptureOutcome {
         absolute_path,
@@ -141,10 +144,6 @@ pub fn append_heading_at_outline_path(
         fs::read_to_string(&absolute_path)
             .with_context(|| format!("failed to read {}", absolute_path.display()))?
     } else {
-        if let Some(parent) = absolute_path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create directory {}", parent.display()))?;
-        }
         normalized_head_source(head)
     };
     let mut document = OrgDocument::from_source(&source);
@@ -154,8 +153,9 @@ pub fn append_heading_at_outline_path(
         } else {
             append_heading_to_source(&document.render(), heading, 1)
         };
-    fs::write(&absolute_path, rendered)
-        .with_context(|| format!("failed to write {}", absolute_path.display()))?;
+    let mut transaction = FileRewriteTransaction::new();
+    transaction.write(&absolute_path, rendered);
+    transaction.commit()?;
 
     Ok(CaptureOutcome {
         absolute_path,
@@ -176,10 +176,6 @@ pub fn capture_file_note_at_with_head_and_refs(
     let _ = normalized_title(title)?;
     let relative_path = next_available_relative_path(root, file_path)?;
     let absolute_path = root.join(&relative_path);
-    if let Some(parent) = absolute_path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create directory {}", parent.display()))?;
-    }
     let mut document = OrgDocument::from_source(&normalized_head_source(Some(head)));
 
     if refs.is_empty() {
@@ -188,8 +184,9 @@ pub fn capture_file_note_at_with_head_and_refs(
         document.ensure_file_identity_with_refs(refs)?;
     }
 
-    fs::write(&absolute_path, document.render())
-        .with_context(|| format!("failed to write {}", absolute_path.display()))?;
+    let mut transaction = FileRewriteTransaction::new();
+    transaction.write(&absolute_path, document.render());
+    transaction.commit()?;
 
     Ok(CaptureOutcome {
         absolute_path,
@@ -224,7 +221,9 @@ fn write_file_note(path: &Path, title: &str, refs: &[String]) -> Result<()> {
         content.push_str(&format!(":ROAM_REFS: {}\n", format_property_values(refs)));
     }
     content.push_str(":END:\n\n");
-    fs::write(path, content).with_context(|| format!("failed to write {}", path.display()))
+    let mut transaction = FileRewriteTransaction::new();
+    transaction.write(path, content);
+    transaction.commit()
 }
 
 fn append_heading_to_source(source: &str, heading: &str, level: usize) -> (String, usize) {

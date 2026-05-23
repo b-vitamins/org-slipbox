@@ -11,6 +11,7 @@ use crate::path::{
     checked_absolute_org_path, default_capture_file_title, next_available_path,
     normalize_relative_org_path, normalized_head_source, slugify,
 };
+use crate::transaction::FileRewriteTransaction;
 use crate::{CaptureOutcome, CapturePreviewOutcome};
 
 pub(crate) enum CaptureTargetSelection {
@@ -40,12 +41,9 @@ pub fn capture_template(
 ) -> Result<CaptureOutcome> {
     let prepared = prepare_capture_template(root, target_node, params, None, false)?;
 
-    if let Some(parent) = prepared.absolute_path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create directory {}", parent.display()))?;
-    }
-    fs::write(&prepared.absolute_path, prepared.document.render())
-        .with_context(|| format!("failed to write {}", prepared.absolute_path.display()))?;
+    let mut transaction = FileRewriteTransaction::new();
+    transaction.write(&prepared.absolute_path, prepared.document.render());
+    transaction.commit()?;
 
     Ok(CaptureOutcome {
         absolute_path: prepared.absolute_path,

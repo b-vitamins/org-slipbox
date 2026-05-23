@@ -20,6 +20,7 @@ pub use rewrite::{
     RegionRewriteOutcome, demote_entire_file, extract_subtree, promote_entire_file, refile_region,
     refile_subtree,
 };
+pub use transaction::FileRewriteTransaction;
 
 pub struct CaptureOutcome {
     pub absolute_path: PathBuf,

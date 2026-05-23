@@ -15,6 +15,7 @@ use slipbox_core::{
     StructuralWriteIndexRefreshStatus,
 };
 use slipbox_rpc::JsonRpcError;
+use slipbox_write::FileRewriteTransaction;
 
 use super::common::{invalid_request, validate_review_id_params};
 use crate::server::rpc::{internal_error, parse_params, to_value};
@@ -379,8 +380,11 @@ fn apply_unlink_dangling_link(
         line_start + link_start..line_start + link_end,
         replacement_text,
     );
-    fs::write(path, content)
-        .map_err(|error| internal_error(anyhow!("failed to write remediation target: {error}")))?;
+    let mut transaction = FileRewriteTransaction::new();
+    transaction.write(path, content);
+    transaction
+        .commit()
+        .map_err(|error| internal_error(error.context("failed to write remediation target")))?;
     Ok(())
 }
 

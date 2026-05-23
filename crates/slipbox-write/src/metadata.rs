@@ -8,6 +8,7 @@ use uuid::Uuid;
 use crate::MetadataUpdate;
 use crate::document::{OrgDocument, keyword_value, property_value};
 use crate::path::checked_absolute_org_path;
+use crate::transaction::FileRewriteTransaction;
 
 pub fn ensure_node_id(root: &Path, node: &AnchorRecord) -> Result<PathBuf> {
     let (_, absolute_path) = checked_absolute_org_path(root, &node.file_path)?;
@@ -22,8 +23,9 @@ pub fn ensure_node_id(root: &Path, node: &AnchorRecord) -> Result<PathBuf> {
         NodeKind::File => insert_file_id(&source, &explicit_id),
         NodeKind::Heading => insert_heading_id(&source, node.line as usize, &explicit_id)?,
     };
-    fs::write(&absolute_path, updated)
-        .with_context(|| format!("failed to write {}", absolute_path.display()))?;
+    let mut transaction = FileRewriteTransaction::new();
+    transaction.write(&absolute_path, updated);
+    transaction.commit()?;
     Ok(absolute_path)
 }
 
@@ -70,8 +72,9 @@ pub fn update_node_metadata(
         }
     }
 
-    fs::write(&absolute_path, document.render())
-        .with_context(|| format!("failed to write {}", absolute_path.display()))?;
+    let mut transaction = FileRewriteTransaction::new();
+    transaction.write(&absolute_path, document.render());
+    transaction.commit()?;
     Ok(absolute_path)
 }
 

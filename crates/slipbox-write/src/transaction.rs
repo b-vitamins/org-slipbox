@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
@@ -7,7 +7,7 @@ use anyhow::{Context, Result, bail};
 use uuid::Uuid;
 
 #[derive(Default)]
-pub(crate) struct FileRewriteTransaction {
+pub struct FileRewriteTransaction {
     // All writes are staged before any visible mutation; removals run last.
     writes: Vec<FileRewrite>,
     removals: Vec<PathBuf>,
@@ -20,11 +20,11 @@ struct FileRewrite {
 }
 
 impl FileRewriteTransaction {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self::default()
     }
 
-    pub(crate) fn write(&mut self, path: impl Into<PathBuf>, content: impl Into<String>) {
+    pub fn write(&mut self, path: impl Into<PathBuf>, content: impl Into<String>) {
         self.writes.push(FileRewrite {
             path: path.into(),
             content: content.into(),
@@ -32,11 +32,11 @@ impl FileRewriteTransaction {
         });
     }
 
-    pub(crate) fn remove(&mut self, path: impl Into<PathBuf>) {
+    pub fn remove(&mut self, path: impl Into<PathBuf>) {
         self.removals.push(path.into());
     }
 
-    pub(crate) fn commit(mut self) -> Result<()> {
+    pub fn commit(mut self) -> Result<()> {
         self.validate()?;
 
         for write in &mut self.writes {
@@ -50,7 +50,6 @@ impl FileRewriteTransaction {
         for path in &self.removals {
             fs::remove_file(path)
                 .with_context(|| format!("failed to remove {}", path.display()))?;
-            sync_parent(path);
         }
 
         Ok(())
@@ -107,7 +106,7 @@ impl FileRewrite {
                 if let Some(permissions) = replacement_permissions.clone() {
                     fs::set_permissions(&temporary_path, permissions)?;
                 }
-                file.sync_all()?;
+                file.flush()?;
                 Ok(())
             })();
 
@@ -135,7 +134,6 @@ impl FileRewrite {
             .context("write was not staged before commit")?;
         replace_file(temporary_path, &self.path)?;
         self.temporary_path = None;
-        sync_parent(&self.path);
         Ok(())
     }
 }
@@ -185,16 +183,6 @@ fn replace_file(temporary_path: &Path, target_path: &Path) -> Result<()> {
 
     fs::rename(temporary_path, target_path)
         .with_context(|| format!("failed to replace {}", target_path.display()))
-}
-
-fn sync_parent(path: &Path) {
-    let Some(parent) = parent_dir(path) else {
-        return;
-    };
-
-    if let Ok(directory) = File::open(parent) {
-        let _ = directory.sync_all();
-    }
 }
 
 #[cfg(test)]

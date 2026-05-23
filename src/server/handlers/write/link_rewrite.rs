@@ -10,6 +10,7 @@ use slipbox_core::{
     StructuralWriteIndexRefreshStatus,
 };
 use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
+use slipbox_write::FileRewriteTransaction;
 
 use crate::server::rpc::{internal_error, parse_params, to_value};
 use crate::server::state::ServerState;
@@ -204,8 +205,11 @@ fn rewrite_slipbox_links_in_file(
     for (start, end, replacement) in replacements.into_iter().rev() {
         rewritten.replace_range(start..end, &replacement);
     }
-    fs::write(absolute_path, rewritten)
-        .map_err(|error| internal_error(anyhow!(error).context("failed to write link source")))?;
+    let mut transaction = FileRewriteTransaction::new();
+    transaction.write(absolute_path, rewritten);
+    transaction
+        .commit()
+        .map_err(|error| internal_error(error.context("failed to write link source")))?;
     Ok(applied)
 }
 
