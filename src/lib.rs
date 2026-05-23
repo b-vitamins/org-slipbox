@@ -5,6 +5,7 @@
 
 mod occurrences_query;
 mod reflinks_query;
+pub mod root_path;
 pub mod server;
 pub mod service;
 mod text_query;

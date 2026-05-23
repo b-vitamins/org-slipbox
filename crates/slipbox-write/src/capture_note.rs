@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::CaptureOutcome;
 use crate::document::{OrgDocument, format_property_values, heading_level, render_lines};
 use crate::path::{
-    next_available_path, next_available_relative_path, normalize_relative_org_path,
+    checked_absolute_org_path, next_available_path, next_available_relative_path,
     normalized_head_source, normalized_title, slugify,
 };
 
@@ -54,8 +54,7 @@ pub fn ensure_file_note(root: &Path, file_path: &str, title: &str) -> Result<Cap
         .with_context(|| format!("failed to create root directory {}", root.display()))?;
 
     let title = normalized_title(title)?;
-    let relative_path = normalize_relative_org_path(file_path)?;
-    let absolute_path = root.join(&relative_path);
+    let (relative_path, absolute_path) = checked_absolute_org_path(root, file_path)?;
     if !absolute_path.exists() {
         write_file_note(&absolute_path, title, &[])?;
     }
@@ -104,7 +103,7 @@ pub fn append_heading_to_node(
         bail!("capture heading must not be empty");
     }
 
-    let absolute_path = root.join(&node.file_path);
+    let (_, absolute_path) = checked_absolute_org_path(root, &node.file_path)?;
     let source = fs::read_to_string(&absolute_path)
         .with_context(|| format!("failed to read {}", absolute_path.display()))?;
     let (updated, line_number) = match node.kind {
@@ -137,8 +136,7 @@ pub fn append_heading_at_outline_path(
     fs::create_dir_all(root)
         .with_context(|| format!("failed to create root directory {}", root.display()))?;
 
-    let relative_path = normalize_relative_org_path(file_path)?;
-    let absolute_path = root.join(&relative_path);
+    let (relative_path, absolute_path) = checked_absolute_org_path(root, file_path)?;
     let source = if absolute_path.exists() {
         fs::read_to_string(&absolute_path)
             .with_context(|| format!("failed to read {}", absolute_path.display()))?
@@ -205,8 +203,7 @@ fn create_file_note(
     title: &str,
     refs: &[String],
 ) -> Result<CaptureOutcome> {
-    let relative_path = normalize_relative_org_path(file_path)?;
-    let absolute_path = root.join(&relative_path);
+    let (relative_path, absolute_path) = checked_absolute_org_path(root, file_path)?;
     write_file_note(&absolute_path, title, refs)?;
 
     Ok(CaptureOutcome {

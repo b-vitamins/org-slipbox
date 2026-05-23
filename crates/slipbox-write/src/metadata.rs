@@ -7,13 +7,14 @@ use uuid::Uuid;
 
 use crate::MetadataUpdate;
 use crate::document::{OrgDocument, keyword_value, property_value};
+use crate::path::checked_absolute_org_path;
 
 pub fn ensure_node_id(root: &Path, node: &AnchorRecord) -> Result<PathBuf> {
+    let (_, absolute_path) = checked_absolute_org_path(root, &node.file_path)?;
     if node.explicit_id.is_some() {
-        return Ok(root.join(&node.file_path));
+        return Ok(absolute_path);
     }
 
-    let absolute_path = root.join(&node.file_path);
     let source = fs::read_to_string(&absolute_path)
         .with_context(|| format!("failed to read {}", absolute_path.display()))?;
     let explicit_id = Uuid::new_v4().to_string();
@@ -31,7 +32,7 @@ pub fn update_node_metadata(
     node: &NodeRecord,
     update: &MetadataUpdate,
 ) -> Result<PathBuf> {
-    let absolute_path = root.join(&node.file_path);
+    let (_, absolute_path) = checked_absolute_org_path(root, &node.file_path)?;
     let source = fs::read_to_string(&absolute_path)
         .with_context(|| format!("failed to read {}", absolute_path.display()))?;
     let mut document = OrgDocument::from_source(&source);

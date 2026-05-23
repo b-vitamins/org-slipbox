@@ -7,6 +7,7 @@ use regex::{Regex, RegexBuilder};
 use slipbox_core::{AnchorRecord, ExplorationExplanation, IndexedLink, UnlinkedReferenceRecord};
 use slipbox_store::Database;
 
+use crate::root_path::resolve_root_path_from_canonical_root;
 use crate::text_query::{
     build_structural_ranges, byte_offset_for_column, column_number, has_phrase_boundaries,
     structural_range_for_key,
@@ -53,7 +54,8 @@ pub(crate) fn query_unlinked_references(
             break;
         }
 
-        let absolute_path = root.join(&file_path);
+        let absolute_path =
+            resolve_root_path_from_canonical_root(root, Path::new(&file_path))?.absolute_path;
         if !absolute_path.exists() {
             continue;
         }
@@ -214,7 +216,8 @@ fn candidate_file_paths(database: &Database, patterns: &[String]) -> Result<Vec<
 }
 
 fn current_subtree_range(root: &Path, file_path: &str, node: &AnchorRecord) -> Result<(u32, u32)> {
-    let absolute_path = root.join(file_path);
+    let absolute_path =
+        resolve_root_path_from_canonical_root(root, Path::new(file_path))?.absolute_path;
     if !absolute_path.exists() {
         return Ok((0, 0));
     }

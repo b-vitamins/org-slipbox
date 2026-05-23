@@ -8,6 +8,7 @@ use regex::{Regex, RegexBuilder};
 use slipbox_core::{AnchorRecord, ExplorationExplanation, ReflinkRecord};
 use slipbox_store::Database;
 
+use crate::root_path::resolve_root_path_from_canonical_root;
 use crate::text_query::{
     build_structural_ranges, column_number, structural_range_for_key, structural_range_for_row,
 };
@@ -44,7 +45,8 @@ pub(crate) fn query_reflinks(
             break;
         }
 
-        let absolute_path = root.join(&file_path);
+        let absolute_path =
+            resolve_root_path_from_canonical_root(root, Path::new(&file_path))?.absolute_path;
         if !absolute_path.exists() {
             continue;
         }

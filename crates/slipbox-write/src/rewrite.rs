@@ -5,7 +5,7 @@ use anyhow::{Context, Result, bail};
 use slipbox_core::{AnchorRecord, NodeKind, NodeRecord};
 
 use crate::document::{OrgDocument, shift_subtree_levels};
-use crate::path::normalize_relative_org_path;
+use crate::path::checked_absolute_org_path;
 use crate::transaction::FileRewriteTransaction;
 use crate::{CaptureOutcome, RewriteOutcome};
 
@@ -23,8 +23,8 @@ pub fn refile_subtree(
         bail!("target is the same as current node");
     }
 
-    let source_path = root.join(&source.file_path);
-    let target_path = root.join(&target.file_path);
+    let (_, source_path) = checked_absolute_org_path(root, &source.file_path)?;
+    let (_, target_path) = checked_absolute_org_path(root, &target.file_path)?;
     if source.kind == NodeKind::File && source_path == target_path {
         bail!("target is inside the current subtree");
     }
@@ -128,9 +128,8 @@ pub fn refile_region(
         bail!("active region must not be empty");
     }
 
-    let relative_source_path = normalize_relative_org_path(source_file_path)?;
-    let source_path = root.join(&relative_source_path);
-    let target_path = root.join(&target.file_path);
+    let (_, source_path) = checked_absolute_org_path(root, source_file_path)?;
+    let (_, target_path) = checked_absolute_org_path(root, &target.file_path)?;
     let source_source = fs::read_to_string(&source_path)
         .with_context(|| format!("failed to read {}", source_path.display()))?;
     let target_source = if source_path == target_path {
@@ -223,9 +222,8 @@ pub fn extract_subtree(
         bail!("only heading nodes can be extracted");
     }
 
-    let relative_path = normalize_relative_org_path(file_path)?;
-    let source_path = root.join(&source.file_path);
-    let target_path = root.join(&relative_path);
+    let (_, target_path) = checked_absolute_org_path(root, file_path)?;
+    let (_, source_path) = checked_absolute_org_path(root, &source.file_path)?;
     if source_path == target_path {
         bail!("target file must differ from the source file");
     }
@@ -254,8 +252,7 @@ pub fn extract_subtree(
 }
 
 pub fn demote_entire_file(root: &Path, file_path: &str) -> Result<CaptureOutcome> {
-    let relative_path = normalize_relative_org_path(file_path)?;
-    let absolute_path = root.join(&relative_path);
+    let (relative_path, absolute_path) = checked_absolute_org_path(root, file_path)?;
     let source = fs::read_to_string(&absolute_path)
         .with_context(|| format!("failed to read {}", absolute_path.display()))?;
     let mut document = OrgDocument::from_source(&source);
@@ -270,8 +267,7 @@ pub fn demote_entire_file(root: &Path, file_path: &str) -> Result<CaptureOutcome
 }
 
 pub fn promote_entire_file(root: &Path, file_path: &str) -> Result<CaptureOutcome> {
-    let relative_path = normalize_relative_org_path(file_path)?;
-    let absolute_path = root.join(&relative_path);
+    let (relative_path, absolute_path) = checked_absolute_org_path(root, file_path)?;
     let source = fs::read_to_string(&absolute_path)
         .with_context(|| format!("failed to read {}", absolute_path.display()))?;
     let mut document = OrgDocument::from_source(&source);

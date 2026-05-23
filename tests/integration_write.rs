@@ -92,6 +92,27 @@ fn ensure_file_note_creates_nested_org_file_with_explicit_id() -> Result<()> {
     Ok(())
 }
 
+#[cfg(unix)]
+#[test]
+fn write_operations_reject_symlink_path_components() -> Result<()> {
+    use std::os::unix::fs::symlink;
+
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    let outside = workspace.path().join("outside");
+    fs::create_dir_all(&root)?;
+    fs::create_dir_all(&outside)?;
+    symlink(&outside, root.join("linked"))?;
+
+    let Err(error) = ensure_file_note(&root, "linked/escape.org", "Escape") else {
+        panic!("write through symlink component should fail");
+    };
+
+    assert!(error.to_string().contains("crosses symlink component"));
+    assert!(!outside.join("escape.org").exists());
+    Ok(())
+}
+
 #[test]
 fn append_heading_creates_indexed_heading_node() -> Result<()> {
     let workspace = tempdir()?;

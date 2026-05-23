@@ -343,6 +343,43 @@ fn daemon_client_diagnostics_reject_root_escape_paths() -> Result<()> {
     Ok(())
 }
 
+#[cfg(unix)]
+#[test]
+fn daemon_client_diagnostics_reject_symlink_components() -> Result<()> {
+    use std::os::unix::fs::symlink;
+
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    let outside = workspace.path().join("outside");
+    fs::create_dir_all(&root)?;
+    fs::create_dir_all(&outside)?;
+    fs::write(outside.join("escape.org"), "#+title: Outside\n")?;
+    symlink(&outside, root.join("linked"))?;
+    let db = workspace.path().join("slipbox.sqlite");
+    let mut client = DaemonClient::spawn(daemon_binary(), &DaemonServeConfig::new(&root, &db))?;
+
+    let error = client
+        .diagnose_file(&FileDiagnosticsParams {
+            file_path: "linked/escape.org".to_owned(),
+        })
+        .expect_err("diagnoseFile must reject paths crossing symlink components");
+
+    match error {
+        DaemonClientError::Rpc(error) => {
+            assert_eq!(error.code, -32600);
+            assert!(
+                error.message.contains("crosses symlink component"),
+                "{}",
+                error.message
+            );
+        }
+        other => panic!("expected JSON-RPC invalid_request, got {other:?}"),
+    }
+
+    client.shutdown()?;
+    Ok(())
+}
+
 #[test]
 fn daemon_client_exposes_everyday_write_operations_with_read_your_writes() -> Result<()> {
     let workspace = tempdir()?;

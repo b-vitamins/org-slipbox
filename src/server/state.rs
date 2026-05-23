@@ -1,4 +1,4 @@
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
 use slipbox_core::{
@@ -11,6 +11,7 @@ use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
 use slipbox_store::Database;
 use slipbox_write::{CaptureOutcome, CapturePreviewOutcome, RegionRewriteOutcome, RewriteOutcome};
 
+use crate::root_path::resolve_root_path_from_canonical_root;
 use crate::server::rpc::internal_error;
 
 pub(crate) struct ServerState {
@@ -39,24 +40,8 @@ impl ServerState {
     }
 
     pub(super) fn resolve_index_path(&self, file_path: &str) -> Result<(String, PathBuf)> {
-        let candidate = PathBuf::from(file_path);
-        let relative = if candidate.is_absolute() {
-            let root = self.root.canonicalize()?;
-            let absolute = normalize_absolute_path(&candidate)?;
-            let root_relative = absolute.strip_prefix(&root).map_err(|_| {
-                anyhow!(
-                    "file path {} is not under {}",
-                    candidate.display(),
-                    root.display()
-                )
-            })?;
-            normalize_relative_index_path(root_relative)?
-        } else {
-            normalize_relative_index_path(&candidate)?
-        };
-        let relative_path = relative.to_string_lossy().replace('\\', "/");
-        let absolute = self.root.join(relative);
-        Ok((relative_path, absolute))
+        let resolved = resolve_root_path_from_canonical_root(&self.root, Path::new(file_path))?;
+        Ok((resolved.relative_path, resolved.absolute_path))
     }
 
     pub(super) fn sync_path(&mut self, path: &Path) -> Result<(), JsonRpcError> {
@@ -333,49 +318,6 @@ impl ServerState {
     }
 
     fn relative_root_path(&self, path: &Path) -> Result<String> {
-        let relative = path
-            .strip_prefix(&self.root)
-            .map_err(|_| anyhow!("{} is not under {}", path.display(), self.root.display()))?;
-        Ok(relative.to_string_lossy().replace('\\', "/"))
+        Ok(resolve_root_path_from_canonical_root(&self.root, path)?.relative_path)
     }
-}
-
-fn normalize_absolute_path(path: &Path) -> Result<PathBuf> {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if !normalized.pop() {
-                    return Err(anyhow!(
-                        "file path {} cannot escape the filesystem root",
-                        path.display()
-                    ));
-                }
-            }
-            Component::Normal(part) => normalized.push(part),
-            Component::RootDir | Component::Prefix(_) => normalized.push(component.as_os_str()),
-        }
-    }
-    Ok(normalized)
-}
-
-fn normalize_relative_index_path(path: &Path) -> Result<PathBuf> {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::Normal(part) => normalized.push(part),
-            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
-                return Err(anyhow!(
-                    "file path {} must stay within the slipbox root",
-                    path.display()
-                ));
-            }
-        }
-    }
-    if normalized.as_os_str().is_empty() {
-        return Err(anyhow!("file path must not be empty"));
-    }
-    Ok(normalized)
 }

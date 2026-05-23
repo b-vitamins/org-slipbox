@@ -59,43 +59,9 @@ pub(crate) fn normalize_root_relative_path(
     file_path: &Path,
     description: &str,
 ) -> Result<String, DaemonClientError> {
-    let relative = if file_path.is_absolute() {
-        let absolute_root = canonical_edit_root(root)?;
-        file_path.strip_prefix(&absolute_root).map_err(|_| {
-            invalid_request_error(format!(
-                "{description} must stay within --root: {}",
-                file_path.display()
-            ))
-        })?
-    } else {
-        file_path
-    };
-
-    let mut normalized = PathBuf::new();
-    for component in relative.components() {
-        match component {
-            Component::CurDir => {}
-            Component::Normal(part) => normalized.push(part),
-            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
-                return Err(invalid_request_error(format!(
-                    "{description} must stay within --root"
-                )));
-            }
-        }
-    }
-
-    let normalized = normalized.to_string_lossy().replace('\\', "/");
-    if normalized.is_empty() {
-        return Err(invalid_request_error(format!(
-            "{description} must not be empty"
-        )));
-    }
-    Ok(normalized)
-}
-
-fn canonical_edit_root(root: &Path) -> Result<PathBuf, DaemonClientError> {
-    root.canonicalize()
-        .map_err(|error| invalid_request_error(format!("failed to resolve --root: {error}")))
+    slipbox::root_path::resolve_root_path(root, file_path)
+        .map(|resolved| resolved.relative_path)
+        .map_err(|error| invalid_request_error(format!("{description} is invalid: {error}")))
 }
 
 pub(crate) fn validate_region_range(start: u32, end: u32) -> Result<(), DaemonClientError> {

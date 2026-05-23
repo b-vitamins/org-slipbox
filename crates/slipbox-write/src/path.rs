@@ -1,3 +1,5 @@
+use std::fs;
+use std::io;
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -38,6 +40,13 @@ pub(crate) fn normalize_relative_org_path(file_path: &str) -> Result<String> {
     Ok(normalized)
 }
 
+pub(crate) fn checked_absolute_org_path(root: &Path, file_path: &str) -> Result<(String, PathBuf)> {
+    let relative_path = normalize_relative_org_path(file_path)?;
+    reject_symlink_components(root, Path::new(&relative_path))?;
+    let absolute_path = root.join(&relative_path);
+    Ok((relative_path, absolute_path))
+}
+
 pub(crate) fn next_available_path(root: &Path, slug: &str) -> String {
     for suffix in 0.. {
         let filename = if suffix == 0 {
@@ -56,6 +65,7 @@ pub(crate) fn next_available_path(root: &Path, slug: &str) -> String {
 pub(crate) fn next_available_relative_path(root: &Path, file_path: &str) -> Result<String> {
     let normalized = normalize_relative_org_path(file_path)?;
     let candidate = Path::new(&normalized);
+    reject_symlink_components(root, candidate)?;
     let stem = candidate
         .file_stem()
         .and_then(|stem| stem.to_str())
@@ -84,6 +94,33 @@ pub(crate) fn next_available_relative_path(root: &Path, file_path: &str) -> Resu
     }
 
     unreachable!("unbounded path generation must eventually find an unused file name")
+}
+
+fn reject_symlink_components(root: &Path, relative: &Path) -> Result<()> {
+    let mut absolute = root.to_path_buf();
+    for component in relative.components() {
+        let Component::Normal(part) = component else {
+            continue;
+        };
+        absolute.push(part);
+        match fs::symlink_metadata(&absolute) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                bail!(
+                    "file path {} crosses symlink component {}",
+                    root.join(relative).display(),
+                    absolute.display()
+                );
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => break,
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!("failed to inspect path component {}", absolute.display())
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn slugify(title: &str) -> String {

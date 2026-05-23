@@ -8,8 +8,8 @@ use uuid::Uuid;
 use crate::capture_content::{capture_entry, capture_list_item, capture_plain, capture_table_line};
 use crate::document::OrgDocument;
 use crate::path::{
-    default_capture_file_title, next_available_path, normalize_relative_org_path,
-    normalized_head_source, slugify,
+    checked_absolute_org_path, default_capture_file_title, next_available_path,
+    normalize_relative_org_path, normalized_head_source, slugify,
 };
 use crate::{CaptureOutcome, CapturePreviewOutcome};
 
@@ -83,7 +83,7 @@ fn prepare_capture_template(
 
     let refs = params.normalized_refs();
     let relative_path = resolve_template_relative_path(root, target_node, params)?;
-    let absolute_path = root.join(&relative_path);
+    let (relative_path, absolute_path) = checked_absolute_org_path(root, &relative_path)?;
     let existed_on_disk = absolute_path.exists();
     let source = match source_override {
         Some(source) => source.to_owned(),
