@@ -1610,6 +1610,59 @@ fn saved_comparison_artifact_round_trips_with_group_semantics() {
 }
 
 #[test]
+fn live_saved_artifact_builders_capture_replay_semantics() {
+    let lens = SavedExplorationArtifact::live_lens_view(
+        ExplorationArtifactMetadata {
+            artifact_id: "live-lens".to_owned(),
+            title: "Live Lens".to_owned(),
+            summary: None,
+        },
+        "heading:focus.org:3".to_owned(),
+        ExplorationLens::Structure,
+        75,
+        true,
+    );
+    assert_eq!(lens.validation_error(), None);
+    match lens.payload {
+        ExplorationArtifactPayload::LensView { artifact } => {
+            assert_eq!(artifact.root_node_key, "heading:focus.org:3");
+            assert_eq!(artifact.current_node_key, "heading:focus.org:3");
+            assert_eq!(artifact.lens, ExplorationLens::Structure);
+            assert_eq!(artifact.limit, 75);
+            assert!(artifact.unique);
+            assert!(!artifact.frozen_context);
+        }
+        other => panic!("expected live lens artifact, got {other:?}"),
+    }
+
+    let comparison = SavedExplorationArtifact::live_comparison(
+        ExplorationArtifactMetadata {
+            artifact_id: "live-comparison".to_owned(),
+            title: "Live Comparison".to_owned(),
+            summary: Some("Pinned from live compare".to_owned()),
+        },
+        "heading:left.org:3".to_owned(),
+        "heading:right.org:4".to_owned(),
+        NoteComparisonGroup::Tension,
+        125,
+    );
+    assert_eq!(comparison.validation_error(), None);
+    match comparison.payload {
+        ExplorationArtifactPayload::Comparison { artifact } => {
+            assert_eq!(artifact.root_node_key, "heading:left.org:3");
+            assert_eq!(artifact.left_node_key, "heading:left.org:3");
+            assert_eq!(artifact.right_node_key, "heading:right.org:4");
+            assert_eq!(artifact.active_lens, ExplorationLens::Structure);
+            assert!(!artifact.structure_unique);
+            assert_eq!(artifact.comparison_group, NoteComparisonGroup::Tension);
+            assert_eq!(artifact.limit, 125);
+            assert!(!artifact.frozen_context);
+        }
+        other => panic!("expected live comparison artifact, got {other:?}"),
+    }
+}
+
+#[test]
 fn saved_trail_artifact_round_trips_and_preserves_detached_step() {
     let artifact = SavedExplorationArtifact {
         metadata: ExplorationArtifactMetadata {
@@ -3600,6 +3653,34 @@ fn review_finding_remediation_previews_cover_supported_audit_findings() {
         dangling_preview.preview_identity,
         sample_dangling_preview_identity("file:source.org", "missing-id")
     );
+    assert_eq!(
+        dangling_preview
+            .default_apply_action(None)
+            .expect("dangling-link preview should derive default apply action"),
+        AuditRemediationApplyAction::UnlinkDanglingLink {
+            source_node_key: "file:source.org".to_owned(),
+            missing_explicit_id: "missing-id".to_owned(),
+            file_path: "sample.org".to_owned(),
+            line: 12,
+            column: 7,
+            preview: "[[id:missing-id][Missing]]".to_owned(),
+            replacement_text: "Missing".to_owned(),
+        }
+    );
+    assert_eq!(
+        dangling_preview
+            .default_apply_action(Some("Replacement"))
+            .expect("dangling-link preview should accept explicit replacement text"),
+        AuditRemediationApplyAction::UnlinkDanglingLink {
+            source_node_key: "file:source.org".to_owned(),
+            missing_explicit_id: "missing-id".to_owned(),
+            file_path: "sample.org".to_owned(),
+            line: 12,
+            column: 7,
+            preview: "[[id:missing-id][Missing]]".to_owned(),
+            replacement_text: "Replacement".to_owned(),
+        }
+    );
     match dangling_preview.payload {
         super::AuditRemediationPreviewPayload::DanglingLink {
             source,
@@ -3645,6 +3726,12 @@ fn review_finding_remediation_previews_cover_supported_audit_findings() {
         &duplicate_finding,
     )
     .expect("duplicate title should be previewable");
+    assert_eq!(
+        duplicate_preview
+            .default_apply_action(None)
+            .expect_err("duplicate title previews should not derive an apply action"),
+        "review remediation apply currently supports only unlink-dangling-link findings"
+    );
     match duplicate_preview.payload {
         super::AuditRemediationPreviewPayload::DuplicateTitle {
             title,

@@ -317,39 +317,15 @@ pub(crate) fn unlink_dangling_link_action_from_preview(
 ) -> Result<AuditRemediationApplyAction> {
     match &preview.payload {
         AuditRemediationPreviewPayload::DanglingLink {
-            source,
             missing_explicit_id,
-            file_path,
-            line,
-            column,
-            preview,
             ..
-        } if missing_explicit_id == expected_missing_id => {
-            let replacement_text = org_link_description(preview)
-                .context("remediation apply benchmark could not derive link label")?;
-            Ok(AuditRemediationApplyAction::UnlinkDanglingLink {
-                source_node_key: source.node_key.clone(),
-                missing_explicit_id: missing_explicit_id.clone(),
-                file_path: file_path.clone(),
-                line: *line,
-                column: *column,
-                preview: preview.clone(),
-                replacement_text,
-            })
-        }
+        } if missing_explicit_id == expected_missing_id => preview
+            .default_apply_action(None)
+            .map_err(anyhow::Error::msg),
         other => bail!(
             "remediation apply benchmark expected dangling-link preview for {expected_missing_id}, got {other:?}"
         ),
     }
-}
-
-pub(crate) fn org_link_description(preview: &str) -> Option<String> {
-    let link_start = preview.find("[[")?;
-    let inner_start = link_start + 2;
-    let inner_end = preview[inner_start..].find("]]")? + inner_start;
-    let inner = &preview[inner_start..inner_end];
-    let (_, description) = inner.split_once("][")?;
-    (!description.is_empty()).then(|| description.to_owned())
 }
 
 pub(crate) fn write_indexed_bench_file(

@@ -13,6 +13,9 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Split the CLI adapter internals for notes, assets, and shared runtime helpers
   into focused modules, and centralized manual daemon/export paths so future
   agent-facing surfaces build on cleaner command boundaries.
+- Split the remaining large CLI adapters for explorations, relations, and
+  reviews into product-surface modules, and moved live artifact/remediation
+  construction semantics into core helpers for reuse by non-CLI adapters.
 
 ## [0.13.2] - 2026-05-14
 

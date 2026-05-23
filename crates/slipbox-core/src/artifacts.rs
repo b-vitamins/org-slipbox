@@ -263,6 +263,54 @@ pub struct SavedExplorationArtifact {
 
 impl SavedExplorationArtifact {
     #[must_use]
+    pub fn live_lens_view(
+        metadata: ExplorationArtifactMetadata,
+        focus_node_key: String,
+        lens: ExplorationLens,
+        limit: usize,
+        unique: bool,
+    ) -> Self {
+        Self {
+            metadata,
+            payload: ExplorationArtifactPayload::LensView {
+                artifact: Box::new(SavedLensViewArtifact {
+                    root_node_key: focus_node_key.clone(),
+                    current_node_key: focus_node_key,
+                    lens,
+                    limit,
+                    unique,
+                    frozen_context: false,
+                }),
+            },
+        }
+    }
+
+    #[must_use]
+    pub fn live_comparison(
+        metadata: ExplorationArtifactMetadata,
+        left_node_key: String,
+        right_node_key: String,
+        comparison_group: NoteComparisonGroup,
+        limit: usize,
+    ) -> Self {
+        Self {
+            metadata,
+            payload: ExplorationArtifactPayload::Comparison {
+                artifact: Box::new(SavedComparisonArtifact {
+                    root_node_key: left_node_key.clone(),
+                    left_node_key,
+                    right_node_key,
+                    active_lens: ExplorationLens::Structure,
+                    structure_unique: false,
+                    comparison_group,
+                    limit,
+                    frozen_context: false,
+                }),
+            },
+        }
+    }
+
+    #[must_use]
     pub fn kind(&self) -> ExplorationArtifactKind {
         self.payload.kind()
     }

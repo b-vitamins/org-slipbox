@@ -3,23 +3,22 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use slipbox_core::{
     AppliedReportProfile, CompareNotesParams, CorpusAuditParams, DeleteWorkbenchPackResult,
-    ExecutedExplorationArtifact, ExplorationArtifactPayload, ExplorationArtifactSummary,
-    ExplorationLens, ExploreParams, ExploreResult, ImportWorkbenchPackParams,
-    ImportWorkbenchPackResult, ListReviewRoutinesParams, ListReviewRoutinesResult,
-    ListWorkbenchPacksParams, ListWorkbenchPacksResult, ListWorkflowsParams, ListWorkflowsResult,
-    NodeRecord, NoteComparisonGroup, NoteComparisonResult, ReportProfileMode, ReportProfileSpec,
-    ReviewFinding, ReviewFindingPayload, ReviewFindingStatus, ReviewRoutineCompareResult,
+    ExecutedExplorationArtifact, ExplorationArtifactSummary, ExplorationLens, ExploreParams,
+    ExploreResult, ImportWorkbenchPackParams, ImportWorkbenchPackResult, ListReviewRoutinesParams,
+    ListReviewRoutinesResult, ListWorkbenchPacksParams, ListWorkbenchPacksResult,
+    ListWorkflowsParams, ListWorkflowsResult, NodeRecord, NoteComparisonGroup,
+    NoteComparisonResult, ReportProfileMode, ReportProfileSpec, ReviewFinding,
+    ReviewFindingPayload, ReviewFindingStatus, ReviewRoutineCompareResult,
     ReviewRoutineExecutionResult, ReviewRoutineIdParams, ReviewRoutineReportLine,
     ReviewRoutineResult, ReviewRoutineSource, ReviewRoutineSourceExecutionResult,
     ReviewRoutineSpec, ReviewRun, ReviewRunDiff, ReviewRunDiffBucket, ReviewRunMetadata,
     ReviewRunPayload, ReviewRunSummary, RunReviewRoutineParams, RunReviewRoutineResult,
     RunWorkflowParams, RunWorkflowResult, SaveCorpusAuditReviewParams, SaveWorkflowReviewParams,
-    SaveWorkflowReviewResult, SavedComparisonArtifact, SavedExplorationArtifact,
-    SavedLensViewArtifact, ValidateWorkbenchPackParams, ValidateWorkbenchPackResult,
-    WorkbenchPackCompatibilityEnvelope, WorkbenchPackIdParams, WorkbenchPackIssue,
-    WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackResult, WorkbenchPackSummary,
-    WorkflowExecutionResult, WorkflowIdParams, WorkflowInputAssignment, WorkflowResolveTarget,
-    WorkflowResult, WorkflowSpec, WorkflowStepPayload, WorkflowStepReport,
+    SaveWorkflowReviewResult, SavedExplorationArtifact, ValidateWorkbenchPackParams,
+    ValidateWorkbenchPackResult, WorkbenchPackCompatibilityEnvelope, WorkbenchPackIdParams,
+    WorkbenchPackIssue, WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackResult,
+    WorkbenchPackSummary, WorkflowExecutionResult, WorkflowIdParams, WorkflowInputAssignment,
+    WorkflowResolveTarget, WorkflowResult, WorkflowSpec, WorkflowStepPayload, WorkflowStepReport,
     WorkflowStepReportPayload,
 };
 use slipbox_rpc::JsonRpcError;
@@ -934,19 +933,13 @@ pub(super) fn execute_workflow_spec(
                                     limit,
                                     unique,
                                     ..
-                                }) => SavedExplorationArtifact {
-                                    metadata: metadata.clone(),
-                                    payload: ExplorationArtifactPayload::LensView {
-                                        artifact: Box::new(SavedLensViewArtifact {
-                                            root_node_key: focus_node_key.clone(),
-                                            current_node_key: focus_node_key.clone(),
-                                            lens: *lens,
-                                            limit: *limit,
-                                            unique: *unique,
-                                            frozen_context: false,
-                                        }),
-                                    },
-                                },
+                                }) => SavedExplorationArtifact::live_lens_view(
+                                    metadata.clone(),
+                                    focus_node_key.clone(),
+                                    *lens,
+                                    *limit,
+                                    *unique,
+                                ),
                                 _ => {
                                     return Err(invalid_request(format!(
                                         "references invalid explore source {}",
@@ -963,21 +956,13 @@ pub(super) fn execute_workflow_spec(
                                     group,
                                     limit,
                                     ..
-                                }) => SavedExplorationArtifact {
-                                    metadata: metadata.clone(),
-                                    payload: ExplorationArtifactPayload::Comparison {
-                                        artifact: Box::new(SavedComparisonArtifact {
-                                            root_node_key: left_node.node_key.clone(),
-                                            left_node_key: left_node.node_key.clone(),
-                                            right_node_key: right_node.node_key.clone(),
-                                            active_lens: ExplorationLens::Structure,
-                                            structure_unique: false,
-                                            comparison_group: *group,
-                                            limit: *limit,
-                                            frozen_context: false,
-                                        }),
-                                    },
-                                },
+                                }) => SavedExplorationArtifact::live_comparison(
+                                    metadata.clone(),
+                                    left_node.node_key.clone(),
+                                    right_node.node_key.clone(),
+                                    *group,
+                                    *limit,
+                                ),
                                 _ => {
                                     return Err(invalid_request(format!(
                                         "references invalid compare source {}",

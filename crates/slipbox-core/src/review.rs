@@ -437,6 +437,116 @@ impl ReviewFindingRemediationPreview {
             payload,
         })
     }
+
+    pub fn default_apply_action(
+        &self,
+        replacement_text: Option<&str>,
+    ) -> Result<AuditRemediationApplyAction, String> {
+        match &self.payload {
+            AuditRemediationPreviewPayload::DanglingLink {
+                source,
+                missing_explicit_id,
+                file_path,
+                line,
+                column,
+                preview,
+                ..
+            } => {
+                let replacement_text = replacement_text.map_or_else(
+                    || {
+                        replacement_text_from_dangling_preview(
+                            preview,
+                            *column,
+                            missing_explicit_id,
+                        )
+                    },
+                    |value| Ok(value.to_owned()),
+                )?;
+                Ok(AuditRemediationApplyAction::UnlinkDanglingLink {
+                    source_node_key: source.node_key.clone(),
+                    missing_explicit_id: missing_explicit_id.clone(),
+                    file_path: file_path.clone(),
+                    line: *line,
+                    column: *column,
+                    preview: preview.clone(),
+                    replacement_text,
+                })
+            }
+            AuditRemediationPreviewPayload::DuplicateTitle { .. } => Err(
+                "review remediation apply currently supports only unlink-dangling-link findings"
+                    .to_owned(),
+            ),
+        }
+    }
+}
+
+fn replacement_text_from_dangling_preview(
+    preview: &str,
+    column: u32,
+    missing_explicit_id: &str,
+) -> Result<String, String> {
+    let link = org_link_at_preview_column(preview, column)
+        .or_else(|| first_org_id_link_for_target(preview, missing_explicit_id))
+        .ok_or_else(|| {
+            "failed to derive unlink-dangling-link replacement text from preview".to_owned()
+        })?;
+    let (target, label) = org_id_link_target_and_label(link).ok_or_else(|| {
+        "failed to derive unlink-dangling-link replacement text from preview".to_owned()
+    })?;
+    if target != missing_explicit_id {
+        return Err(format!(
+            "preview link target {target} does not match missing id {missing_explicit_id}"
+        ));
+    }
+    Ok(label.unwrap_or(target).to_owned())
+}
+
+fn org_link_at_preview_column(preview: &str, column: u32) -> Option<&str> {
+    let link_start = byte_index_for_column(preview, column)?;
+    let suffix = preview.get(link_start..)?;
+    if !suffix.starts_with("[[") {
+        return None;
+    }
+    let link_end = suffix.find("]]")? + 2;
+    suffix.get(..link_end)
+}
+
+fn first_org_id_link_for_target<'a>(preview: &'a str, target: &str) -> Option<&'a str> {
+    let mut search_start = 0_usize;
+    while let Some(relative_start) = preview.get(search_start..)?.find("[[") {
+        let start = search_start + relative_start;
+        let suffix = preview.get(start..)?;
+        let link_end = suffix.find("]]")? + 2;
+        let link = suffix.get(..link_end)?;
+        if org_id_link_target_and_label(link).is_some_and(|(candidate, _)| candidate == target) {
+            return Some(link);
+        }
+        search_start = start + link_end;
+    }
+    None
+}
+
+fn byte_index_for_column(line: &str, column: u32) -> Option<usize> {
+    if column == 0 {
+        return None;
+    }
+    if column == 1 {
+        return Some(0);
+    }
+    line.char_indices()
+        .nth(column as usize - 1)
+        .map(|(index, _)| index)
+}
+
+fn org_id_link_target_and_label(link: &str) -> Option<(&str, Option<&str>)> {
+    let inner = link.strip_prefix("[[")?.strip_suffix("]]")?;
+    let (target, label) = inner
+        .split_once("][")
+        .map_or((inner, None), |(target, label)| (target, Some(label)));
+    target
+        .trim()
+        .strip_prefix("id:")
+        .map(|id| (id.trim(), label))
 }
 
 impl From<&AuditRemediationPreviewPayload> for AuditRemediationPreviewIdentity {
