@@ -1,12 +1,11 @@
 use anyhow::{Context, Result};
-use rusqlite::params_from_iter;
+use rusqlite::params;
 
 use slipbox_core::{ExplorationExplanation, ForwardLinkRecord};
 
 use crate::Database;
 use crate::nodes::{
-    ANCHOR_SELECT_COLUMN_COUNT, anchor_select_columns, note_owners_by_anchor_key, note_where,
-    row_to_note_with_offset,
+    ANCHOR_SELECT_COLUMN_COUNT, anchor_select_columns, note_where, row_to_note_with_offset,
 };
 
 impl Database {
@@ -19,24 +18,8 @@ impl Database {
         let Some(source_note) = self.note_by_key(node_key)? else {
             return Ok(Vec::new());
         };
-        let anchors = self.anchors_in_file(&source_note.file_path)?;
-        let owners = note_owners_by_anchor_key(&anchors);
-        let source_anchor_keys = owners
-            .into_iter()
-            .filter_map(|(anchor_key, owner)| {
-                (owner.node_key == source_note.node_key).then_some(anchor_key)
-            })
-            .collect::<Vec<_>>();
-        if source_anchor_keys.is_empty() {
-            return Ok(Vec::new());
-        }
 
         let limit = limit.clamp(1, 1_000);
-        let placeholders = (1..=source_anchor_keys.len())
-            .map(|index| format!("?{index}"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let limit_placeholder = source_anchor_keys.len() + 1;
         let sql = if unique {
             format!(
                 "SELECT {},
@@ -54,17 +37,15 @@ impl Database {
                                 ) AS occurrence_rank
                            FROM links AS l
                            JOIN nodes AS dest ON dest.explicit_id = l.destination_explicit_id
-                          WHERE l.source_node_key IN ({})
+                          WHERE l.source_note_key = ?1
                             AND {}
                         ) AS matches
                    JOIN nodes AS dest ON dest.node_key = matches.destination_note_key
                   WHERE matches.occurrence_rank = 1
                   ORDER BY matches.line, matches.column, dest.file_path, dest.line
-                  LIMIT ?{}",
+                  LIMIT ?2",
                 anchor_select_columns("dest"),
-                placeholders,
                 note_where("dest"),
-                limit_placeholder,
             )
         } else {
             format!(
@@ -74,20 +55,19 @@ impl Database {
                         l.preview
                    FROM links AS l
                    JOIN nodes AS dest ON dest.explicit_id = l.destination_explicit_id
-                  WHERE l.source_node_key IN ({})
+                  WHERE l.source_note_key = ?1
                     AND {}
                   ORDER BY l.line, l.column, dest.file_path, dest.line
-                  LIMIT ?{}",
+                  LIMIT ?2",
                 anchor_select_columns("dest"),
-                placeholders,
                 note_where("dest"),
-                limit_placeholder,
             )
         };
-        let mut values = source_anchor_keys;
-        values.push(limit.to_string());
         let mut statement = self.connection.prepare(&sql)?;
-        let rows = statement.query_map(params_from_iter(values.iter()), row_to_forward_link)?;
+        let rows = statement.query_map(
+            params![source_note.node_key, limit as i64],
+            row_to_forward_link,
+        )?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .context("failed to read forward links")
     }
@@ -101,4 +81,46 @@ fn row_to_forward_link(row: &rusqlite::Row<'_>) -> rusqlite::Result<ForwardLinkR
         preview: row.get(ANCHOR_SELECT_COLUMN_COUNT + 2)?,
         explanation: ExplorationExplanation::ForwardLink,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::Result;
+
+    use crate::test_support::indexed_database;
+
+    #[test]
+    fn forward_links_include_links_owned_by_anonymous_child_anchors() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            (
+                "alpha.org",
+                r#":PROPERTIES:
+:ID: alpha-id
+:END:
+#+title: Alpha
+
+* Scratch
+See [[id:beta-id][Beta]].
+"#,
+            ),
+            (
+                "beta.org",
+                r#":PROPERTIES:
+:ID: beta-id
+:END:
+#+title: Beta
+"#,
+            ),
+        ])?;
+
+        let alpha = database
+            .node_from_id("alpha-id")?
+            .expect("alpha should be indexed");
+        let forward_links = database.forward_links(&alpha.node_key, 10, false)?;
+
+        assert_eq!(forward_links.len(), 1);
+        assert_eq!(forward_links[0].destination_note.title, "Beta");
+        assert_eq!(forward_links[0].row, 7);
+        Ok(())
+    }
 }

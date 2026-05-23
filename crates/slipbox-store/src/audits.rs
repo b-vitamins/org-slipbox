@@ -169,7 +169,7 @@ fn forward_link_count_sql(alias: &str) -> String {
         "COALESCE((SELECT COUNT(*)
                     FROM links AS outgoing
                     JOIN nodes AS dest ON dest.explicit_id = outgoing.destination_explicit_id
-                   WHERE outgoing.source_node_key = {alias}.node_key), 0)"
+                   WHERE outgoing.source_note_key = {alias}.node_key), 0)"
     )
 }
 
@@ -177,7 +177,7 @@ fn outgoing_link_count_any_sql(alias: &str) -> String {
     format!(
         "COALESCE((SELECT COUNT(*)
                     FROM links AS outgoing
-                   WHERE outgoing.source_node_key = {alias}.node_key), 0)"
+                   WHERE outgoing.source_note_key = {alias}.node_key), 0)"
     )
 }
 

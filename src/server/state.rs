@@ -86,9 +86,19 @@ impl ServerState {
     }
 
     fn sync_paths(&mut self, paths: &[PathBuf]) -> Result<(), JsonRpcError> {
+        let mut indexed_files = Vec::with_capacity(paths.len());
         for path in paths {
-            self.sync_path(path)?;
+            let indexed_file =
+                slipbox_index::scan_path_with_policy(&self.root, path, &self.discovery).map_err(
+                    |error| internal_error(error.context("failed to scan updated file")),
+                )?;
+            indexed_files.push(indexed_file);
         }
+        self.database
+            .sync_file_indexes(&indexed_files)
+            .map_err(|error| {
+                internal_error(error.context("failed to sync updated file into SQLite"))
+            })?;
         Ok(())
     }
 
@@ -117,7 +127,6 @@ impl ServerState {
         changed_paths: &[PathBuf],
         removed_paths: &[PathBuf],
     ) -> Result<(), JsonRpcError> {
-        self.remove_indexed_paths(changed_paths, "changed file")?;
         self.remove_indexed_paths(removed_paths, "removed file")?;
         self.sync_paths(changed_paths)?;
         Ok(())

@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use anyhow::{Context, Result, bail};
-use rusqlite::params;
 use slipbox_core::{GraphParams, GraphTitleShortening, NodeRecord};
 
 use crate::Database;
@@ -65,75 +64,21 @@ impl Database {
 
     fn graph_edges(&self) -> Result<Vec<GraphEdge>> {
         let mut statement = self.connection.prepare(
-            "SELECT DISTINCT l.source_node_key,
+            "SELECT DISTINCT l.source_note_key,
                              dest.node_key
                FROM links AS l
                JOIN nodes AS dest ON dest.explicit_id = l.destination_explicit_id
-              ORDER BY l.source_node_key, dest.node_key",
+              ORDER BY l.source_note_key, dest.node_key",
         )?;
-        let rows = statement.query_map(params![], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?;
-        let raw_edges = rows
-            .collect::<rusqlite::Result<Vec<_>>>()
-            .context("failed to read graph edges")?;
-
-        let notes_by_file = self
-            .indexed_files()?
-            .into_iter()
-            .map(|file_path| {
-                let owners = self.note_owners_by_anchor_key(&file_path)?;
-                Ok((file_path, owners))
+        let rows = statement.query_map([], |row| {
+            Ok(GraphEdge {
+                source_node_key: row.get(0)?,
+                destination_node_key: row.get(1)?,
             })
-            .collect::<Result<HashMap<_, _>>>()?;
-        let notes_by_key = self
-            .graph_nodes()?
-            .into_iter()
-            .map(|node| (node.node_key.clone(), node))
-            .collect::<HashMap<_, _>>();
-
-        let mut edges = Vec::new();
-        let mut seen = HashSet::new();
-        for (source_anchor_key, destination_key) in raw_edges {
-            let file_path = anchor_file_path(&source_anchor_key);
-            let Some(source_note) = notes_by_file
-                .get(file_path)
-                .and_then(|owners| owners.get(&source_anchor_key))
-            else {
-                continue;
-            };
-            let Some(destination_note) = notes_by_key.get(&destination_key) else {
-                continue;
-            };
-            let edge = GraphEdge {
-                source_node_key: source_note.node_key.clone(),
-                destination_node_key: destination_note.node_key.clone(),
-            };
-            if seen.insert((
-                edge.source_node_key.clone(),
-                edge.destination_node_key.clone(),
-            )) {
-                edges.push(edge);
-            }
-        }
-        edges.sort_by(|left, right| {
-            left.source_node_key
-                .cmp(&right.source_node_key)
-                .then_with(|| left.destination_node_key.cmp(&right.destination_node_key))
-        });
-        Ok(edges)
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("failed to read graph edges")
     }
-}
-
-fn anchor_file_path(anchor_key: &str) -> &str {
-    anchor_key
-        .strip_prefix("file:")
-        .or_else(|| {
-            anchor_key
-                .strip_prefix("heading:")
-                .and_then(|rest| rest.rsplit_once(':').map(|(file_path, _)| file_path))
-        })
-        .unwrap_or(anchor_key)
 }
 
 fn select_graph_scope(

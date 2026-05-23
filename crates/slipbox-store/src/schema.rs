@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::Database;
 
-const SCHEMA_VERSION: i32 = 15;
+const SCHEMA_VERSION: i32 = 17;
 
 impl Database {
     pub(crate) fn migrate(&self) -> Result<()> {
@@ -105,6 +105,7 @@ impl Database {
 
              CREATE TABLE IF NOT EXISTS links (
                source_node_key TEXT NOT NULL,
+               source_note_key TEXT NOT NULL,
                source_file_path TEXT NOT NULL,
                destination_explicit_id TEXT NOT NULL,
                line INTEGER NOT NULL,
@@ -134,6 +135,9 @@ impl Database {
              CREATE INDEX IF NOT EXISTS idx_links_source_node_key
                ON links (source_node_key);
 
+             CREATE INDEX IF NOT EXISTS idx_links_source_note_key
+               ON links (source_note_key);
+
              CREATE INDEX IF NOT EXISTS idx_links_destination_explicit_id
                ON links (destination_explicit_id);
 
@@ -146,14 +150,23 @@ impl Database {
              CREATE INDEX IF NOT EXISTS idx_refs_ref
                ON refs (ref);
 
+             CREATE INDEX IF NOT EXISTS idx_refs_node_key
+               ON refs (node_key);
+
              CREATE INDEX IF NOT EXISTS idx_aliases_alias
                ON aliases (alias);
+
+             CREATE INDEX IF NOT EXISTS idx_aliases_node_key
+               ON aliases (node_key);
 
              CREATE INDEX IF NOT EXISTS idx_aliases_alias_nocase
                ON aliases (alias COLLATE NOCASE);
 
              CREATE INDEX IF NOT EXISTS idx_tags_tag
                ON tags (tag);
+
+             CREATE INDEX IF NOT EXISTS idx_tags_node_key
+               ON tags (node_key);
 
              CREATE INDEX IF NOT EXISTS idx_nodes_scheduled_for
                ON nodes (scheduled_for)
@@ -167,7 +180,10 @@ impl Database {
                ON nodes (todo_keyword)
                WHERE todo_keyword IS NOT NULL;
 
-             PRAGMA user_version = 15;",
+             CREATE INDEX IF NOT EXISTS idx_links_source_note_destination
+               ON links (source_note_key, destination_explicit_id);
+
+             PRAGMA user_version = 17;",
         )?;
         Ok(())
     }

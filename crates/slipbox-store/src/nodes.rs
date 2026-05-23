@@ -340,14 +340,6 @@ impl Database {
         let anchors = self.anchors_in_file(&anchor.file_path)?;
         Ok(note_for_anchor_in_file(&anchors, &anchor.node_key))
     }
-
-    pub(crate) fn note_owners_by_anchor_key(
-        &self,
-        file_path: &str,
-    ) -> Result<HashMap<String, NodeRecord>> {
-        let anchors = self.anchors_in_file(file_path)?;
-        Ok(note_owners_by_anchor_key(&anchors))
-    }
 }
 
 pub(crate) fn anchor_select_columns(alias: &str) -> String {
@@ -376,7 +368,7 @@ pub(crate) fn anchor_select_columns(alias: &str) -> String {
          COALESCE((SELECT COUNT(*)
                      FROM links AS outgoing
                      JOIN nodes AS dest ON dest.explicit_id = outgoing.destination_explicit_id
-                    WHERE outgoing.source_node_key = {alias}.node_key), 0) AS forward_link_count"
+                    WHERE outgoing.source_note_key = {alias}.node_key), 0) AS forward_link_count"
     )
 }
 

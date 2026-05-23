@@ -2,9 +2,11 @@ use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, Result, bail};
-use uuid::Uuid;
+
+static TEMPORARY_PATH_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Default)]
 pub struct FileRewriteTransaction {
@@ -152,7 +154,11 @@ fn temporary_path_for(path: &Path) -> Result<PathBuf> {
         .file_name()
         .context("write target must name a file")?
         .to_string_lossy();
-    Ok(parent.join(format!(".{file_name}.org-slipbox-{}.tmp", Uuid::new_v4())))
+    let suffix = TEMPORARY_PATH_COUNTER.fetch_add(1, Ordering::Relaxed);
+    Ok(parent.join(format!(
+        ".{file_name}.org-slipbox-{}-{suffix}.tmp",
+        std::process::id()
+    )))
 }
 
 fn replacement_permissions(path: &Path) -> Result<Option<fs::Permissions>> {

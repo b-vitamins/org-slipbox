@@ -519,7 +519,7 @@ impl Database {
             "SELECT dest.node_key, dest.explicit_id, dest.title
                FROM links AS l
                JOIN nodes AS dest ON dest.explicit_id = l.destination_explicit_id
-              WHERE l.source_node_key = ?1
+              WHERE l.source_note_key = ?1
                 AND l.destination_explicit_id IN ({})
                 AND {}
               ORDER BY dest.file_path, dest.line, dest.node_key",
@@ -556,9 +556,9 @@ impl Database {
         let sql = format!(
             "SELECT src.node_key, src.explicit_id, src.title
                FROM links AS l
-               JOIN nodes AS src ON src.node_key = l.source_node_key
+               JOIN nodes AS src ON src.node_key = l.source_note_key
               WHERE l.destination_explicit_id = ?1
-                AND l.source_node_key IN ({})
+                AND l.source_note_key IN ({})
                 AND {}
               ORDER BY src.file_path, src.line, src.node_key",
             placeholders,
