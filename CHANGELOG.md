@@ -10,6 +10,9 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Split the daemon-client crate and Emacs context-buffer implementation into
   focused internal modules while preserving the public client API, package load
   path, and buffer behavior.
+- Split the CLI adapter internals for notes, assets, and shared runtime helpers
+  into focused modules, and centralized manual daemon/export paths so future
+  agent-facing surfaces build on cleaner command boundaries.
 
 ## [0.13.2] - 2026-05-14
 

@@ -1,0 +1,113 @@
+use std::path::{Component, Path, PathBuf};
+
+use anyhow::Result;
+use slipbox_daemon_client::DaemonClientError;
+
+use super::error::invalid_request_error;
+
+pub(crate) fn normalize_daily_file_path(file_path: &str) -> Result<String, DaemonClientError> {
+    let candidate = Path::new(file_path);
+    if candidate.is_absolute() {
+        return Err(invalid_request_error(
+            "daily file path must be relative to --root",
+        ));
+    }
+
+    let mut normalized = PathBuf::new();
+    for component in candidate.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(part) => normalized.push(part),
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                return Err(invalid_request_error(
+                    "daily file path must stay within --root",
+                ));
+            }
+        }
+    }
+
+    let normalized = normalized.to_string_lossy().replace('\\', "/");
+    if normalized.is_empty() {
+        return Err(invalid_request_error("daily file path must not be empty"));
+    }
+    if !normalized.ends_with(".org") {
+        return Err(invalid_request_error("daily file path must end with .org"));
+    }
+    Ok(normalized)
+}
+
+pub(crate) fn normalize_edit_file_path(
+    root: &Path,
+    file_path: &Path,
+) -> Result<String, DaemonClientError> {
+    let normalized = normalize_root_relative_path(root, file_path, "edit file path")?;
+    if !normalized.ends_with(".org") {
+        return Err(invalid_request_error("edit file path must end with .org"));
+    }
+    Ok(normalized)
+}
+
+pub(crate) fn normalize_diagnostic_file_path(
+    root: &Path,
+    file_path: &Path,
+) -> Result<String, DaemonClientError> {
+    normalize_root_relative_path(root, file_path, "diagnostic file path")
+}
+
+pub(crate) fn normalize_root_relative_path(
+    root: &Path,
+    file_path: &Path,
+    description: &str,
+) -> Result<String, DaemonClientError> {
+    let relative = if file_path.is_absolute() {
+        let absolute_root = canonical_edit_root(root)?;
+        file_path.strip_prefix(&absolute_root).map_err(|_| {
+            invalid_request_error(format!(
+                "{description} must stay within --root: {}",
+                file_path.display()
+            ))
+        })?
+    } else {
+        file_path
+    };
+
+    let mut normalized = PathBuf::new();
+    for component in relative.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(part) => normalized.push(part),
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                return Err(invalid_request_error(format!(
+                    "{description} must stay within --root"
+                )));
+            }
+        }
+    }
+
+    let normalized = normalized.to_string_lossy().replace('\\', "/");
+    if normalized.is_empty() {
+        return Err(invalid_request_error(format!(
+            "{description} must not be empty"
+        )));
+    }
+    Ok(normalized)
+}
+
+fn canonical_edit_root(root: &Path) -> Result<PathBuf, DaemonClientError> {
+    root.canonicalize()
+        .map_err(|error| invalid_request_error(format!("failed to resolve --root: {error}")))
+}
+
+pub(crate) fn validate_region_range(start: u32, end: u32) -> Result<(), DaemonClientError> {
+    if start == 0 || end == 0 {
+        return Err(invalid_request_error(
+            "edit region positions must be positive 1-based character positions",
+        ));
+    }
+    if start == end {
+        return Err(invalid_request_error(
+            "active region range must not be empty",
+        ));
+    }
+    Ok(())
+}

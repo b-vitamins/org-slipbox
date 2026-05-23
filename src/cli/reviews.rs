@@ -9,7 +9,7 @@ use super::render::reviews::{
 };
 use super::runtime::{
     HeadlessArgs, HeadlessCommand, SaveReviewArgs, parse_review_finding_status,
-    run_headless_command,
+    run_daemon_operation, run_daemon_task, run_headless_command,
 };
 use anyhow::Result;
 use clap::{Args, Subcommand};
@@ -332,27 +332,24 @@ fn run_review_remediation_apply(
         ));
     }
 
-    let mut client = command.finding.headless.connect()?;
-    let preview = client
-        .review_finding_remediation_preview(&ReviewFindingRemediationPreviewParams {
-            review_id: command.finding.review_id.clone(),
-            finding_id: command.finding.finding_id.clone(),
-        })
-        .map_err(|error| CliCommandError::new(output_mode, error))?
-        .preview;
-    let action = remediation_action_from_preview(&preview, command.replacement_text.as_deref())
-        .map_err(|error| CliCommandError::new(output_mode, error))?;
-    let output = client
-        .review_finding_remediation_apply(&ReviewFindingRemediationApplyParams {
-            review_id: command.finding.review_id.clone(),
-            finding_id: command.finding.finding_id.clone(),
-            expected_preview: preview.preview_identity,
-            action,
-        })
-        .map_err(|error| CliCommandError::new(output_mode, error))?;
-    client
-        .shutdown()
-        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    let output = run_daemon_task(&command.finding.headless, output_mode, |client| {
+        let preview = client
+            .review_finding_remediation_preview(&ReviewFindingRemediationPreviewParams {
+                review_id: command.finding.review_id.clone(),
+                finding_id: command.finding.finding_id.clone(),
+            })?
+            .preview;
+        let action =
+            remediation_action_from_preview(&preview, command.replacement_text.as_deref())?;
+        client
+            .review_finding_remediation_apply(&ReviewFindingRemediationApplyParams {
+                review_id: command.finding.review_id.clone(),
+                finding_id: command.finding.finding_id.clone(),
+                expected_preview: preview.preview_identity,
+                action,
+            })
+            .map_err(Into::into)
+    })?;
 
     let stdout = io::stdout();
     let mut writer = stdout.lock();
@@ -473,17 +470,13 @@ fn run_review_mark(command: &ReviewMarkArgs) -> Result<(), CliCommandError> {
     let output_mode = command.headless.output_mode();
     let status = parse_review_finding_status(&command.status)
         .map_err(|error| CliCommandError::new(output_mode, error))?;
-    let mut client = command.headless.connect()?;
-    let output = client
-        .mark_review_finding(&MarkReviewFindingParams {
+    let output = run_daemon_operation(&command.headless, output_mode, |client| {
+        client.mark_review_finding(&MarkReviewFindingParams {
             review_id: command.review_id.clone(),
             finding_id: command.finding_id.clone(),
             status,
         })
-        .map_err(|error| CliCommandError::new(output_mode, error))?;
-    client
-        .shutdown()
-        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    })?;
 
     let stdout = io::stdout();
     let mut writer = stdout.lock();
@@ -504,11 +497,9 @@ fn run_audit_command(kind: CorpusAuditKind, args: &AuditRunArgs) -> Result<(), C
         .save_review
         .request()
         .map_err(|error| CliCommandError::new(error_output_mode, error))?;
-    let mut client = args.headless.connect_with_output_mode(error_output_mode)?;
-
     if let Some(save_review) = save_review {
-        let saved = client
-            .save_corpus_audit_review(&SaveCorpusAuditReviewParams {
+        let saved = run_daemon_operation(&args.headless, error_output_mode, |client| {
+            client.save_corpus_audit_review(&SaveCorpusAuditReviewParams {
                 audit: kind,
                 limit: args.limit,
                 review_id: save_review.review_id,
@@ -516,22 +507,16 @@ fn run_audit_command(kind: CorpusAuditKind, args: &AuditRunArgs) -> Result<(), C
                 summary: save_review.summary,
                 overwrite: save_review.overwrite,
             })
-            .map_err(|error| CliCommandError::new(error_output_mode, error))?;
-        client
-            .shutdown()
-            .map_err(|error| CliCommandError::new(error_output_mode, error))?;
+        })?;
         return write_saved_audit_command_output(args, report_format, saved, error_output_mode);
     }
 
-    let result = client
-        .corpus_audit(&CorpusAuditParams {
+    let result = run_daemon_operation(&args.headless, error_output_mode, |client| {
+        client.corpus_audit(&CorpusAuditParams {
             audit: kind,
             limit: args.limit,
         })
-        .map_err(|error| CliCommandError::new(error_output_mode, error))?;
-    client
-        .shutdown()
-        .map_err(|error| CliCommandError::new(error_output_mode, error))?;
+    })?;
 
     let report_bytes = render_report_bytes(
         report_format,

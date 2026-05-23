@@ -1,4 +1,4 @@
-use super::output::{CliCommandError, OutputMode, write_output};
+use super::output::{CliCommandError, write_json_export, write_output};
 use super::render::explorations::{
     render_artifact_kind, render_artifact_list, render_compare_result,
     render_executed_exploration_artifact, render_explore_result, render_saved_artifact_summary,
@@ -6,7 +6,7 @@ use super::render::explorations::{
 };
 use super::runtime::{
     HeadlessArgs, HeadlessCommand, ResolveTarget, ResolveTargetArgs, SaveArtifactArgs,
-    resolve_note_target, run_headless_command,
+    resolve_note_target, run_daemon_operation, run_headless_command,
 };
 use anyhow::{Context, Result};
 use clap::{ArgGroup, Args, Subcommand, ValueEnum};
@@ -21,8 +21,8 @@ use slipbox_core::{
 };
 use slipbox_daemon_client::{DaemonClient, DaemonClientError};
 use std::fs;
-use std::io::{self, Read, Write};
-use std::path::{Path, PathBuf};
+use std::io::{self, Read};
+use std::path::PathBuf;
 
 #[derive(Debug, Serialize)]
 struct ArtifactExportFileResult {
@@ -327,31 +327,27 @@ pub(crate) fn run_explore(args: &ExploreArgs) -> Result<(), CliCommandError> {
         return run_headless_command(args);
     };
 
-    let mut client = args.headless.connect()?;
-    let (focus_node_key, result) = execute_live_explore(args, &mut client)
-        .map_err(|error| CliCommandError::new(output_mode, error))?;
-    let artifact = SavedExplorationArtifact {
-        metadata: save_request.metadata,
-        payload: ExplorationArtifactPayload::LensView {
-            artifact: Box::new(SavedLensViewArtifact {
-                root_node_key: focus_node_key.clone(),
-                current_node_key: focus_node_key,
-                lens: args.lens.into(),
-                limit: args.limit,
-                unique: args.unique,
-                frozen_context: false,
-            }),
-        },
-    };
-    let saved = client
-        .save_exploration_artifact(&SaveExplorationArtifactParams {
+    let (result, saved) = run_daemon_operation(&args.headless, output_mode, |client| {
+        let (focus_node_key, result) = execute_live_explore(args, client)?;
+        let artifact = SavedExplorationArtifact {
+            metadata: save_request.metadata,
+            payload: ExplorationArtifactPayload::LensView {
+                artifact: Box::new(SavedLensViewArtifact {
+                    root_node_key: focus_node_key.clone(),
+                    current_node_key: focus_node_key,
+                    lens: args.lens.into(),
+                    limit: args.limit,
+                    unique: args.unique,
+                    frozen_context: false,
+                }),
+            },
+        };
+        let saved = client.save_exploration_artifact(&SaveExplorationArtifactParams {
             artifact,
             overwrite: save_request.overwrite,
-        })
-        .map_err(|error| CliCommandError::new(output_mode, error))?;
-    client
-        .shutdown()
-        .map_err(|error| CliCommandError::new(output_mode, error))?;
+        })?;
+        Ok((result, saved))
+    })?;
 
     let command_result = SavedExploreCommandResult {
         result,
@@ -378,33 +374,29 @@ pub(crate) fn run_compare(args: &CompareArgs) -> Result<(), CliCommandError> {
         return run_headless_command(args);
     };
 
-    let mut client = args.headless.connect()?;
-    let (left, right, result) = execute_live_compare(args, &mut client)
-        .map_err(|error| CliCommandError::new(output_mode, error))?;
-    let artifact = SavedExplorationArtifact {
-        metadata: save_request.metadata,
-        payload: ExplorationArtifactPayload::Comparison {
-            artifact: Box::new(SavedComparisonArtifact {
-                root_node_key: left.node_key.clone(),
-                left_node_key: left.node_key,
-                right_node_key: right.node_key,
-                active_lens: ExplorationLens::Structure,
-                structure_unique: false,
-                comparison_group: args.group.into(),
-                limit: args.limit,
-                frozen_context: false,
-            }),
-        },
-    };
-    let saved = client
-        .save_exploration_artifact(&SaveExplorationArtifactParams {
+    let (result, saved) = run_daemon_operation(&args.headless, output_mode, |client| {
+        let (left, right, result) = execute_live_compare(args, client)?;
+        let artifact = SavedExplorationArtifact {
+            metadata: save_request.metadata,
+            payload: ExplorationArtifactPayload::Comparison {
+                artifact: Box::new(SavedComparisonArtifact {
+                    root_node_key: left.node_key.clone(),
+                    left_node_key: left.node_key,
+                    right_node_key: right.node_key,
+                    active_lens: ExplorationLens::Structure,
+                    structure_unique: false,
+                    comparison_group: args.group.into(),
+                    limit: args.limit,
+                    frozen_context: false,
+                }),
+            },
+        };
+        let saved = client.save_exploration_artifact(&SaveExplorationArtifactParams {
             artifact,
             overwrite: save_request.overwrite,
-        })
-        .map_err(|error| CliCommandError::new(output_mode, error))?;
-    client
-        .shutdown()
-        .map_err(|error| CliCommandError::new(output_mode, error))?;
+        })?;
+        Ok((result, saved))
+    })?;
 
     let command_result = SavedCompareCommandResult {
         result,
@@ -434,32 +426,29 @@ pub(crate) fn run_artifact(args: &ArtifactArgs) -> Result<(), CliCommandError> {
 
 fn run_artifact_export(command: &ArtifactExportArgs) -> Result<(), CliCommandError> {
     let output_mode = command.artifact.headless.output_mode();
-    let mut client = command.artifact.headless.connect()?;
-    let artifact = client
-        .exploration_artifact(&ExplorationArtifactIdParams {
+    let artifact = run_daemon_operation(&command.artifact.headless, output_mode, |client| {
+        client.exploration_artifact(&ExplorationArtifactIdParams {
             artifact_id: command.artifact.artifact_id.clone(),
         })
-        .map_err(|error| CliCommandError::new(output_mode, error))?
-        .artifact;
-    client
-        .shutdown()
-        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    })?
+    .artifact;
 
-    if let Some(output_path) = &command.output
-        && output_path != Path::new("-")
-    {
-        let serialized = serde_json::to_vec_pretty(&artifact)
-            .context("failed to serialize saved exploration artifact")
-            .map_err(|error| CliCommandError::new(output_mode, error))?;
-        fs::write(output_path, serialized)
-            .with_context(|| {
-                format!(
-                    "failed to write exported exploration artifact {}",
-                    output_path.display()
-                )
-            })
-            .map_err(|error| CliCommandError::new(output_mode, error))?;
-
+    if write_json_export(
+        output_mode,
+        command.output.as_deref(),
+        &artifact,
+        "failed to serialize saved exploration artifact",
+        |path| {
+            format!(
+                "failed to write exported exploration artifact {}",
+                path.display()
+            )
+        },
+    )? {
+        let output_path = command
+            .output
+            .as_deref()
+            .expect("json export helper only returns true for a concrete output path");
         let stdout = io::stdout();
         let mut writer = stdout.lock();
         let result = ArtifactExportFileResult {
@@ -475,30 +464,6 @@ fn run_artifact_export(command: &ArtifactExportArgs) -> Result<(), CliCommandErr
         .map_err(|error| CliCommandError::new(output_mode, error))?;
         return Ok(());
     }
-
-    let stdout = io::stdout();
-    let mut writer = stdout.lock();
-    match output_mode {
-        OutputMode::Human => {
-            serde_json::to_writer_pretty(&mut writer, &artifact)
-                .context("failed to serialize saved exploration artifact")
-                .map_err(|error| CliCommandError::new(output_mode, error))?;
-            writer
-                .write_all(b"\n")
-                .map_err(|error| CliCommandError::new(output_mode, error))?;
-        }
-        OutputMode::Json => {
-            serde_json::to_writer(&mut writer, &artifact)
-                .context("failed to serialize saved exploration artifact")
-                .map_err(|error| CliCommandError::new(output_mode, error))?;
-            writer
-                .write_all(b"\n")
-                .map_err(|error| CliCommandError::new(output_mode, error))?;
-        }
-    }
-    writer
-        .flush()
-        .map_err(|error| CliCommandError::new(output_mode, error))?;
     Ok(())
 }
 
@@ -519,16 +484,12 @@ fn run_artifact_import(command: &ArtifactImportArgs) -> Result<(), CliCommandErr
         })
         .map_err(|error| CliCommandError::new(output_mode, error))?;
 
-    let mut client = command.headless.connect()?;
-    let saved = client
-        .save_exploration_artifact(&slipbox_core::SaveExplorationArtifactParams {
+    let saved = run_daemon_operation(&command.headless, output_mode, |client| {
+        client.save_exploration_artifact(&slipbox_core::SaveExplorationArtifactParams {
             artifact,
             overwrite: command.overwrite,
         })
-        .map_err(|error| CliCommandError::new(output_mode, error))?;
-    client
-        .shutdown()
-        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    })?;
 
     let stdout = io::stdout();
     let mut writer = stdout.lock();

@@ -187,3 +187,44 @@ pub(crate) fn write_report_destination(bytes: &[u8], output_path: Option<&Path>)
     }
     Ok(())
 }
+
+pub(crate) fn write_json_export<T>(
+    output_mode: OutputMode,
+    output_path: Option<&Path>,
+    value: &T,
+    serialize_context: &'static str,
+    write_context: impl FnOnce(&Path) -> String,
+) -> Result<bool, CliCommandError>
+where
+    T: Serialize,
+{
+    if let Some(path) = output_path
+        && path != Path::new("-")
+    {
+        let serialized = serde_json::to_vec_pretty(value)
+            .context(serialize_context)
+            .map_err(|error| CliCommandError::new(output_mode, error))?;
+        fs::write(path, serialized)
+            .with_context(|| write_context(path))
+            .map_err(|error| CliCommandError::new(output_mode, error))?;
+        return Ok(true);
+    }
+
+    let stdout = io::stdout();
+    let mut writer = stdout.lock();
+    match output_mode {
+        OutputMode::Human => serde_json::to_writer_pretty(&mut writer, value)
+            .context(serialize_context)
+            .map_err(|error| CliCommandError::new(output_mode, error))?,
+        OutputMode::Json => serde_json::to_writer(&mut writer, value)
+            .context(serialize_context)
+            .map_err(|error| CliCommandError::new(output_mode, error))?,
+    }
+    writer
+        .write_all(b"\n")
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    writer
+        .flush()
+        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    Ok(false)
+}

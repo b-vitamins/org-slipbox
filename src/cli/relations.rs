@@ -9,7 +9,7 @@ use super::render::{
 };
 use super::runtime::{
     HeadlessArgs, HeadlessCommand, invalid_request_error, normalize_edit_file_path,
-    require_resolved_node, run_headless_command,
+    require_resolved_node, run_daemon_operation, run_headless_command,
 };
 use anyhow::{Context, Result};
 use chrono::{Local, NaiveDate};
@@ -318,9 +318,8 @@ pub(crate) fn run_link(args: &LinkArgs) -> Result<(), CliCommandError> {
 
 fn run_graph_dot(command: &GraphDotArgs) -> Result<(), CliCommandError> {
     let output_mode = command.headless.output_mode();
-    let mut client = command.headless.connect()?;
-    let result = client
-        .graph_dot(&GraphParams {
+    let result = run_daemon_operation(&command.headless, output_mode, |client| {
+        client.graph_dot(&GraphParams {
             root_node_key: command.root_node_key.clone(),
             max_distance: command.max_distance,
             include_orphans: command.include_orphans,
@@ -329,10 +328,7 @@ fn run_graph_dot(command: &GraphDotArgs) -> Result<(), CliCommandError> {
             shorten_titles: command.shorten_titles.map(Into::into),
             node_url_prefix: command.node_url_prefix.clone(),
         })
-        .map_err(|error| CliCommandError::new(output_mode, error))?;
-    client
-        .shutdown()
-        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    })?;
 
     if let Some(output_path) = &command.output
         && output_path != Path::new("-")
@@ -573,22 +569,17 @@ fn run_link_rewrite_slipbox_apply(
         ));
     }
 
-    let mut client = command.target.headless.connect()?;
     let file_path =
         normalize_edit_file_path(&command.target.headless.scope.root, &command.target.file)
             .map_err(|error| CliCommandError::new(output_mode, error))?;
-    let preview = client
-        .slipbox_link_rewrite_preview(&SlipboxLinkRewritePreviewParams { file_path })
-        .map_err(|error| CliCommandError::new(output_mode, error))?
-        .preview;
-    let output = client
-        .slipbox_link_rewrite_apply(&SlipboxLinkRewriteApplyParams {
+    let output = run_daemon_operation(&command.target.headless, output_mode, |client| {
+        let preview = client
+            .slipbox_link_rewrite_preview(&SlipboxLinkRewritePreviewParams { file_path })?
+            .preview;
+        client.slipbox_link_rewrite_apply(&SlipboxLinkRewriteApplyParams {
             expected_preview: preview,
         })
-        .map_err(|error| CliCommandError::new(output_mode, error))?;
-    client
-        .shutdown()
-        .map_err(|error| CliCommandError::new(output_mode, error))?;
+    })?;
 
     let stdout = io::stdout();
     let mut writer = stdout.lock();
