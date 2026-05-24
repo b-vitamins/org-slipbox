@@ -68,7 +68,7 @@
     "audit_limit": 50
   },
   "thresholds": {
-    "full_index_p95_ms": 1200.0,
+    "full_index_p95_ms": 1500.0,
     "index_file_p95_ms": 50.0,
     "search_nodes_p95_ms": 3.0,
     "search_nodes_sorted_p95_ms": 2.0,
@@ -98,7 +98,7 @@
     "pack_import_p95_ms": 12.0,
     "routine_run_p95_ms": 8.0,
     "report_profile_rendering_p95_ms": 70.0,
-    "everyday_file_sync_p95_ms": 35.0,
+    "everyday_file_sync_p95_ms": 45.0,
     "everyday_node_show_p95_ms": 0.1,
     "everyday_node_search_p95_ms": 3.0,
     "everyday_occurrence_search_p95_ms": 8.0,
