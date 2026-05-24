@@ -22,6 +22,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Extracted the shared durable JSON file-store used by saved artifacts,
   workbench packs, and review runs so atomic persistence semantics are defined
   in one place.
+- Tightened CI and release benchmark thresholds around the current query,
+  indexing, write, workflow, review, and graph performance envelopes.
 
 ## [0.13.2] - 2026-05-14
 
