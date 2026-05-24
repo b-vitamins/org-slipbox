@@ -6,24 +6,55 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-05-24
+
+### Added
+- Added bounded source-read contracts and structured read/error payloads across
+  the core, RPC, daemon-client, server, and CLI paths, including tests for
+  missing, unindexed, invalid, and bounded-read cases.
+- Exposed reusable Rust service operations so daemon handlers and future
+  headless callers can share the same command semantics without duplicating
+  CLI glue.
+
 ### Changed
 - Split the daemon-client crate and Emacs context-buffer implementation into
   focused internal modules while preserving the public client API, package load
   path, and buffer behavior.
-- Split the CLI adapter internals for notes, assets, and shared runtime helpers
-  into focused modules, and centralized manual daemon/export paths so future
-  agent-facing surfaces build on cleaner command boundaries.
-- Split the remaining large CLI adapters for explorations, relations, and
+- Split the CLI internals for notes, assets, and shared runtime helpers into
+  focused modules, and centralized manual daemon/export paths around cleaner
+  command boundaries.
+- Split the remaining large CLI modules for explorations, relations, and
   reviews into product-surface modules, and moved live artifact/remediation
-  construction semantics into core helpers for reuse by non-CLI adapters.
+  construction semantics into core helpers for reuse by other Rust entry
+  points.
 - Split server workflow/pack/routine query handlers and write handlers into
   focused modules, keeping RPC behavior stable while making durable command
   boundaries easier to audit.
 - Extracted the shared durable JSON file-store used by saved artifacts,
   workbench packs, and review runs so atomic persistence semantics are defined
   in one place.
+- Batched relation lookups, index refreshes, graph rendering support, and
+  relation-count reads so large-corpus query and write paths stay comfortably
+  inside the tightened performance envelopes.
+- Materialized backlink and forward-link counts in the derived index, with
+  incremental maintenance during file sync and regression coverage for count
+  refreshes.
+- Applied SQLite write pragmas on every database open so existing derived
+  indexes retain the intended WAL and synchronous behavior across fresh
+  daemon/service connections.
 - Tightened CI and release benchmark thresholds around the current query,
   indexing, write, workflow, review, and graph performance envelopes.
+- Updated benchmark targets and documentation so benchmark gates run optimized
+  binaries by default.
+
+### Fixed
+- Confined root-relative path handling across CLI, server, write, reflink, and
+  unlinked-reference paths so repository-root escapes are rejected consistently.
+- Staged structural rewrites, capture writes, metadata updates, and link
+  rewrites before destructive file replacement, preserving refreshed-index
+  guarantees after successful writes.
+- Clarified README wording around load-time link registration and startup
+  behavior.
 
 ## [0.13.2] - 2026-05-14
 
