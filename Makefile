@@ -42,40 +42,41 @@ test-elisp:
 test: test-rust test-elisp check-release-metadata
 
 PROFILE ?= ci
+BENCH_CARGO_FLAGS ?= --release
+
+.RECIPEPREFIX := >
 
 .PHONY: bench
 bench:
-	$(SLIPBOX_CARGO_ENV) cargo run --bin slipbox-bench -- run --profile $(PROFILE)
+>$(SLIPBOX_CARGO_ENV) cargo run $(BENCH_CARGO_FLAGS) --bin slipbox-bench -- run --profile $(PROFILE)
 
 .PHONY: bench-check
 bench-check:
-	$(SLIPBOX_CARGO_ENV) cargo run --bin slipbox-bench -- check --profile $(PROFILE)
+>$(SLIPBOX_CARGO_ENV) cargo run $(BENCH_CARGO_FLAGS) --bin slipbox-bench -- check --profile $(PROFILE)
 
 .PHONY: guix-shell
 guix-shell:
-	$(GUIX) shell -m $(GUIX_MANIFEST)
+>$(GUIX) shell -m $(GUIX_MANIFEST)
 
 .PHONY: guix-build
 guix-build:
-	$(GUIX_SHELL) $(MAKE) build
+>$(GUIX_SHELL) $(MAKE) build
 
 .PHONY: guix-build-system-sqlite
 guix-build-system-sqlite:
-	$(GUIX_SHELL) $(MAKE) build-system-sqlite
+>$(GUIX_SHELL) $(MAKE) build-system-sqlite
 
 .PHONY: guix-test
 guix-test:
-	$(GUIX_SHELL) $(MAKE) test
+>$(GUIX_SHELL) $(MAKE) test
 
 .PHONY: guix-lint-rust
 guix-lint-rust:
-	$(GUIX_SHELL) $(MAKE) lint-rust
+>$(GUIX_SHELL) $(MAKE) lint-rust
 
 .PHONY: guix-bench-check
 guix-bench-check:
-	$(GUIX_SHELL) $(MAKE) bench-check
-
-.RECIPEPREFIX := >
+>$(GUIX_SHELL) $(MAKE) bench-check
 
 .PHONY: check-release-metadata
 check-release-metadata:

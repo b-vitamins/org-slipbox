@@ -434,8 +434,8 @@ write paths live in Rust rather than in Emacs Lisp.
 anecdotal scale claims.
 
 ```bash
-cargo run --bin slipbox-bench -- check --profile ci
-cargo run --bin slipbox-bench -- run --profile release --keep-corpus
+cargo run --release --bin slipbox-bench -- check --profile ci
+cargo run --release --bin slipbox-bench -- run --profile release --keep-corpus
 ```
 
 Benchmark profiles live in [benches/profiles/ci.json](benches/profiles/ci.json)
