@@ -41,6 +41,7 @@ impl Database {
 
         let connection = Connection::open(path)
             .with_context(|| format!("failed to open database {}", path.display()))?;
+        configure_connection(&connection)?;
         let artifact_store = artifacts::ExplorationArtifactStore::for_database_path(path);
         artifact_store.migrate()?;
         let pack_store = packs::WorkbenchPackStore::for_database_path(path);
@@ -55,6 +56,49 @@ impl Database {
         };
         database.migrate()?;
         Ok(database)
+    }
+}
+
+fn configure_connection(connection: &Connection) -> Result<()> {
+    connection.execute_batch(
+        "PRAGMA journal_mode = WAL;
+         PRAGMA foreign_keys = ON;
+         PRAGMA synchronous = NORMAL;",
+    )?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::Result;
+
+    use super::Database;
+
+    #[test]
+    fn opens_existing_databases_with_write_pragmas() -> Result<()> {
+        let workspace = tempfile::tempdir()?;
+        let db_path = workspace.path().join("index.sqlite3");
+        {
+            let _database = Database::open(&db_path)?;
+        }
+
+        let database = Database::open(&db_path)?;
+        let journal_mode: String =
+            database
+                .connection
+                .query_row("PRAGMA journal_mode", [], |row| row.get(0))?;
+        let foreign_keys: i64 =
+            database
+                .connection
+                .query_row("PRAGMA foreign_keys", [], |row| row.get(0))?;
+        let synchronous: i64 = database
+            .connection
+            .query_row("PRAGMA synchronous", [], |row| row.get(0))?;
+
+        assert_eq!(journal_mode, "wal");
+        assert_eq!(foreign_keys, 1);
+        assert_eq!(synchronous, 1);
+        Ok(())
     }
 }
 
