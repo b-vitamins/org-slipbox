@@ -2,7 +2,7 @@ use std::fs;
 use std::process::Command;
 
 use anyhow::Result;
-use chrono::{Local, NaiveDate};
+use chrono::{Duration, Local, NaiveDate};
 use serde::Deserialize;
 use slipbox_core::{
     AgendaResult, NodeRecord, SearchOccurrencesResult, SearchRefsResult, SearchTagsResult,
@@ -29,11 +29,13 @@ fn org_date(date: NaiveDate) -> String {
     format!("<{} {}>", date.format("%Y-%m-%d"), date.format("%a"))
 }
 
-fn build_indexed_fixture() -> Result<(tempfile::TempDir, String, String)> {
+fn build_indexed_fixture() -> Result<(tempfile::TempDir, String, String, NaiveDate, NaiveDate)> {
     let workspace = tempdir()?;
     let root = workspace.path().join("notes");
     fs::create_dir_all(&root)?;
     let today = Local::now().date_naive();
+    let range_start = today + Duration::days(30);
+    let range_end = range_start + Duration::days(2);
     fs::write(
         root.join("alpha.org"),
         format!(
@@ -52,12 +54,14 @@ SCHEDULED: {}
 Needle appears today.
 
 * TODO Range Start
-DEADLINE: <2026-06-01 Mon>
+DEADLINE: {}
 
 * TODO Range End
-SCHEDULED: <2026-06-03 Wed>
+SCHEDULED: {}
 "#,
-            org_date(today)
+            org_date(today),
+            org_date(range_start),
+            org_date(range_end)
         ),
     )?;
     fs::write(
@@ -82,6 +86,8 @@ Unrelated body.
         workspace,
         root.display().to_string(),
         db.display().to_string(),
+        range_start,
+        range_end,
     ))
 }
 
@@ -103,7 +109,7 @@ fn run_slipbox(args: &[String]) -> Result<std::process::Output> {
 
 #[test]
 fn ref_commands_search_and_resolve_refs_as_json() -> Result<()> {
-    let (_workspace, root, db) = build_indexed_fixture()?;
+    let (_workspace, root, db, _range_start, _range_end) = build_indexed_fixture()?;
 
     let mut search_args = vec!["ref".to_owned(), "search".to_owned(), "alpha".to_owned()];
     search_args.extend(scoped_args(&root, &db));
@@ -136,7 +142,7 @@ fn ref_commands_search_and_resolve_refs_as_json() -> Result<()> {
 
 #[test]
 fn tag_and_occurrence_search_cover_limits_and_empty_results() -> Result<()> {
-    let (_workspace, root, db) = build_indexed_fixture()?;
+    let (_workspace, root, db, _range_start, _range_end) = build_indexed_fixture()?;
 
     let mut tag_args = vec!["tag".to_owned(), "search".to_owned(), "sh".to_owned()];
     tag_args.extend(scoped_args(&root, &db));
@@ -187,7 +193,9 @@ fn tag_and_occurrence_search_cover_limits_and_empty_results() -> Result<()> {
 
 #[test]
 fn agenda_commands_query_today_date_and_ranges() -> Result<()> {
-    let (_workspace, root, db) = build_indexed_fixture()?;
+    let (_workspace, root, db, range_start, range_end) = build_indexed_fixture()?;
+    let range_start_arg = range_start.format("%Y-%m-%d").to_string();
+    let range_end_arg = range_end.format("%Y-%m-%d").to_string();
 
     let mut today_args = vec!["agenda".to_owned(), "today".to_owned()];
     today_args.extend(scoped_args(&root, &db));
@@ -200,7 +208,7 @@ fn agenda_commands_query_today_date_and_ranges() -> Result<()> {
     let mut date_args = vec![
         "agenda".to_owned(),
         "date".to_owned(),
-        "2026-06-01".to_owned(),
+        range_start_arg.clone(),
     ];
     date_args.extend(scoped_args(&root, &db));
     date_args.extend(["--limit".to_owned(), "1".to_owned()]);
@@ -209,17 +217,18 @@ fn agenda_commands_query_today_date_and_ranges() -> Result<()> {
     let date: AgendaResult = serde_json::from_slice(&date_output.stdout)?;
     assert_eq!(date.nodes.len(), 1);
     assert_eq!(date.nodes[0].title, "Range Start");
+    let expected_deadline = format!("{range_start_arg}T00:00:00");
     assert_eq!(
         date.nodes[0].deadline_for.as_deref(),
-        Some("2026-06-01T00:00:00")
+        Some(expected_deadline.as_str())
     );
 
     let output = Command::new(slipbox_binary())
         .args([
             "agenda",
             "range",
-            "2026-06-01",
-            "2026-06-03",
+            range_start_arg.as_str(),
+            range_end_arg.as_str(),
             "--root",
             &root,
             "--db",
@@ -240,7 +249,7 @@ fn agenda_commands_query_today_date_and_ranges() -> Result<()> {
 
 #[test]
 fn query_commands_report_structured_json_failures() -> Result<()> {
-    let (_workspace, root, db) = build_indexed_fixture()?;
+    let (_workspace, root, db, _range_start, _range_end) = build_indexed_fixture()?;
 
     let mut missing_ref_args = vec![
         "ref".to_owned(),

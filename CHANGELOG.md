@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+### Fixed
+- Made the CLI agenda fixture use non-colliding dynamic range dates so the
+  today query test stays valid on 2026-06-01 and other calendar dates.
+
 ## [0.14.0] - 2026-05-24
 
 ### Added
