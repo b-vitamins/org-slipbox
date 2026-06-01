@@ -6006,6 +6006,88 @@ ROOT-NODE defaults to NODE."
       (should (equal (plist-get stored-props :link) "https://example.test/article"))
       (should (equal (plist-get stored-props :initial) "Selected text")))))
 
+(ert-deftest org-slipbox-test-node-display-allows-partial_nodes ()
+  "Node completion display should tolerate omitted optional fields."
+  (should (equal (org-slipbox--node-display '(:title "Draft"))
+                 "Draft"))
+  (should (equal (org-slipbox--node-display
+                  '(:title "Draft" :file_path "draft.org"))
+                 "Draft | draft.org")))
+
+(ert-deftest org-slipbox-test-node-sorters-allow_partial_nodes ()
+  "Local node sorters should not require every display metadata field."
+  (let ((left (cons "left" '(:title nil :file_path nil :line nil)))
+        (right (cons "right" '(:title "Right" :file_path "right.org" :line 2))))
+    (should (org-slipbox-node-read-sort-by-title left right))
+    (should (org-slipbox-node-read-sort-by-file left right))))
+
+(ert-deftest org-slipbox-test-node-visit-defaults-missing-line_to_file_start ()
+  "Visiting a node without line metadata should go to the start of the file."
+  (let* ((root (make-temp-file "org-slipbox-visit-line-" t))
+         (file (expand-file-name "note.org" root))
+         (org-slipbox-directory root))
+    (unwind-protect
+        (progn
+          (org-slipbox-test--write-literal-file file "#+title: Note\n\nBody\n")
+          (org-slipbox-node-visit '(:title "Note" :file_path "note.org"))
+          (should (= (line-number-at-pos) 1)))
+      (when-let ((buffer (get-file-buffer file)))
+        (kill-buffer buffer))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-capture-clock-node-defaults_missing_line ()
+  "Clocking a captured node should treat missing line metadata as line one."
+  (let ((buffer (generate-new-buffer " *org-slipbox-clock-test*"))
+        clock-line)
+    (unwind-protect
+        (progn
+          (with-current-buffer buffer
+            (insert "* Heading\nBody\n"))
+          (cl-letf (((symbol-function 'find-file-noselect)
+                     (lambda (&rest _args) buffer))
+                    ((symbol-function 'org-clock-in)
+                     (lambda (&rest _args)
+                       (setq clock-line (line-number-at-pos)))))
+            (let ((org-slipbox-directory "/tmp"))
+              (org-slipbox--capture-clock-node
+               '(:title "Heading" :file_path "note.org"))))
+          (should (= clock-line 1)))
+      (kill-buffer buffer))))
+
+(ert-deftest org-slipbox-test-capture-empty-lines-are-clamped ()
+  "Negative capture empty-line options should normalize to zero."
+  (should
+   (equal (org-slipbox--capture-template-empty-lines
+           '(:empty-lines -2 :empty-lines-before -3 :empty-lines-after -4))
+          '(:before 0 :after 0))))
+
+(ert-deftest org-slipbox-test-capture-finalize-cleans_session_on_materialize_error ()
+  "Finalize should release caller markers even when materialization fails."
+  (let* ((caller-buffer (generate-new-buffer " *org-slipbox-caller*"))
+         (marker nil))
+    (unwind-protect
+        (progn
+          (with-current-buffer caller-buffer
+            (insert "caller")
+            (setq marker (copy-marker (point-min))))
+          (with-temp-buffer
+            (let* ((session `(:call-location ,marker))
+                   (capture-session
+                    (org-slipbox--make-capture-session
+                     :template-options nil
+                     :caller-session session)))
+              (setq-local org-slipbox-capture--session capture-session)
+              (insert "body")
+              (setq-local org-slipbox--capture-body-start (copy-marker (point-min)))
+              (cl-letf (((symbol-function 'org-slipbox--capture-materialize-session)
+                         (lambda (&rest _args)
+                           (error "materialize failed"))))
+                (should-error (org-slipbox--capture-finalize-buffer)
+                              :type 'error))))
+          (should-not (marker-buffer marker)))
+      (when (buffer-live-p caller-buffer)
+        (kill-buffer caller-buffer)))))
+
 (provide 'test-org-slipbox)
 
 ;;; test-org-slipbox.el ends here

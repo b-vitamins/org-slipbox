@@ -61,21 +61,24 @@ Hook functions receive two arguments: the inserted ID and description.")
          (template-options (org-slipbox-capture-session-template-options capture-session))
          (caller-session (org-slipbox-capture-session-caller-session capture-session))
          (buffer (current-buffer)))
-    (let* ((content
-            (progn
-              (org-slipbox--capture-run-phase-functions
-               :prepare-finalize
-               template-options
-               capture-session
-               nil)
-              (buffer-substring-no-properties org-slipbox--capture-body-start
-                                              (point-max))))
-           (node (org-slipbox--capture-materialize-session
-                  capture-session
-                  content
-                  caller-session)))
+    (let (node)
       (unwind-protect
           (progn
+            (let* ((content
+                    (progn
+                      (org-slipbox--capture-run-phase-functions
+                       :prepare-finalize
+                       template-options
+                       capture-session
+                       nil)
+                      (buffer-substring-no-properties
+                       org-slipbox--capture-body-start
+                       (point-max)))))
+              (setq node
+                    (org-slipbox--capture-materialize-session
+                     capture-session
+                     content
+                     caller-session)))
             (org-slipbox--capture-run-phase-functions
              :before-finalize
              template-options
@@ -86,9 +89,9 @@ Hook functions receive two arguments: the inserted ID and description.")
              node
              template-options
              caller-session
-             capture-session))
-        (org-slipbox--capture-cleanup-session caller-session))
-      node)))
+             capture-session)
+            node)
+        (org-slipbox--capture-cleanup-session caller-session)))))
 
 ;;;###autoload
 (defun org-slipbox-capture-abort ()
@@ -308,11 +311,13 @@ within the preview content before returning."
 
 (defun org-slipbox--capture-clock-node (node)
   "Start an Org clock on NODE."
+  (unless (plist-get node :file_path)
+    (user-error "Captured node has no source file for clocking"))
   (let ((buffer (find-file-noselect
                  (expand-file-name (plist-get node :file_path) org-slipbox-directory))))
     (with-current-buffer buffer
       (goto-char (point-min))
-      (forward-line (1- (plist-get node :line)))
+      (forward-line (1- (or (plist-get node :line) 1)))
       (when (derived-mode-p 'org-mode)
         (ignore-errors (org-back-to-heading t)))
       (org-clock-in))))

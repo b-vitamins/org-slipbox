@@ -225,17 +225,21 @@ provides a custom comparator."
 (defun org-slipbox--node-display (node)
   "Return a display string for NODE."
   (let ((title (plist-get node :title))
-        (outline (plist-get node :outline_path))
+        (outline (or (plist-get node :outline_path) ""))
         (tags (org-slipbox--plist-sequence (plist-get node :tags)))
         (file (plist-get node :file_path))
         (line (plist-get node :line)))
     (string-join
      (delq nil
            (list title
-                 (unless (string-empty-p outline) outline)
+                 (unless (string-empty-p outline)
+                   outline)
                  (unless (null tags)
                    (string-join (mapcar (lambda (tag) (format "#%s" tag)) tags) " "))
-                 (format "%s:%s" file line)))
+                 (when file
+                   (if line
+                       (format "%s:%s" file line)
+                     file))))
      " | ")))
 
 (defun org-slipbox--format-node-template (template node width)
@@ -369,18 +373,18 @@ provides a custom comparator."
 (defun org-slipbox-node-read-sort-by-title (completion-a completion-b)
   "Sort COMPLETION-A and COMPLETION-B by title."
   (string-collate-lessp
-   (plist-get (cdr completion-a) :title)
-   (plist-get (cdr completion-b) :title)
+   (or (plist-get (cdr completion-a) :title) "")
+   (or (plist-get (cdr completion-b) :title) "")
    nil
    t))
 
 (defun org-slipbox-node-read-sort-by-file (completion-a completion-b)
   "Sort COMPLETION-A and COMPLETION-B by file path, then line number."
-  (let ((file-a (plist-get (cdr completion-a) :file_path))
-        (file-b (plist-get (cdr completion-b) :file_path)))
+  (let ((file-a (or (plist-get (cdr completion-a) :file_path) ""))
+        (file-b (or (plist-get (cdr completion-b) :file_path) "")))
     (if (string-equal file-a file-b)
-        (< (plist-get (cdr completion-a) :line)
-           (plist-get (cdr completion-b) :line))
+        (< (or (plist-get (cdr completion-a) :line) 0)
+           (or (plist-get (cdr completion-b) :line) 0))
       (string-collate-lessp file-a file-b nil t))))
 
 (defun org-slipbox-node-read-sort-by-file-mtime (completion-a completion-b)

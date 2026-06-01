@@ -466,8 +466,8 @@ CAPTURE-TYPE is the effective type for the selected template."
 (defun org-slipbox--capture-template-empty-lines (options)
   "Return normalized blank-line settings from OPTIONS."
   (let* ((common (max 0 (or (plist-get options :empty-lines) 0)))
-         (before (or (plist-get options :empty-lines-before) common))
-         (after (or (plist-get options :empty-lines-after) common)))
+         (before (max 0 (or (plist-get options :empty-lines-before) common)))
+         (after (max 0 (or (plist-get options :empty-lines-after) common))))
     (list :before before :after after)))
 
 (defun org-slipbox--resolve-capture-target-node (query)

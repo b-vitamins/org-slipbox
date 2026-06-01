@@ -192,7 +192,7 @@ With OTHER-WINDOW, visit it in another window."
     (funcall (if other-window #'find-file-other-window #'find-file) file))
   (org-slipbox-node--hide-drawers)
   (goto-char (point-min))
-  (forward-line (1- (plist-get node :line))))
+  (forward-line (1- (or (plist-get node :line) 1))))
 
 (defalias 'org-slipbox--visit-node #'org-slipbox-node-visit)
 
