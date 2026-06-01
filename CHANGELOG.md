@@ -6,6 +6,15 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+## [0.14.3] - 2026-06-02
+
+### Fixed
+- Keep generated file-level property drawers directly adjacent to following
+  file keywords instead of inserting a blank line between `:END:` and
+  `#+title`/`#+TITLE`.
+- Fold Org drawers after visiting indexed nodes, so newly created or opened
+  note files do not expose their file-level property drawer by default.
+
 ## [0.14.2] - 2026-06-01
 
 ### Fixed
