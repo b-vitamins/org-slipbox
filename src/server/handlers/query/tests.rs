@@ -28,9 +28,10 @@ use slipbox_core::{
     RunReviewRoutineResult, RunWorkflowResult, SaveCorpusAuditReviewResult,
     SaveExplorationArtifactResult, SaveReviewRunResult, SaveWorkflowReviewResult,
     SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact,
-    SavedTrailStep, TrailReplayStepResult, ValidateWorkbenchPackResult, WorkbenchPackCompatibility,
-    WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackMetadata, WorkbenchPackResult,
-    WorkflowInputAssignment, WorkflowMetadata, WorkflowResolveTarget, WorkflowResult, WorkflowSpec,
+    SavedTrailStep, SearchNodesResult, SearchRefsResult, TrailReplayStepResult,
+    ValidateWorkbenchPackResult, WorkbenchPackCompatibility, WorkbenchPackIssueKind,
+    WorkbenchPackManifest, WorkbenchPackMetadata, WorkbenchPackResult, WorkflowInputAssignment,
+    WorkflowMetadata, WorkflowResolveTarget, WorkflowResult, WorkflowSpec,
     WorkflowSpecCompatibility, WorkflowStepPayload, WorkflowStepReport, WorkflowStepReportPayload,
     WorkflowStepSpec,
 };
@@ -43,11 +44,11 @@ use super::{
     execute_exploration_artifact, execute_explore_query, execute_saved_exploration_artifact,
     execute_saved_exploration_artifact_by_id, execute_workflow_spec, exploration_artifact, explore,
     export_workbench_pack, import_workbench_pack, list_exploration_artifacts, list_review_routines,
-    list_review_runs, list_workbench_packs, list_workflows, mark_review_finding,
+    list_review_runs, list_workbench_packs, list_workflows, mark_review_finding, node_from_ref,
     review_finding_remediation_apply, review_finding_remediation_preview, review_routine,
     review_run, run_review_routine, run_workflow, save_corpus_audit_review,
-    save_exploration_artifact, save_review_run, save_workflow_review, validate_workbench_pack,
-    workbench_pack, workflow,
+    save_exploration_artifact, save_review_run, save_workflow_review, search_nodes, search_refs,
+    validate_workbench_pack, workbench_pack, workflow,
 };
 use crate::server::state::ServerState;
 
@@ -158,6 +159,53 @@ fn explore_dispatches_declared_lenses() {
             .entries
             .iter()
             .any(|entry| matches!(entry, ExplorationEntry::Anchor { .. }))
+    );
+}
+
+#[test]
+fn search_nodes_prunes_deleted_note_files_from_the_index() {
+    let (workspace, mut state, _target_key) = indexed_state();
+    fs::remove_file(workspace.path().join("notes/alpha.org"))
+        .expect("indexed fixture file should be removable");
+
+    let result: SearchNodesResult = serde_json::from_value(
+        search_nodes(&mut state, json!({ "query": "", "limit": 50 }))
+            .expect("node search should tolerate stale index rows"),
+    )
+    .expect("node search result should decode");
+
+    assert!(result.nodes.is_empty());
+    assert!(
+        state
+            .database
+            .indexed_files()
+            .expect("indexed file list should load")
+            .is_empty()
+    );
+}
+
+#[test]
+fn ref_queries_prune_deleted_note_files_before_ref_reuse() {
+    let (workspace, mut state, _target_key) = indexed_state();
+    fs::remove_file(workspace.path().join("notes/alpha.org"))
+        .expect("indexed fixture file should be removable");
+
+    let node = node_from_ref(&mut state, json!({ "reference": "cite:smith2024" }))
+        .expect("ref lookup should tolerate stale index rows");
+    assert!(node.is_null());
+
+    let refs: SearchRefsResult = serde_json::from_value(
+        search_refs(&mut state, json!({ "query": "smith2024", "limit": 50 }))
+            .expect("ref search should tolerate the pruned index"),
+    )
+    .expect("ref search result should decode");
+    assert!(refs.refs.is_empty());
+    assert!(
+        state
+            .database
+            .indexed_files()
+            .expect("indexed file list should load")
+            .is_empty()
     );
 }
 

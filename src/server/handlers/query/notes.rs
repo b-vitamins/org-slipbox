@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 
 use slipbox_core::{
@@ -26,6 +27,7 @@ pub(crate) fn search_nodes(
             params.sort.clone(),
         )
         .map_err(|error| internal_error(error.context("failed to query nodes")))?;
+    let nodes = live_nodes(state, nodes)?;
     to_value(SearchNodesResult { nodes })
 }
 
@@ -33,12 +35,22 @@ pub(crate) fn random_node(
     state: &mut ServerState,
     _params: serde_json::Value,
 ) -> Result<serde_json::Value, JsonRpcError> {
-    let node = state
-        .database
-        .random_node()
-        .map_err(|error| internal_error(error.context("failed to query random node")))?;
-    to_value(RandomNodeResult { node })
+    loop {
+        let node = state
+            .database
+            .random_node()
+            .map_err(|error| internal_error(error.context("failed to query random node")))?;
+        match node {
+            Some(node) => {
+                if let Some(node) = live_node(state, node)? {
+                    return to_value(RandomNodeResult { node: Some(node) });
+                }
+            }
+            None => return to_value(RandomNodeResult { node: None }),
+        }
+    }
 }
+
 pub(crate) fn node_from_id(
     state: &mut ServerState,
     params: serde_json::Value,
@@ -48,6 +60,7 @@ pub(crate) fn node_from_id(
         .database
         .node_from_id(&params.id)
         .map_err(|error| internal_error(error.context("failed to resolve node ID")))?;
+    let node = live_optional_node(state, node)?;
     to_value(node)
 }
 
@@ -60,6 +73,7 @@ pub(crate) fn node_from_key(
         .database
         .note_by_key(&params.node_key)
         .map_err(|error| internal_error(error.context("failed to resolve node key")))?;
+    let node = live_optional_node(state, node)?;
     to_value(node)
 }
 
@@ -72,6 +86,7 @@ pub(crate) fn node_from_title_or_alias(
         .database
         .node_from_title_or_alias(&params.title_or_alias, params.nocase)
         .map_err(|error| internal_error(error.context("failed to resolve node title or alias")))?;
+    let matches = live_nodes(state, matches)?;
     if matches.len() > 1 {
         return Err(invalid_params(format!(
             "multiple nodes match {}",
@@ -79,6 +94,46 @@ pub(crate) fn node_from_title_or_alias(
         )));
     }
     to_value(matches.into_iter().next())
+}
+
+fn live_optional_node(
+    state: &mut ServerState,
+    node: Option<slipbox_core::NodeRecord>,
+) -> Result<Option<slipbox_core::NodeRecord>, JsonRpcError> {
+    node.map(|node| live_node(state, node))
+        .transpose()
+        .map(Option::flatten)
+}
+
+fn live_node(
+    state: &mut ServerState,
+    node: slipbox_core::NodeRecord,
+) -> Result<Option<slipbox_core::NodeRecord>, JsonRpcError> {
+    if state.indexed_file_is_live(&node.file_path) {
+        Ok(Some(node))
+    } else {
+        state.remove_indexed_file_path(&node.file_path, "missing indexed node file")?;
+        Ok(None)
+    }
+}
+
+fn live_nodes(
+    state: &mut ServerState,
+    nodes: Vec<slipbox_core::NodeRecord>,
+) -> Result<Vec<slipbox_core::NodeRecord>, JsonRpcError> {
+    let mut live = Vec::with_capacity(nodes.len());
+    let mut missing = BTreeSet::new();
+    for node in nodes {
+        if state.indexed_file_is_live(&node.file_path) {
+            live.push(node);
+        } else {
+            missing.insert(node.file_path);
+        }
+    }
+    for file_path in missing {
+        state.remove_indexed_file_path(&file_path, "missing indexed node file")?;
+    }
+    Ok(live)
 }
 
 pub(crate) fn anchor_from_key(

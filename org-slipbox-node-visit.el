@@ -30,6 +30,7 @@
 ;;; Code:
 
 (require 'seq)
+(require 'subr-x)
 (require 'org-slipbox-files)
 (require 'org-slipbox-rpc)
 
@@ -131,11 +132,49 @@ If ASSERT is non-nil, signal a user error when no anchor is available."
   "Return the current base buffer file path."
   (buffer-file-name (or (buffer-base-buffer) (current-buffer))))
 
+(defun org-slipbox-node-file (node)
+  "Return the absolute source file for NODE."
+  (let ((file-path (plist-get node :file_path)))
+    (unless (and (stringp file-path)
+                 (not (string-empty-p file-path)))
+      (user-error "Indexed node has no source file"))
+    (expand-file-name file-path org-slipbox-directory)))
+
+(defun org-slipbox-node-file-exists-p (node)
+  "Return non-nil when NODE's indexed source file exists."
+  (file-regular-p (org-slipbox-node-file node)))
+
+(defun org-slipbox--visitable-missing-file-buffer-p (file)
+  "Return non-nil when missing FILE has a modified live buffer."
+  (when-let ((buffer (org-slipbox--live-file-buffer file)))
+    (with-current-buffer (or (buffer-base-buffer buffer) buffer)
+      (buffer-modified-p))))
+
+(defun org-slipbox--forget-missing-node-file (node)
+  "Remove NODE's missing source file from the index when possible."
+  (let ((file (org-slipbox-node-file node)))
+    (unless (file-regular-p file)
+      (ignore-errors (org-slipbox-rpc-index-file file))
+      t)))
+
+(defun org-slipbox--live-node-or-nil (node)
+  "Return NODE when its indexed source file exists, otherwise nil."
+  (when node
+    (if (org-slipbox-node-file-exists-p node)
+        node
+      (org-slipbox--forget-missing-node-file node)
+      nil)))
+
 (defun org-slipbox-node-visit (node &optional other-window)
   "Visit indexed NODE in its source file.
 With OTHER-WINDOW, visit it in another window."
-  (funcall (if other-window #'find-file-other-window #'find-file)
-           (expand-file-name (plist-get node :file_path) org-slipbox-directory))
+  (let ((file (org-slipbox-node-file node)))
+    (unless (or (file-regular-p file)
+                (org-slipbox--visitable-missing-file-buffer-p file))
+      (org-slipbox--forget-missing-node-file node)
+      (user-error "Indexed node source file no longer exists: %s"
+                  (abbreviate-file-name file)))
+    (funcall (if other-window #'find-file-other-window #'find-file) file))
   (goto-char (point-min))
   (forward-line (1- (plist-get node :line))))
 

@@ -1,6 +1,8 @@
+use std::collections::BTreeSet;
+
 use slipbox_core::{
     AgendaParams, AgendaResult, BacklinksParams, BacklinksResult, ForwardLinksParams,
-    ForwardLinksResult, GraphParams, GraphResult, NodeFromRefParams, ReflinksParams,
+    ForwardLinksResult, GraphParams, GraphResult, NodeFromRefParams, RefRecord, ReflinksParams,
     ReflinksResult, SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams,
     SearchRefsResult, SearchTagsParams, SearchTagsResult, UnlinkedReferencesParams,
     UnlinkedReferencesResult,
@@ -126,6 +128,7 @@ pub(crate) fn search_refs(
         .database
         .search_refs(&params.query, params.normalized_limit())
         .map_err(|error| internal_error(error.context("failed to query refs")))?;
+    let refs = live_refs(state, refs)?;
     to_value(SearchRefsResult { refs })
 }
 
@@ -138,7 +141,37 @@ pub(crate) fn node_from_ref(
         .database
         .node_from_ref(&params.reference)
         .map_err(|error| internal_error(error.context("failed to resolve ref")))?;
+    let node = node
+        .map(|node| {
+            if state.indexed_file_is_live(&node.file_path) {
+                Ok(Some(node))
+            } else {
+                state.remove_indexed_file_path(&node.file_path, "missing indexed ref file")?;
+                Ok(None)
+            }
+        })
+        .transpose()?
+        .flatten();
     to_value(node)
+}
+
+fn live_refs(
+    state: &mut ServerState,
+    refs: Vec<RefRecord>,
+) -> Result<Vec<RefRecord>, JsonRpcError> {
+    let mut live = Vec::with_capacity(refs.len());
+    let mut missing = BTreeSet::new();
+    for record in refs {
+        if state.indexed_file_is_live(&record.node.file_path) {
+            live.push(record);
+        } else {
+            missing.insert(record.node.file_path);
+        }
+    }
+    for file_path in missing {
+        state.remove_indexed_file_path(&file_path, "missing indexed ref file")?;
+    }
+    Ok(live)
 }
 
 pub(crate) fn agenda(

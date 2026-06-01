@@ -44,6 +44,22 @@ impl ServerState {
         Ok((resolved.relative_path, resolved.absolute_path))
     }
 
+    pub(super) fn indexed_file_is_live(&self, file_path: &str) -> bool {
+        self.root.join(file_path).is_file()
+    }
+
+    pub(super) fn remove_indexed_file_path(
+        &mut self,
+        file_path: &str,
+        description: &str,
+    ) -> Result<(), JsonRpcError> {
+        self.database.remove_file_index(file_path).map_err(|error| {
+            internal_error(
+                error.context(format!("failed to remove {description} from SQLite index")),
+            )
+        })
+    }
+
     pub(super) fn sync_path(&mut self, path: &Path) -> Result<(), JsonRpcError> {
         let indexed_file = slipbox_index::scan_path_with_policy(&self.root, path, &self.discovery)
             .map_err(|error| internal_error(error.context("failed to scan updated file")))?;

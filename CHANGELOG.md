@@ -9,6 +9,9 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ### Fixed
 - Made the CLI agenda fixture use non-colliding dynamic range dates so the
   today query test stays valid on 2026-06-01 and other calendar dates.
+- Pruned missing indexed note files from node/ref query results so deleted
+  notes stop appearing in completion, ref capture falls through to note
+  creation, and stale indexed visits cannot recreate empty files.
 
 ## [0.14.0] - 2026-05-24
 

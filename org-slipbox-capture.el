@@ -56,7 +56,8 @@
   (setq reference (string-trim reference))
   (when (string-empty-p reference)
     (user-error "Ref must not be empty"))
-  (let* ((existing (org-slipbox-node-from-ref reference))
+  (let* ((existing (org-slipbox--live-node-or-nil
+                    (org-slipbox-node-from-ref reference)))
          (templates (or templates org-slipbox-capture-templates))
          (variables (plist-put (copy-sequence variables) :ref reference))
          (node (or existing

@@ -1267,6 +1267,8 @@ ROOT-NODE defaults to NODE."
     (cl-letf (((symbol-function 'org-slipbox-node-from-ref)
                (lambda (_reference)
                  '(:title "Existing" :file_path "existing.org" :line 2)))
+              ((symbol-function 'org-slipbox-node-file-exists-p)
+               (lambda (_node) t))
               ((symbol-function 'org-slipbox--capture-node)
                (lambda (&rest _args)
                  (ert-fail "capture should not run when ref already exists")))
@@ -1277,6 +1279,45 @@ ROOT-NODE defaults to NODE."
     (should
      (equal visited
             '(:title "Existing" :file_path "existing.org" :line 2)))))
+
+(ert-deftest org-slipbox-test-capture-ref-creates-when-indexed-ref-file-is-missing ()
+  "Ref capture should not reuse stale indexed refs for deleted files."
+  (let* ((root (make-temp-file "org-slipbox-stale-ref-" t))
+         (missing (expand-file-name "missing.org" root))
+         captured
+         indexed)
+    (unwind-protect
+        (let ((org-slipbox-directory root))
+          (cl-letf (((symbol-function 'org-slipbox-node-from-ref)
+                     (lambda (_reference)
+                       '(:title "Deleted" :file_path "missing.org" :line 1)))
+                    ((symbol-function 'org-slipbox-rpc-index-file)
+                     (lambda (file)
+                       (setq indexed file)))
+                    ((symbol-function 'org-slipbox--read-capture-template)
+                     (lambda (&rest _args)
+                       '("d" "default" :path "notes/${slug}.org")))
+                    ((symbol-function 'org-slipbox--capture-node)
+                     (lambda (title template refs variables &optional session)
+                       (setq captured (list title template refs variables session))
+                       '(:title "Replacement" :file_path "replacement.org" :line 1)))
+                    ((symbol-function 'org-slipbox--visit-node)
+                     (lambda (&rest _args)
+                       (ert-fail "stale existing node should not be visited"))))
+            (should
+             (equal (org-slipbox-capture-ref "@smith2024" "Replacement")
+                    '(:title "Replacement"
+                      :file_path "replacement.org"
+                      :line 1)))
+            (should (equal indexed missing))
+            (should
+             (equal captured
+                    '("Replacement"
+                      ("d" "default" :path "notes/${slug}.org")
+                      ("@smith2024")
+                      (:ref "@smith2024")
+                      (:default-finalize find-file))))))
+      (delete-directory root t))))
 
 (ert-deftest org-slipbox-test-capture-ref-creates-node-with-ref ()
   "Ref capture should pass the ref through the capture pipeline when missing."
@@ -5031,19 +5072,47 @@ ROOT-NODE defaults to NODE."
 
 (ert-deftest org-slipbox-test-node-visit-exposes-public-helper ()
   "Public node visit helper should visit the indexed file and line."
-  (let ((org-slipbox-directory "/tmp/slipbox/")
-        visited)
-    (cl-letf (((symbol-function 'find-file-other-window)
-               (lambda (path)
-                 (setq visited path)
-                 (current-buffer))))
-      (with-temp-buffer
-        (insert "one\ntwo\nthree\n")
-        (org-slipbox-node-visit
-         '(:file_path "notes/alpha.org" :line 2)
-         t)
-        (should (equal visited "/tmp/slipbox/notes/alpha.org"))
-        (should (= (line-number-at-pos) 2))))))
+  (let* ((root (make-temp-file "org-slipbox-node-visit-" t))
+         (notes-dir (expand-file-name "notes" root))
+         (file (expand-file-name "alpha.org" notes-dir))
+         (org-slipbox-directory root)
+         visited)
+    (unwind-protect
+        (progn
+          (make-directory notes-dir)
+          (write-region "one\ntwo\nthree\n" nil file nil 'silent)
+          (cl-letf (((symbol-function 'find-file-other-window)
+                     (lambda (path)
+                       (setq visited path)
+                       (current-buffer))))
+            (with-temp-buffer
+              (insert "one\ntwo\nthree\n")
+              (org-slipbox-node-visit
+               '(:file_path "notes/alpha.org" :line 2)
+               t)
+              (should (equal visited file))
+              (should (= (line-number-at-pos) 2)))))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-node-visit-rejects-missing-indexed-file ()
+  "Visiting stale indexed nodes should not recreate deleted note files."
+  (let* ((root (make-temp-file "org-slipbox-node-visit-missing-" t))
+         (file (expand-file-name "missing.org" root))
+         (org-slipbox-directory root)
+         indexed)
+    (unwind-protect
+        (cl-letf (((symbol-function 'org-slipbox-rpc-index-file)
+                   (lambda (path)
+                     (setq indexed path)))
+                  ((symbol-function 'find-file)
+                   (lambda (&rest _args)
+                     (ert-fail "missing indexed files must not be opened with find-file"))))
+          (should-error
+           (org-slipbox-node-visit '(:file_path "missing.org" :line 1))
+           :type 'user-error)
+          (should (equal indexed file))
+          (should-not (file-exists-p file)))
+      (delete-directory root t))))
 
 (ert-deftest org-slipbox-test-tag-completions-merge-indexed-and-org-tags ()
   "Tag completions should include indexed and configured Org tags."
