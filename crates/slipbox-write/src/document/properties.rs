@@ -120,20 +120,60 @@ pub(super) fn file_property_insert_index(lines: &[String]) -> usize {
     while index < lines.len() && lines[index].trim().is_empty() {
         index += 1;
     }
+    index
+}
 
+fn file_keyword_insert_index(lines: &[String]) -> usize {
+    let mut index = file_property_insert_index(lines);
+    if let Some((_, end)) = file_property_drawer_bounds_at(lines, index) {
+        index = end;
+        while index < lines.len() && lines[index].trim().is_empty() {
+            index += 1;
+        }
+    }
     while index < lines.len() && lines[index].trim_start().starts_with("#+") {
         index += 1;
     }
-
     index
 }
 
 pub(super) fn file_property_drawer_bounds(lines: &[String]) -> Option<(usize, usize)> {
-    let mut index = file_property_insert_index(lines);
+    let insert_index = file_property_insert_index(lines);
+    if let Some(bounds) = file_property_drawer_bounds_at(lines, insert_index) {
+        return Some(bounds);
+    }
+
+    let mut index = file_keyword_insert_index(lines);
     while index < lines.len() && lines[index].trim().is_empty() {
         index += 1;
     }
+    file_property_drawer_bounds_at(lines, index)
+}
 
+pub(super) fn file_metadata_end_index(lines: &[String]) -> usize {
+    let mut index = file_property_insert_index(lines);
+    if let Some((_, end)) = file_property_drawer_bounds_at(lines, index) {
+        index = end;
+    }
+    while index < lines.len() && lines[index].trim().is_empty() {
+        index += 1;
+    }
+    while index < lines.len() && lines[index].trim_start().starts_with("#+") {
+        index += 1;
+    }
+    while index < lines.len() && lines[index].trim().is_empty() {
+        index += 1;
+    }
+    if let Some((_, end)) = file_property_drawer_bounds_at(lines, index) {
+        index = end;
+        while index < lines.len() && lines[index].trim().is_empty() {
+            index += 1;
+        }
+    }
+    index
+}
+
+fn file_property_drawer_bounds_at(lines: &[String], index: usize) -> Option<(usize, usize)> {
     if lines
         .get(index)
         .is_some_and(|line| line.trim().eq_ignore_ascii_case(":PROPERTIES:"))
@@ -144,7 +184,6 @@ pub(super) fn file_property_drawer_bounds(lines: &[String]) -> Option<(usize, us
             }
         }
     }
-
     None
 }
 
@@ -285,7 +324,7 @@ fn set_file_keyword_value(lines: &mut Vec<String>, keyword: &str, value: Option<
     }
 
     if let Some(value) = value {
-        let insert_index = file_property_insert_index(lines);
+        let insert_index = file_keyword_insert_index(lines);
         lines.insert(
             insert_index,
             format!("#+{}: {value}", keyword.to_ascii_lowercase()),

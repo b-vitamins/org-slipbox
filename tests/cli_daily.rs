@@ -193,8 +193,8 @@ fn daily_custom_directory_formats_and_head_are_explicit_cli_config() -> Result<(
     assert_eq!(node.title, "Journal 2026-05-12");
     assert_eq!(node.tags, vec!["daily"]);
     let source = fs::read_to_string(root.join("journal/2026/05/12.org"))?;
-    assert!(source.starts_with("#+title: Journal 2026-05-12\n#+filetags: :daily:\n"));
-    assert!(source.contains(":ID: "));
+    assert!(source.starts_with(":PROPERTIES:\n:ID: "));
+    assert!(source.contains(":END:\n\n#+title: Journal 2026-05-12\n#+filetags: :daily:\n"));
 
     Ok(())
 }

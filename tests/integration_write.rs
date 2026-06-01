@@ -130,7 +130,7 @@ fn append_heading_creates_indexed_heading_node() -> Result<()> {
         .expect("captured heading should exist");
     assert_eq!(node.title, "Meeting");
     assert_eq!(node.file_path, "daily/2026-03-07.org");
-    assert_eq!(node.line, 6);
+    assert_eq!(node.line, 7);
 
     Ok(())
 }
@@ -170,10 +170,9 @@ fn capture_file_note_at_with_head_preserves_head_and_assigns_identity() -> Resul
     database.sync_file_index(&indexed)?;
 
     let source = fs::read_to_string(&captured.absolute_path)?;
-    assert!(source.contains("#+title: Seed"));
-    assert!(source.contains("#+filetags: :seed:"));
-    assert!(source.contains(":ID: "));
-    assert!(source.contains(":ROAM_REFS: https://example.test/seed"));
+    assert!(source.starts_with(":PROPERTIES:\n:ID: "));
+    assert!(source.contains(":ROAM_REFS: https://example.test/seed\n:END:\n\n"));
+    assert!(source.contains("#+title: Seed\n#+filetags: :seed:"));
 
     let node = database
         .note_by_key(&captured.node_key)?
@@ -237,7 +236,9 @@ fn capture_with_refs_writes_property_and_indexes_reference() -> Result<()> {
     database.sync_index(&files)?;
 
     let source = fs::read_to_string(&captured.absolute_path)?;
+    assert!(source.starts_with(":PROPERTIES:\n:ID: "));
     assert!(source.contains(":ROAM_REFS: https://example.test/ref"));
+    assert!(source.contains(":END:\n\n#+title: Captured Note\n"));
 
     let node = database
         .node_from_ref("https://example.test/ref")?
@@ -278,7 +279,8 @@ fn capture_template_entry_inserts_child_under_outline_target() -> Result<()> {
     database.sync_file_index(&indexed)?;
 
     let source = fs::read_to_string(&captured.absolute_path)?;
-    assert!(source.starts_with("#+title: 2026-03-07\n"));
+    assert!(source.starts_with(":PROPERTIES:\n:ID: "));
+    assert!(source.contains(":END:\n\n#+title: 2026-03-07\n"));
     assert!(source.contains("* Inbox"));
     assert!(source.contains("** Meeting\nCaptured.\n"));
 
@@ -323,7 +325,8 @@ fn capture_template_entry_uses_title_for_blank_heading_templates() -> Result<()>
     database.sync_file_index(&indexed)?;
 
     let source = fs::read_to_string(&captured.absolute_path)?;
-    assert!(source.starts_with("#+title: 2026-03-08\n"));
+    assert!(source.starts_with(":PROPERTIES:\n:ID: "));
+    assert!(source.contains(":END:\n\n#+title: 2026-03-08\n"));
     assert!(source.contains("* Daily substitution entry\n"));
 
     let node = database
@@ -521,6 +524,48 @@ fn capture_template_plain_file_target_appends_after_existing_headings() -> Resul
         fs::read_to_string(&note_path)?,
         "#+title: Note\n\n* Existing\nBody.\nTail\n"
     );
+
+    Ok(())
+}
+
+#[test]
+fn capture_template_plain_file_head_places_properties_before_keywords() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    let captured = capture_template(
+        &root,
+        None,
+        &CaptureTemplateParams {
+            title: String::from("LeCun, A Path Towards Autonomous Machine Intelligence"),
+            file_path: Some(String::from(
+                "lecun-a-path-towards-autonomous-machine-intelligence.org",
+            )),
+            node_key: None,
+            head: Some(String::from(
+                "#+TITLE: LeCun, A Path Towards Autonomous Machine Intelligence\n#+DATE: 2026-06-01\n#+FILETAGS:\n\n",
+            )),
+            outline_path: Vec::new(),
+            capture_type: CaptureContentType::Plain,
+            content: String::new(),
+            refs: vec![String::from("@lecun2022path")],
+            prepend: false,
+            empty_lines_before: 0,
+            empty_lines_after: 0,
+            table_line_pos: None,
+        },
+    )?;
+
+    assert_eq!(
+        captured.node_key,
+        "file:lecun-a-path-towards-autonomous-machine-intelligence.org"
+    );
+    let source = fs::read_to_string(&captured.absolute_path)?;
+    assert!(source.starts_with(":PROPERTIES:\n:ID: "));
+    assert!(source.contains(
+        ":ROAM_REFS: @lecun2022path\n:END:\n\n#+TITLE: LeCun, A Path Towards Autonomous Machine Intelligence\n#+DATE: 2026-06-01\n#+FILETAGS:\n"
+    ));
 
     Ok(())
 }
@@ -983,7 +1028,7 @@ fn promote_entire_file_converts_a_single_root_heading_into_a_file_node() -> Resu
     let source = fs::read_to_string(&note_path)?;
     assert!(
         source
-            .starts_with("#+title: Note\n#+filetags: :alpha:\n:PROPERTIES:\n:ID: note-id\n:END:\n")
+            .starts_with(":PROPERTIES:\n:ID: note-id\n:END:\n#+title: Note\n#+filetags: :alpha:\n")
     );
     assert!(source.contains("\nBody.\n\n* Child\nBody.\n"));
     assert_eq!(outcome.node_key, "file:note.org");

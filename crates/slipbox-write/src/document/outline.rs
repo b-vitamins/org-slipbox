@@ -2,7 +2,7 @@ use anyhow::{Context, Result, bail};
 use slipbox_core::{NodeKind, NodeRecord};
 
 use super::OrgDocument;
-use super::properties::{file_property_drawer_bounds, file_property_insert_index};
+use super::properties::file_metadata_end_index;
 
 impl OrgDocument {
     pub(crate) fn subtree_range(&self, line_number: usize) -> Result<(usize, usize)> {
@@ -183,13 +183,7 @@ impl OrgDocument {
     }
 
     fn file_body_start_index(&self) -> usize {
-        let mut index = file_property_drawer_bounds(&self.lines)
-            .map(|(_, end)| end)
-            .unwrap_or_else(|| file_property_insert_index(&self.lines));
-        while index < self.lines.len() && self.lines[index].trim().is_empty() {
-            index += 1;
-        }
-        index
+        file_metadata_end_index(&self.lines)
     }
 
     fn heading_body_start_index(&self, line_number: usize) -> Result<usize> {
