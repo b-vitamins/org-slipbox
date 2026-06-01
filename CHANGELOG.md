@@ -6,6 +6,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+## [0.14.2] - 2026-06-01
+
 ### Fixed
 - Insert generated file-level property drawers before file keywords when
   creating or promoting file notes, so `ID` and `ROAM_REFS` stay at the top of
