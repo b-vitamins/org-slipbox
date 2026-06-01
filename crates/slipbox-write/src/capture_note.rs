@@ -220,7 +220,7 @@ fn write_file_note(path: &Path, title: &str, refs: &[String]) -> Result<()> {
     if !refs.is_empty() {
         content.push_str(&format!(":ROAM_REFS: {}\n", format_property_values(refs)));
     }
-    content.push_str(&format!(":END:\n\n#+title: {title}\n"));
+    content.push_str(&format!(":END:\n#+title: {title}\n"));
     let mut transaction = FileRewriteTransaction::new();
     transaction.write(path, content);
     transaction.commit()

@@ -130,7 +130,7 @@ fn append_heading_creates_indexed_heading_node() -> Result<()> {
         .expect("captured heading should exist");
     assert_eq!(node.title, "Meeting");
     assert_eq!(node.file_path, "daily/2026-03-07.org");
-    assert_eq!(node.line, 7);
+    assert_eq!(node.line, 6);
 
     Ok(())
 }
@@ -171,7 +171,7 @@ fn capture_file_note_at_with_head_preserves_head_and_assigns_identity() -> Resul
 
     let source = fs::read_to_string(&captured.absolute_path)?;
     assert!(source.starts_with(":PROPERTIES:\n:ID: "));
-    assert!(source.contains(":ROAM_REFS: https://example.test/seed\n:END:\n\n"));
+    assert!(source.contains(":ROAM_REFS: https://example.test/seed\n:END:\n#+title: Seed"));
     assert!(source.contains("#+title: Seed\n#+filetags: :seed:"));
 
     let node = database
@@ -238,7 +238,7 @@ fn capture_with_refs_writes_property_and_indexes_reference() -> Result<()> {
     let source = fs::read_to_string(&captured.absolute_path)?;
     assert!(source.starts_with(":PROPERTIES:\n:ID: "));
     assert!(source.contains(":ROAM_REFS: https://example.test/ref"));
-    assert!(source.contains(":END:\n\n#+title: Captured Note\n"));
+    assert!(source.contains(":END:\n#+title: Captured Note\n"));
 
     let node = database
         .node_from_ref("https://example.test/ref")?
@@ -280,7 +280,7 @@ fn capture_template_entry_inserts_child_under_outline_target() -> Result<()> {
 
     let source = fs::read_to_string(&captured.absolute_path)?;
     assert!(source.starts_with(":PROPERTIES:\n:ID: "));
-    assert!(source.contains(":END:\n\n#+title: 2026-03-07\n"));
+    assert!(source.contains(":END:\n#+title: 2026-03-07\n"));
     assert!(source.contains("* Inbox"));
     assert!(source.contains("** Meeting\nCaptured.\n"));
 
@@ -326,7 +326,7 @@ fn capture_template_entry_uses_title_for_blank_heading_templates() -> Result<()>
 
     let source = fs::read_to_string(&captured.absolute_path)?;
     assert!(source.starts_with(":PROPERTIES:\n:ID: "));
-    assert!(source.contains(":END:\n\n#+title: 2026-03-08\n"));
+    assert!(source.contains(":END:\n#+title: 2026-03-08\n"));
     assert!(source.contains("* Daily substitution entry\n"));
 
     let node = database
@@ -564,7 +564,7 @@ fn capture_template_plain_file_head_places_properties_before_keywords() -> Resul
     let source = fs::read_to_string(&captured.absolute_path)?;
     assert!(source.starts_with(":PROPERTIES:\n:ID: "));
     assert!(source.contains(
-        ":ROAM_REFS: @lecun2022path\n:END:\n\n#+TITLE: LeCun, A Path Towards Autonomous Machine Intelligence\n#+DATE: 2026-06-01\n#+FILETAGS:\n"
+        ":ROAM_REFS: @lecun2022path\n:END:\n#+TITLE: LeCun, A Path Towards Autonomous Machine Intelligence\n#+DATE: 2026-06-01\n#+FILETAGS:\n"
     ));
 
     Ok(())
@@ -806,7 +806,7 @@ fn preview_capture_template_leaves_new_target_unsaved() -> Result<()> {
     )?;
 
     assert_eq!(preview.relative_path, "note.org");
-    assert_eq!(preview.node_key, "heading:note.org:6");
+    assert_eq!(preview.node_key, "heading:note.org:5");
     assert!(!note_path.exists());
     assert!(preview.content.contains("* Note"));
 

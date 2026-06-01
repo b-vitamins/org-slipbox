@@ -301,7 +301,7 @@ fn set_file_property_value(lines: &mut Vec<String>, property: &str, value: Optio
         if insert_index == lines.len()
             || lines
                 .get(insert_index)
-                .is_some_and(|line| !line.trim().is_empty())
+                .is_some_and(|line| !line.trim().is_empty() && !line.trim_start().starts_with("#+"))
         {
             drawer.push(String::new());
         }

@@ -5094,6 +5094,27 @@ ROOT-NODE defaults to NODE."
               (should (= (line-number-at-pos) 2)))))
       (delete-directory root t))))
 
+(ert-deftest org-slipbox-test-node-visit-hides-org-drawers ()
+  "Visiting Org nodes should leave property drawers folded."
+  (let* ((root (make-temp-file "org-slipbox-node-drawers-" t))
+         (file (expand-file-name "alpha.org" root))
+         (org-slipbox-directory root))
+    (unwind-protect
+        (progn
+          (write-region
+           ":PROPERTIES:\n:ID: alpha-id\n:ROAM_REFS: @alpha\n:END:\n#+title: Alpha\n"
+           nil file nil 'silent)
+          (org-slipbox-node-visit '(:file_path "alpha.org" :line 1))
+          (should (derived-mode-p 'org-mode))
+          (goto-char (point-min))
+          (search-forward "alpha-id")
+          (should (invisible-p (point))))
+      (when-let ((buffer (find-buffer-visiting file)))
+        (with-current-buffer buffer
+          (set-buffer-modified-p nil))
+        (kill-buffer buffer))
+      (delete-directory root t))))
+
 (ert-deftest org-slipbox-test-node-visit-rejects-missing-indexed-file ()
   "Visiting stale indexed nodes should not recreate deleted note files."
   (let* ((root (make-temp-file "org-slipbox-node-visit-missing-" t))

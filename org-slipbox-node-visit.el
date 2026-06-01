@@ -34,6 +34,10 @@
 (require 'org-slipbox-files)
 (require 'org-slipbox-rpc)
 
+(declare-function org-cycle-hide-drawers "org-cycle" (state))
+(declare-function org-fold-hide-drawer-all "org-fold" (&optional begin end))
+(declare-function org-hide-drawer-all "org" (&optional begin end))
+
 (defvar org-slipbox-directory)
 
 (defun org-slipbox-node-at-point (&optional assert)
@@ -165,6 +169,17 @@ If ASSERT is non-nil, signal a user error when no anchor is available."
       (org-slipbox--forget-missing-node-file node)
       nil)))
 
+(defun org-slipbox-node--hide-drawers ()
+  "Hide Org drawers in the current node buffer when possible."
+  (when (derived-mode-p 'org-mode)
+    (cond
+     ((fboundp 'org-fold-hide-drawer-all)
+      (org-fold-hide-drawer-all))
+     ((fboundp 'org-cycle-hide-drawers)
+      (org-cycle-hide-drawers 'all))
+     ((fboundp 'org-hide-drawer-all)
+      (org-hide-drawer-all)))))
+
 (defun org-slipbox-node-visit (node &optional other-window)
   "Visit indexed NODE in its source file.
 With OTHER-WINDOW, visit it in another window."
@@ -175,6 +190,7 @@ With OTHER-WINDOW, visit it in another window."
       (user-error "Indexed node source file no longer exists: %s"
                   (abbreviate-file-name file)))
     (funcall (if other-window #'find-file-other-window #'find-file) file))
+  (org-slipbox-node--hide-drawers)
   (goto-char (point-min))
   (forward-line (1- (plist-get node :line))))
 

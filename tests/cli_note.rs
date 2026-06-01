@@ -71,7 +71,7 @@ fn note_create_writes_file_note_with_refs_and_json() -> Result<()> {
 
     let source = fs::read_to_string(root.join("projects/captured.org"))?;
     assert!(source.starts_with(":PROPERTIES:\n:ID: "));
-    assert!(source.contains(":END:\n\n#+title: Captured Note\n#+filetags: :project:\n"));
+    assert!(source.contains(":END:\n#+title: Captured Note\n#+filetags: :project:\n"));
     assert!(source.contains(":ROAM_REFS: @captured2026 @extra2026"));
 
     args = vec!["ref".to_owned(), "resolve".to_owned()];
