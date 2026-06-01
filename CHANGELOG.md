@@ -6,6 +6,18 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+## [0.14.4] - 2026-06-02
+
+### Fixed
+- Tolerate partial indexed node metadata in node completion display, local
+  sorters, visits, and capture clocking, avoiding nil crashes and `nil:nil`
+  display fragments.
+- Release capture caller session markers when finalization fails during
+  prepare or materialization, preventing stale caller state after failed
+  captures.
+- Clamp all capture blank-line options to non-negative values, including
+  explicit `:empty-lines-before` and `:empty-lines-after` settings.
+
 ## [0.14.3] - 2026-06-02
 
 ### Fixed
