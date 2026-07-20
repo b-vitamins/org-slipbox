@@ -105,251 +105,277 @@ pub(crate) fn enforce_thresholds(
     report: &BenchmarkReport,
     thresholds: &ThresholdConfig,
 ) -> Result<()> {
-    check_threshold(
-        "full_index",
-        report.full_index.p95_ms,
-        thresholds.full_index_p95_ms,
-    )?;
-    check_threshold(
-        "index_file",
-        report.index_file.p95_ms,
-        thresholds.index_file_p95_ms,
-    )?;
-    check_threshold(
-        "search_nodes",
-        report.search_nodes.p95_ms,
-        thresholds.search_nodes_p95_ms,
-    )?;
-    check_threshold(
-        "search_nodes_sorted",
-        report.search_nodes_sorted.p95_ms,
-        thresholds.search_nodes_sorted_p95_ms,
-    )?;
-    check_threshold(
-        "search_files",
-        report.search_files.p95_ms,
-        thresholds.search_files_p95_ms,
-    )?;
-    check_threshold(
-        "search_occurrences",
-        report.search_occurrences.p95_ms,
-        thresholds.search_occurrences_p95_ms,
-    )?;
-    check_threshold(
-        "backlinks",
-        report.backlinks.p95_ms,
-        thresholds.backlinks_p95_ms,
-    )?;
-    check_threshold(
-        "forward_links",
-        report.forward_links.p95_ms,
-        thresholds.forward_links_p95_ms,
-    )?;
-    check_threshold(
-        "reflinks",
-        report.reflinks.p95_ms,
-        thresholds.reflinks_p95_ms,
-    )?;
-    check_threshold(
-        "unlinked_references",
-        report.unlinked_references.p95_ms,
-        thresholds.unlinked_references_p95_ms,
-    )?;
-    check_threshold(
-        "node_at_point",
-        report.node_at_point.p95_ms,
-        thresholds.node_at_point_p95_ms,
-    )?;
-    check_threshold("agenda", report.agenda.p95_ms, thresholds.agenda_p95_ms)?;
+    let mut checks = vec![
+        (
+            "full_index",
+            report.full_index.p95_ms,
+            thresholds.full_index_p95_ms,
+        ),
+        (
+            "index_file",
+            report.index_file.p95_ms,
+            thresholds.index_file_p95_ms,
+        ),
+        (
+            "search_nodes",
+            report.search_nodes.p95_ms,
+            thresholds.search_nodes_p95_ms,
+        ),
+        (
+            "search_nodes_sorted",
+            report.search_nodes_sorted.p95_ms,
+            thresholds.search_nodes_sorted_p95_ms,
+        ),
+        (
+            "search_files",
+            report.search_files.p95_ms,
+            thresholds.search_files_p95_ms,
+        ),
+        (
+            "search_occurrences",
+            report.search_occurrences.p95_ms,
+            thresholds.search_occurrences_p95_ms,
+        ),
+        (
+            "backlinks",
+            report.backlinks.p95_ms,
+            thresholds.backlinks_p95_ms,
+        ),
+        (
+            "forward_links",
+            report.forward_links.p95_ms,
+            thresholds.forward_links_p95_ms,
+        ),
+        (
+            "reflinks",
+            report.reflinks.p95_ms,
+            thresholds.reflinks_p95_ms,
+        ),
+        (
+            "unlinked_references",
+            report.unlinked_references.p95_ms,
+            thresholds.unlinked_references_p95_ms,
+        ),
+        (
+            "node_at_point",
+            report.node_at_point.p95_ms,
+            thresholds.node_at_point_p95_ms,
+        ),
+        ("agenda", report.agenda.p95_ms, thresholds.agenda_p95_ms),
+    ];
     if let (Some(observed), Some(limit)) = (
         &report.persistent_buffer,
         thresholds.persistent_buffer_p95_ms,
     ) {
-        check_threshold("persistent_buffer", observed.p95_ms, limit)?;
+        checks.push(("persistent_buffer", observed.p95_ms, limit));
     }
     if let (Some(observed), Some(limit)) =
         (&report.dedicated_buffer, thresholds.dedicated_buffer_p95_ms)
     {
-        check_threshold("dedicated_buffer", observed.p95_ms, limit)?;
+        checks.push(("dedicated_buffer", observed.p95_ms, limit));
     }
     if let (Some(observed), Some(limit)) = (
         &report.dedicated_exploration_buffer,
         thresholds.dedicated_exploration_buffer_p95_ms,
     ) {
-        check_threshold("dedicated_exploration_buffer", observed.p95_ms, limit)?;
+        checks.push(("dedicated_exploration_buffer", observed.p95_ms, limit));
     }
-    check_threshold(
-        "workflow_catalog",
-        report.workflow_catalog.p95_ms,
-        thresholds.workflow_catalog_p95_ms,
-    )?;
-    check_threshold(
-        "workflow_run",
-        report.workflow_run.p95_ms,
-        thresholds.workflow_run_p95_ms,
-    )?;
-    check_threshold(
-        "corpus_audit",
-        report.corpus_audit.p95_ms,
-        thresholds.corpus_audit_p95_ms,
-    )?;
-    check_threshold(
-        "review_list",
-        report.review_list.p95_ms,
-        thresholds.review_list_p95_ms,
-    )?;
-    check_threshold(
-        "review_show",
-        report.review_show.p95_ms,
-        thresholds.review_show_p95_ms,
-    )?;
-    check_threshold(
-        "review_diff",
-        report.review_diff.p95_ms,
-        thresholds.review_diff_p95_ms,
-    )?;
-    check_threshold(
-        "review_mark",
-        report.review_mark.p95_ms,
-        thresholds.review_mark_p95_ms,
-    )?;
-    check_threshold(
-        "audit_save_review",
-        report.audit_save_review.p95_ms,
-        thresholds.audit_save_review_p95_ms,
-    )?;
-    check_threshold(
-        "workflow_save_review",
-        report.workflow_save_review.p95_ms,
-        thresholds.workflow_save_review_p95_ms,
-    )?;
-    check_threshold(
-        "remediation_preview",
-        report.remediation_preview.p95_ms,
-        thresholds.remediation_preview_p95_ms,
-    )?;
-    check_threshold(
-        "pack_catalog",
-        report.pack_catalog.p95_ms,
-        thresholds.pack_catalog_p95_ms,
-    )?;
-    check_threshold(
-        "pack_validation",
-        report.pack_validation.p95_ms,
-        thresholds.pack_validation_p95_ms,
-    )?;
-    check_threshold(
-        "pack_import",
-        report.pack_import.p95_ms,
-        thresholds.pack_import_p95_ms,
-    )?;
-    check_threshold(
-        "routine_run",
-        report.routine_run.p95_ms,
-        thresholds.routine_run_p95_ms,
-    )?;
-    check_threshold(
-        "report_profile_rendering",
-        report.report_profile_rendering.p95_ms,
-        thresholds.report_profile_rendering_p95_ms,
-    )?;
-    check_threshold(
-        "everyday_file_sync",
-        report.everyday_file_sync.p95_ms,
-        thresholds.everyday_file_sync_p95_ms,
-    )?;
-    check_threshold(
-        "everyday_node_show",
-        report.everyday_node_show.p95_ms,
-        thresholds.everyday_node_show_p95_ms,
-    )?;
-    check_threshold(
-        "everyday_node_search",
-        report.everyday_node_search.p95_ms,
-        thresholds.everyday_node_search_p95_ms,
-    )?;
-    check_threshold(
-        "everyday_occurrence_search",
-        report.everyday_occurrence_search.p95_ms,
-        thresholds.everyday_occurrence_search_p95_ms,
-    )?;
-    check_threshold(
-        "everyday_agenda_range",
-        report.everyday_agenda_range.p95_ms,
-        thresholds.everyday_agenda_range_p95_ms,
-    )?;
-    check_threshold(
-        "everyday_graph_dot",
-        report.everyday_graph_dot.p95_ms,
-        thresholds.everyday_graph_dot_p95_ms,
-    )?;
-    check_threshold(
-        "everyday_capture_create",
-        report.everyday_capture_create.p95_ms,
-        thresholds.everyday_capture_create_p95_ms,
-    )?;
-    check_threshold(
-        "everyday_daily_append",
-        report.everyday_daily_append.p95_ms,
-        thresholds.everyday_daily_append_p95_ms,
-    )?;
-    check_threshold(
-        "everyday_metadata_update",
-        report.everyday_metadata_update.p95_ms,
-        thresholds.everyday_metadata_update_p95_ms,
-    )?;
-    check_threshold(
-        "structural_refile_subtree",
-        report.structural_refile_subtree.p95_ms,
-        thresholds.structural_refile_subtree_p95_ms,
-    )?;
-    check_threshold(
-        "structural_refile_region",
-        report.structural_refile_region.p95_ms,
-        thresholds.structural_refile_region_p95_ms,
-    )?;
-    check_threshold(
-        "structural_extract_subtree",
-        report.structural_extract_subtree.p95_ms,
-        thresholds.structural_extract_subtree_p95_ms,
-    )?;
-    check_threshold(
-        "structural_promote_file",
-        report.structural_promote_file.p95_ms,
-        thresholds.structural_promote_file_p95_ms,
-    )?;
-    check_threshold(
-        "structural_demote_file",
-        report.structural_demote_file.p95_ms,
-        thresholds.structural_demote_file_p95_ms,
-    )?;
-    check_threshold(
-        "remediation_apply",
-        report.remediation_apply.p95_ms,
-        thresholds.remediation_apply_p95_ms,
-    )?;
-    check_threshold(
-        "slipbox_link_rewrite_preview",
-        report.slipbox_link_rewrite_preview.p95_ms,
-        thresholds.slipbox_link_rewrite_preview_p95_ms,
-    )?;
-    check_threshold(
-        "slipbox_link_rewrite_apply",
-        report.slipbox_link_rewrite_apply.p95_ms,
-        thresholds.slipbox_link_rewrite_apply_p95_ms,
-    )?;
-    Ok(())
+    checks.extend([
+        (
+            "workflow_catalog",
+            report.workflow_catalog.p95_ms,
+            thresholds.workflow_catalog_p95_ms,
+        ),
+        (
+            "workflow_run",
+            report.workflow_run.p95_ms,
+            thresholds.workflow_run_p95_ms,
+        ),
+        (
+            "corpus_audit",
+            report.corpus_audit.p95_ms,
+            thresholds.corpus_audit_p95_ms,
+        ),
+        (
+            "review_list",
+            report.review_list.p95_ms,
+            thresholds.review_list_p95_ms,
+        ),
+        (
+            "review_show",
+            report.review_show.p95_ms,
+            thresholds.review_show_p95_ms,
+        ),
+        (
+            "review_diff",
+            report.review_diff.p95_ms,
+            thresholds.review_diff_p95_ms,
+        ),
+        (
+            "review_mark",
+            report.review_mark.p95_ms,
+            thresholds.review_mark_p95_ms,
+        ),
+        (
+            "audit_save_review",
+            report.audit_save_review.p95_ms,
+            thresholds.audit_save_review_p95_ms,
+        ),
+        (
+            "workflow_save_review",
+            report.workflow_save_review.p95_ms,
+            thresholds.workflow_save_review_p95_ms,
+        ),
+        (
+            "remediation_preview",
+            report.remediation_preview.p95_ms,
+            thresholds.remediation_preview_p95_ms,
+        ),
+        (
+            "pack_catalog",
+            report.pack_catalog.p95_ms,
+            thresholds.pack_catalog_p95_ms,
+        ),
+        (
+            "pack_validation",
+            report.pack_validation.p95_ms,
+            thresholds.pack_validation_p95_ms,
+        ),
+        (
+            "pack_import",
+            report.pack_import.p95_ms,
+            thresholds.pack_import_p95_ms,
+        ),
+        (
+            "routine_run",
+            report.routine_run.p95_ms,
+            thresholds.routine_run_p95_ms,
+        ),
+        (
+            "report_profile_rendering",
+            report.report_profile_rendering.p95_ms,
+            thresholds.report_profile_rendering_p95_ms,
+        ),
+        (
+            "everyday_file_sync",
+            report.everyday_file_sync.p95_ms,
+            thresholds.everyday_file_sync_p95_ms,
+        ),
+        (
+            "everyday_node_show",
+            report.everyday_node_show.p95_ms,
+            thresholds.everyday_node_show_p95_ms,
+        ),
+        (
+            "everyday_node_search",
+            report.everyday_node_search.p95_ms,
+            thresholds.everyday_node_search_p95_ms,
+        ),
+        (
+            "everyday_occurrence_search",
+            report.everyday_occurrence_search.p95_ms,
+            thresholds.everyday_occurrence_search_p95_ms,
+        ),
+        (
+            "everyday_agenda_range",
+            report.everyday_agenda_range.p95_ms,
+            thresholds.everyday_agenda_range_p95_ms,
+        ),
+        (
+            "everyday_graph_dot",
+            report.everyday_graph_dot.p95_ms,
+            thresholds.everyday_graph_dot_p95_ms,
+        ),
+        (
+            "everyday_capture_create",
+            report.everyday_capture_create.p95_ms,
+            thresholds.everyday_capture_create_p95_ms,
+        ),
+        (
+            "everyday_daily_append",
+            report.everyday_daily_append.p95_ms,
+            thresholds.everyday_daily_append_p95_ms,
+        ),
+        (
+            "everyday_metadata_update",
+            report.everyday_metadata_update.p95_ms,
+            thresholds.everyday_metadata_update_p95_ms,
+        ),
+        (
+            "structural_refile_subtree",
+            report.structural_refile_subtree.p95_ms,
+            thresholds.structural_refile_subtree_p95_ms,
+        ),
+        (
+            "structural_refile_region",
+            report.structural_refile_region.p95_ms,
+            thresholds.structural_refile_region_p95_ms,
+        ),
+        (
+            "structural_extract_subtree",
+            report.structural_extract_subtree.p95_ms,
+            thresholds.structural_extract_subtree_p95_ms,
+        ),
+        (
+            "structural_promote_file",
+            report.structural_promote_file.p95_ms,
+            thresholds.structural_promote_file_p95_ms,
+        ),
+        (
+            "structural_demote_file",
+            report.structural_demote_file.p95_ms,
+            thresholds.structural_demote_file_p95_ms,
+        ),
+        (
+            "remediation_apply",
+            report.remediation_apply.p95_ms,
+            thresholds.remediation_apply_p95_ms,
+        ),
+        (
+            "slipbox_link_rewrite_preview",
+            report.slipbox_link_rewrite_preview.p95_ms,
+            thresholds.slipbox_link_rewrite_preview_p95_ms,
+        ),
+        (
+            "slipbox_link_rewrite_apply",
+            report.slipbox_link_rewrite_apply.p95_ms,
+            thresholds.slipbox_link_rewrite_apply_p95_ms,
+        ),
+    ]);
+
+    check_threshold_set(&checks)
 }
 
 pub(crate) fn check_threshold(metric: &str, observed: f64, limit: f64) -> Result<()> {
-    if observed > limit {
-        bail!(
-            "{metric} p95 {:.2} ms exceeds threshold {:.2} ms",
-            observed,
-            limit
-        );
+    match threshold_failure(metric, observed, limit) {
+        Some(failure) => bail!("{failure}"),
+        None => Ok(()),
     }
-    Ok(())
+}
+
+pub(crate) fn check_threshold_set(checks: &[(&str, f64, f64)]) -> Result<()> {
+    let failures = checks
+        .iter()
+        .filter_map(|(metric, observed, limit)| {
+            check_threshold(metric, *observed, *limit)
+                .err()
+                .map(|error| error.to_string())
+        })
+        .collect::<Vec<_>>();
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        bail!("benchmark thresholds exceeded:\n{}", failures.join("\n"))
+    }
+}
+
+fn threshold_failure(metric: &str, observed: f64, limit: f64) -> Option<String> {
+    (observed > limit).then(|| {
+        format!(
+            "{metric} p95 {:.2} ms exceeds threshold {:.2} ms",
+            observed, limit
+        )
+    })
 }
 
 pub(crate) fn print_summary(report: &BenchmarkReport, check: bool, output_path: &Path) {

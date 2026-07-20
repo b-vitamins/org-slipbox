@@ -6,6 +6,11 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+### Changed
+- Report every benchmark threshold miss in CI benchmark checks and retune the
+  CI profile thresholds for observed host variance in workflow, report,
+  agenda, graph, and structural-write measurements.
+
 ## [0.14.4] - 2026-06-02
 
 ### Fixed

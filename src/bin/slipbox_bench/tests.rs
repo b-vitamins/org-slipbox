@@ -32,7 +32,7 @@ use crate::slipbox_bench::metrics::{
 use crate::slipbox_bench::profile::{
     BenchmarkProfile, CorpusConfig, IterationConfig, ThresholdConfig,
 };
-use crate::slipbox_bench::report::{TimingReport, check_threshold};
+use crate::slipbox_bench::report::{TimingReport, check_threshold, check_threshold_set};
 
 #[test]
 fn timing_report_computes_sorted_percentiles() {
@@ -869,4 +869,18 @@ fn one_iteration_benchmark_profile(config: CorpusConfig) -> BenchmarkProfile {
 fn threshold_check_fails_when_limit_is_exceeded() {
     let error = check_threshold("search_nodes", 10.0, 5.0).unwrap_err();
     assert!(error.to_string().contains("search_nodes"));
+}
+
+#[test]
+fn threshold_set_reports_all_exceeded_limits() {
+    let error = check_threshold_set(&[
+        ("search_nodes", 10.0, 5.0),
+        ("agenda", 3.0, 5.0),
+        ("workflow_run", 70.0, 65.0),
+    ])
+    .unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("search_nodes p95 10.00 ms"));
+    assert!(message.contains("workflow_run p95 70.00 ms"));
+    assert!(!message.contains("agenda"));
 }
