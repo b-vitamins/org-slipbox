@@ -506,3 +506,9 @@ make bench PROFILE=release
 
 Before milestone commits, run the relevant Rust, Elisp, and benchmark checks
 for the touched surfaces.
+
+GitHub milestones are the literal upcoming release buckets. Keep broad
+direction in [doc/roadmap.org](doc/roadmap.org), keep per-release cut lists in
+the tracker, and keep `CHANGELOG.md` focused on actual unreleased changes.
+Before version-prep commits, run `make check-release-metadata` and do not tag
+until Cargo, README release text, and Emacs package headers agree.

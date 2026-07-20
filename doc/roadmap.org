@@ -5,6 +5,19 @@
 This roadmap maps near-term release bands to the public model in
 [[file:model.org][doc/model.org]]. It covers direction, not dates.
 
+* Release Bucket Discipline
+
+GitHub milestones are the literal upcoming release buckets. This roadmap names
+release-band themes and exit signals; issue bodies carry the per-release cut
+list.
+
+Before opening or preparing a release:
+
+- the next open GitHub milestone should match the near-term roadmap band
+- `CHANGELOG.md` =Unreleased= should describe only actual unreleased changes
+- release-prep commits should keep version metadata, README release text, and
+  Emacs package headers consistent
+
 * 0.13.x: Consolidation
 
 Theme: make the project smaller and easier to reason about.
@@ -56,6 +69,29 @@ Exit signal:
 - internal module boundaries are auditable without changing public contracts
 - benchmark gates hold across query, indexing, write, workflow, review, and
   graph paths
+
+* 0.15.x: Stability Prep
+
+Theme: make release and compatibility claims verifiable before any `1.0`
+candidate.
+
+Focus:
+
+- tracker, roadmap, changelog, and release metadata stay aligned
+- CI benchmark smoke gates and release benchmark guards have documented roles
+- bundled-SQLite and system-SQLite source builds are verified through the
+  documented commands
+- upgrade and index-rebuild behavior is documented for ordinary users
+- public CLI JSON, JSONL, JSON-RPC, and durable-record contracts are audited
+  against the model and compatibility policy
+
+Exit signal:
+
+- default-branch CI is green on the release-prep commit
+- release metadata gate passes for the intended version
+- build verification covers both bundled and system SQLite paths
+- the `0.15.0` milestone is closed with no open compatibility or release
+  hygiene issues
 
 * 1.0.x: Stability Line
 
