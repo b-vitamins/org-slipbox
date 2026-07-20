@@ -30,7 +30,7 @@ The public model is defined in [[file:model.org][doc/model.org]].
 | Diagnostics | Public task records | Preserve task-shaped file/node/index diagnostic wrappers. SQLite implementation details remain internal. |
 | Link rewrite records | Public task records | Preserve preview/apply identity, affected files, and explicit application records. |
 | Remediation apply records | Public task records | Preserve preview identity, action identity, affected files, and explicit application records. |
-| Benchmark profile JSON | Contributor-facing contract | Keep profile names, metric names, and threshold meaning stable enough for release automation. Harness internals may move. |
+| Benchmark profile JSON | Contributor-facing contract | Keep profile names, metric names, and threshold meaning stable enough for release automation. CI thresholds are smoke gates; release thresholds are broader pre-release guards. Harness internals may move. |
 | Derived SQLite schema | Internal | The index may migrate or rebuild. Scripts should use CLI/RPC contracts rather than tables. |
 | Rust module layout | Internal except public crates | Public reexports should remain stable during refactors. Private module paths may change. |
 | Emacs Lisp interactive commands | User-facing | Preserve command names and ordinary interactive behavior unless a deprecation is documented. |
@@ -45,6 +45,12 @@ Preferred compatible changes:
 - adding new commands under an existing model bucket
 - adding new validation issues without hiding valid catalog entries
 - adding benchmark metrics without weakening existing thresholds
+
+Benchmark threshold changes should preserve the role of each profile. The CI
+profile should keep cheap interactive paths tight enough to catch real
+regressions while allowing host variance on file-write, workflow, report, and
+durable-store measurements. The release profile is the broader manual gate for
+release-prep verification.
 
 Changes that need explicit migration notes:
 

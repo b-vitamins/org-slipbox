@@ -441,6 +441,13 @@ Benchmark profiles live in [benches/profiles/ci.json](benches/profiles/ci.json)
 and [benches/profiles/release.json](benches/profiles/release.json). Reports are
 written under `target/bench/`.
 
+The CI profile is a smoke gate for the default branch. It keeps the cheapest
+interactive query paths tight, but treats write-heavy, workflow, report, and
+durable-store paths as broad regression guards because host filesystem
+variance can dominate those measurements. The release profile is the broader
+manual gate to run before version-prep work. Benchmark checks report every
+missed threshold in one run so threshold drift can be corrected deliberately.
+
 The generated corpus includes workflow specs, audit fixtures, review fixtures,
 imported pack/routine/report-profile fixtures, everyday CLI fixtures,
 structural-write fixtures, remediation fixtures, and link-rewrite fixtures, so
