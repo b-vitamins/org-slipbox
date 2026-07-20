@@ -1,0 +1,135 @@
+#+title: org-slipbox Upgrade And Rebuild
+
+* Purpose
+
+This document describes the ordinary upgrade path and the recovery path for
+stale or incompatible local indexes.
+
+Org files are the source of truth. The SQLite database is a derived index over
+those files and can be rebuilt when needed. Rebuilds should be deliberate, but
+they are not migrations of user note content.
+
+* State Boundaries
+
+Durable state lives in two places:
+
+- Org files under the configured root
+- explicit JSON side stores beside the configured database
+
+The SQLite database itself is derived. It stores parsed nodes, links, refs,
+agenda entries, and query indexes so interactive commands stay fast. Its table
+layout is an internal implementation detail.
+
+The daemon also owns three durable JSON side stores next to the database:
+
+- exploration artifacts: =<database-name>.exploration-artifacts/v1/=
+- review runs: =<database-name>.review-runs/v1/=
+- imported workbench packs: =<database-name>.workbench-packs/v1/=
+
+Those side stores survive ordinary index rebuilds. Do not remove them when
+recovering from a stale SQLite index unless you are intentionally deleting
+saved artifacts, saved review evidence, or imported packs.
+
+* Upgrading To 0.15.0 From 0.14.4
+
+The normal upgrade path is:
+
+1. Install the 0.15.0 daemon and the 0.15.0 Emacs package files from the same
+   release archive or source checkout.
+2. Restart any running =slipbox serve= process. In Emacs, reconnect by
+   restarting Emacs or disabling and re-enabling =org-slipbox-mode=.
+3. Run a root sync:
+
+   #+begin_src text
+   M-x org-slipbox-sync
+   #+end_src
+
+   or, from a shell:
+
+   #+begin_src bash
+   slipbox sync root --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+   #+end_src
+
+4. Inspect index health when something looks stale:
+
+   #+begin_src text
+   M-x org-slipbox-list-files-report
+   M-x org-slipbox-diagnose-file
+   M-x org-slipbox-diagnose-node
+   #+end_src
+
+   or, from a shell:
+
+   #+begin_src bash
+   slipbox diagnose index --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+   slipbox diagnose file ~/notes/example.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+   #+end_src
+
+No Org file rewrite is required just to upgrade from 0.14.4. Prefer a normal
+sync first; rebuild only when diagnostics or query results still indicate a
+stale or incompatible index.
+
+* File-Level Recovery
+
+When one file is stale, use the dedicated file sync path rather than a full
+root rebuild:
+
+#+begin_src text
+M-x org-slipbox-sync-current-file
+#+end_src
+
+or:
+
+#+begin_src bash
+slipbox sync file ~/notes/example.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+#+end_src
+
+File sync refreshes the changed file directly and keeps read-your-writes
+semantics for daemon-owned write flows.
+
+* Rebuilding The Derived Index
+
+Use a rebuild when the derived SQLite index is missing, stale after sync, or
+incompatible with the installed daemon.
+
+In Emacs:
+
+#+begin_src text
+M-x org-slipbox-rebuild
+#+end_src
+
+That command asks the daemon to reset its state, deletes the SQLite database
+and its known SQLite sidecar files, then runs a full root sync.
+
+For manual CLI recovery:
+
+1. Stop any running =slipbox serve= process using the database.
+2. Remove only the database file and SQLite sidecars:
+
+   #+begin_src bash
+   rm ~/.cache/org-slipbox.sqlite
+   rm ~/.cache/org-slipbox.sqlite-wal
+   rm ~/.cache/org-slipbox.sqlite-shm
+   #+end_src
+
+3. Leave these directories in place if they exist:
+
+   #+begin_src text
+   ~/.cache/org-slipbox.sqlite.exploration-artifacts/
+   ~/.cache/org-slipbox.sqlite.review-runs/
+   ~/.cache/org-slipbox.sqlite.workbench-packs/
+   #+end_src
+
+4. Rebuild from Org files:
+
+   #+begin_src bash
+   slipbox sync root --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+   #+end_src
+
+* What Is Not Durable
+
+Do not depend on SQLite tables, row names, ranking internals, or private daemon
+module layout. Public compatibility covers task-shaped CLI JSON, JSONL report
+lines, JSON-RPC params/results, durable JSON side stores, portable asset
+formats, diagnostics, and write reports as described in
+[[file:compatibility.org][doc/compatibility.org]].

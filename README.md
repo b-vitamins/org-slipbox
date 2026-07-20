@@ -46,6 +46,8 @@ than raw transport sprawl or a plugin runtime.
   taxonomy.
 - [doc/compatibility.org](doc/compatibility.org) defines compatibility and
   deprecation policy.
+- [doc/upgrade.org](doc/upgrade.org) explains normal upgrades, stale-index
+  recovery, and rebuild boundaries.
 - [doc/vision.org](doc/vision.org) states the product direction.
 - [doc/milestones.org](doc/milestones.org) describes durable capability
   milestones.
@@ -386,6 +388,7 @@ The daemon persists three durable JSON side stores beside the database:
 These stores survive index rebuilds and do not become notes, search hits, refs,
 or graph nodes. See [doc/model.org](doc/model.org) for ownership and
 [doc/compatibility.org](doc/compatibility.org) for compatibility policy.
+[doc/upgrade.org](doc/upgrade.org) describes rebuild and recovery steps.
 
 Workflow specs and workbench packs carry compatibility metadata. Supported
 version is `1`; future versions are rejected before typed parsing attempts to
