@@ -35,6 +35,36 @@ The public model is defined in [[file:model.org][doc/model.org]].
 | Rust module layout | Internal except public crates | Public reexports should remain stable during refactors. Private module paths may change. |
 | Emacs Lisp interactive commands | User-facing | Preserve command names and ordinary interactive behavior unless a deprecation is documented. |
 
+* 0.15.0 Contract Audit
+
+The 0.15.0 audit found no compatibility-sensitive public contract that needed a
+non-additive change.
+
+Coverage inventory:
+
+- CLI =--json= envelopes: =tests/cli_contracts.rs= covers system, file,
+  diagnostic, note, relation, exploration, review, asset, capture, and durable
+  save/load command families with exact object-key assertions.
+- CLI =--jsonl= report lines: =tests/cli_reports.rs= and
+  =tests/cli_contracts.rs= cover workflow and audit reports to stdout and
+  output files.
+- Structural and daemon-owned write reports: =tests/cli_write_contracts.rs=,
+  =tests/cli_structural_contracts.rs=, and =tests/daemon_client.rs= cover
+  read-your-writes behavior and affected-file/index-refresh reporting.
+- JSON-RPC params/results: =tests/daemon_client.rs= exercises the typed
+  daemon client over stdio across read, write, exploration, review, asset, and
+  structural operations.
+- JSON-RPC method inventory: =src/server/operations.rs= has a unit test that
+  locks every public operation method to its family, mutation class, and
+  freshness behavior.
+- Durable records: =tests/cli_contracts.rs= covers exploration artifact
+  export/import/show, saved comparison execution, saved review diff/mark
+  round-trips, workflow spec local inspection, workbench pack
+  validate/import/export/show, and future-version rejection.
+- Rebuild survival: =src/server/handlers/query/tests.rs= covers exploration
+  artifacts, review runs, and workbench packs surviving a forced index
+  rebuild without becoming note, ref, search, or graph records.
+
 * Additive Evolution
 
 Preferred compatible changes:

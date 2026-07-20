@@ -789,7 +789,9 @@ fn search_occurrences(
 mod tests {
     use std::collections::HashSet;
 
-    use super::{OPERATIONS, operation_by_method};
+    use super::{
+        FreshnessBehavior, OPERATIONS, OperationFamily, OperationMutation, operation_by_method,
+    };
 
     #[test]
     fn operation_methods_are_unique_and_lookupable() {
@@ -806,5 +808,309 @@ mod tests {
                 operation.descriptor.method
             );
         }
+    }
+
+    #[test]
+    fn operation_descriptors_are_explicit_compatibility_inventory() {
+        use FreshnessBehavior::*;
+        use OperationFamily::*;
+        use OperationMutation::*;
+
+        let expected: &[(&str, OperationFamily, OperationMutation, FreshnessBehavior)] = &[
+            ("slipbox/ping", System, ReadOnly, ReportsState),
+            ("slipbox/status", System, ReadOnly, ReportsState),
+            ("slipbox/index", System, DerivedIndex, RefreshesRootIndex),
+            ("slipbox/indexFile", Files, DerivedIndex, RefreshesOneFile),
+            ("slipbox/indexedFiles", Files, ReadOnly, ReadsDerivedIndex),
+            ("slipbox/searchFiles", Files, ReadOnly, ReadsDerivedIndex),
+            ("slipbox/diagnoseFile", Diagnostics, ReadOnly, ReportsState),
+            ("slipbox/diagnoseNode", Diagnostics, ReadOnly, ReportsState),
+            ("slipbox/diagnoseIndex", Diagnostics, ReadOnly, ReportsState),
+            ("slipbox/searchNodes", Notes, ReadOnly, ReadsDerivedIndex),
+            ("slipbox/randomNode", Notes, ReadOnly, ReadsDerivedIndex),
+            ("slipbox/nodeFromId", Notes, ReadOnly, ReadsDerivedIndex),
+            ("slipbox/nodeFromKey", Notes, ReadOnly, ReadsDerivedIndex),
+            (
+                "slipbox/nodeFromTitleOrAlias",
+                Notes,
+                ReadOnly,
+                ReadsDerivedIndex,
+            ),
+            ("slipbox/nodeAtPoint", Notes, ReadOnly, ReadsDerivedIndex),
+            ("slipbox/anchorAtPoint", Notes, ReadOnly, ReadsDerivedIndex),
+            ("slipbox/anchorFromKey", Notes, ReadOnly, ReadsDerivedIndex),
+            ("slipbox/readFileSource", Files, ReadOnly, ReadsSourceFiles),
+            ("slipbox/readNodeSource", Notes, ReadOnly, ReadsSourceFiles),
+            ("slipbox/noteContext", Notes, ReadOnly, ReadsSourceFiles),
+            (
+                "slipbox/searchOccurrences",
+                Relations,
+                ReadOnly,
+                ReadsDerivedIndex,
+            ),
+            ("slipbox/searchTags", Relations, ReadOnly, ReadsDerivedIndex),
+            ("slipbox/searchRefs", Relations, ReadOnly, ReadsDerivedIndex),
+            (
+                "slipbox/nodeFromRef",
+                Relations,
+                ReadOnly,
+                ReadsDerivedIndex,
+            ),
+            ("slipbox/backlinks", Relations, ReadOnly, ReadsDerivedIndex),
+            (
+                "slipbox/forwardLinks",
+                Relations,
+                ReadOnly,
+                ReadsDerivedIndex,
+            ),
+            ("slipbox/reflinks", Relations, ReadOnly, ReadsDerivedIndex),
+            (
+                "slipbox/unlinkedReferences",
+                Relations,
+                ReadOnly,
+                ReadsDerivedIndex,
+            ),
+            ("slipbox/agenda", Relations, ReadOnly, ReadsDerivedIndex),
+            ("slipbox/graphDot", Relations, ReadOnly, ReadsDerivedIndex),
+            ("slipbox/explore", Exploration, ReadOnly, ReadsDerivedIndex),
+            (
+                "slipbox/compareNotes",
+                Exploration,
+                ReadOnly,
+                ReadsDerivedIndex,
+            ),
+            (
+                "slipbox/saveExplorationArtifact",
+                Exploration,
+                DurableState,
+                ReadsDerivedIndex,
+            ),
+            (
+                "slipbox/explorationArtifact",
+                Exploration,
+                ReadOnly,
+                ReadsDerivedIndex,
+            ),
+            (
+                "slipbox/listExplorationArtifacts",
+                Exploration,
+                ReadOnly,
+                ReadsDerivedIndex,
+            ),
+            (
+                "slipbox/deleteExplorationArtifact",
+                Exploration,
+                DurableState,
+                ReadsDerivedIndex,
+            ),
+            (
+                "slipbox/executeExplorationArtifact",
+                Exploration,
+                ReadOnly,
+                ReadsDerivedIndex,
+            ),
+            ("slipbox/corpusAudit", Reviews, ReadOnly, ReadsDerivedIndex),
+            (
+                "slipbox/saveReviewRun",
+                Reviews,
+                DurableState,
+                ReadsDerivedIndex,
+            ),
+            ("slipbox/reviewRun", Reviews, ReadOnly, ReadsDerivedIndex),
+            (
+                "slipbox/diffReviewRuns",
+                Reviews,
+                ReadOnly,
+                ReadsDerivedIndex,
+            ),
+            (
+                "slipbox/reviewFindingRemediationPreview",
+                Reviews,
+                ReadOnly,
+                ReadsDerivedIndex,
+            ),
+            (
+                "slipbox/reviewFindingRemediationApply",
+                Reviews,
+                OrgContent,
+                RefreshesAffectedFiles,
+            ),
+            (
+                "slipbox/listReviewRuns",
+                Reviews,
+                ReadOnly,
+                ReadsDerivedIndex,
+            ),
+            (
+                "slipbox/deleteReviewRun",
+                Reviews,
+                DurableState,
+                ReadsDerivedIndex,
+            ),
+            (
+                "slipbox/markReviewFinding",
+                Reviews,
+                DurableState,
+                ReadsDerivedIndex,
+            ),
+            (
+                "slipbox/saveCorpusAuditReview",
+                Reviews,
+                DurableState,
+                ReadsDerivedIndex,
+            ),
+            ("slipbox/listWorkflows", Assets, ReadOnly, ReportsState),
+            ("slipbox/workflow", Assets, ReadOnly, ReportsState),
+            ("slipbox/runWorkflow", Assets, ReadOnly, ReadsDerivedIndex),
+            (
+                "slipbox/saveWorkflowReview",
+                Assets,
+                DurableState,
+                ReadsDerivedIndex,
+            ),
+            ("slipbox/listReviewRoutines", Assets, ReadOnly, ReportsState),
+            ("slipbox/reviewRoutine", Assets, ReadOnly, ReportsState),
+            (
+                "slipbox/runReviewRoutine",
+                Assets,
+                ReadOnly,
+                ReadsDerivedIndex,
+            ),
+            (
+                "slipbox/importWorkbenchPack",
+                Assets,
+                DurableState,
+                ReportsState,
+            ),
+            ("slipbox/workbenchPack", Assets, ReadOnly, ReportsState),
+            (
+                "slipbox/validateWorkbenchPack",
+                Assets,
+                ReadOnly,
+                ReportsState,
+            ),
+            (
+                "slipbox/exportWorkbenchPack",
+                Assets,
+                ReadOnly,
+                ReportsState,
+            ),
+            ("slipbox/listWorkbenchPacks", Assets, ReadOnly, ReportsState),
+            (
+                "slipbox/deleteWorkbenchPack",
+                Assets,
+                DurableState,
+                ReportsState,
+            ),
+            (
+                "slipbox/captureNode",
+                Capture,
+                OrgContent,
+                RefreshesAffectedFiles,
+            ),
+            (
+                "slipbox/captureTemplate",
+                Capture,
+                OrgContent,
+                RefreshesAffectedFiles,
+            ),
+            (
+                "slipbox/captureTemplatePreview",
+                Capture,
+                ReadOnly,
+                ReportsState,
+            ),
+            (
+                "slipbox/ensureFileNode",
+                Capture,
+                OrgContent,
+                RefreshesAffectedFiles,
+            ),
+            (
+                "slipbox/appendHeading",
+                Capture,
+                OrgContent,
+                RefreshesAffectedFiles,
+            ),
+            (
+                "slipbox/appendHeadingToNode",
+                Capture,
+                OrgContent,
+                RefreshesAffectedFiles,
+            ),
+            (
+                "slipbox/appendHeadingAtOutlinePath",
+                Capture,
+                OrgContent,
+                RefreshesAffectedFiles,
+            ),
+            (
+                "slipbox/ensureNodeId",
+                Capture,
+                OrgContent,
+                RefreshesAffectedFiles,
+            ),
+            (
+                "slipbox/updateNodeMetadata",
+                Capture,
+                OrgContent,
+                RefreshesAffectedFiles,
+            ),
+            (
+                "slipbox/refileSubtree",
+                StructuralEdit,
+                OrgContent,
+                RefreshesAffectedFiles,
+            ),
+            (
+                "slipbox/refileRegion",
+                StructuralEdit,
+                OrgContent,
+                RefreshesAffectedFiles,
+            ),
+            (
+                "slipbox/extractSubtree",
+                StructuralEdit,
+                OrgContent,
+                RefreshesAffectedFiles,
+            ),
+            (
+                "slipbox/promoteEntireFile",
+                StructuralEdit,
+                OrgContent,
+                RefreshesAffectedFiles,
+            ),
+            (
+                "slipbox/demoteEntireFile",
+                StructuralEdit,
+                OrgContent,
+                RefreshesAffectedFiles,
+            ),
+            (
+                "slipbox/slipboxLinkRewritePreview",
+                LinkRewrite,
+                ReadOnly,
+                ReadsDerivedIndex,
+            ),
+            (
+                "slipbox/slipboxLinkRewriteApply",
+                LinkRewrite,
+                OrgContent,
+                RefreshesAffectedFiles,
+            ),
+        ];
+        let actual: Vec<_> = OPERATIONS
+            .iter()
+            .map(|operation| {
+                (
+                    operation.descriptor.method,
+                    operation.descriptor.family,
+                    operation.descriptor.mutation,
+                    operation.descriptor.freshness,
+                )
+            })
+            .collect();
+
+        assert_eq!(actual, expected);
     }
 }
