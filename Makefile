@@ -1,50 +1,50 @@
 EMACS ?= emacs
 BUILD_FEATURES ?=
-SLIPBOX_CC ?= $(shell command -v cc 2>/dev/null || command -v clang 2>/dev/null || command -v gcc 2>/dev/null)
+SLIPBOX_CC ?= $(shell command -v cc 2>/dev/null || command -v gcc 2>/dev/null || command -v clang 2>/dev/null)
 SLIPBOX_CARGO_ENV = $(if $(SLIPBOX_CC),CC="$(SLIPBOX_CC)")
 GUIX ?= guix
 GUIX_MANIFEST ?= manifest.scm
 GUIX_SHELL = $(GUIX) shell -m $(GUIX_MANIFEST) --
 
+.RECIPEPREFIX := >
+
 .PHONY: build
 build:
-	$(SLIPBOX_CARGO_ENV) cargo build --release --locked $(BUILD_FEATURES)
+>$(SLIPBOX_CARGO_ENV) cargo build --release --locked $(BUILD_FEATURES)
 
 .PHONY: build-system-sqlite
 build-system-sqlite:
-	cargo build --release --locked --no-default-features --features system-sqlite
+>$(SLIPBOX_CARGO_ENV) cargo build --release --locked --no-default-features --features system-sqlite
 
 .PHONY: install-daemon
 install-daemon:
-	$(SLIPBOX_CARGO_ENV) cargo install --path . --locked
+>$(SLIPBOX_CARGO_ENV) cargo install --path . --locked
 
 .PHONY: install-daemon-system-sqlite
 install-daemon-system-sqlite:
-	cargo install --path . --locked --no-default-features --features system-sqlite
+>$(SLIPBOX_CARGO_ENV) cargo install --path . --locked --no-default-features --features system-sqlite
 
 .PHONY: fmt
 fmt:
-	cargo fmt --all
+>cargo fmt --all
 
 .PHONY: test-rust
 test-rust:
-	$(SLIPBOX_CARGO_ENV) cargo test --workspace
+>$(SLIPBOX_CARGO_ENV) cargo test --workspace
 
 .PHONY: lint-rust
 lint-rust:
-	$(SLIPBOX_CARGO_ENV) cargo clippy --workspace --all-targets --all-features -- -D warnings
+>$(SLIPBOX_CARGO_ENV) cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 .PHONY: test-elisp
 test-elisp:
-	$(EMACS) -Q --batch --eval '(setq load-prefer-newer t)' -L . -l org-slipbox.el -l tests/test-org-slipbox.el -f ert-run-tests-batch-and-exit
+>$(EMACS) -Q --batch --eval '(setq load-prefer-newer t)' -L . -l org-slipbox.el -l tests/test-org-slipbox.el -f ert-run-tests-batch-and-exit
 
 .PHONY: test
 test: test-rust test-elisp check-release-metadata
 
 PROFILE ?= ci
 BENCH_CARGO_FLAGS ?= --release
-
-.RECIPEPREFIX := >
 
 .PHONY: bench
 bench:

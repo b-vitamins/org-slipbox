@@ -78,6 +78,10 @@ This is equivalent to:
 cargo build --release --locked
 ```
 
+The bundled path compiles SQLite C sources. It needs a C compiler available as
+`cc`, or a compiler path passed through `CC`; the Makefile sets `CC` from
+`SLIPBOX_CC` when it finds `cc`, `gcc`, or `clang`.
+
 To install the built daemon on `PATH`:
 
 ```bash
@@ -129,6 +133,8 @@ make guix-bench-check
 
 These wrappers are contributor conveniences. Release binaries, source builds,
 and the installed `slipbox` executable remain the primary user paths.
+When invoking `cargo` directly inside the Guix manifest, pass `CC=gcc` for the
+bundled SQLite path because the manifest provides `gcc` but not a `cc` symlink.
 
 ### Install The Emacs Package
 
