@@ -39,8 +39,7 @@ from note identity.
 
 * One Model, Multiple Surfaces
 
-The Emacs package, CLI, daemon JSON-RPC surface, and future MCP surface should
-share one model:
+The Emacs package, CLI, and daemon JSON-RPC surface should share one model:
 
 - Notes and Relations come from Org.
 - Explorations derive meaning from indexed evidence.
@@ -51,8 +50,7 @@ share one model:
 
 Each surface may present the model differently, but semantic ownership should
 stay the same. The dedicated Emacs buffer is the richest interactive cockpit.
-The CLI is the task-shaped headless surface. Future MCP work should map this
-same model to resources and tools rather than inventing another ontology.
+The CLI is the task-shaped headless surface.
 
 * Architecture
 
@@ -84,4 +82,4 @@ same model to resources and tools rather than inventing another ontology.
 - reviews and diagnostics make maintenance pressure visible
 - Emacs and CLI feel like two surfaces over one slip-box
 - package and release paths are boring
-- future integration surfaces can reuse the model without rescue refactors
+- new work can reuse the model without rescue refactors

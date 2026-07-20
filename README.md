@@ -31,8 +31,7 @@ is:
 
 Boundary statement: daemon-backed work goes through `slipbox serve` over
 JSON-RPC stdio; the CLI and Emacs package expose task-shaped operations rather
-than raw transport sprawl, plugin runtime, MCP implementation, or agent
-adapter surfaces.
+than raw transport sprawl or a plugin runtime.
 
 ## Requirements
 

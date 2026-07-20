@@ -1,7 +1,7 @@
-//! Reusable Rust substrate for slipbox adapters.
+//! Reusable Rust substrate for slipbox front-ends.
 //!
-//! The CLI binary, JSON-RPC daemon, benchmark harness, and future protocol
-//! adapters all depend on the same parsing, indexing, query, and write code.
+//! The CLI binary, JSON-RPC daemon, and benchmark harness all depend on the
+//! same parsing, indexing, query, and write code.
 
 mod occurrences_query;
 mod reflinks_query;

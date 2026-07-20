@@ -7,8 +7,7 @@ This roadmap maps near-term release bands to the public model in
 
 * 0.13.x: Consolidation
 
-Theme: make the project smaller and easier to reason about before external
-adapter work.
+Theme: make the project smaller and easier to reason about.
 
 Focus:
 
@@ -31,62 +30,45 @@ Exit signal:
 - public concepts map cleanly to Notes, Relations, Explorations, Reviews,
   Assets, and System
 
-* 0.14.x: Read-Only MCP
+* 0.14.x: Read Contracts And Hardening
 
-Theme: expose the cleaned model through read-only resources and tools.
-
-Focus:
-
-- resource mapping for notes, files, refs, tags, artifacts, reviews,
-  workflows, routines, packs, selected graph views, and selected exploration
-  views
-- read-only tools for lookup, search, backlinks, refs, tags, agenda, graph
-  export, exploration, comparison, artifact execution, audit inspection,
-  review inspection, workflow/routine catalog inspection, and diagnostics
-- permission and scope model for local slipbox roots
-- contract tests proving adapter output agrees with existing CLI/RPC semantics
-- docs showing the mapping from the compact model to resources and tools
-
-Exit signal:
-
-- read-only clients can inspect and explore the corpus without mutating Org
-  files or durable side stores
-- the adapter reuses daemon-owned operations
-- adapter naming follows the compact public ontology
-
-* 0.15.x: Write-Capable MCP
-
-Theme: add selected write-capable tools after read-only semantics have proven
-stable.
+Theme: finish the consolidation line by tightening read semantics and internal
+module boundaries before the stability push.
 
 Focus:
 
-- permission-gated note creation, capture, metadata, identity, and daily-note
-  operations
-- permission-gated structural edits with existing `StructuralWriteReport`
-  records
-- preview/apply tools for supported remediation and link rewrite operations
-- explicit affected-file, confirmation, and read-your-writes behavior
-- tests that compare adapter write results with CLI/RPC write contracts
+- bounded source-read contracts and structured read/error payloads across the
+  core, RPC, daemon-client, server, and CLI paths
+- reusable Rust service operations shared by daemon handlers and other headless
+  callers without duplicating CLI glue
+- further module splitting of the daemon-client, CLI, and server handlers while
+  preserving public API, RPC behavior, and JSON shapes
+- a shared durable-JSON file-store for saved artifacts, packs, and review runs
+- batched lookups, materialized backlink/forward-link counts, and SQLite write
+  pragmas so large-corpus paths stay inside the performance envelopes
+- root-relative path confinement across CLI, server, write, and query paths
+- patch-line hardening for capture finalization, property-drawer layout, and
+  partial indexed node metadata
 
 Exit signal:
 
-- write-capable tools mutate only through existing Rust-owned daemon paths
-- every write returns the same task evidence as the CLI/RPC surface
-- preview/apply flows remain bounded and auditable
+- read paths return bounded, structured payloads with contract-test coverage
+- internal module boundaries are auditable without changing public contracts
+- benchmark gates hold across query, indexing, write, workflow, review, and
+  graph paths
 
 * 1.0.x: Stability Line
 
 Theme: make the public surface dependable enough for ordinary users,
-packagers, scripts, and integration authors.
+packagers, and scripts.
 
 Focus:
 
 - stable public JSON and durable record compatibility policy
 - documented upgrade and rebuild behavior
 - reliable release binaries and source builds
-- benchmark gates that cover everyday, exploratory, review, asset, structural,
-  and adapter paths
+- benchmark gates that cover everyday, exploratory, review, asset, and
+  structural paths
 - cleaned module boundaries that allow ordinary maintenance without rescue
   refactors
 - complete user-facing documentation and command help

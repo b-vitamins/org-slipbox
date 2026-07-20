@@ -94,8 +94,7 @@ Exit criteria:
 * Milestone 5: Consolidated Public Surface
 
 Purpose: make the product model, command taxonomy, docs, and code structure
-small enough to support future adapters without carrying release-history
-weight.
+small enough to maintain and evolve without carrying release-history weight.
 
 Outcomes:
 
@@ -114,26 +113,7 @@ Exit criteria:
 - contract matrix proves behavior preservation through refactors
 - consolidation scorecard shows line-count, doc-count, and term-count evidence
 
-* Milestone 6: External Integration Surface
-
-Purpose: map the cleaned model to external tools without changing the source
-of truth or duplicating semantics.
-
-Outcomes:
-
-- read-only resources and tools over existing daemon semantics
-- optional write-capable tools for selected safe operations
-- permission model for read and write operations
-- adapter tests matched against CLI/RPC contracts
-
-Exit criteria:
-
-- external clients can inspect the corpus through the same model as Emacs and
-  CLI
-- write tools use existing daemon-owned mutations and task reports
-- adapter naming follows the compact ontology
-
-* Milestone 7: Dependable System
+* Milestone 6: Dependable System
 
 Purpose: reach a stable, boring public surface.
 
