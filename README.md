@@ -9,9 +9,9 @@ daemon-owned writes fast enough for interactive use. Emacs owns editing UI,
 session state, and presentation. Rust owns parsing, indexing, ranking, query
 execution, and file mutation.
 
-The latest shipped release is `0.14.4`, a patch release for partial node
-metadata hardening and capture finalization cleanup on top of the stale-index
-repair line.
+The latest shipped release is `0.15.0`, a stability-prep release that makes
+release buckets, upgrade/rebuild behavior, public contract coverage, benchmark
+gate roles, and bundled/system SQLite build paths explicit and verifiable.
 
 For the product model, see [doc/model.org](doc/model.org). The short version
 is:

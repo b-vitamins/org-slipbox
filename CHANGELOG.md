@@ -6,6 +6,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-07-20
+
 ### Added
 - Added upgrade and derived-index rebuild guidance, including 0.14.4 to
   0.15.0 upgrade steps and durable side-store recovery boundaries.
@@ -15,9 +17,9 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ### Changed
 - Clarified roadmap and release-bucket discipline around GitHub milestones,
   release metadata, and tracker-owned cut lists.
-- Report every benchmark threshold miss in CI benchmark checks and retune the
-  CI profile thresholds for observed host variance in workflow, report,
-  agenda, graph, and structural-write measurements.
+- Report every benchmark threshold miss in benchmark checks and retune the CI
+  and release profile thresholds for observed host variance in workflow,
+  report, agenda, graph, and structural-write measurements.
 - Prefer a manifest-provided `gcc` when the source-build Makefile probes for a
   C compiler, apply that compiler environment to the system-SQLite build path,
   and document bundled-SQLite compiler prerequisites.
