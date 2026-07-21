@@ -415,6 +415,15 @@ pub(crate) fn row_to_anchor(row: &rusqlite::Row<'_>) -> rusqlite::Result<AnchorR
         scheduled_for: row.get(9)?,
         deadline_for: row.get(10)?,
         closed_at: row.get(11)?,
+        // Glossary columns are added to the schema in a later change; hydrate
+        // defaults here so the read compiles against the current column set.
+        glossary: false,
+        glossary_status: None,
+        sr_due: None,
+        sr_ease: None,
+        sr_interval: None,
+        sr_reps: None,
+        sr_last: None,
         level: row.get(12)?,
         line: row.get(13)?,
         kind: kind_text.parse().unwrap_or(NodeKind::Heading),
@@ -466,6 +475,15 @@ pub(crate) fn row_to_anchor_with_offset(
         scheduled_for: row.get(offset + 9)?,
         deadline_for: row.get(offset + 10)?,
         closed_at: row.get(offset + 11)?,
+        // Glossary columns are added to the schema in a later change; hydrate
+        // defaults here so the read compiles against the current column set.
+        glossary: false,
+        glossary_status: None,
+        sr_due: None,
+        sr_ease: None,
+        sr_interval: None,
+        sr_reps: None,
+        sr_last: None,
         level: row.get(offset + 12)?,
         line: row.get(offset + 13)?,
         kind: kind_text.parse().unwrap_or(NodeKind::Heading),

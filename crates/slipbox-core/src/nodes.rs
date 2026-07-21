@@ -54,6 +54,20 @@ pub struct AnchorRecord {
     pub deadline_for: Option<String>,
     #[serde(default)]
     pub closed_at: Option<String>,
+    #[serde(default)]
+    pub glossary: bool,
+    #[serde(default)]
+    pub glossary_status: Option<String>,
+    #[serde(default)]
+    pub sr_due: Option<String>,
+    #[serde(default)]
+    pub sr_ease: Option<String>,
+    #[serde(default)]
+    pub sr_interval: Option<String>,
+    #[serde(default)]
+    pub sr_reps: Option<String>,
+    #[serde(default)]
+    pub sr_last: Option<String>,
     pub level: u32,
     pub line: u32,
     pub kind: NodeKind,
@@ -93,6 +107,20 @@ pub struct NodeRecord {
     pub deadline_for: Option<String>,
     #[serde(default)]
     pub closed_at: Option<String>,
+    #[serde(default)]
+    pub glossary: bool,
+    #[serde(default)]
+    pub glossary_status: Option<String>,
+    #[serde(default)]
+    pub sr_due: Option<String>,
+    #[serde(default)]
+    pub sr_ease: Option<String>,
+    #[serde(default)]
+    pub sr_interval: Option<String>,
+    #[serde(default)]
+    pub sr_reps: Option<String>,
+    #[serde(default)]
+    pub sr_last: Option<String>,
     pub level: u32,
     pub line: u32,
     pub kind: NodeKind,
@@ -125,6 +153,20 @@ pub struct PreviewNodeRecord {
     pub deadline_for: Option<String>,
     #[serde(default)]
     pub closed_at: Option<String>,
+    #[serde(default)]
+    pub glossary: bool,
+    #[serde(default)]
+    pub glossary_status: Option<String>,
+    #[serde(default)]
+    pub sr_due: Option<String>,
+    #[serde(default)]
+    pub sr_ease: Option<String>,
+    #[serde(default)]
+    pub sr_interval: Option<String>,
+    #[serde(default)]
+    pub sr_reps: Option<String>,
+    #[serde(default)]
+    pub sr_last: Option<String>,
     pub level: u32,
     pub line: u32,
     pub kind: NodeKind,
@@ -145,6 +187,13 @@ impl From<IndexedNode> for NodeRecord {
             scheduled_for: node.scheduled_for,
             deadline_for: node.deadline_for,
             closed_at: node.closed_at,
+            glossary: node.glossary,
+            glossary_status: node.glossary_status,
+            sr_due: node.sr_due,
+            sr_ease: node.sr_ease,
+            sr_interval: node.sr_interval,
+            sr_reps: node.sr_reps,
+            sr_last: node.sr_last,
             level: node.level,
             line: node.line,
             kind: node.kind,
@@ -173,6 +222,13 @@ impl TryFrom<AnchorRecord> for NodeRecord {
                 scheduled_for: anchor.scheduled_for,
                 deadline_for: anchor.deadline_for,
                 closed_at: anchor.closed_at,
+                glossary: anchor.glossary,
+                glossary_status: anchor.glossary_status,
+                sr_due: anchor.sr_due,
+                sr_ease: anchor.sr_ease,
+                sr_interval: anchor.sr_interval,
+                sr_reps: anchor.sr_reps,
+                sr_last: anchor.sr_last,
                 level: anchor.level,
                 line: anchor.line,
                 kind: anchor.kind,
@@ -201,6 +257,13 @@ impl From<NodeRecord> for AnchorRecord {
             scheduled_for: node.scheduled_for,
             deadline_for: node.deadline_for,
             closed_at: node.closed_at,
+            glossary: node.glossary,
+            glossary_status: node.glossary_status,
+            sr_due: node.sr_due,
+            sr_ease: node.sr_ease,
+            sr_interval: node.sr_interval,
+            sr_reps: node.sr_reps,
+            sr_last: node.sr_last,
             level: node.level,
             line: node.line,
             kind: node.kind,
@@ -226,6 +289,13 @@ impl From<IndexedNode> for PreviewNodeRecord {
             scheduled_for: node.scheduled_for,
             deadline_for: node.deadline_for,
             closed_at: node.closed_at,
+            glossary: node.glossary,
+            glossary_status: node.glossary_status,
+            sr_due: node.sr_due,
+            sr_ease: node.sr_ease,
+            sr_interval: node.sr_interval,
+            sr_reps: node.sr_reps,
+            sr_last: node.sr_last,
             level: node.level,
             line: node.line,
             kind: node.kind,
