@@ -412,8 +412,7 @@ impl Database {
             glossary_where("n"),
         );
         let mut statement = self.connection.prepare(&sql)?;
-        let rows =
-            statement.query_map(params![today, limit.clamp(1, 200) as i64], row_to_note)?;
+        let rows = statement.query_map(params![today, limit.clamp(1, 200) as i64], row_to_note)?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .context("failed to read due glossary terms")
     }
@@ -721,9 +720,7 @@ mod tests {
     }
 
     fn term(title: &str, extra_drawer: &str, body: &str) -> String {
-        format!(
-            "#+title: {title}\n#+glossary: t\n:PROPERTIES:\n{extra_drawer}:END:\n\n{body}\n"
-        )
+        format!("#+title: {title}\n#+glossary: t\n:PROPERTIES:\n{extra_drawer}:END:\n\n{body}\n")
     }
 
     #[test]
@@ -780,12 +777,14 @@ mod tests {
             ("g.org", &term("Gödel", "", "Incompleteness.")),
         ])?;
 
-        assert_eq!(titles(&database.search_glossary("derivatives", 20)?), vec![
-            "Derivative"
-        ]);
-        assert_eq!(titles(&database.search_glossary("Godel", 20)?), vec![
-            "Gödel"
-        ]);
+        assert_eq!(
+            titles(&database.search_glossary("derivatives", 20)?),
+            vec!["Derivative"]
+        );
+        assert_eq!(
+            titles(&database.search_glossary("Godel", 20)?),
+            vec!["Gödel"]
+        );
         Ok(())
     }
 
@@ -821,11 +820,7 @@ mod tests {
             // Due exactly today.
             (
                 "today.org",
-                &term(
-                    "Today",
-                    ":SR_DUE:  2026-07-21\n:SR_REPS: 2\n",
-                    "Due today.",
-                ),
+                &term("Today", ":SR_DUE:  2026-07-21\n:SR_REPS: 2\n", "Due today."),
             ),
             // Scheduled ahead: not due yet.
             (

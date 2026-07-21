@@ -287,7 +287,13 @@ mod tests {
         set_glossary_schedule(root.path(), &node, &second).expect("second");
 
         let text = read_back(&root);
-        for key in [":SR_DUE:", ":SR_EASE:", ":SR_INTERVAL:", ":SR_REPS:", ":SR_LAST:"] {
+        for key in [
+            ":SR_DUE:",
+            ":SR_EASE:",
+            ":SR_INTERVAL:",
+            ":SR_REPS:",
+            ":SR_LAST:",
+        ] {
             assert_eq!(
                 text.matches(key).count(),
                 1,
@@ -306,8 +312,6 @@ mod tests {
         node.kind = NodeKind::Heading;
         assert!(mark_glossary_term(root.path(), &node).is_err());
         assert!(set_glossary_status(root.path(), &node, GlossaryStatus::Stub).is_err());
-        assert!(
-            set_glossary_schedule(root.path(), &node, &SrState::default()).is_err()
-        );
+        assert!(set_glossary_schedule(root.path(), &node, &SrState::default()).is_err());
     }
 }

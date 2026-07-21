@@ -141,7 +141,9 @@ impl SrState {
 }
 
 fn parse_field<T: FromStr>(value: Option<&str>, fallback: T) -> T {
-    value.and_then(|raw| raw.trim().parse().ok()).unwrap_or(fallback)
+    value
+        .and_then(|raw| raw.trim().parse().ok())
+        .unwrap_or(fallback)
 }
 
 /// Apply an SM-2 update for a term graded `quality` (`0..=5`) on `today`.
