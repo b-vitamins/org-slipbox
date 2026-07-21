@@ -8,7 +8,7 @@ use slipbox_core::{AnchorRecord, NodeKind, NodeRecord, SearchNodesSort};
 
 use crate::Database;
 
-pub(crate) const ANCHOR_SELECT_COLUMN_COUNT: usize = 18;
+pub(crate) const ANCHOR_SELECT_COLUMN_COUNT: usize = 25;
 
 impl Database {
     pub fn search_nodes(
@@ -340,6 +340,83 @@ impl Database {
         let anchors = self.anchors_in_file(&anchor.file_path)?;
         Ok(note_for_anchor_in_file(&anchors, &anchor.node_key))
     }
+
+    pub fn list_glossary_terms(&self, limit: usize) -> Result<Vec<NodeRecord>> {
+        let sql = format!(
+            "SELECT {}
+               FROM nodes AS n
+              WHERE {}
+              ORDER BY n.title COLLATE NOCASE, n.file_path, n.line
+              LIMIT ?1",
+            anchor_select_columns("n"),
+            glossary_where("n"),
+        );
+        let mut statement = self.connection.prepare(&sql)?;
+        let rows = statement.query_map(params![limit.clamp(1, 200) as i64], row_to_note)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("failed to read glossary terms")
+    }
+
+    pub fn search_glossary(&self, query: &str, limit: usize) -> Result<Vec<NodeRecord>> {
+        let limit = limit.clamp(1, 200) as i64;
+        if let Some(fts_query) = build_fts_query(query) {
+            let sql = format!(
+                "SELECT {}
+                   FROM node_fts
+                   JOIN nodes AS n ON n.id = node_fts.rowid
+                  WHERE node_fts MATCH ?1
+                    AND {}
+                  ORDER BY bm25(node_fts, 1.0, 0.3, 0.2, 0.7, 0.8, 0.4), n.file_path, n.line
+                  LIMIT ?2",
+                anchor_select_columns("n"),
+                glossary_where("n"),
+            );
+            let mut statement = self.connection.prepare(&sql)?;
+            let rows = statement.query_map(params![fts_query, limit], row_to_note)?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .context("failed to read glossary search results")
+        } else {
+            // A query with no usable FTS terms lists the glossary the same way
+            // `list_glossary_terms` does, mirroring the note search fallback.
+            let sql = format!(
+                "SELECT {}
+                   FROM nodes AS n
+                  WHERE {}
+                  ORDER BY n.title COLLATE NOCASE, n.file_path, n.line
+                  LIMIT ?1",
+                anchor_select_columns("n"),
+                glossary_where("n"),
+            );
+            let mut statement = self.connection.prepare(&sql)?;
+            let rows = statement.query_map(params![limit], row_to_note)?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .context("failed to read glossary listing")
+        }
+    }
+
+    pub fn glossary_due_terms(&self, today: &str, limit: usize) -> Result<Vec<NodeRecord>> {
+        // A term is due when it has never been reviewed (`reps` unset or zero) or
+        // its stored due date is at or before `today`. Scheduling values are
+        // mirrored verbatim as text, so `CAST` matches the core scheduler, which
+        // parses a missing or malformed `reps` back to zero.
+        let sql = format!(
+            "SELECT {}
+               FROM nodes AS n
+              WHERE {}
+                AND (COALESCE(CAST(n.sr_reps AS INTEGER), 0) = 0
+                     OR n.sr_due IS NULL
+                     OR n.sr_due <= ?1)
+              ORDER BY n.sr_due, n.file_path, n.line
+              LIMIT ?2",
+            anchor_select_columns("n"),
+            glossary_where("n"),
+        );
+        let mut statement = self.connection.prepare(&sql)?;
+        let rows =
+            statement.query_map(params![today, limit.clamp(1, 200) as i64], row_to_note)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("failed to read due glossary terms")
+    }
 }
 
 pub(crate) fn anchor_select_columns(alias: &str) -> String {
@@ -363,12 +440,25 @@ pub(crate) fn anchor_select_columns(alias: &str) -> String {
                      FROM files AS f
                     WHERE f.path = {alias}.file_path), 0) AS file_mtime_ns,
          {alias}.backlink_count,
-         {alias}.forward_link_count"
+         {alias}.forward_link_count,
+         {alias}.glossary,
+         {alias}.glossary_status,
+         {alias}.sr_due,
+         {alias}.sr_ease,
+         {alias}.sr_interval,
+         {alias}.sr_reps,
+         {alias}.sr_last"
     )
 }
 
 pub(crate) fn note_where(alias: &str) -> String {
     format!("({alias}.kind = 'file' OR {alias}.explicit_id IS NOT NULL)")
+}
+
+fn glossary_where(alias: &str) -> String {
+    // A glossary term is a marked note, so the row must both carry the marker and
+    // hydrate through `row_to_note` as a canonical note.
+    format!("{alias}.glossary = 1 AND {}", note_where(alias))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -415,21 +505,19 @@ pub(crate) fn row_to_anchor(row: &rusqlite::Row<'_>) -> rusqlite::Result<AnchorR
         scheduled_for: row.get(9)?,
         deadline_for: row.get(10)?,
         closed_at: row.get(11)?,
-        // Glossary columns are added to the schema in a later change; hydrate
-        // defaults here so the read compiles against the current column set.
-        glossary: false,
-        glossary_status: None,
-        sr_due: None,
-        sr_ease: None,
-        sr_interval: None,
-        sr_reps: None,
-        sr_last: None,
         level: row.get(12)?,
         line: row.get(13)?,
         kind: kind_text.parse().unwrap_or(NodeKind::Heading),
         file_mtime_ns: row.get(15)?,
         backlink_count: row.get(16)?,
         forward_link_count: row.get(17)?,
+        glossary: row.get::<_, i64>(18)? != 0,
+        glossary_status: row.get(19)?,
+        sr_due: row.get(20)?,
+        sr_ease: row.get(21)?,
+        sr_interval: row.get(22)?,
+        sr_reps: row.get(23)?,
+        sr_last: row.get(24)?,
     })
 }
 
@@ -475,21 +563,19 @@ pub(crate) fn row_to_anchor_with_offset(
         scheduled_for: row.get(offset + 9)?,
         deadline_for: row.get(offset + 10)?,
         closed_at: row.get(offset + 11)?,
-        // Glossary columns are added to the schema in a later change; hydrate
-        // defaults here so the read compiles against the current column set.
-        glossary: false,
-        glossary_status: None,
-        sr_due: None,
-        sr_ease: None,
-        sr_interval: None,
-        sr_reps: None,
-        sr_last: None,
         level: row.get(offset + 12)?,
         line: row.get(offset + 13)?,
         kind: kind_text.parse().unwrap_or(NodeKind::Heading),
         file_mtime_ns: row.get(offset + 15)?,
         backlink_count: row.get(offset + 16)?,
         forward_link_count: row.get(offset + 17)?,
+        glossary: row.get::<_, i64>(offset + 18)? != 0,
+        glossary_status: row.get(offset + 19)?,
+        sr_due: row.get(offset + 20)?,
+        sr_ease: row.get(offset + 21)?,
+        sr_interval: row.get(offset + 22)?,
+        sr_reps: row.get(offset + 23)?,
+        sr_last: row.get(offset + 24)?,
     })
 }
 
@@ -620,5 +706,215 @@ fn parse_string_list(value: String) -> Vec<String> {
             })
             .collect(),
         _ => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::Result;
+    use slipbox_index::{DiscoveryPolicy, scan_root_with_policy};
+
+    use crate::test_support::indexed_database;
+
+    fn titles(terms: &[slipbox_core::NodeRecord]) -> Vec<String> {
+        terms.iter().map(|term| term.title.clone()).collect()
+    }
+
+    fn term(title: &str, extra_drawer: &str, body: &str) -> String {
+        format!(
+            "#+title: {title}\n#+glossary: t\n:PROPERTIES:\n{extra_drawer}:END:\n\n{body}\n"
+        )
+    }
+
+    #[test]
+    fn list_returns_only_marked_terms() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            ("integral.org", &term("Integral", "", "Area under a curve.")),
+            (
+                "derivative.org",
+                &term("Derivative", "", "Instantaneous rate of change."),
+            ),
+            ("plain.org", "#+title: Plain note\n\nNot a term.\n"),
+        ])?;
+
+        let terms = database.list_glossary_terms(50)?;
+        assert_eq!(titles(&terms), vec!["Derivative", "Integral"]);
+        Ok(())
+    }
+
+    #[test]
+    fn list_respects_limit() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            ("a.org", &term("Alpha", "", "First.")),
+            ("b.org", &term("Beta", "", "Second.")),
+            ("c.org", &term("Gamma", "", "Third.")),
+        ])?;
+
+        let terms = database.list_glossary_terms(2)?;
+        assert_eq!(titles(&terms), vec!["Alpha", "Beta"]);
+        Ok(())
+    }
+
+    #[test]
+    fn search_returns_only_marked_terms() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            (
+                "integral.org",
+                &term("Riemann integral", "", "Limit of Riemann sums."),
+            ),
+            (
+                "sums.org",
+                "#+title: Riemann sums\n\nAn ordinary note about sums.\n",
+            ),
+        ])?;
+
+        let terms = database.search_glossary("Riemann", 20)?;
+        assert_eq!(titles(&terms), vec!["Riemann integral"]);
+        Ok(())
+    }
+
+    #[test]
+    fn search_stems_and_folds_like_note_search() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            ("d.org", &term("Derivative", "", "Rate of change.")),
+            ("g.org", &term("Gödel", "", "Incompleteness.")),
+        ])?;
+
+        assert_eq!(titles(&database.search_glossary("derivatives", 20)?), vec![
+            "Derivative"
+        ]);
+        assert_eq!(titles(&database.search_glossary("Godel", 20)?), vec![
+            "Gödel"
+        ]);
+        Ok(())
+    }
+
+    #[test]
+    fn search_with_no_terms_lists_glossary() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            ("b.org", &term("Beta", "", "Second.")),
+            ("a.org", &term("Alpha", "", "First.")),
+            ("plain.org", "#+title: Plain\n\nNot a term.\n"),
+        ])?;
+
+        // A punctuation-only query has no usable FTS terms and falls back to a
+        // title-ordered listing of marked terms only.
+        let terms = database.search_glossary("!!", 20)?;
+        assert_eq!(titles(&terms), vec!["Alpha", "Beta"]);
+        Ok(())
+    }
+
+    #[test]
+    fn due_includes_unreviewed_and_overdue_terms() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            // Never reviewed: due regardless of any missing schedule.
+            ("new.org", &term("New", "", "Fresh card.")),
+            // Overdue: due date before today.
+            (
+                "overdue.org",
+                &term(
+                    "Overdue",
+                    ":SR_DUE:  2026-07-01\n:SR_REPS: 3\n",
+                    "Was due earlier.",
+                ),
+            ),
+            // Due exactly today.
+            (
+                "today.org",
+                &term(
+                    "Today",
+                    ":SR_DUE:  2026-07-21\n:SR_REPS: 2\n",
+                    "Due today.",
+                ),
+            ),
+            // Scheduled ahead: not due yet.
+            (
+                "future.org",
+                &term(
+                    "Future",
+                    ":SR_DUE:  2026-08-01\n:SR_REPS: 4\n",
+                    "Not due yet.",
+                ),
+            ),
+        ])?;
+
+        let due = database.glossary_due_terms("2026-07-21", 50)?;
+        let mut due_titles = titles(&due);
+        due_titles.sort();
+        assert_eq!(due_titles, vec!["New", "Overdue", "Today"]);
+        Ok(())
+    }
+
+    #[test]
+    fn due_orders_by_due_date_and_respects_limit() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            (
+                "a.org",
+                &term("A", ":SR_DUE:  2026-07-10\n:SR_REPS: 1\n", "Earliest."),
+            ),
+            (
+                "b.org",
+                &term("B", ":SR_DUE:  2026-07-15\n:SR_REPS: 1\n", "Middle."),
+            ),
+            (
+                "c.org",
+                &term("C", ":SR_DUE:  2026-07-20\n:SR_REPS: 1\n", "Latest."),
+            ),
+        ])?;
+
+        let due = database.glossary_due_terms("2026-07-21", 2)?;
+        assert_eq!(titles(&due), vec!["A", "B"]);
+        Ok(())
+    }
+
+    #[test]
+    fn glossary_state_survives_forced_rebuild() -> Result<()> {
+        let (_workspace, mut database, root) = indexed_database(&[(
+            "term.org",
+            &term(
+                "Riemann integral",
+                ":GLOSSARY_STATUS: confirmed\n:SR_DUE:      2026-08-01\n:SR_EASE:     2.50\n:SR_INTERVAL: 6\n:SR_REPS:     3\n:SR_LAST:     2026-07-26\n",
+                "Limit of Riemann sums.",
+            ),
+        )])?;
+
+        let before = database
+            .list_glossary_terms(10)?
+            .into_iter()
+            .next()
+            .expect("the marked term is indexed");
+        assert!(before.glossary);
+        assert_eq!(before.glossary_status.as_deref(), Some("confirmed"));
+        assert_eq!(before.sr_due.as_deref(), Some("2026-08-01"));
+        assert_eq!(before.sr_reps.as_deref(), Some("3"));
+
+        // Force a schema rebuild: the derived tables are dropped and re-created
+        // empty on the next open, proving nothing lives only in SQLite.
+        database
+            .connection
+            .execute_batch("PRAGMA user_version = 0;")?;
+        database.migrate()?;
+        assert!(
+            database.list_glossary_terms(10)?.is_empty(),
+            "a forced rebuild empties the derived index"
+        );
+
+        // Re-sync from Org (the source of truth) repopulates every column.
+        let files = scan_root_with_policy(&root, &DiscoveryPolicy::default())?;
+        database.sync_index(&files)?;
+
+        let after = database
+            .list_glossary_terms(10)?
+            .into_iter()
+            .next()
+            .expect("the term reappears after re-sync");
+        assert_eq!(after.glossary, before.glossary);
+        assert_eq!(after.glossary_status, before.glossary_status);
+        assert_eq!(after.sr_due, before.sr_due);
+        assert_eq!(after.sr_ease, before.sr_ease);
+        assert_eq!(after.sr_interval, before.sr_interval);
+        assert_eq!(after.sr_reps, before.sr_reps);
+        assert_eq!(after.sr_last, before.sr_last);
+        Ok(())
     }
 }
