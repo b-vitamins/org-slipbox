@@ -1348,6 +1348,151 @@ ROOT-NODE defaults to NODE."
      (equal visited
             '(:title "New" :file_path "new.org" :line 1)))))
 
+(ert-deftest org-slipbox-test-glossary-commands-exposed-via-autoloads ()
+  "Glossary command entry points should be available after top-level load."
+  (should (fboundp 'org-slipbox-glossary-define))
+  (should (fboundp 'org-slipbox-glossary-find))
+  (should (fboundp 'org-slipbox-glossary-peek))
+  (should (commandp 'org-slipbox-glossary-define))
+  (should (commandp 'org-slipbox-glossary-find))
+  (should (commandp 'org-slipbox-glossary-peek)))
+
+(ert-deftest org-slipbox-test-glossary-define-reuses-existing-term ()
+  "Defining an existing headword should visit it instead of capturing again."
+  (let (visited)
+    (cl-letf (((symbol-function 'org-slipbox-node-from-title-or-alias)
+               (lambda (_title &optional _nocase)
+                 '(:title "Derivative" :file_path "derivative.org" :line 1)))
+              ((symbol-function 'org-slipbox-node-file-exists-p)
+               (lambda (_node) t))
+              ((symbol-function 'org-slipbox--capture-node)
+               (lambda (&rest _args)
+                 (ert-fail "capture should not run when the term already exists")))
+              ((symbol-function 'org-slipbox--visit-node)
+               (lambda (node &optional _other-window)
+                 (setq visited node))))
+      (should
+       (equal (org-slipbox-glossary-define "Derivative" "" 'stub)
+              '(:title "Derivative" :file_path "derivative.org" :line 1))))
+    (should
+     (equal visited
+            '(:title "Derivative" :file_path "derivative.org" :line 1)))))
+
+(ert-deftest org-slipbox-test-glossary-define-captures-term-with-definition ()
+  "Defining a new term should capture with the marker template and body."
+  (let (captured)
+    (cl-letf (((symbol-function 'org-slipbox-node-from-title-or-alias)
+               (lambda (_title &optional _nocase) nil))
+              ((symbol-function 'org-slipbox--capture-node)
+               (lambda (title template refs variables &optional session)
+                 (setq captured (list title template refs variables session))
+                 '(:title "Riemann integral"
+                   :file_path "riemann-integral.org"
+                   :node_key "file:riemann-integral.org"
+                   :line 1))))
+      (org-slipbox-glossary-define "Riemann integral" "A limit of Riemann sums." 'confirmed))
+    (should (equal (nth 0 captured) "Riemann integral"))
+    ;; The default template marks the file node and carries the body.
+    (should (equal (nth 3 captured) '(:body "A limit of Riemann sums.")))
+    (let ((template (nth 1 captured)))
+      (should (equal (nth 3 template) "${body}"))
+      (should (string-match-p "#\\+glossary: t"
+                              (nth 2 (plist-get (nthcdr 4 template) :target)))))
+    ;; A finalize action is threaded through so status is recorded post-capture.
+    (should (functionp (plist-get (nth 4 captured) :default-finalize)))))
+
+(ert-deftest org-slipbox-test-glossary-define-finalizer-marks-status-and-visits ()
+  "The capture finalizer should mark the term status and then visit it."
+  (let (marked visited)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-mark-glossary-term)
+               (lambda (node-key &optional status)
+                 (setq marked (list node-key status))
+                 '(:term nil)))
+              ((symbol-function 'org-slipbox--visit-node)
+               (lambda (node &optional _other-window)
+                 (setq visited node))))
+      (let ((finalizer (org-slipbox-glossary--make-capture-finalizer "confirmed"))
+            (node '(:title "Term" :node_key "file:term.org" :file_path "term.org" :line 1)))
+        (funcall finalizer node nil)))
+    (should (equal marked '("file:term.org" "confirmed")))
+    (should (equal (plist-get visited :node_key) "file:term.org"))))
+
+(ert-deftest org-slipbox-test-glossary-find-annotates-with-definition ()
+  "Glossary find should complete over terms annotated with their definitions."
+  (let* ((root (make-temp-file "org-slipbox-glossary-find-" t))
+         (term-file (expand-file-name "derivative.org" root))
+         prompt metadata candidates visited)
+    (unwind-protect
+        (let ((org-slipbox-directory root))
+          (write-region
+           "#+title: Derivative\n#+glossary: t\n:PROPERTIES:\n:ID: term-id\n:END:\n\nThe rate of change of a function.\n"
+           nil term-file nil 'silent)
+          (cl-letf (((symbol-function 'org-slipbox-rpc-search-glossary)
+                     (lambda (_query _limit)
+                       '(:terms [(:title "Derivative"
+                                  :file_path "derivative.org"
+                                  :line 1
+                                  :node_key "file:derivative.org"
+                                  :glossary t)])))
+                    ((symbol-function 'org-slipbox-node-file-exists-p)
+                     (lambda (_node) t))
+                    ((symbol-function 'completing-read)
+                     (lambda (read-prompt collection _predicate _require-match _initial _history)
+                       (setq prompt read-prompt
+                             candidates (all-completions "" collection nil)
+                             metadata (funcall collection "" nil 'metadata))
+                       (car candidates)))
+                    ((symbol-function 'org-slipbox--visit-node)
+                     (lambda (node &optional _other-window)
+                       (setq visited node))))
+            (org-slipbox-glossary-find nil "Term: ")
+            (let* ((props (cdr metadata))
+                   (annotation (funcall (cdr (assq 'annotation-function props))
+                                        (car candidates))))
+              (should (equal prompt "Term: "))
+              (should (= (length candidates) 1))
+              (should (string-match-p "rate of change" annotation))
+              (should (equal (plist-get visited :node_key) "file:derivative.org")))))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-glossary-peek-shows-definition-at-point ()
+  "Peek should read and report the definition for the term at point."
+  (let* ((root (make-temp-file "org-slipbox-glossary-peek-" t))
+         (term-file (expand-file-name "derivative.org" root))
+         reported)
+    (unwind-protect
+        (let ((org-slipbox-directory root))
+          (write-region
+           "#+title: Derivative\n#+glossary: t\n:PROPERTIES:\n:ID: term-id\n:END:\n\nThe rate of change\nof a function.\n"
+           nil term-file nil 'silent)
+          (cl-letf (((symbol-function 'org-slipbox-node-at-point)
+                     (lambda (&optional _assert)
+                       '(:title "Derivative"
+                         :file_path "derivative.org"
+                         :line 1
+                         :node_key "file:derivative.org"
+                         :glossary t)))
+                    ((symbol-function 'message)
+                     (lambda (fmt &rest args)
+                       (setq reported (apply #'format fmt args)))))
+            (org-slipbox-glossary-peek)
+            (should (string-match-p "^Derivative: The rate of change of a function\\.$"
+                                    reported))))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-glossary-peek-rejects-non-term-at-point ()
+  "Peek should ignore a non-glossary node at point and prompt for a term."
+  (let (read-called)
+    (cl-letf (((symbol-function 'org-slipbox-node-at-point)
+               (lambda (&optional _assert)
+                 '(:title "Plain" :file_path "plain.org" :line 1 :glossary :json-false)))
+              ((symbol-function 'org-slipbox-glossary-read)
+               (lambda (&optional _initial _prompt)
+                 (setq read-called t)
+                 nil)))
+      (should-error (org-slipbox-glossary-peek) :type 'user-error)
+      (should read-called))))
+
 (ert-deftest org-slipbox-test-capture-finalize-insert-link-runs-hook ()
   "Insert-link finalization should replace the region and run the insert hook."
   (with-temp-buffer
@@ -4824,6 +4969,111 @@ ROOT-NODE defaults to NODE."
     (should (equal method "slipbox/unlinkedReferences"))
     (should (equal params '(:node_key "heading:alpha.org:3"
                             :limit 25)))))
+
+(ert-deftest org-slipbox-test-rpc-list-glossary-terms-encodes-params ()
+  "Glossary listing RPC should encode limit explicitly."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:terms []))))
+      (org-slipbox-rpc-list-glossary-terms 25))
+    (should (equal method "slipbox/listGlossaryTerms"))
+    (should (equal params '(:limit 25)))))
+
+(ert-deftest org-slipbox-test-rpc-search-glossary-encodes-params ()
+  "Glossary search RPC should encode query and limit explicitly."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:terms []))))
+      (org-slipbox-rpc-search-glossary "derivative" 25))
+    (should (equal method "slipbox/searchGlossary"))
+    (should (equal params '(:query "derivative" :limit 25)))))
+
+(ert-deftest org-slipbox-test-rpc-glossary-due-omits-absent-today ()
+  "Glossary due RPC should omit `today' when it is not supplied."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:terms []))))
+      (org-slipbox-rpc-glossary-due nil 25))
+    (should (equal method "slipbox/glossaryDue"))
+    (should (equal params '(:limit 25)))))
+
+(ert-deftest org-slipbox-test-rpc-glossary-due-encodes-today ()
+  "Glossary due RPC should encode `today' when supplied."
+  (let (params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (_request-method request-params)
+                 (setq params request-params)
+                 '(:terms []))))
+      (org-slipbox-rpc-glossary-due "2026-07-21" 25))
+    (should (equal params '(:today "2026-07-21" :limit 25)))))
+
+(ert-deftest org-slipbox-test-rpc-glossary-term-encodes-params ()
+  "Glossary term RPC should encode the node key explicitly."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:term nil))))
+      (org-slipbox-rpc-glossary-term "file:term.org")
+    (should (equal method "slipbox/glossaryTerm"))
+    (should (equal params '(:node_key "file:term.org"))))))
+
+(ert-deftest org-slipbox-test-rpc-grade-term-encodes-params ()
+  "Grade RPC should encode node key, quality, and optional review date."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:term nil))))
+      (org-slipbox-rpc-grade-term "file:term.org" 5 "2026-07-21")
+      (should (equal method "slipbox/gradeTerm"))
+      (should (equal params '(:node_key "file:term.org"
+                              :quality 5
+                              :today "2026-07-21"))))))
+
+(ert-deftest org-slipbox-test-rpc-grade-term-omits-absent-today ()
+  "Grade RPC should omit `today' when the review date is not supplied."
+  (let (params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (_request-method request-params)
+                 (setq params request-params)
+                 '(:term nil))))
+      (org-slipbox-rpc-grade-term "file:term.org" 3))
+    (should (equal params '(:node_key "file:term.org" :quality 3)))))
+
+(ert-deftest org-slipbox-test-rpc-mark-glossary-term-encodes-status ()
+  "Mark RPC should encode the node key and confirmation status."
+  (let (method params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (request-method request-params)
+                 (setq method request-method
+                       params request-params)
+                 '(:term nil))))
+      (org-slipbox-rpc-mark-glossary-term "file:term.org" "confirmed")
+      (should (equal method "slipbox/markGlossaryTerm"))
+      (should (equal params '(:node_key "file:term.org"
+                              :status "confirmed"))))))
+
+(ert-deftest org-slipbox-test-rpc-mark-glossary-term-omits-absent-status ()
+  "Mark RPC should omit status when none is supplied."
+  (let (params)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-request)
+               (lambda (_request-method request-params)
+                 (setq params request-params)
+                 '(:term nil))))
+      (org-slipbox-rpc-mark-glossary-term "file:term.org"))
+    (should (equal params '(:node_key "file:term.org")))))
 
 (ert-deftest org-slipbox-test-refile-calls-rust-rpc-and-refreshes-buffers ()
   "Refile should delegate subtree movement to the Rust RPC layer."

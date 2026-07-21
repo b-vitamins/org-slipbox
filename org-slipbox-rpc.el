@@ -99,6 +99,12 @@ resolves it through `exec-path'."
 (defconst org-slipbox-rpc-method-extract-subtree "slipbox/extractSubtree")
 (defconst org-slipbox-rpc-method-promote-entire-file "slipbox/promoteEntireFile")
 (defconst org-slipbox-rpc-method-demote-entire-file "slipbox/demoteEntireFile")
+(defconst org-slipbox-rpc-method-list-glossary-terms "slipbox/listGlossaryTerms")
+(defconst org-slipbox-rpc-method-search-glossary "slipbox/searchGlossary")
+(defconst org-slipbox-rpc-method-glossary-due "slipbox/glossaryDue")
+(defconst org-slipbox-rpc-method-glossary-term "slipbox/glossaryTerm")
+(defconst org-slipbox-rpc-method-grade-term "slipbox/gradeTerm")
+(defconst org-slipbox-rpc-method-mark-glossary-term "slipbox/markGlossaryTerm")
 
 (defun org-slipbox-rpc--bool (value)
   "Return VALUE encoded as an explicit JSON boolean."
@@ -540,6 +546,48 @@ non-nil, structure-lens occurrences collapse to one row per related note."
   (org-slipbox-rpc-request
    org-slipbox-rpc-method-demote-entire-file
    `(:file_path ,(expand-file-name file-path))))
+
+(defun org-slipbox-rpc-list-glossary-terms (&optional limit)
+  "Return indexed glossary terms, optionally capped by LIMIT."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-list-glossary-terms
+   `(:limit ,(or limit 50))))
+
+(defun org-slipbox-rpc-search-glossary (query &optional limit)
+  "Search glossary terms matching QUERY, optionally capped by LIMIT."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-search-glossary
+   `(:query ,query :limit ,(or limit 50))))
+
+(defun org-slipbox-rpc-glossary-due (&optional today limit)
+  "Return glossary terms due for review on TODAY, optionally capped by LIMIT.
+When TODAY is nil, the daemon uses its local date."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-glossary-due
+   (append (when today `(:today ,today))
+           `(:limit ,(or limit 50)))))
+
+(defun org-slipbox-rpc-glossary-term (node-key)
+  "Return the glossary term identified by NODE-KEY."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-glossary-term
+   `(:node_key ,node-key)))
+
+(defun org-slipbox-rpc-grade-term (node-key quality &optional today)
+  "Grade the term identified by NODE-KEY with QUALITY and reschedule it.
+When TODAY is nil, the daemon uses its local date as the review date."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-grade-term
+   (append `(:node_key ,node-key :quality ,quality)
+           (when today `(:today ,today)))))
+
+(defun org-slipbox-rpc-mark-glossary-term (node-key &optional status)
+  "Mark the note identified by NODE-KEY as a glossary term.
+STATUS, when non-nil, records the confirmation status."
+  (org-slipbox-rpc-request
+   org-slipbox-rpc-method-mark-glossary-term
+   (append `(:node_key ,node-key)
+           (when status `(:status ,status)))))
 
 (provide 'org-slipbox-rpc)
 
