@@ -13,22 +13,24 @@ use slipbox_core::{
     CorpusAuditEntry, CorpusAuditKind, DanglingLinkAuditRecord, EnsureFileNodeParams,
     EnsureNodeIdParams, ExecuteExplorationArtifactResult, ExplorationArtifactIdParams,
     ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationLens, ExploreParams,
-    ExtractSubtreeParams, FileDiagnosticsParams, ForwardLinksParams, GraphParams,
-    ImportWorkbenchPackParams, IndexFileParams, NodeFromIdParams, NodeFromRefParams,
-    NodeFromTitleOrAliasParams, NodeKind, NoteContextParams, ReadFileSourceParams,
-    ReadNodeSourceParams, RefileRegionParams, RefileSubtreeParams, ReflinksParams,
-    ReportProfileMetadata, ReportProfileMode, ReportProfileSpec, ReportProfileSubject,
-    ReviewFinding, ReviewFindingPayload, ReviewFindingRemediationApplyParams,
+    ExtractSubtreeParams, FileDiagnosticsParams, ForwardLinksParams, GlossaryDueParams,
+    GlossaryStatus, GlossaryTermParams, GradeTermParams, GraphParams, ImportWorkbenchPackParams,
+    IndexFileParams, ListGlossaryTermsParams, MarkGlossaryTermParams, NodeFromIdParams,
+    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeKind, NoteContextParams,
+    ReadFileSourceParams, ReadNodeSourceParams, RefileRegionParams, RefileSubtreeParams,
+    ReflinksParams, ReportProfileMetadata, ReportProfileMode, ReportProfileSpec,
+    ReportProfileSubject, ReviewFinding, ReviewFindingPayload, ReviewFindingRemediationApplyParams,
     ReviewFindingRemediationPreviewParams, ReviewFindingStatus, ReviewRoutineIdParams, ReviewRun,
     ReviewRunDiffParams, ReviewRunIdParams, ReviewRunMetadata, ReviewRunPayload, RewriteFileParams,
     RunReviewRoutineParams, RunWorkflowParams, SaveCorpusAuditReviewParams,
     SaveExplorationArtifactParams, SaveReviewRunParams, SaveWorkflowReviewParams,
-    SavedExplorationArtifact, SavedLensViewArtifact, SearchFilesParams, SearchNodesParams,
-    SearchOccurrencesParams, SearchRefsParams, SearchTagsParams, StructuralWriteIndexRefreshStatus,
-    StructuralWriteOperationKind, StructuralWriteResult, UnlinkedReferencesParams,
-    UpdateNodeMetadataParams, ValidateWorkbenchPackParams, WorkbenchPackCompatibility,
-    WorkbenchPackIdParams, WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackMetadata,
-    WorkflowIdParams, WorkflowInputAssignment, WorkflowResult,
+    SavedExplorationArtifact, SavedLensViewArtifact, SearchFilesParams, SearchGlossaryParams,
+    SearchNodesParams, SearchOccurrencesParams, SearchRefsParams, SearchTagsParams,
+    StructuralWriteIndexRefreshStatus, StructuralWriteOperationKind, StructuralWriteResult,
+    UnlinkedReferencesParams, UpdateNodeMetadataParams, ValidateWorkbenchPackParams,
+    WorkbenchPackCompatibility, WorkbenchPackIdParams, WorkbenchPackIssueKind,
+    WorkbenchPackManifest, WorkbenchPackMetadata, WorkflowIdParams, WorkflowInputAssignment,
+    WorkflowResult,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonClientError, DaemonServeConfig};
 use slipbox_index::scan_root;
@@ -647,6 +649,159 @@ fn daemon_client_exposes_everyday_write_operations_with_read_your_writes() -> Re
     })?;
     assert_eq!(occurrences.occurrences.len(), 1);
     assert_eq!(occurrences.occurrences[0].file_path, "template.org");
+
+    client.shutdown()?;
+    Ok(())
+}
+
+#[test]
+fn daemon_client_exposes_glossary_operations_with_read_your_writes() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+    fs::write(
+        root.join("riemann.org"),
+        r#"#+title: Riemann integral
+#+glossary: t
+:PROPERTIES:
+:ID:              riemann-id
+:GLOSSARY_STATUS: confirmed
+:SR_DUE:          2026-08-01
+:SR_EASE:         2.50
+:SR_INTERVAL:     6
+:SR_REPS:         3
+:SR_LAST:         2026-07-26
+:END:
+
+A definite integral defined as the limit of Riemann sums.
+"#,
+    )?;
+    fs::write(
+        root.join("candidate.org"),
+        r#":PROPERTIES:
+:ID: candidate-id
+:END:
+#+title: Candidate note awaiting promotion
+"#,
+    )?;
+    let db = workspace.path().join("slipbox.sqlite");
+    let mut client = DaemonClient::spawn(daemon_binary(), &DaemonServeConfig::new(&root, &db))?;
+    client.index()?;
+
+    let listed = client.list_glossary_terms(&ListGlossaryTermsParams { limit: 50 })?;
+    assert_eq!(listed.terms.len(), 1);
+    let riemann = &listed.terms[0];
+    assert!(riemann.glossary);
+    assert_eq!(riemann.title, "Riemann integral");
+    assert_eq!(riemann.glossary_status.as_deref(), Some("confirmed"));
+    let riemann_key = riemann.node_key.clone();
+
+    let searched = client.search_glossary(&SearchGlossaryParams {
+        query: "Riemann".to_owned(),
+        limit: 50,
+    })?;
+    assert_eq!(searched.terms.len(), 1);
+    assert_eq!(searched.terms[0].node_key, riemann_key);
+
+    let fetched = client.glossary_term(&GlossaryTermParams {
+        node_key: riemann_key.clone(),
+    })?;
+    let fetched_term = fetched.term.context("known term should resolve")?;
+    assert_eq!(fetched_term.node_key, riemann_key);
+    assert_eq!(fetched_term.sr_due.as_deref(), Some("2026-08-01"));
+
+    // A non-term note resolves to no term rather than erroring.
+    let candidate_key = client
+        .node_from_id(&NodeFromIdParams {
+            id: "candidate-id".to_owned(),
+        })?
+        .context("candidate note should resolve by id")?
+        .node_key;
+    let missing = client.glossary_term(&GlossaryTermParams {
+        node_key: candidate_key.clone(),
+    })?;
+    assert!(missing.term.is_none());
+
+    // On 2026-07-26 the confirmed term is not yet due (SR_DUE 2026-08-01).
+    let not_yet = client.glossary_due(&GlossaryDueParams {
+        today: Some("2026-07-26".to_owned()),
+        limit: 50,
+    })?;
+    assert!(not_yet.terms.is_empty());
+
+    // Once its schedule elapses it surfaces in the due queue.
+    let due = client.glossary_due(&GlossaryDueParams {
+        today: Some("2026-08-02".to_owned()),
+        limit: 50,
+    })?;
+    assert_eq!(due.terms.len(), 1);
+    assert_eq!(due.terms[0].node_key, riemann_key);
+
+    // Grading writes the drawer and reads the rescheduled record back.
+    let graded = client.grade_term(&GradeTermParams {
+        node_key: riemann_key.clone(),
+        quality: 5,
+        today: Some("2026-07-21".to_owned()),
+    })?;
+    assert_eq!(graded.term.sr_interval.as_deref(), Some("15"));
+    assert_eq!(graded.term.sr_reps.as_deref(), Some("4"));
+    assert_eq!(graded.term.sr_ease.as_deref(), Some("2.60"));
+    assert_eq!(graded.term.sr_last.as_deref(), Some("2026-07-21"));
+    assert_eq!(graded.term.sr_due.as_deref(), Some("2026-08-05"));
+
+    // The rescheduled state is visible to a fresh read.
+    let regraded = client
+        .glossary_term(&GlossaryTermParams {
+            node_key: riemann_key.clone(),
+        })?
+        .term
+        .context("graded term should still resolve")?;
+    assert_eq!(regraded.sr_due.as_deref(), Some("2026-08-05"));
+
+    // Marking promotes an ordinary note into a confirmed term.
+    let marked = client.mark_glossary_term(&MarkGlossaryTermParams {
+        node_key: candidate_key.clone(),
+        status: Some(GlossaryStatus::Confirmed),
+    })?;
+    assert!(marked.term.glossary);
+    assert_eq!(marked.term.glossary_status.as_deref(), Some("confirmed"));
+
+    let after_mark = client.list_glossary_terms(&ListGlossaryTermsParams { limit: 50 })?;
+    assert_eq!(after_mark.terms.len(), 2);
+
+    // Grading a note that was never marked is a structured not-found error.
+    fs::write(
+        root.join("plain.org"),
+        r#":PROPERTIES:
+:ID: plain-id
+:END:
+#+title: Plain note
+"#,
+    )?;
+    client.index()?;
+    let plain_key = client
+        .node_from_id(&NodeFromIdParams {
+            id: "plain-id".to_owned(),
+        })?
+        .context("plain note should resolve by id")?
+        .node_key;
+    let rejected = client
+        .grade_term(&GradeTermParams {
+            node_key: plain_key,
+            quality: 4,
+            today: None,
+        })
+        .expect_err("grading a non-term must fail");
+    match rejected {
+        DaemonClientError::Rpc(error) => {
+            assert_eq!(
+                error.data.as_ref().map(|data| data.kind),
+                Some(JsonRpcErrorKind::NotFound)
+            );
+            assert!(error.message.contains("unknown glossary term"));
+        }
+        other => panic!("expected JSON-RPC not-found error, got {other:?}"),
+    }
 
     client.shutdown()?;
     Ok(())

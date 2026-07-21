@@ -13,25 +13,25 @@ use slipbox_core::{
     DeleteReviewRunResult, DeleteWorkbenchPackResult, ExecuteExplorationArtifactResult,
     ExecutedExplorationArtifactPayload, ExplorationArtifactMetadata, ExplorationArtifactPayload,
     ExplorationArtifactResult, ExplorationEntry, ExplorationExplanation, ExplorationLens,
-    ExplorationSectionKind, ExploreParams, ExploreResult, GraphParams, ImportWorkbenchPackResult,
-    ListExplorationArtifactsResult, ListReviewRoutinesResult, ListReviewRunsResult,
-    ListWorkbenchPacksResult, ListWorkflowsResult, MarkReviewFindingResult, NodeKind,
-    NoteComparisonEntry, NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult,
-    NoteComparisonSectionKind, ReportJsonlLineKind, ReportProfileMetadata, ReportProfileMode,
-    ReportProfileSpec, ReportProfileSubject, ReviewFinding, ReviewFindingPayload,
-    ReviewFindingRemediationApplyParams, ReviewFindingRemediationApplyResult,
-    ReviewFindingRemediationPreviewResult, ReviewFindingStatus, ReviewRoutineComparePolicy,
-    ReviewRoutineCompareTarget, ReviewRoutineMetadata, ReviewRoutineReportLine,
-    ReviewRoutineResult, ReviewRoutineSaveReviewPolicy, ReviewRoutineSource,
-    ReviewRoutineSourceExecutionResult, ReviewRoutineSpec, ReviewRun, ReviewRunDiffBucket,
-    ReviewRunDiffResult, ReviewRunMetadata, ReviewRunPayload, ReviewRunResult,
-    RunReviewRoutineResult, RunWorkflowResult, SaveCorpusAuditReviewResult,
-    SaveExplorationArtifactResult, SaveReviewRunResult, SaveWorkflowReviewResult,
-    SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact,
-    SavedTrailStep, SearchNodesResult, SearchRefsResult, TrailReplayStepResult,
-    ValidateWorkbenchPackResult, WorkbenchPackCompatibility, WorkbenchPackIssueKind,
-    WorkbenchPackManifest, WorkbenchPackMetadata, WorkbenchPackResult, WorkflowInputAssignment,
-    WorkflowMetadata, WorkflowResolveTarget, WorkflowResult, WorkflowSpec,
+    ExplorationSectionKind, ExploreParams, ExploreResult, GlossaryTermResult, GradeTermResult,
+    GraphParams, ImportWorkbenchPackResult, ListExplorationArtifactsResult,
+    ListReviewRoutinesResult, ListReviewRunsResult, ListWorkbenchPacksResult, ListWorkflowsResult,
+    MarkReviewFindingResult, NodeKind, NoteComparisonEntry, NoteComparisonExplanation,
+    NoteComparisonGroup, NoteComparisonResult, NoteComparisonSectionKind, ReportJsonlLineKind,
+    ReportProfileMetadata, ReportProfileMode, ReportProfileSpec, ReportProfileSubject,
+    ReviewFinding, ReviewFindingPayload, ReviewFindingRemediationApplyParams,
+    ReviewFindingRemediationApplyResult, ReviewFindingRemediationPreviewResult,
+    ReviewFindingStatus, ReviewRoutineComparePolicy, ReviewRoutineCompareTarget,
+    ReviewRoutineMetadata, ReviewRoutineReportLine, ReviewRoutineResult,
+    ReviewRoutineSaveReviewPolicy, ReviewRoutineSource, ReviewRoutineSourceExecutionResult,
+    ReviewRoutineSpec, ReviewRun, ReviewRunDiffBucket, ReviewRunDiffResult, ReviewRunMetadata,
+    ReviewRunPayload, ReviewRunResult, RunReviewRoutineResult, RunWorkflowResult,
+    SaveCorpusAuditReviewResult, SaveExplorationArtifactResult, SaveReviewRunResult,
+    SaveWorkflowReviewResult, SavedComparisonArtifact, SavedExplorationArtifact,
+    SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, SearchNodesResult, SearchRefsResult,
+    TrailReplayStepResult, ValidateWorkbenchPackResult, WorkbenchPackCompatibility,
+    WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackMetadata, WorkbenchPackResult,
+    WorkflowInputAssignment, WorkflowMetadata, WorkflowResolveTarget, WorkflowResult, WorkflowSpec,
     WorkflowSpecCompatibility, WorkflowStepPayload, WorkflowStepReport, WorkflowStepReportPayload,
     WorkflowStepSpec,
 };
@@ -43,13 +43,15 @@ use super::{
     delete_workbench_pack, diff_review_runs, execute_compare_notes_query,
     execute_exploration_artifact, execute_explore_query, execute_saved_exploration_artifact,
     execute_saved_exploration_artifact_by_id, execute_workflow_spec, exploration_artifact, explore,
-    export_workbench_pack, import_workbench_pack, list_exploration_artifacts, list_review_routines,
-    list_review_runs, list_workbench_packs, list_workflows, mark_review_finding, node_from_ref,
-    review_finding_remediation_apply, review_finding_remediation_preview, review_routine,
-    review_run, run_review_routine, run_workflow, save_corpus_audit_review,
-    save_exploration_artifact, save_review_run, save_workflow_review, search_nodes, search_refs,
-    validate_workbench_pack, workbench_pack, workflow,
+    export_workbench_pack, glossary_term, import_workbench_pack, list_exploration_artifacts,
+    list_review_routines, list_review_runs, list_workbench_packs, list_workflows,
+    mark_review_finding, node_from_ref, review_finding_remediation_apply,
+    review_finding_remediation_preview, review_routine, review_run, run_review_routine,
+    run_workflow, save_corpus_audit_review, save_exploration_artifact, save_review_run,
+    save_workflow_review, search_nodes, search_refs, validate_workbench_pack, workbench_pack,
+    workflow,
 };
+use crate::server::handlers::write::grade_term;
 use crate::server::state::ServerState;
 
 #[test]
@@ -1529,6 +1531,101 @@ fn durable_state_survives_reopen_and_forced_index_rebuild_without_surface_pollut
             .expect("rebuilt target lookup should succeed"),
         Some(focus)
     );
+}
+
+#[test]
+fn graded_glossary_schedule_survives_forced_index_rebuild_from_org() {
+    let workspace = tempfile::tempdir().expect("workspace should be created");
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root).expect("notes root should be created");
+    fs::write(
+        root.join("riemann.org"),
+        r#"#+title: Riemann integral
+#+glossary: t
+:PROPERTIES:
+:ID:              riemann-id
+:GLOSSARY_STATUS: confirmed
+:SR_DUE:          2026-08-01
+:SR_EASE:         2.50
+:SR_INTERVAL:     6
+:SR_REPS:         3
+:SR_LAST:         2026-07-26
+:END:
+
+A definite integral defined as the limit of Riemann sums.
+"#,
+    )
+    .expect("fixture should be written");
+
+    let db_path = workspace.path().join("index.sqlite3");
+    let discovery = DiscoveryPolicy::default();
+    let mut state = ServerState::new(root.clone(), db_path, Vec::new(), discovery)
+        .expect("state should be created");
+    let files = scan_root_with_policy(&root, &state.discovery).expect("fixture should be indexed");
+    state
+        .database
+        .sync_index(&files)
+        .expect("fixture index should sync");
+
+    let term_key = state
+        .database
+        .node_from_id("riemann-id")
+        .expect("term lookup should succeed")
+        .expect("term should exist")
+        .node_key;
+
+    // Grade through the write handler, which rewrites the Org drawer and reads
+    // the rescheduled record back. reps 3, ease 2.50, interval 6, quality 5 ->
+    // interval round(6*2.5)=15, reps 4, ease 2.60, last today, due today+15.
+    let graded: GradeTermResult = serde_json::from_value(
+        grade_term(
+            &mut state,
+            json!({
+                "node_key": term_key,
+                "quality": 5,
+                "today": "2026-07-21",
+            }),
+        )
+        .expect("grading a term should succeed"),
+    )
+    .expect("grade result should decode");
+    assert_eq!(graded.term.sr_interval.as_deref(), Some("15"));
+    assert_eq!(graded.term.sr_reps.as_deref(), Some("4"));
+    assert_eq!(graded.term.sr_ease.as_deref(), Some("2.60"));
+    assert_eq!(graded.term.sr_last.as_deref(), Some("2026-07-21"));
+    assert_eq!(graded.term.sr_due.as_deref(), Some("2026-08-05"));
+
+    // Drop the daemon state and delete the derived index outright, forcing a
+    // full rebuild from the Org sources on reopen.
+    let root = state.root.clone();
+    let db_path = state.db_path.clone();
+    let discovery = state.discovery.clone();
+    drop(state);
+    fs::remove_file(&db_path).expect("derived SQLite database should be removable");
+
+    let mut reopened = ServerState::new(root.clone(), db_path, Vec::new(), discovery)
+        .expect("state should reopen after derived database removal");
+    let files = scan_root_with_policy(&root, &reopened.discovery).expect("fixture should rescan");
+    reopened
+        .database
+        .sync_index(&files)
+        .expect("derived index should rebuild");
+
+    // The SM-2 schedule reappears verbatim because it was persisted to the Org
+    // drawer, not to a db-adjacent side store: the rebuild re-parses it.
+    let restored: GlossaryTermResult = serde_json::from_value(
+        glossary_term(&mut reopened, json!({ "node_key": term_key }))
+            .expect("rebuilt term should resolve"),
+    )
+    .expect("term result should decode");
+    let restored = restored.term.expect("term should survive the rebuild");
+    assert!(restored.glossary);
+    assert_eq!(restored.glossary_status.as_deref(), Some("confirmed"));
+    assert_eq!(restored.sr_interval.as_deref(), Some("15"));
+    assert_eq!(restored.sr_reps.as_deref(), Some("4"));
+    assert_eq!(restored.sr_ease.as_deref(), Some("2.60"));
+    assert_eq!(restored.sr_last.as_deref(), Some("2026-07-21"));
+    assert_eq!(restored.sr_due.as_deref(), Some("2026-08-05"));
 }
 
 #[test]

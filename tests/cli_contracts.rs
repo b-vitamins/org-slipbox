@@ -415,6 +415,19 @@ fn routine_json_command(
     run_slipbox(&args)
 }
 
+fn glossary_json_command(
+    subcommand: &str,
+    root: &str,
+    db: &str,
+    extra: &[&str],
+) -> Result<std::process::Output> {
+    let mut args = vec!["glossary".to_owned(), subcommand.to_owned()];
+    args.extend(base_args(root, db));
+    args.push("--json".to_owned());
+    args.extend(extra.iter().map(|value| (*value).to_owned()));
+    run_slipbox(&args)
+}
+
 fn with_bad_server_program(
     mut args: Vec<String>,
     root: &str,
@@ -635,6 +648,58 @@ fn seed_duplicate_title_audit_fixture(root: &str, db: &str) -> Result<()> {
 :ID: dup-b-id
 :END:
 #+title: shared title
+"#,
+    )?;
+    let files = scan_root(Path::new(root))?;
+    let mut database = Database::open(Path::new(db))?;
+    database.sync_index(&files)?;
+    Ok(())
+}
+
+fn seed_glossary_fixture(root: &str, db: &str) -> Result<()> {
+    fs::write(
+        Path::new(root).join("riemann.org"),
+        r#"#+title: Riemann integral
+#+glossary: t
+:PROPERTIES:
+:ID:              riemann-id
+:GLOSSARY_STATUS: confirmed
+:SR_DUE:          2026-08-01
+:SR_EASE:         2.50
+:SR_INTERVAL:     6
+:SR_REPS:         3
+:SR_LAST:         2026-07-26
+:END:
+
+A definite integral defined as the limit of Riemann sums.
+"#,
+    )?;
+    fs::write(
+        Path::new(root).join("derivative.org"),
+        r#"#+title: Derivative
+#+glossary: t
+:PROPERTIES:
+:ID:              derivative-id
+:GLOSSARY_STATUS: stub
+:END:
+
+The instantaneous rate of change of a function.
+"#,
+    )?;
+    fs::write(
+        Path::new(root).join("essay.org"),
+        r#":PROPERTIES:
+:ID: essay-id
+:END:
+#+title: An essay that is not a term
+"#,
+    )?;
+    fs::write(
+        Path::new(root).join("candidate.org"),
+        r#":PROPERTIES:
+:ID: candidate-id
+:END:
+#+title: Candidate note awaiting promotion
 "#,
     )?;
     let files = scan_root(Path::new(root))?;
@@ -1403,6 +1468,106 @@ Body mentions durable phrase.
     assert!(daily_append.status.success(), "{daily_append:?}");
     let daily_append_json: Value = serde_json::from_slice(&daily_append.stdout)?;
     assert_anchor_record_keys(&daily_append_json);
+
+    Ok(())
+}
+
+#[test]
+fn glossary_commands_expose_stable_json_shapes_and_grade_round_trips() -> Result<()> {
+    let (_workspace, root, db, _anonymous_anchor_key) = build_indexed_fixture()?;
+    seed_glossary_fixture(&root, &db)?;
+
+    let list = glossary_json_command("list", &root, &db, &[])?;
+    assert!(list.status.success(), "{list:?}");
+    let list_json: Value = serde_json::from_slice(&list.stdout)?;
+    assert_exact_object_keys(&list_json, &["terms"]);
+    let listed = list_json["terms"]
+        .as_array()
+        .expect("glossary list terms should be an array");
+    assert_eq!(listed.len(), 2);
+    for term in listed {
+        assert_node_record_keys(term);
+        assert_eq!(term["glossary"], Value::Bool(true));
+    }
+
+    let search = glossary_json_command("search", &root, &db, &["Riemann"])?;
+    assert!(search.status.success(), "{search:?}");
+    let search_json: Value = serde_json::from_slice(&search.stdout)?;
+    assert_exact_object_keys(&search_json, &["terms"]);
+    assert_node_record_keys(&search_json["terms"][0]);
+    assert_eq!(search_json["terms"][0]["title"], "Riemann integral");
+
+    let show = glossary_json_command("show", &root, &db, &["--id", "riemann-id"])?;
+    assert!(show.status.success(), "{show:?}");
+    let show_json: Value = serde_json::from_slice(&show.stdout)?;
+    assert_exact_object_keys(&show_json, &["term"]);
+    assert_node_record_keys(&show_json["term"]);
+    assert_eq!(show_json["term"]["glossary_status"], "confirmed");
+
+    // `show` on a note that is not a glossary term resolves to a null term
+    // rather than erroring: it is a query, not an assertion.
+    let show_non_term = glossary_json_command("show", &root, &db, &["--id", "essay-id"])?;
+    assert!(show_non_term.status.success(), "{show_non_term:?}");
+    let show_non_term_json: Value = serde_json::from_slice(&show_non_term.stdout)?;
+    assert_exact_object_keys(&show_non_term_json, &["term"]);
+    assert_eq!(show_non_term_json["term"], Value::Null);
+
+    let due = glossary_json_command("due", &root, &db, &["--today", "2026-08-02"])?;
+    assert!(due.status.success(), "{due:?}");
+    let due_json: Value = serde_json::from_slice(&due.stdout)?;
+    assert_exact_object_keys(&due_json, &["terms"]);
+    let due_terms = due_json["terms"]
+        .as_array()
+        .expect("glossary due terms should be an array");
+    // The stub term (reps unset) is always due; the confirmed term is due once
+    // its 2026-08-01 schedule has elapsed.
+    assert_eq!(due_terms.len(), 2);
+    for term in due_terms {
+        assert_node_record_keys(term);
+    }
+
+    let grade = glossary_json_command(
+        "grade",
+        &root,
+        &db,
+        &[
+            "--id",
+            "riemann-id",
+            "--quality",
+            "5",
+            "--today",
+            "2026-07-21",
+        ],
+    )?;
+    assert!(grade.status.success(), "{grade:?}");
+    let grade_json: Value = serde_json::from_slice(&grade.stdout)?;
+    assert_exact_object_keys(&grade_json, &["term"]);
+    assert_node_record_keys(&grade_json["term"]);
+    // reps 3, ease 2.50, interval 6, quality 5 -> interval round(6*2.5)=15,
+    // reps 4, ease 2.60, last today, due today+15 = 2026-08-05.
+    assert_eq!(grade_json["term"]["sr_interval"], "15");
+    assert_eq!(grade_json["term"]["sr_reps"], "4");
+    assert_eq!(grade_json["term"]["sr_ease"], "2.60");
+    assert_eq!(grade_json["term"]["sr_last"], "2026-07-21");
+    assert_eq!(grade_json["term"]["sr_due"], "2026-08-05");
+
+    let mark = glossary_json_command(
+        "mark",
+        &root,
+        &db,
+        &["--id", "candidate-id", "--status", "confirmed"],
+    )?;
+    assert!(mark.status.success(), "{mark:?}");
+    let mark_json: Value = serde_json::from_slice(&mark.stdout)?;
+    assert_exact_object_keys(&mark_json, &["term"]);
+    assert_node_record_keys(&mark_json["term"]);
+    assert_eq!(mark_json["term"]["glossary"], Value::Bool(true));
+    assert_eq!(mark_json["term"]["glossary_status"], "confirmed");
+
+    // Grading a note that is not a glossary term is a structured not-found error.
+    let grade_non_term =
+        glossary_json_command("grade", &root, &db, &["--id", "essay-id", "--quality", "4"])?;
+    assert_error_failure(&grade_non_term, "unknown glossary term");
 
     Ok(())
 }
