@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::Database;
 
-const SCHEMA_VERSION: i32 = 19;
+const SCHEMA_VERSION: i32 = 20;
 
 impl Database {
     pub(crate) fn migrate(&self) -> Result<()> {
@@ -73,7 +73,8 @@ impl Database {
                file_path,
                alias_text,
                ref_text,
-               tag_text
+               tag_text,
+               tokenize='porter unicode61 remove_diacritics 2'
              );
 
              CREATE TABLE IF NOT EXISTS occurrence_documents (
@@ -185,8 +186,65 @@ impl Database {
              CREATE INDEX IF NOT EXISTS idx_links_source_note_line
                ON links (source_note_key, line, column, destination_explicit_id);
 
-             PRAGMA user_version = 19;",
+             PRAGMA user_version = 20;",
         )?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use anyhow::{Context, Result};
+    use slipbox_index::{DiscoveryPolicy, scan_root_with_policy};
+
+    use crate::Database;
+
+    fn index_fixture(body: &str) -> Result<Database> {
+        let workspace = tempfile::tempdir().context("workspace should be created")?;
+        let root = workspace.path().join("notes");
+        fs::create_dir_all(&root).context("notes root should be created")?;
+        fs::write(root.join("term.org"), body).context("fixture should be written")?;
+        let mut database = Database::open(&workspace.path().join("index.sqlite3"))?;
+        let files =
+            scan_root_with_policy(&root, &DiscoveryPolicy::default()).context("fixture scan")?;
+        database.sync_index(&files).context("fixture index sync")?;
+        Ok(database)
+    }
+
+    #[test]
+    fn node_search_stems_word_forms() -> Result<()> {
+        let database = index_fixture("#+title: Derivative\n\nRate of change.\n")?;
+
+        // Plural query stems to the same root as the singular title.
+        let plural = database.search_nodes("derivatives", 20, None)?;
+        assert!(
+            plural.iter().any(|node| node.title == "Derivative"),
+            "expected 'derivatives' to match the 'Derivative' note via stemming"
+        );
+
+        // And the reverse direction holds too.
+        let database = index_fixture("#+title: Derivatives\n\nRates of change.\n")?;
+        let singular = database.search_nodes("derivative", 20, None)?;
+        assert!(
+            singular.iter().any(|node| node.title == "Derivatives"),
+            "expected 'derivative' to match the 'Derivatives' note via stemming"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn node_search_folds_diacritics() -> Result<()> {
+        let database = index_fixture("#+title: Gödel\n\nIncompleteness.\n")?;
+
+        let folded = database.search_nodes("Godel", 20, None)?;
+        assert!(
+            folded.iter().any(|node| node.title == "Gödel"),
+            "expected 'Godel' to match the 'Gödel' note via diacritic folding"
+        );
+
         Ok(())
     }
 }
