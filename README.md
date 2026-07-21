@@ -9,9 +9,11 @@ daemon-owned writes fast enough for interactive use. Emacs owns editing UI,
 session state, and presentation. Rust owns parsing, indexing, ranking, query
 execution, and file mutation.
 
-The latest shipped release is `0.15.0`, a stability-prep release that makes
-release buckets, upgrade/rebuild behavior, public contract coverage, benchmark
-gate roles, and bundled/system SQLite build paths explicit and verifiable.
+The latest shipped release is `0.16.0`, which introduces a first-class personal
+glossary as a new public bucket: terms are Org notes with a `#+glossary:`
+marker, SM-2 spaced-repetition state lives in the Org drawer so it syncs and
+rebuilds with the notes, and Emacs gains capture, lookup, a cockpit lens, and a
+card-at-a-time review buffer.
 
 For the product model, see [doc/model.org](doc/model.org). The short version
 is:

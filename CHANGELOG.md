@@ -6,6 +6,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-07-22
+
 ### Added
 - Added a Glossary bucket as the seventh public bucket, built entirely on the
   Org-as-truth and derived-index model: a term is an Org note carrying a
