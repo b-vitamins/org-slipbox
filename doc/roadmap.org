@@ -93,6 +93,32 @@ Exit signal:
 - the `0.15.0` milestone is closed with no open compatibility or release
   hygiene issues
 
+* 0.16.x: Glossary
+
+Theme: introduce a first-class personal glossary as a new public bucket, built
+entirely on the existing Org-as-truth and derived-index model.
+
+Focus:
+
+- a Glossary bucket owning glossary commands and spaced-repetition study, with a
+  term modeled as an Org note that carries a `#+glossary:` marker
+- SM-2 spaced-repetition schedule stored in the term's property drawer so it
+  syncs and rebuilds with the notes rather than in a side store
+- stemmed, diacritic-folded node search through an upgraded `node_fts`
+  tokenizer, with search ranking kept internal
+- glossary list, search, term, due, grade, and mark surfaces across the daemon,
+  CLI, and Emacs
+- an Emacs experience covering capture, definition lookup and peek, a cockpit
+  glossary lens, and a card-at-a-time review buffer
+
+Exit signal:
+
+- a term participates fully in node search, backlinks, refs, and graph, and its
+  SM-2 state survives a derived-index rebuild
+- glossary contract, rebuild-survival, and benchmark gates are green
+- no web UI, HTTP server, SSE hub, SPA, second database, separate sync
+  mechanism, or MCP surface is introduced
+
 * 1.0.x: Stability Line
 
 Theme: make the public surface dependable enough for ordinary users,

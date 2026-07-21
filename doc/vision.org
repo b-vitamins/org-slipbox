@@ -45,6 +45,8 @@ The Emacs package, CLI, and daemon JSON-RPC surface should share one model:
 - Explorations derive meaning from indexed evidence.
 - Reviews record operational findings and user decisions.
 - Assets describe reusable workbench behavior as data.
+- Glossary treats chosen terms as Org notes and supports recall practice over
+  them, with spaced-repetition state kept in the Org drawer.
 - System surfaces report daemon, index, file, diagnostic, benchmark, and
   compatibility state.
 

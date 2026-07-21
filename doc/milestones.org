@@ -131,3 +131,31 @@ Exit criteria:
 - packaging and installation are predictable
 - users and scripts can rely on documented contracts
 - new work lands through focused modules rather than monolith growth
+
+* Milestone 7: First-Class Glossary
+
+Purpose: make a personal glossary a first-class capability without adding a
+second stack, so terms live as Org notes and study travels with the notes.
+
+Outcomes:
+
+- a Glossary bucket owning glossary commands and spaced-repetition study, with
+  a term modeled as an Org note that carries a `#+glossary:` marker
+- SM-2 spaced-repetition state stored in each term's property drawer, so it
+  syncs over git and is re-parsed from Org on index rebuild
+- stemmed, diacritic-folded node search so lookup tolerates word forms and
+  accents
+- glossary list, search, term, due, grade, and mark surfaces across the daemon,
+  CLI, and Emacs
+- an Emacs experience covering term capture, definition lookup and peek, a
+  cockpit glossary lens, and a card-at-a-time review buffer
+
+Exit criteria:
+
+- a term participates fully in node search, backlinks, refs, and graph like any
+  other note
+- grading rewrites the drawer and reschedules the term, and that state survives
+  a derived-index rebuild
+- glossary study stays distinct from Reviews maintenance
+- no web UI, HTTP server, SSE hub, SPA, second database, or separate sync
+  mechanism is introduced

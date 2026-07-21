@@ -6,6 +6,31 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+### Added
+- Added a Glossary bucket as the seventh public bucket, built entirely on the
+  Org-as-truth and derived-index model: a term is an Org note carrying a
+  `#+glossary: t` marker, with the headword as `#+title`, synonyms as
+  `ROAM_ALIASES`, the definition as the body, and review state in the property
+  drawer, so it participates fully in node search, backlinks, refs, and graph.
+- Added `glossary` CLI and RPC surfaces for listing terms, stemmed and
+  diacritic-folded term search, term inspection with definition and schedule,
+  due-term selection, SM-2 grading, and marking an existing note as a term.
+- Added SM-2 spaced-repetition scheduling with the schedule stored in each
+  term's `GLOSSARY_STATUS` and `SR_*` drawer keys, so it syncs over git and is
+  re-parsed from Org on index rebuild rather than living in a side store.
+- Added Emacs glossary capture, definition lookup and peek, a dedicated-cockpit
+  `glossary` lens, and a card-at-a-time spaced-repetition review buffer with
+  single-key grading for the full in-editor study loop.
+- Added glossary contract, rebuild-survival, and benchmark coverage, including
+  proof that SM-2 drawer state survives a forced derived-index rebuild and
+  benchmark gates over glossary list, search, due, and grade paths.
+
+### Changed
+- Changed the `node_fts` search tokenizer to `porter unicode61
+  remove_diacritics`, so node search matches across word stems and folds
+  diacritics; the derived schema version bumps and the index rebuilds on open,
+  and search ranking is treated as internal rather than a public contract.
+
 ## [0.15.0] - 2026-07-20
 
 ### Added

@@ -26,6 +26,8 @@ is:
   bounded remediation apply records.
 - `Assets`: workflow specs, review routines, report profiles, and workbench
   packs.
+- `Glossary`: glossary terms as Org notes, definition lookup and peek,
+  due-term selection, and SM-2 spaced-repetition review.
 - `System`: daemon/runtime state, sync, indexed files, diagnostics,
   compatibility policy, and benchmark profiles.
 
@@ -314,6 +316,31 @@ Encrypted Org files ending in `.org.gpg` or `.org.age` are eligible when their
 base extension matches the configured discovery policy. Indexed metadata in
 SQLite remains plaintext; encrypt the database separately if needed.
 
+### Glossary
+
+A glossary term is an ordinary Org note that carries a `#+glossary: t` marker:
+the headword is `#+title`, synonyms are `ROAM_ALIASES`, the definition is the
+body, and cross-references are links. Because a term is a note, it participates
+fully in node search, backlinks, refs, and graph. Spaced-repetition state lives
+in the term's property drawer (`GLOSSARY_STATUS` and the `SR_*` keys), so it
+travels over the same git that syncs the notes and is re-parsed from Org on any
+index rebuild.
+
+The glossary Emacs commands are:
+
+- `org-slipbox-glossary-define`: capture a new term, marking it and recording
+  its definition and status.
+- `org-slipbox-glossary-find`: complete over terms with their definitions shown
+  in the annotation.
+- `org-slipbox-glossary-peek`: show the definition of the term at point.
+- `org-slipbox-glossary-review`: run a card-at-a-time spaced-repetition study
+  session over due terms, grading each with single-key SM-2 scores that
+  reschedule the term in its drawer.
+
+The dedicated cockpit adds a `glossary` lens rendering a term's status,
+synonyms, definition, and review schedule. Glossary study is recall practice
+over terms and stays distinct from Reviews, which is corpus maintenance.
+
 ## CLI Surface
 
 The CLI is the scriptable front-end for the same daemon-owned model. Use Emacs
@@ -342,6 +369,7 @@ The top-level command families follow the public model:
 | Explorations | `explore`, `compare`, `artifact` |
 | Reviews | `audit`, `review` |
 | Assets | `workflow`, `routine`, `pack` |
+| Glossary | `glossary` |
 | System | `serve`, `status`, `sync`, `file`, `diagnose` |
 
 Use `slipbox --help`, `slipbox <family> --help`, and
