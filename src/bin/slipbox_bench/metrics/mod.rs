@@ -14,6 +14,7 @@ pub(crate) use read::{
     benchmark_everyday_file_sync, benchmark_everyday_graph_dot, benchmark_everyday_metadata_update,
     benchmark_everyday_node_search, benchmark_everyday_node_show,
     benchmark_everyday_occurrence_search, benchmark_forward_links, benchmark_full_index,
+    benchmark_glossary_due, benchmark_glossary_list, benchmark_glossary_search,
     benchmark_index_file, benchmark_node_at_point, benchmark_reflinks, benchmark_search_files,
     benchmark_search_nodes, benchmark_search_nodes_sorted, benchmark_search_occurrences,
     benchmark_unlinked_references, prepare_database,
@@ -27,8 +28,9 @@ pub(crate) use structural::{
     prepare_structural_benchmark_fixture,
 };
 pub(crate) use workbench::{
-    benchmark_audit_save_review, benchmark_corpus_audit, benchmark_pack_catalog,
-    benchmark_pack_import, benchmark_pack_validation, benchmark_remediation_preview,
+    benchmark_audit_save_review, benchmark_corpus_audit, benchmark_glossary_grade,
+    benchmark_pack_catalog, benchmark_pack_import, benchmark_pack_validation,
+    benchmark_remediation_preview,
     benchmark_report_profile_rendering, benchmark_review_diff, benchmark_review_list,
     benchmark_review_mark, benchmark_review_show, benchmark_routine_run,
     benchmark_workflow_catalog, benchmark_workflow_run, benchmark_workflow_save_review,

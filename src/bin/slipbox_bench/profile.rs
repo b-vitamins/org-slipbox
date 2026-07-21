@@ -77,6 +77,10 @@ pub(crate) struct IterationConfig {
     pub(crate) remediation_apply: usize,
     pub(crate) slipbox_link_rewrite_preview: usize,
     pub(crate) slipbox_link_rewrite_apply: usize,
+    pub(crate) glossary_list: usize,
+    pub(crate) glossary_search: usize,
+    pub(crate) glossary_due: usize,
+    pub(crate) glossary_grade: usize,
     pub(crate) search_limit: usize,
     pub(crate) backlinks_limit: usize,
     pub(crate) reflinks_limit: usize,
@@ -134,6 +138,10 @@ pub(crate) struct ThresholdConfig {
     pub(crate) remediation_apply_p95_ms: f64,
     pub(crate) slipbox_link_rewrite_preview_p95_ms: f64,
     pub(crate) slipbox_link_rewrite_apply_p95_ms: f64,
+    pub(crate) glossary_list_p95_ms: f64,
+    pub(crate) glossary_search_p95_ms: f64,
+    pub(crate) glossary_due_p95_ms: f64,
+    pub(crate) glossary_grade_p95_ms: f64,
 }
 pub(crate) fn resolve_profile_path(selector: &str) -> Result<PathBuf> {
     let candidate = PathBuf::from(selector);
@@ -283,6 +291,10 @@ impl BenchmarkProfile {
                 "slipbox_link_rewrite_apply",
                 self.iterations.slipbox_link_rewrite_apply,
             ),
+            ("glossary_list", self.iterations.glossary_list),
+            ("glossary_search", self.iterations.glossary_search),
+            ("glossary_due", self.iterations.glossary_due),
+            ("glossary_grade", self.iterations.glossary_grade),
             ("search_limit", self.iterations.search_limit),
             ("backlinks_limit", self.iterations.backlinks_limit),
             ("reflinks_limit", self.iterations.reflinks_limit),

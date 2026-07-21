@@ -60,6 +60,10 @@ pub(crate) struct BenchmarkReport {
     pub(crate) remediation_apply: TimingReport,
     pub(crate) slipbox_link_rewrite_preview: TimingReport,
     pub(crate) slipbox_link_rewrite_apply: TimingReport,
+    pub(crate) glossary_list: TimingReport,
+    pub(crate) glossary_search: TimingReport,
+    pub(crate) glossary_due: TimingReport,
+    pub(crate) glossary_grade: TimingReport,
 }
 
 #[derive(Debug, Serialize)]
@@ -341,6 +345,26 @@ pub(crate) fn enforce_thresholds(
             report.slipbox_link_rewrite_apply.p95_ms,
             thresholds.slipbox_link_rewrite_apply_p95_ms,
         ),
+        (
+            "glossary_list",
+            report.glossary_list.p95_ms,
+            thresholds.glossary_list_p95_ms,
+        ),
+        (
+            "glossary_search",
+            report.glossary_search.p95_ms,
+            thresholds.glossary_search_p95_ms,
+        ),
+        (
+            "glossary_due",
+            report.glossary_due.p95_ms,
+            thresholds.glossary_due_p95_ms,
+        ),
+        (
+            "glossary_grade",
+            report.glossary_grade.p95_ms,
+            thresholds.glossary_grade_p95_ms,
+        ),
     ]);
 
     check_threshold_set(&checks)
@@ -452,6 +476,10 @@ pub(crate) fn print_summary(report: &BenchmarkReport, check: bool, output_path: 
         "slipboxLinkRewriteApply",
         &report.slipbox_link_rewrite_apply,
     );
+    print_metric("glossaryList", &report.glossary_list);
+    print_metric("glossarySearch", &report.glossary_search);
+    print_metric("glossaryDue", &report.glossary_due);
+    print_metric("glossaryGrade", &report.glossary_grade);
 }
 
 pub(crate) fn print_metric(name: &str, report: &TimingReport) {

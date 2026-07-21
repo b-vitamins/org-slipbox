@@ -4,8 +4,9 @@ use anyhow::{Context, Result};
 use slipbox::service::SlipboxService;
 use slipbox_core::{
     AgendaParams, AgendaResult, AnchorRecord, AppendHeadingParams, CaptureNodeParams,
-    CorpusAuditParams, CorpusAuditResult, ExtractSubtreeParams, GraphParams, GraphResult,
-    ImportWorkbenchPackParams, ImportWorkbenchPackResult, IndexFileParams, IndexFileResult,
+    CorpusAuditParams, CorpusAuditResult, ExtractSubtreeParams, GradeTermParams, GradeTermResult,
+    GraphParams, GraphResult, ImportWorkbenchPackParams, ImportWorkbenchPackResult,
+    IndexFileParams, IndexFileResult,
     ListReviewRoutinesResult, ListReviewRunsResult, ListWorkbenchPacksResult, ListWorkflowsResult,
     MarkReviewFindingParams, MarkReviewFindingResult, NodeFromIdParams, NodeRecord,
     RefileRegionParams, RefileSubtreeParams, ReviewFindingRemediationApplyParams,
@@ -22,7 +23,8 @@ use slipbox_core::{
 use slipbox_index::DiscoveryPolicy;
 use slipbox_rpc::{
     METHOD_AGENDA, METHOD_APPEND_HEADING, METHOD_CAPTURE_NODE, METHOD_CORPUS_AUDIT,
-    METHOD_DEMOTE_ENTIRE_FILE, METHOD_DIFF_REVIEW_RUNS, METHOD_EXTRACT_SUBTREE, METHOD_GRAPH_DOT,
+    METHOD_DEMOTE_ENTIRE_FILE, METHOD_DIFF_REVIEW_RUNS, METHOD_EXTRACT_SUBTREE, METHOD_GRADE_TERM,
+    METHOD_GRAPH_DOT,
     METHOD_IMPORT_WORKBENCH_PACK, METHOD_INDEX_FILE, METHOD_LIST_REVIEW_ROUTINES,
     METHOD_LIST_REVIEW_RUNS, METHOD_LIST_WORKBENCH_PACKS, METHOD_LIST_WORKFLOWS,
     METHOD_MARK_REVIEW_FINDING, METHOD_NODE_FROM_ID, METHOD_PROMOTE_ENTIRE_FILE,
@@ -276,6 +278,12 @@ impl WorkbenchBench {
         self.service
             .invoke(METHOD_DEMOTE_ENTIRE_FILE, params)
             .context("demote-file benchmark request failed")
+    }
+
+    pub(crate) fn grade_term(&mut self, params: &GradeTermParams) -> Result<GradeTermResult> {
+        self.service
+            .invoke(METHOD_GRADE_TERM, params)
+            .context("glossary grade benchmark request failed")
     }
 
     pub(crate) fn slipbox_link_rewrite_preview(

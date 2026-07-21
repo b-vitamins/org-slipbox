@@ -2,11 +2,11 @@ use std::hint::black_box;
 
 use anyhow::{Context, Result, bail};
 use slipbox_core::{
-    CorpusAuditKind, CorpusAuditParams, ImportWorkbenchPackParams, MarkReviewFindingParams,
-    ReviewFindingRemediationPreviewParams, ReviewFindingStatus, ReviewRunDiffParams,
-    ReviewRunIdParams, RunReviewRoutineParams, RunWorkflowParams, SaveCorpusAuditReviewParams,
-    SaveWorkflowReviewParams, ValidateWorkbenchPackParams, WorkflowInputAssignment,
-    WorkflowResolveTarget,
+    CorpusAuditKind, CorpusAuditParams, GradeTermParams, ImportWorkbenchPackParams,
+    MarkReviewFindingParams, ReviewFindingRemediationPreviewParams, ReviewFindingStatus,
+    ReviewRunDiffParams, ReviewRunIdParams, RunReviewRoutineParams, RunWorkflowParams,
+    SaveCorpusAuditReviewParams, SaveWorkflowReviewParams, ValidateWorkbenchPackParams,
+    WorkflowInputAssignment, WorkflowResolveTarget,
 };
 
 use crate::slipbox_bench::WorkbenchBench;
@@ -21,7 +21,7 @@ use crate::slipbox_bench::assertions::{
 use crate::slipbox_bench::constants::{
     AUDIT_REVIEW_BASE_ID, AUDIT_REVIEW_TARGET_ID, BENCHMARK_PACK_AUDIT_ROUTINE_ID,
     BENCHMARK_PACK_ID, BENCHMARK_PACK_REPORT_PROFILE_ID, BENCHMARK_PACK_REPORT_ROUTINE_ID,
-    WORKFLOW_BENCHMARK_ID, WORKFLOW_REVIEW_ID,
+    GLOSSARY_GRADE_NODE_KEY, GLOSSARY_TODAY, WORKFLOW_BENCHMARK_ID, WORKFLOW_REVIEW_ID,
 };
 use crate::slipbox_bench::fixtures::{
     CorpusFixture, DeclarativeExtensionBenchmarkFixture, ReviewBenchmarkFixture,
@@ -499,6 +499,35 @@ pub(crate) fn benchmark_pack_import(
             bail!("pack import benchmark omitted workflow, routine, or profile assets");
         }
         black_box(result.pack.review_routine_count);
+        Ok(())
+    })
+}
+
+pub(crate) fn benchmark_glossary_grade(
+    workbench: &mut WorkbenchBench,
+    profile: &BenchmarkProfile,
+) -> Result<TimingReport> {
+    // Grade the same term repeatedly at a fixed reference date. Quality cycles
+    // so the SM-2 write path exercises both the advancing and lapsing branches;
+    // the term is re-read from Org each time, so it stays a valid grade target.
+    measure_iterations(profile.iterations.glossary_grade, |iteration| {
+        let quality = (iteration % 6) as i64;
+        let result = workbench.grade_term(&GradeTermParams {
+            node_key: GLOSSARY_GRADE_NODE_KEY.to_owned(),
+            quality,
+            today: Some(GLOSSARY_TODAY.to_owned()),
+        })?;
+        if result.term.node_key != GLOSSARY_GRADE_NODE_KEY {
+            bail!(
+                "glossary grade benchmark returned {}, expected {}",
+                result.term.node_key,
+                GLOSSARY_GRADE_NODE_KEY
+            );
+        }
+        if !result.term.glossary {
+            bail!("glossary grade benchmark returned a non-glossary term");
+        }
+        black_box(result.term.sr_due);
         Ok(())
     })
 }

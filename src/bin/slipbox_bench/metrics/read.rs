@@ -16,7 +16,7 @@ use slipbox_store::Database;
 use crate::occurrences_query::query_occurrences;
 use crate::reflinks_query::query_reflinks;
 use crate::slipbox_bench::WorkbenchBench;
-use crate::slipbox_bench::constants::{AGENDA_END, AGENDA_START};
+use crate::slipbox_bench::constants::{AGENDA_END, AGENDA_START, GLOSSARY_QUERY, GLOSSARY_TODAY};
 use crate::slipbox_bench::corpus::assert_expected_counts;
 use crate::slipbox_bench::fixtures::CorpusFixture;
 use crate::slipbox_bench::profile::BenchmarkProfile;
@@ -324,6 +324,72 @@ pub(crate) fn benchmark_agenda(
             .agenda_nodes(AGENDA_START, AGENDA_END, profile.iterations.agenda_limit)
             .context("failed to query agenda nodes")?;
         black_box(nodes.len());
+        Ok(())
+    })
+}
+
+pub(crate) fn benchmark_glossary_list(
+    database: &mut Database,
+    profile: &BenchmarkProfile,
+) -> Result<TimingReport> {
+    let sample = database
+        .list_glossary_terms(profile.iterations.search_limit)
+        .context("failed to fetch glossary list sample")?;
+    if sample.is_empty() {
+        bail!("benchmark glossary list returned no terms");
+    }
+    measure_iterations(profile.iterations.glossary_list, |_| {
+        let terms = database
+            .list_glossary_terms(profile.iterations.search_limit)
+            .context("failed to list glossary terms")?;
+        if terms.is_empty() {
+            bail!("benchmark glossary list returned no terms");
+        }
+        black_box(terms.len());
+        Ok(())
+    })
+}
+
+pub(crate) fn benchmark_glossary_search(
+    database: &mut Database,
+    profile: &BenchmarkProfile,
+) -> Result<TimingReport> {
+    let sample = database
+        .search_glossary(GLOSSARY_QUERY, profile.iterations.search_limit)
+        .context("failed to fetch glossary search sample")?;
+    if sample.is_empty() {
+        bail!("benchmark glossary search returned no terms");
+    }
+    measure_iterations(profile.iterations.glossary_search, |_| {
+        let terms = database
+            .search_glossary(GLOSSARY_QUERY, profile.iterations.search_limit)
+            .context("failed to search glossary terms")?;
+        if terms.is_empty() {
+            bail!("benchmark glossary search returned no terms");
+        }
+        black_box(terms.len());
+        Ok(())
+    })
+}
+
+pub(crate) fn benchmark_glossary_due(
+    database: &mut Database,
+    profile: &BenchmarkProfile,
+) -> Result<TimingReport> {
+    let sample = database
+        .glossary_due_terms(GLOSSARY_TODAY, profile.iterations.search_limit)
+        .context("failed to fetch glossary due sample")?;
+    if sample.is_empty() {
+        bail!("benchmark glossary due query returned no terms");
+    }
+    measure_iterations(profile.iterations.glossary_due, |_| {
+        let terms = database
+            .glossary_due_terms(GLOSSARY_TODAY, profile.iterations.search_limit)
+            .context("failed to query due glossary terms")?;
+        if terms.is_empty() {
+            bail!("benchmark glossary due query returned no terms");
+        }
+        black_box(terms.len());
         Ok(())
     })
 }

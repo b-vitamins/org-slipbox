@@ -60,6 +60,10 @@
     "remediation_apply": 20,
     "slipbox_link_rewrite_preview": 60,
     "slipbox_link_rewrite_apply": 20,
+    "glossary_list": 80,
+    "glossary_search": 80,
+    "glossary_due": 80,
+    "glossary_grade": 20,
     "search_limit": 25,
     "backlinks_limit": 200,
     "reflinks_limit": 200,
@@ -114,6 +118,10 @@
     "structural_demote_file_p95_ms": 80.0,
     "remediation_apply_p95_ms": 80.0,
     "slipbox_link_rewrite_preview_p95_ms": 120.0,
-    "slipbox_link_rewrite_apply_p95_ms": 250.0
+    "slipbox_link_rewrite_apply_p95_ms": 250.0,
+    "glossary_list_p95_ms": 1.0,
+    "glossary_search_p95_ms": 2.0,
+    "glossary_due_p95_ms": 1.0,
+    "glossary_grade_p95_ms": 80.0
   }
 }

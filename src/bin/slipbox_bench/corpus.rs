@@ -11,8 +11,8 @@ use slipbox_core::{
 use slipbox_store::Database;
 
 use crate::slipbox_bench::constants::{
-    EXPLORATION_FOCUS_INDEX, EXPLORATION_FOCUS_REF, EXPLORATION_SHARED_REF, HOT_NODE_ID,
-    WORKFLOW_BENCHMARK_ID, WORKFLOW_DISCOVERY_DIR,
+    EXPLORATION_FOCUS_INDEX, EXPLORATION_FOCUS_REF, EXPLORATION_SHARED_REF, GLOSSARY_QUERY,
+    GLOSSARY_TERM_COUNT, HOT_NODE_ID, WORKFLOW_BENCHMARK_ID, WORKFLOW_DISCOVERY_DIR,
 };
 use crate::slipbox_bench::fixtures::{CorpusFixture, PointQuery};
 use crate::slipbox_bench::profile::CorpusConfig;
@@ -280,6 +280,70 @@ pub(crate) fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result
         }
     }
 
+    // Seed a fixed, self-contained band of glossary terms. Each is a file-level
+    // term with the marker keyword and an `SR_*` drawer but no headings and no
+    // links, so it contributes exactly one node and zero links to the corpus
+    // accounting. The schedule states are spread so `glossaryDue` always sees
+    // both due and not-yet-due terms, and term 0000 is a stable grade target.
+    for term_index in 0..GLOSSARY_TERM_COUNT {
+        let relative_path = format!("notes/glossary-term-{term_index:04}.org");
+        let absolute_path = root.join(&relative_path);
+        let status = if term_index % 2 == 0 {
+            "confirmed"
+        } else {
+            "stub"
+        };
+        let mut lines = vec![
+            format!("#+title: {GLOSSARY_QUERY} Term {term_index:04}"),
+            String::from("#+glossary: t"),
+            String::from("#+filetags: :glossary:"),
+            String::from(":PROPERTIES:"),
+            format!(":ID: glossary-term-{term_index:04}"),
+            format!(":GLOSSARY_STATUS: {status}"),
+        ];
+        if term_index == 0 {
+            // An established schedule that is overdue at the benchmark's
+            // reference date, exercising the `interval * ease` grade branch.
+            lines.push(String::from(":SR_DUE: 2026-07-01"));
+            lines.push(String::from(":SR_EASE: 2.50"));
+            lines.push(String::from(":SR_INTERVAL: 16"));
+            lines.push(String::from(":SR_REPS: 3"));
+            lines.push(String::from(":SR_LAST: 2026-06-15"));
+        } else {
+            match term_index % 3 {
+                // Never reviewed: due by the `reps = 0` rule.
+                0 => {}
+                // Reviewed and overdue at the reference date.
+                1 => {
+                    lines.push(String::from(":SR_DUE: 2026-07-10"));
+                    lines.push(String::from(":SR_EASE: 2.60"));
+                    lines.push(String::from(":SR_INTERVAL: 6"));
+                    lines.push(String::from(":SR_REPS: 2"));
+                    lines.push(String::from(":SR_LAST: 2026-07-04"));
+                }
+                // Reviewed and scheduled well past the reference date.
+                _ => {
+                    lines.push(String::from(":SR_DUE: 2026-12-01"));
+                    lines.push(String::from(":SR_EASE: 2.70"));
+                    lines.push(String::from(":SR_INTERVAL: 30"));
+                    lines.push(String::from(":SR_REPS: 4"));
+                    lines.push(String::from(":SR_LAST: 2026-11-01"));
+                }
+            }
+        }
+        lines.push(String::from(":END:"));
+        lines.push(String::new());
+        lines.push(format!(
+            "Definition of {GLOSSARY_QUERY} term {term_index:04}, kept free of \
+             cross references so it never perturbs link accounting."
+        ));
+        lines.push(String::new());
+        let rendered = lines.join("\n") + "\n";
+        fs::write(&absolute_path, &rendered).with_context(|| {
+            format!("failed to write glossary term file {}", absolute_path.display())
+        })?;
+    }
+
     for workflow_index in 0..config.workflow_specs {
         let path = workflow_dir.join(format!("workflow-{workflow_index:04}.json"));
         let workflow = if workflow_index == 0 {
@@ -309,8 +373,10 @@ pub(crate) fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result
             .collect(),
         file_queries: file_queries.into_iter().take(config.query_count).collect(),
         point_queries,
-        expected_files: config.files,
-        expected_nodes: config.files * (config.headings_per_file + 1) + 1,
+        // Each seeded glossary term is a file-level node with no headings and no
+        // links, so it adds one file and one node while leaving links untouched.
+        expected_files: config.files + GLOSSARY_TERM_COUNT,
+        expected_nodes: config.files * (config.headings_per_file + 1) + 1 + GLOSSARY_TERM_COUNT,
         expected_links,
     })
 }

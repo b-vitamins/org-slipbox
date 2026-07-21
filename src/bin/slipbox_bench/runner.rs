@@ -15,7 +15,8 @@ use crate::slipbox_bench::metrics::{
     benchmark_everyday_daily_append, benchmark_everyday_file_sync, benchmark_everyday_graph_dot,
     benchmark_everyday_metadata_update, benchmark_everyday_node_search,
     benchmark_everyday_node_show, benchmark_everyday_occurrence_search, benchmark_forward_links,
-    benchmark_full_index, benchmark_index_file, benchmark_node_at_point, benchmark_pack_catalog,
+    benchmark_full_index, benchmark_glossary_due, benchmark_glossary_grade, benchmark_glossary_list,
+    benchmark_glossary_search, benchmark_index_file, benchmark_node_at_point, benchmark_pack_catalog,
     benchmark_pack_import, benchmark_pack_validation, benchmark_persistent_buffer,
     benchmark_reflinks, benchmark_remediation_apply, benchmark_remediation_preview,
     benchmark_report_profile_rendering, benchmark_review_diff, benchmark_review_list,
@@ -307,6 +308,10 @@ pub(crate) fn run_profile(
     let everyday_daily_append = benchmark_everyday_daily_append(&mut workbench, profile)?;
     let everyday_metadata_update =
         benchmark_everyday_metadata_update(&mut workbench, profile, &hot_node)?;
+    let glossary_list = benchmark_glossary_list(&mut database, profile)?;
+    let glossary_search = benchmark_glossary_search(&mut database, profile)?;
+    let glossary_due = benchmark_glossary_due(&mut database, profile)?;
+    let glossary_grade = benchmark_glossary_grade(&mut workbench, profile)?;
     let structural_fixture =
         prepare_structural_benchmark_fixture(&mut workbench, profile, fixture)?;
     let structural_refile_subtree =
@@ -388,5 +393,9 @@ pub(crate) fn run_profile(
         remediation_apply,
         slipbox_link_rewrite_preview,
         slipbox_link_rewrite_apply,
+        glossary_list,
+        glossary_search,
+        glossary_due,
+        glossary_grade,
     })
 }
