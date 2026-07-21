@@ -84,6 +84,12 @@ pub const METHOD_REFILE_REGION: &str = "slipbox/refileRegion";
 pub const METHOD_EXTRACT_SUBTREE: &str = "slipbox/extractSubtree";
 pub const METHOD_PROMOTE_ENTIRE_FILE: &str = "slipbox/promoteEntireFile";
 pub const METHOD_DEMOTE_ENTIRE_FILE: &str = "slipbox/demoteEntireFile";
+pub const METHOD_LIST_GLOSSARY_TERMS: &str = "slipbox/listGlossaryTerms";
+pub const METHOD_SEARCH_GLOSSARY: &str = "slipbox/searchGlossary";
+pub const METHOD_GLOSSARY_DUE: &str = "slipbox/glossaryDue";
+pub const METHOD_GLOSSARY_TERM: &str = "slipbox/glossaryTerm";
+pub const METHOD_GRADE_TERM: &str = "slipbox/gradeTerm";
+pub const METHOD_MARK_GLOSSARY_TERM: &str = "slipbox/markGlossaryTerm";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JsonRpcRequest {

@@ -9,27 +9,30 @@ use slipbox_core::{
     CorpusAuditParams, CorpusAuditResult, EnsureFileNodeParams, EnsureNodeIdParams,
     ExecuteExplorationArtifactResult, ExplorationArtifactIdParams, ExplorationArtifactResult,
     ExploreParams, ExploreResult, ExtractSubtreeParams, FileDiagnosticsParams,
-    FileDiagnosticsResult, ForwardLinksParams, ForwardLinksResult, GraphParams, GraphResult,
-    ImportWorkbenchPackParams, ImportWorkbenchPackResult, IndexDiagnosticsResult, IndexFileParams,
-    IndexFileResult, IndexStats, IndexedFilesResult, ListExplorationArtifactsParams,
-    ListExplorationArtifactsResult, ListReviewRoutinesParams, ListReviewRoutinesResult,
+    FileDiagnosticsResult, ForwardLinksParams, ForwardLinksResult, GlossaryDueParams,
+    GlossaryDueResult, GlossaryTermParams, GlossaryTermResult, GradeTermParams, GradeTermResult,
+    GraphParams, GraphResult, ImportWorkbenchPackParams, ImportWorkbenchPackResult,
+    IndexDiagnosticsResult, IndexFileParams, IndexFileResult, IndexStats, IndexedFilesResult,
+    ListExplorationArtifactsParams, ListExplorationArtifactsResult, ListGlossaryTermsParams,
+    ListGlossaryTermsResult, ListReviewRoutinesParams, ListReviewRoutinesResult,
     ListReviewRunsParams, ListReviewRunsResult, ListWorkbenchPacksParams, ListWorkbenchPacksResult,
-    ListWorkflowsParams, ListWorkflowsResult, MarkReviewFindingParams, MarkReviewFindingResult,
-    NodeAtPointParams, NodeDiagnosticsParams, NodeDiagnosticsResult, NodeFromIdParams,
-    NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
-    NoteComparisonResult, NoteContextParams, NoteContextResult, PingInfo, RandomNodeResult,
-    ReadFileSourceParams, ReadFileSourceResult, ReadNodeSourceParams, ReadNodeSourceResult,
-    RefileRegionParams, RefileSubtreeParams, ReflinksParams, ReflinksResult,
-    ReviewFindingRemediationApplyParams, ReviewFindingRemediationApplyResult,
-    ReviewFindingRemediationPreviewParams, ReviewFindingRemediationPreviewResult,
-    ReviewRoutineIdParams, ReviewRoutineResult, ReviewRunDiffParams, ReviewRunDiffResult,
-    ReviewRunIdParams, ReviewRunResult, RewriteFileParams, RunReviewRoutineParams,
-    RunReviewRoutineResult, RunWorkflowParams, RunWorkflowResult, SaveCorpusAuditReviewParams,
-    SaveCorpusAuditReviewResult, SaveExplorationArtifactParams, SaveExplorationArtifactResult,
-    SaveReviewRunParams, SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
-    SearchFilesParams, SearchFilesResult, SearchNodesParams, SearchNodesResult,
-    SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams, SearchRefsResult,
-    SearchTagsParams, SearchTagsResult, SlipboxLinkRewriteApplyParams,
+    ListWorkflowsParams, ListWorkflowsResult, MarkGlossaryTermParams, MarkGlossaryTermResult,
+    MarkReviewFindingParams, MarkReviewFindingResult, NodeAtPointParams, NodeDiagnosticsParams,
+    NodeDiagnosticsResult, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
+    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, NoteContextParams,
+    NoteContextResult, PingInfo, RandomNodeResult, ReadFileSourceParams, ReadFileSourceResult,
+    ReadNodeSourceParams, ReadNodeSourceResult, RefileRegionParams, RefileSubtreeParams,
+    ReflinksParams, ReflinksResult, ReviewFindingRemediationApplyParams,
+    ReviewFindingRemediationApplyResult, ReviewFindingRemediationPreviewParams,
+    ReviewFindingRemediationPreviewResult, ReviewRoutineIdParams, ReviewRoutineResult,
+    ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunResult,
+    RewriteFileParams, RunReviewRoutineParams, RunReviewRoutineResult, RunWorkflowParams,
+    RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
+    SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
+    SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult, SearchFilesParams,
+    SearchFilesResult, SearchGlossaryParams, SearchGlossaryResult, SearchNodesParams,
+    SearchNodesResult, SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams,
+    SearchRefsResult, SearchTagsParams, SearchTagsResult, SlipboxLinkRewriteApplyParams,
     SlipboxLinkRewriteApplyResult, SlipboxLinkRewritePreviewParams,
     SlipboxLinkRewritePreviewResult, StatusInfo, StructuralWriteReport, UnlinkedReferencesParams,
     UnlinkedReferencesResult, UpdateNodeMetadataParams, ValidateWorkbenchPackParams,
@@ -45,21 +48,24 @@ use slipbox_rpc::{
     METHOD_DEMOTE_ENTIRE_FILE, METHOD_DIAGNOSE_FILE, METHOD_DIAGNOSE_INDEX, METHOD_DIAGNOSE_NODE,
     METHOD_DIFF_REVIEW_RUNS, METHOD_ENSURE_FILE_NODE, METHOD_ENSURE_NODE_ID,
     METHOD_EXECUTE_EXPLORATION_ARTIFACT, METHOD_EXPLORATION_ARTIFACT, METHOD_EXPLORE,
-    METHOD_EXPORT_WORKBENCH_PACK, METHOD_EXTRACT_SUBTREE, METHOD_FORWARD_LINKS, METHOD_GRAPH_DOT,
+    METHOD_EXPORT_WORKBENCH_PACK, METHOD_EXTRACT_SUBTREE, METHOD_FORWARD_LINKS,
+    METHOD_GLOSSARY_DUE, METHOD_GLOSSARY_TERM, METHOD_GRADE_TERM, METHOD_GRAPH_DOT,
     METHOD_IMPORT_WORKBENCH_PACK, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_INDEXED_FILES,
-    METHOD_LIST_EXPLORATION_ARTIFACTS, METHOD_LIST_REVIEW_ROUTINES, METHOD_LIST_REVIEW_RUNS,
-    METHOD_LIST_WORKBENCH_PACKS, METHOD_LIST_WORKFLOWS, METHOD_MARK_REVIEW_FINDING,
-    METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_NODE_FROM_REF,
+    METHOD_LIST_EXPLORATION_ARTIFACTS, METHOD_LIST_GLOSSARY_TERMS, METHOD_LIST_REVIEW_ROUTINES,
+    METHOD_LIST_REVIEW_RUNS, METHOD_LIST_WORKBENCH_PACKS, METHOD_LIST_WORKFLOWS,
+    METHOD_MARK_GLOSSARY_TERM, METHOD_MARK_REVIEW_FINDING, METHOD_NODE_AT_POINT,
+    METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_NODE_FROM_REF,
     METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_NOTE_CONTEXT, METHOD_PING, METHOD_PROMOTE_ENTIRE_FILE,
     METHOD_RANDOM_NODE, METHOD_READ_FILE_SOURCE, METHOD_READ_NODE_SOURCE, METHOD_REFILE_REGION,
     METHOD_REFILE_SUBTREE, METHOD_REFLINKS, METHOD_REVIEW_FINDING_REMEDIATION_APPLY,
     METHOD_REVIEW_FINDING_REMEDIATION_PREVIEW, METHOD_REVIEW_ROUTINE, METHOD_REVIEW_RUN,
     METHOD_RUN_REVIEW_ROUTINE, METHOD_RUN_WORKFLOW, METHOD_SAVE_CORPUS_AUDIT_REVIEW,
     METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SAVE_REVIEW_RUN, METHOD_SAVE_WORKFLOW_REVIEW,
-    METHOD_SEARCH_FILES, METHOD_SEARCH_NODES, METHOD_SEARCH_OCCURRENCES, METHOD_SEARCH_REFS,
-    METHOD_SEARCH_TAGS, METHOD_SLIPBOX_LINK_REWRITE_APPLY, METHOD_SLIPBOX_LINK_REWRITE_PREVIEW,
-    METHOD_STATUS, METHOD_UNLINKED_REFERENCES, METHOD_UPDATE_NODE_METADATA,
-    METHOD_VALIDATE_WORKBENCH_PACK, METHOD_WORKBENCH_PACK, METHOD_WORKFLOW,
+    METHOD_SEARCH_FILES, METHOD_SEARCH_GLOSSARY, METHOD_SEARCH_NODES, METHOD_SEARCH_OCCURRENCES,
+    METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS, METHOD_SLIPBOX_LINK_REWRITE_APPLY,
+    METHOD_SLIPBOX_LINK_REWRITE_PREVIEW, METHOD_STATUS, METHOD_UNLINKED_REFERENCES,
+    METHOD_UPDATE_NODE_METADATA, METHOD_VALIDATE_WORKBENCH_PACK, METHOD_WORKBENCH_PACK,
+    METHOD_WORKFLOW,
 };
 
 use crate::error::DaemonClientError;
@@ -445,6 +451,48 @@ where
         params: &SlipboxLinkRewriteApplyParams,
     ) -> Result<SlipboxLinkRewriteApplyResult, DaemonClientError> {
         self.request(METHOD_SLIPBOX_LINK_REWRITE_APPLY, params)
+    }
+
+    pub(crate) fn list_glossary_terms(
+        &mut self,
+        params: &ListGlossaryTermsParams,
+    ) -> Result<ListGlossaryTermsResult, DaemonClientError> {
+        self.request(METHOD_LIST_GLOSSARY_TERMS, params)
+    }
+
+    pub(crate) fn search_glossary(
+        &mut self,
+        params: &SearchGlossaryParams,
+    ) -> Result<SearchGlossaryResult, DaemonClientError> {
+        self.request(METHOD_SEARCH_GLOSSARY, params)
+    }
+
+    pub(crate) fn glossary_due(
+        &mut self,
+        params: &GlossaryDueParams,
+    ) -> Result<GlossaryDueResult, DaemonClientError> {
+        self.request(METHOD_GLOSSARY_DUE, params)
+    }
+
+    pub(crate) fn glossary_term(
+        &mut self,
+        params: &GlossaryTermParams,
+    ) -> Result<GlossaryTermResult, DaemonClientError> {
+        self.request(METHOD_GLOSSARY_TERM, params)
+    }
+
+    pub(crate) fn grade_term(
+        &mut self,
+        params: &GradeTermParams,
+    ) -> Result<GradeTermResult, DaemonClientError> {
+        self.request(METHOD_GRADE_TERM, params)
+    }
+
+    pub(crate) fn mark_glossary_term(
+        &mut self,
+        params: &MarkGlossaryTermParams,
+    ) -> Result<MarkGlossaryTermResult, DaemonClientError> {
+        self.request(METHOD_MARK_GLOSSARY_TERM, params)
     }
 
     pub(crate) fn list_workflows(&mut self) -> Result<ListWorkflowsResult, DaemonClientError> {

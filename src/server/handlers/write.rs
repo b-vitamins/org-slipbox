@@ -1,4 +1,5 @@
 mod capture;
+mod glossary;
 mod link_rewrite;
 mod structural;
 
@@ -7,6 +8,7 @@ pub(crate) use capture::{
     capture_template, capture_template_preview, ensure_file_node, ensure_node_id,
     update_node_metadata,
 };
+pub(crate) use glossary::{grade_term, mark_glossary_term};
 pub(crate) use link_rewrite::{slipbox_link_rewrite_apply, slipbox_link_rewrite_preview};
 pub(crate) use structural::{
     demote_entire_file, extract_subtree, promote_entire_file, refile_region, refile_subtree,

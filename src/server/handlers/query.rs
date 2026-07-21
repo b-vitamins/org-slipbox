@@ -1,6 +1,7 @@
 mod assets;
 mod common;
 mod exploration;
+mod glossary;
 mod notes;
 mod relations;
 mod reviews;
@@ -15,6 +16,7 @@ pub(crate) use exploration::{
     compare_notes, delete_exploration_artifact, execute_exploration_artifact, exploration_artifact,
     explore, list_exploration_artifacts, save_exploration_artifact,
 };
+pub(crate) use glossary::{glossary_due, glossary_term, list_glossary_terms, search_glossary};
 pub(crate) use notes::{
     anchor_at_point, anchor_from_key, node_at_point, node_from_id, node_from_key,
     node_from_title_or_alias, note_context, random_node, read_file_source, read_node_source,

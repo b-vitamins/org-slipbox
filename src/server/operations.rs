@@ -7,21 +7,24 @@ use slipbox_rpc::{
     METHOD_DEMOTE_ENTIRE_FILE, METHOD_DIAGNOSE_FILE, METHOD_DIAGNOSE_INDEX, METHOD_DIAGNOSE_NODE,
     METHOD_DIFF_REVIEW_RUNS, METHOD_ENSURE_FILE_NODE, METHOD_ENSURE_NODE_ID,
     METHOD_EXECUTE_EXPLORATION_ARTIFACT, METHOD_EXPLORATION_ARTIFACT, METHOD_EXPLORE,
-    METHOD_EXPORT_WORKBENCH_PACK, METHOD_EXTRACT_SUBTREE, METHOD_FORWARD_LINKS, METHOD_GRAPH_DOT,
+    METHOD_EXPORT_WORKBENCH_PACK, METHOD_EXTRACT_SUBTREE, METHOD_FORWARD_LINKS,
+    METHOD_GLOSSARY_DUE, METHOD_GLOSSARY_TERM, METHOD_GRADE_TERM, METHOD_GRAPH_DOT,
     METHOD_IMPORT_WORKBENCH_PACK, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_INDEXED_FILES,
-    METHOD_LIST_EXPLORATION_ARTIFACTS, METHOD_LIST_REVIEW_ROUTINES, METHOD_LIST_REVIEW_RUNS,
-    METHOD_LIST_WORKBENCH_PACKS, METHOD_LIST_WORKFLOWS, METHOD_MARK_REVIEW_FINDING,
-    METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_NODE_FROM_REF,
+    METHOD_LIST_EXPLORATION_ARTIFACTS, METHOD_LIST_GLOSSARY_TERMS, METHOD_LIST_REVIEW_ROUTINES,
+    METHOD_LIST_REVIEW_RUNS, METHOD_LIST_WORKBENCH_PACKS, METHOD_LIST_WORKFLOWS,
+    METHOD_MARK_GLOSSARY_TERM, METHOD_MARK_REVIEW_FINDING, METHOD_NODE_AT_POINT,
+    METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_NODE_FROM_REF,
     METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_NOTE_CONTEXT, METHOD_PING, METHOD_PROMOTE_ENTIRE_FILE,
     METHOD_RANDOM_NODE, METHOD_READ_FILE_SOURCE, METHOD_READ_NODE_SOURCE, METHOD_REFILE_REGION,
     METHOD_REFILE_SUBTREE, METHOD_REFLINKS, METHOD_REVIEW_FINDING_REMEDIATION_APPLY,
     METHOD_REVIEW_FINDING_REMEDIATION_PREVIEW, METHOD_REVIEW_ROUTINE, METHOD_REVIEW_RUN,
     METHOD_RUN_REVIEW_ROUTINE, METHOD_RUN_WORKFLOW, METHOD_SAVE_CORPUS_AUDIT_REVIEW,
     METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SAVE_REVIEW_RUN, METHOD_SAVE_WORKFLOW_REVIEW,
-    METHOD_SEARCH_FILES, METHOD_SEARCH_NODES, METHOD_SEARCH_OCCURRENCES, METHOD_SEARCH_REFS,
-    METHOD_SEARCH_TAGS, METHOD_SLIPBOX_LINK_REWRITE_APPLY, METHOD_SLIPBOX_LINK_REWRITE_PREVIEW,
-    METHOD_STATUS, METHOD_UNLINKED_REFERENCES, METHOD_UPDATE_NODE_METADATA,
-    METHOD_VALIDATE_WORKBENCH_PACK, METHOD_WORKBENCH_PACK, METHOD_WORKFLOW,
+    METHOD_SEARCH_FILES, METHOD_SEARCH_GLOSSARY, METHOD_SEARCH_NODES, METHOD_SEARCH_OCCURRENCES,
+    METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS, METHOD_SLIPBOX_LINK_REWRITE_APPLY,
+    METHOD_SLIPBOX_LINK_REWRITE_PREVIEW, METHOD_STATUS, METHOD_UNLINKED_REFERENCES,
+    METHOD_UPDATE_NODE_METADATA, METHOD_VALIDATE_WORKBENCH_PACK, METHOD_WORKBENCH_PACK,
+    METHOD_WORKFLOW,
 };
 
 use crate::server::handlers::{query, write};
@@ -40,6 +43,7 @@ pub enum OperationFamily {
     Exploration,
     Reviews,
     Assets,
+    Glossary,
     Capture,
     StructuralEdit,
     LinkRewrite,
@@ -585,6 +589,54 @@ const OPERATIONS: &[Operation] = &[
         query::delete_workbench_pack
     ),
     operation!(
+        METHOD_LIST_GLOSSARY_TERMS,
+        Glossary,
+        ReadOnly,
+        ReadsDerivedIndex,
+        "List indexed glossary terms.",
+        query::list_glossary_terms
+    ),
+    operation!(
+        METHOD_SEARCH_GLOSSARY,
+        Glossary,
+        ReadOnly,
+        ReadsDerivedIndex,
+        "Search indexed glossary terms.",
+        query::search_glossary
+    ),
+    operation!(
+        METHOD_GLOSSARY_DUE,
+        Glossary,
+        ReadOnly,
+        ReadsDerivedIndex,
+        "List glossary terms due for review.",
+        query::glossary_due
+    ),
+    operation!(
+        METHOD_GLOSSARY_TERM,
+        Glossary,
+        ReadOnly,
+        ReadsDerivedIndex,
+        "Resolve one glossary term by slipbox key.",
+        query::glossary_term
+    ),
+    operation!(
+        METHOD_GRADE_TERM,
+        Glossary,
+        OrgContent,
+        RefreshesAffectedFiles,
+        "Grade a glossary term, rewrite its review drawer, and refresh it.",
+        write::grade_term
+    ),
+    operation!(
+        METHOD_MARK_GLOSSARY_TERM,
+        Glossary,
+        OrgContent,
+        RefreshesAffectedFiles,
+        "Mark a note as a glossary term and refresh it.",
+        write::mark_glossary_term
+    ),
+    operation!(
         METHOD_CAPTURE_NODE,
         Capture,
         OrgContent,
@@ -1001,6 +1053,37 @@ mod tests {
                 Assets,
                 DurableState,
                 ReportsState,
+            ),
+            (
+                "slipbox/listGlossaryTerms",
+                Glossary,
+                ReadOnly,
+                ReadsDerivedIndex,
+            ),
+            (
+                "slipbox/searchGlossary",
+                Glossary,
+                ReadOnly,
+                ReadsDerivedIndex,
+            ),
+            ("slipbox/glossaryDue", Glossary, ReadOnly, ReadsDerivedIndex),
+            (
+                "slipbox/glossaryTerm",
+                Glossary,
+                ReadOnly,
+                ReadsDerivedIndex,
+            ),
+            (
+                "slipbox/gradeTerm",
+                Glossary,
+                OrgContent,
+                RefreshesAffectedFiles,
+            ),
+            (
+                "slipbox/markGlossaryTerm",
+                Glossary,
+                OrgContent,
+                RefreshesAffectedFiles,
             ),
             (
                 "slipbox/captureNode",
