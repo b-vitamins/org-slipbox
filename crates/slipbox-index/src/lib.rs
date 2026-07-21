@@ -81,6 +81,21 @@ fn parse_document(file_path: &str, mtime_ns: i64, source: &str) -> IndexedFile {
     let file_title = parse_file_title(&lines).unwrap_or_else(|| default_file_title(file_path));
     let file_properties = parse_file_properties(&lines);
     let file_tags = parse_filetags(&lines);
+    let glossary = parse_glossary_marker(&lines);
+    // Scheduling state only means anything on a marked term, so a drawer left on
+    // an unmarked note never leaks a phantom review schedule into the index.
+    let (glossary_status, sr_due, sr_ease, sr_interval, sr_reps, sr_last) = if glossary {
+        (
+            file_properties.glossary_status,
+            file_properties.sr_due,
+            file_properties.sr_ease,
+            file_properties.sr_interval,
+            file_properties.sr_reps,
+            file_properties.sr_last,
+        )
+    } else {
+        (None, None, None, None, None, None)
+    };
     let file_node_key = format!("file:{file_path}");
     let mut excluded_explicit_ids = HashSet::new();
     let file_excluded = file_properties.roam_exclude.resolve(false);
@@ -104,13 +119,13 @@ fn parse_document(file_path: &str, mtime_ns: i64, source: &str) -> IndexedFile {
             scheduled_for: None,
             deadline_for: None,
             closed_at: None,
-            glossary: false,
-            glossary_status: None,
-            sr_due: None,
-            sr_ease: None,
-            sr_interval: None,
-            sr_reps: None,
-            sr_last: None,
+            glossary,
+            glossary_status,
+            sr_due,
+            sr_ease,
+            sr_interval,
+            sr_reps,
+            sr_last,
             level: 0,
             line: 1,
             kind: NodeKind::File,
@@ -281,6 +296,18 @@ fn parse_file_title(lines: &[&str]) -> Option<String> {
     })
 }
 
+fn parse_glossary_marker(lines: &[&str]) -> bool {
+    // The `#+glossary:` keyword marks a file as a glossary term. Any truthy
+    // value counts; an explicit `nil` (or an empty value) does not, matching the
+    // `:ROAM_EXCLUDE:` truthiness convention.
+    lines.iter().any(|line| {
+        strip_keyword(line, "#+glossary:").is_some_and(|value| {
+            let value = value.trim();
+            !value.is_empty() && !value.eq_ignore_ascii_case("nil")
+        })
+    })
+}
+
 fn parse_file_properties(lines: &[&str]) -> NodeProperties {
     let mut index = 0;
     while let Some(line) = lines.get(index) {
@@ -356,9 +383,41 @@ fn parse_property_drawer(lines: &[&str], start_index: usize) -> NodeProperties {
         if let Some(value) = strip_keyword(trimmed, ":ROAM_EXCLUDE:") {
             properties.roam_exclude = parse_roam_exclude(value);
         }
+        if let Some(value) = strip_keyword(trimmed, ":GLOSSARY_STATUS:") {
+            properties.glossary_status = drawer_value(value);
+        }
+        if let Some(value) = strip_keyword(trimmed, ":SR_DUE:") {
+            properties.sr_due = drawer_value(value);
+        }
+        if let Some(value) = strip_keyword(trimmed, ":SR_EASE:") {
+            properties.sr_ease = drawer_value(value);
+        }
+        if let Some(value) = strip_keyword(trimmed, ":SR_INTERVAL:") {
+            properties.sr_interval = drawer_value(value);
+        }
+        if let Some(value) = strip_keyword(trimmed, ":SR_REPS:") {
+            properties.sr_reps = drawer_value(value);
+        }
+        if let Some(value) = strip_keyword(trimmed, ":SR_LAST:") {
+            properties.sr_last = drawer_value(value);
+        }
     }
 
     properties
+}
+
+/// Read a property-drawer value, keeping it only when it is non-empty.
+///
+/// Glossary status and `SR_*` scheduling values are mirrored verbatim as text,
+/// so an empty or whitespace-only drawer line degrades to an unset field rather
+/// than an empty string.
+fn drawer_value(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_owned())
+    }
 }
 
 fn parse_heading_metadata(lines: &[&str], start_index: usize) -> HeadingMetadata {
@@ -588,6 +647,12 @@ struct NodeProperties {
     aliases: Vec<String>,
     refs: Vec<String>,
     roam_exclude: NodeExclusionDirective,
+    glossary_status: Option<String>,
+    sr_due: Option<String>,
+    sr_ease: Option<String>,
+    sr_interval: Option<String>,
+    sr_reps: Option<String>,
+    sr_last: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -710,4 +775,185 @@ fn column_number(line: &str, byte_offset: usize) -> u32 {
 
 fn preview_snippet(line: &str) -> String {
     line.trim().to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn file_node(source: &str) -> IndexedNode {
+        let file = scan_source("term.org", source);
+        file.nodes
+            .into_iter()
+            .find(|node| node.kind == NodeKind::File)
+            .expect("a non-excluded file yields a file node")
+    }
+
+    #[test]
+    fn marked_file_with_drawer_parses_status_and_schedule() {
+        let source = "\
+#+title: Riemann integral
+#+glossary: t
+:PROPERTIES:
+:ID:              7f3a1c
+:GLOSSARY_STATUS: confirmed
+:SR_DUE:          2026-08-01
+:SR_EASE:         2.50
+:SR_INTERVAL:     6
+:SR_REPS:         3
+:SR_LAST:         2026-07-26
+:END:
+
+A definite integral.
+";
+        let node = file_node(source);
+        assert!(node.glossary);
+        assert_eq!(node.glossary_status.as_deref(), Some("confirmed"));
+        assert_eq!(node.sr_due.as_deref(), Some("2026-08-01"));
+        assert_eq!(node.sr_ease.as_deref(), Some("2.50"));
+        assert_eq!(node.sr_interval.as_deref(), Some("6"));
+        assert_eq!(node.sr_reps.as_deref(), Some("3"));
+        assert_eq!(node.sr_last.as_deref(), Some("2026-07-26"));
+    }
+
+    #[test]
+    fn glossary_marker_is_case_insensitive() {
+        let node = file_node("#+title: Term\n#+GLOSSARY: t\n");
+        assert!(node.glossary);
+    }
+
+    #[test]
+    fn unmarked_file_has_no_glossary_state() {
+        let source = "\
+#+title: Ordinary note
+:PROPERTIES:
+:ID: abc123
+:END:
+
+Body text.
+";
+        let node = file_node(source);
+        assert!(!node.glossary);
+        assert_eq!(node.glossary_status, None);
+        assert_eq!(node.sr_due, None);
+        assert_eq!(node.sr_ease, None);
+        assert_eq!(node.sr_interval, None);
+        assert_eq!(node.sr_reps, None);
+        assert_eq!(node.sr_last, None);
+    }
+
+    #[test]
+    fn explicit_nil_marker_is_not_a_glossary_term() {
+        let node = file_node("#+title: Term\n#+glossary: nil\n");
+        assert!(!node.glossary);
+    }
+
+    #[test]
+    fn empty_marker_value_is_not_a_glossary_term() {
+        let node = file_node("#+title: Term\n#+glossary:\n");
+        assert!(!node.glossary);
+    }
+
+    #[test]
+    fn drawer_without_marker_leaks_no_schedule() {
+        // A scheduling drawer on an unmarked note must not surface as a term.
+        let source = "\
+#+title: Ordinary note
+:PROPERTIES:
+:ID:              abc123
+:GLOSSARY_STATUS: confirmed
+:SR_DUE:          2026-08-01
+:SR_REPS:         3
+:END:
+";
+        let node = file_node(source);
+        assert!(!node.glossary);
+        assert_eq!(node.glossary_status, None);
+        assert_eq!(node.sr_due, None);
+        assert_eq!(node.sr_reps, None);
+    }
+
+    #[test]
+    fn partial_drawer_leaves_missing_keys_unset() {
+        let source = "\
+#+title: Term
+#+glossary: t
+:PROPERTIES:
+:ID:              abc123
+:GLOSSARY_STATUS: stub
+:SR_DUE:          2026-08-01
+:END:
+";
+        let node = file_node(source);
+        assert!(node.glossary);
+        assert_eq!(node.glossary_status.as_deref(), Some("stub"));
+        assert_eq!(node.sr_due.as_deref(), Some("2026-08-01"));
+        assert_eq!(node.sr_ease, None);
+        assert_eq!(node.sr_interval, None);
+        assert_eq!(node.sr_reps, None);
+        assert_eq!(node.sr_last, None);
+    }
+
+    #[test]
+    fn blank_drawer_values_degrade_to_unset() {
+        let source = "\
+#+title: Term
+#+glossary: t
+:PROPERTIES:
+:GLOSSARY_STATUS:
+:SR_DUE:
+:END:
+";
+        let node = file_node(source);
+        assert!(node.glossary);
+        assert_eq!(node.glossary_status, None);
+        assert_eq!(node.sr_due, None);
+    }
+
+    #[test]
+    fn marked_file_without_drawer_has_marker_but_no_schedule() {
+        let node = file_node("#+title: Term\n#+glossary: t\n\nBody.\n");
+        assert!(node.glossary);
+        assert_eq!(node.glossary_status, None);
+        assert_eq!(node.sr_due, None);
+    }
+
+    #[test]
+    fn headings_never_carry_glossary_state() {
+        // v1 scopes terms to file nodes, so headings stay plain notes.
+        let source = "\
+#+title: Term
+#+glossary: t
+
+* A heading
+:PROPERTIES:
+:ID: head1
+:END:
+";
+        let file = scan_source("term.org", source);
+        let heading = file
+            .nodes
+            .iter()
+            .find(|node| node.kind == NodeKind::Heading)
+            .expect("the document has a heading node");
+        assert!(!heading.glossary);
+        assert_eq!(heading.glossary_status, None);
+        assert_eq!(heading.sr_due, None);
+    }
+
+    #[test]
+    fn excluded_glossary_file_yields_no_file_node() {
+        let source = "\
+#+title: Term
+#+glossary: t
+:PROPERTIES:
+:ROAM_EXCLUDE: t
+:END:
+";
+        let file = scan_source("term.org", source);
+        assert!(
+            !file.nodes.iter().any(|node| node.kind == NodeKind::File),
+            "an excluded file contributes no file node"
+        );
+    }
 }
