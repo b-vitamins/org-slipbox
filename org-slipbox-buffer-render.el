@@ -37,6 +37,7 @@
 (require 'org-slipbox-buffer-query)
 (require 'org-slipbox-buffer-state)
 (require 'org-slipbox-files)
+(require 'org-slipbox-glossary)
 (require 'org-slipbox-node)
 (require 'org-slipbox-rpc)
 
@@ -565,6 +566,48 @@ query."
    (org-slipbox-buffer--weakly-integrated-notes node)
    "No weakly integrated notes found."
    #'org-slipbox-buffer--insert-anchor-entry))
+
+(cl-defun org-slipbox-buffer-glossary-section
+    (node &key (section-heading "Glossary"))
+  "Insert the glossary term section for NODE using SECTION-HEADING.
+Renders the term status, synonyms, definition, and spaced-repetition
+schedule.  When NODE is not a glossary term, the section degrades to a
+short note instead."
+  (insert section-heading "\n")
+  (insert (make-string (length section-heading) ?-) "\n")
+  (if (not (eq (plist-get node :glossary) t))
+      (insert "Not a glossary term.\n")
+    (org-slipbox-buffer--insert-metadata-line
+     "Status" (or (plist-get node :glossary_status) "stub"))
+    (when-let ((synonyms (org-slipbox--plist-sequence (plist-get node :aliases))))
+      (when synonyms
+        (org-slipbox-buffer--insert-metadata-line
+         "Synonyms" (string-join synonyms ", "))))
+    (org-slipbox-buffer--insert-glossary-schedule node)
+    (insert "\n")
+    (let ((definition (org-slipbox-glossary--definition node)))
+      (if (and definition (not (string-empty-p definition)))
+          (insert definition "\n")
+        (insert "No definition.\n"))))
+  (insert "\n")
+  t)
+
+(defun org-slipbox-buffer--insert-glossary-schedule (node)
+  "Insert the spaced-repetition schedule lines for glossary NODE.
+When NODE carries no review state, insert a short note instead."
+  (let ((fields '(("Due" . :sr_due)
+                  ("Ease" . :sr_ease)
+                  ("Interval" . :sr_interval)
+                  ("Reps" . :sr_reps)
+                  ("Reviewed" . :sr_last)))
+        (any nil))
+    (dolist (field fields)
+      (when-let ((value (plist-get node (cdr field))))
+        (unless (string-empty-p value)
+          (setq any t)
+          (org-slipbox-buffer--insert-metadata-line (car field) value))))
+    (unless any
+      (org-slipbox-buffer--insert-metadata-line "Schedule" "not yet reviewed"))))
 
 (defun org-slipbox-buffer--insert-heading (text)
   "Insert section heading TEXT."

@@ -1493,6 +1493,115 @@ ROOT-NODE defaults to NODE."
       (should-error (org-slipbox-glossary-peek) :type 'user-error)
       (should read-called))))
 
+(ert-deftest org-slipbox-test-buffer-glossary-lens-registered ()
+  "The glossary lens should be declared and have a dedicated section plan."
+  (should (memq 'glossary org-slipbox-buffer-lenses))
+  (let ((plan (alist-get 'glossary org-slipbox-buffer-lens-plans)))
+    (should plan)
+    (should (memq 'org-slipbox-buffer-glossary-section plan))
+    (should (eq (car plan) 'org-slipbox-buffer-node-section))))
+
+(ert-deftest org-slipbox-test-buffer-glossary-lens-renders-term ()
+  "The glossary lens should render status, synonyms, definition, and schedule."
+  (let* ((root (make-temp-file "org-slipbox-glossary-lens-" t))
+         (term-file (expand-file-name "derivative.org" root))
+         (org-slipbox-buffer-lens-plans
+          '((glossary
+             org-slipbox-buffer-glossary-section))))
+    (unwind-protect
+        (let ((org-slipbox-directory root))
+          (write-region
+           "#+title: Derivative\n#+glossary: t\n:PROPERTIES:\n:ID: term-id\n:END:\n\nThe rate of change of a function.\n"
+           nil term-file nil 'silent)
+          (with-current-buffer (get-buffer-create "*org-slipbox glossary lens test*")
+            (unwind-protect
+                (progn
+                  (setq-local org-slipbox-buffer-session
+                              (org-slipbox-test--buffer-session
+                               'dedicated
+                               '(:node_key "file:derivative.org"
+                                 :title "Derivative"
+                                 :file_path "derivative.org"
+                                 :line 1
+                                 :glossary t
+                                 :glossary_status "confirmed"
+                                 :aliases ["Slope"]
+                                 :sr_due "2026-08-01"
+                                 :sr_ease "2.50"
+                                 :sr_interval "6"
+                                 :sr_reps "3"
+                                 :sr_last "2026-07-26")))
+                  (setf (org-slipbox-buffer-session-active-lens
+                         org-slipbox-buffer-session)
+                        'glossary)
+                  (org-slipbox-buffer-render-contents)
+                  (let ((contents (buffer-string)))
+                    (should (string-match-p "Glossary\n--------\n" contents))
+                    (should (string-match-p "Status:[[:space:]]+confirmed" contents))
+                    (should (string-match-p "Synonyms:[[:space:]]+Slope" contents))
+                    (should (string-match-p "Due:[[:space:]]+2026-08-01" contents))
+                    (should (string-match-p "Ease:[[:space:]]+2\\.50" contents))
+                    (should (string-match-p "Interval:[[:space:]]+6" contents))
+                    (should (string-match-p "Reps:[[:space:]]+3" contents))
+                    (should (string-match-p "Reviewed:[[:space:]]+2026-07-26" contents))
+                    (should (string-match-p "The rate of change of a function\\." contents))))
+              (kill-buffer (current-buffer)))))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-buffer-glossary-section-degrades-on-non-term ()
+  "The glossary section should degrade cleanly when the node is not a term."
+  (let ((org-slipbox-buffer-persistent-sections
+         '(org-slipbox-buffer-glossary-section)))
+    (with-current-buffer (get-buffer-create "*org-slipbox glossary non-term test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session
+                         'persistent
+                         '(:node_key "file:note.org"
+                           :title "Note"
+                           :file_path "note.org"
+                           :line 1
+                           :glossary :json-false)))
+            (org-slipbox-buffer-render-contents)
+            (let ((contents (buffer-string)))
+              (should (string-match-p "Glossary\n--------\n" contents))
+              (should (string-match-p "Not a glossary term\\." contents))
+              (should-not (string-match-p "Status:" contents))))
+        (kill-buffer (current-buffer))))))
+
+(ert-deftest org-slipbox-test-buffer-glossary-section-reports-unreviewed-schedule ()
+  "The glossary section should note terms that have no review schedule yet."
+  (let* ((root (make-temp-file "org-slipbox-glossary-unreviewed-" t))
+         (term-file (expand-file-name "stub.org" root))
+         (org-slipbox-buffer-persistent-sections
+          '(org-slipbox-buffer-glossary-section)))
+    (unwind-protect
+        (let ((org-slipbox-directory root))
+          (write-region
+           "#+title: Stub\n#+glossary: t\n\nA pending definition.\n"
+           nil term-file nil 'silent)
+          (with-current-buffer (get-buffer-create "*org-slipbox glossary stub test*")
+            (unwind-protect
+                (progn
+                  (setq-local org-slipbox-buffer-session
+                              (org-slipbox-test--buffer-session
+                               'persistent
+                               '(:node_key "file:stub.org"
+                                 :title "Stub"
+                                 :file_path "stub.org"
+                                 :line 1
+                                 :glossary t
+                                 :glossary_status "stub")))
+                  (org-slipbox-buffer-render-contents)
+                  (let ((contents (buffer-string)))
+                    (should (string-match-p "Status:[[:space:]]+stub" contents))
+                    (should (string-match-p "Schedule:[[:space:]]+not yet reviewed"
+                                            contents))
+                    (should (string-match-p "A pending definition\\." contents))))
+              (kill-buffer (current-buffer)))))
+      (delete-directory root t))))
+
 (ert-deftest org-slipbox-test-capture-finalize-insert-link-runs-hook ()
   "Insert-link finalization should replace the region and run the insert hook."
   (with-temp-buffer

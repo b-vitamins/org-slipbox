@@ -65,12 +65,18 @@ additional arguments. For example:
   :group 'org-slipbox)
 
 (defconst org-slipbox-buffer-lenses
-  '(structure refs time tasks bridges dormant unresolved)
+  '(structure glossary refs time tasks bridges dormant unresolved)
   "Declared exploration lenses supported by the dedicated buffer.")
 
 (defcustom org-slipbox-buffer-lens-plans
   '((structure
      org-slipbox-buffer-node-section
+     org-slipbox-buffer-refs-section
+     org-slipbox-buffer-backlinks-section
+     org-slipbox-buffer-forward-links-section)
+    (glossary
+     org-slipbox-buffer-node-section
+     org-slipbox-buffer-glossary-section
      org-slipbox-buffer-refs-section
      org-slipbox-buffer-backlinks-section
      org-slipbox-buffer-forward-links-section)
