@@ -98,7 +98,7 @@ small enough to maintain and evolve without carrying release-history weight.
 
 Outcomes:
 
-- six-bucket public ontology
+- compact public ontology
 - compact README and strategic docs
 - compatibility policy in one authoritative place
 - CLI taxonomy and help aligned with the model
