@@ -290,11 +290,10 @@ fn default_file_title(file_path: &str) -> String {
 }
 
 fn strip_keyword<'a>(line: &'a str, keyword: &str) -> Option<&'a str> {
-    if line.len() < keyword.len() {
-        return None;
-    }
-
-    let prefix = &line[..keyword.len()];
+    // `get` returns `None` when `keyword.len()` exceeds the line or lands inside
+    // a multibyte character, so an accented title such as `#+title: Gödel` never
+    // panics on a byte slice while some other keyword's length is being tested.
+    let prefix = line.get(..keyword.len())?;
     if prefix.eq_ignore_ascii_case(keyword) {
         Some(&line[keyword.len()..])
     } else {
