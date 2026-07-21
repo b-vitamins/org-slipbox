@@ -16,6 +16,7 @@ use slipbox::server;
 slipbox indexes and edits an Org directory through a Rust daemon. Org files remain the source of truth; SQLite is a derived index. Most commands spawn `slipbox serve` over JSON-RPC stdio using --root and --db, then exit after the requested operation.",
     after_help = "Command families:
   Notes:       node, note, capture, daily, edit, resolve-node
+  Glossary:    glossary
   Relations:   ref, tag, search, agenda, graph, link
   Exploration: explore, compare, artifact
   Reviews:     audit, review
@@ -116,6 +117,11 @@ enum Command {
         long_about = "Resolve an exact note target to the indexed note record selected by --id, --title, --ref, or --key."
     )]
     ResolveNode(cli::ResolveNodeArgs),
+    /// List, search, review, and grade glossary terms.
+    #[command(
+        long_about = "List, search, show, and study glossary terms. A term is an Org note carrying a glossary marker and an SM-2 review drawer; read commands return indexed term records, `grade` reschedules a term and rewrites its drawer through the daemon, and `mark` promotes an existing note to a term."
+    )]
+    Glossary(cli::GlossaryArgs),
     /// Run a live exploration lens.
     #[command(
         long_about = "Run a live exploration lens from one focus. `--key` may target an anchor for anchor-aware lenses; other target selectors resolve notes. Use --save with artifact metadata to persist the live result."
@@ -192,6 +198,7 @@ fn run() -> Result<(), cli::CliCommandError> {
         Command::Edit(args) => cli::run_edit(&args),
         Command::Link(args) => cli::run_link(&args),
         Command::ResolveNode(args) => cli::run_resolve_node(&args),
+        Command::Glossary(args) => cli::run_glossary(&args),
         Command::Explore(args) => cli::run_explore(&args),
         Command::Compare(args) => cli::run_compare(&args),
         Command::Audit(args) => cli::run_audit(&args),

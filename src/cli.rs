@@ -1,5 +1,6 @@
 mod assets;
 mod explorations;
+mod glossary;
 mod notes;
 mod output;
 mod relations;
@@ -12,6 +13,7 @@ pub(crate) use assets::{PackArgs, RoutineArgs, WorkflowArgs, run_pack, run_routi
 pub(crate) use explorations::{
     ArtifactArgs, CompareArgs, ExploreArgs, run_artifact, run_compare, run_explore,
 };
+pub(crate) use glossary::{GlossaryArgs, run_glossary};
 pub(crate) use notes::{
     CaptureArgs, DailyArgs, EditArgs, NodeArgs, NoteArgs, ResolveNodeArgs, run_capture, run_daily,
     run_edit, run_node, run_note, run_resolve_node,
