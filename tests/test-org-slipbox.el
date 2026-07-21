@@ -1602,6 +1602,132 @@ ROOT-NODE defaults to NODE."
               (kill-buffer (current-buffer)))))
       (delete-directory root t))))
 
+(ert-deftest org-slipbox-test-glossary-review-command-exposed-via-autoload ()
+  "The glossary review command should be an autoloaded interactive command."
+  (should (fboundp 'org-slipbox-glossary-review))
+  (should (commandp 'org-slipbox-glossary-review)))
+
+(ert-deftest org-slipbox-test-glossary-review-handles-empty-queue ()
+  "Reviewing with no due terms should report cleanly instead of erroring."
+  (cl-letf (((symbol-function 'org-slipbox-rpc-glossary-due)
+             (lambda (&optional _today _limit) '(:terms [])))
+            ((symbol-function 'display-buffer) #'ignore))
+    (let ((buffer (org-slipbox-glossary-review)))
+      (unwind-protect
+          (with-current-buffer buffer
+            (should (eq (org-slipbox-glossary-review-session-total
+                         org-slipbox-glossary-review-session)
+                        0))
+            (should (string-match-p "No glossary terms are due" (buffer-string))))
+        (kill-buffer buffer)))))
+
+(ert-deftest org-slipbox-test-glossary-review-runs-full-session ()
+  "A review session should reveal, grade, advance, and drain the due queue."
+  (let* ((root (make-temp-file "org-slipbox-glossary-review-" t))
+         (first-file (expand-file-name "derivative.org" root))
+         (second-file (expand-file-name "integral.org" root))
+         graded)
+    (unwind-protect
+        (let ((org-slipbox-directory root))
+          (write-region
+           "#+title: Derivative\n#+glossary: t\n\nThe rate of change of a function.\n"
+           nil first-file nil 'silent)
+          (write-region
+           "#+title: Integral\n#+glossary: t\n\nThe area under a curve.\n"
+           nil second-file nil 'silent)
+          (cl-letf (((symbol-function 'org-slipbox-rpc-glossary-due)
+                     (lambda (&optional _today _limit)
+                       '(:terms [(:title "Derivative"
+                                  :file_path "derivative.org"
+                                  :line 1
+                                  :node_key "file:derivative.org"
+                                  :glossary t)
+                                 (:title "Integral"
+                                  :file_path "integral.org"
+                                  :line 1
+                                  :node_key "file:integral.org"
+                                  :glossary t)])))
+                    ((symbol-function 'org-slipbox-rpc-grade-term)
+                     (lambda (node-key quality &optional _today)
+                       (push (list node-key quality) graded)
+                       `(:term (:title ,(if (equal node-key "file:derivative.org")
+                                            "Derivative" "Integral")
+                                :node_key ,node-key
+                                :sr_due "2026-07-27"))))
+                    ((symbol-function 'display-buffer) #'ignore))
+            (let ((buffer (org-slipbox-glossary-review)))
+              (unwind-protect
+                  (with-current-buffer buffer
+                    (should (= (org-slipbox-glossary-review-session-total
+                                org-slipbox-glossary-review-session)
+                               2))
+                    ;; First card: prompt hides the definition until revealed.
+                    (should (string-match-p "Definition hidden" (buffer-string)))
+                    (should-not (org-slipbox-glossary-review-session-revealed
+                                 org-slipbox-glossary-review-session))
+                    ;; Grading before revealing is refused.
+                    (let ((last-command-event ?5))
+                      (should-error (org-slipbox-glossary-review-grade)
+                                    :type 'user-error))
+                    (org-slipbox-glossary-review-reveal)
+                    (should (string-match-p "rate of change" (buffer-string)))
+                    (let ((last-command-event ?5))
+                      (org-slipbox-glossary-review-grade))
+                    ;; Advanced to the second card, definition hidden again.
+                    (should (equal (plist-get
+                                    (org-slipbox-glossary-review-session-current
+                                     org-slipbox-glossary-review-session)
+                                    :title)
+                                   "Integral"))
+                    (should (string-match-p "next due 2026-07-27" (buffer-string)))
+                    (org-slipbox-glossary-review-reveal)
+                    (let ((last-command-event ?3))
+                      (org-slipbox-glossary-review-grade))
+                    ;; Queue drained: completion summary, no current card.
+                    (should-not (org-slipbox-glossary-review-session-current
+                                 org-slipbox-glossary-review-session))
+                    (should (= (org-slipbox-glossary-review-session-graded
+                                org-slipbox-glossary-review-session)
+                               2))
+                    (should (string-match-p "Review complete: graded 2 of 2"
+                                            (buffer-string)))
+                    (should (equal (reverse graded)
+                                   '(("file:derivative.org" 5)
+                                     ("file:integral.org" 3)))))
+                (kill-buffer buffer)))))
+      (delete-directory root t))))
+
+(ert-deftest org-slipbox-test-glossary-review-skip-advances-without-grading ()
+  "Skipping a card should advance the queue without calling gradeTerm."
+  (let (grade-called)
+    (cl-letf (((symbol-function 'org-slipbox-rpc-glossary-due)
+               (lambda (&optional _today _limit)
+                 '(:terms [(:title "Derivative"
+                            :file_path "derivative.org"
+                            :line 1
+                            :node_key "file:derivative.org"
+                            :glossary t)])))
+              ((symbol-function 'org-slipbox-rpc-grade-term)
+               (lambda (&rest _args) (setq grade-called t) nil))
+              ((symbol-function 'display-buffer) #'ignore))
+      (let ((buffer (org-slipbox-glossary-review)))
+        (unwind-protect
+            (with-current-buffer buffer
+              (org-slipbox-glossary-review-skip)
+              (should-not grade-called)
+              (should-not (org-slipbox-glossary-review-session-current
+                           org-slipbox-glossary-review-session))
+              (should (string-match-p "Skipped Derivative" (buffer-string)))
+              (should (string-match-p "Review complete: graded 0 of 1"
+                                      (buffer-string))))
+          (kill-buffer buffer))))))
+
+(ert-deftest org-slipbox-test-glossary-review-requires-review-buffer ()
+  "Review grading commands should reject buffers without a session."
+  (with-temp-buffer
+    (should-error (org-slipbox-glossary-review-reveal) :type 'user-error)
+    (should-error (org-slipbox-glossary-review-grade) :type 'user-error)))
+
 (ert-deftest org-slipbox-test-capture-finalize-insert-link-runs-hook ()
   "Insert-link finalization should replace the region and run the insert hook."
   (with-temp-buffer
