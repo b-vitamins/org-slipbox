@@ -54,9 +54,10 @@ Coverage inventory:
 - JSON-RPC params/results: =tests/daemon_client.rs= exercises the typed
   daemon client over stdio across read, write, exploration, review, asset, and
   structural operations.
-- JSON-RPC method inventory: =src/server/operations.rs= has a unit test that
-  locks every public operation method to its family, mutation class, and
-  freshness behavior.
+- JSON-RPC method inventory: =crates/slipbox-rpc/src/operations.rs= has a unit
+  test that locks every public operation method to its family, mutation class,
+  and freshness behavior, and =src/server/operations.rs= has one locking the
+  handler table to that same inventory.
 - Durable records: =tests/cli_contracts.rs= covers exploration artifact
   export/import/show, saved comparison execution, saved review diff/mark
   round-trips, workflow spec local inspection, workbench pack

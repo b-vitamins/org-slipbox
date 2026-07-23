@@ -7,6 +7,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
+pub mod operations;
+
+pub use operations::{
+    FreshnessBehavior, OperationDescriptor, OperationFamily, OperationMutation, is_read_only,
+    operation_descriptor_by_method, operation_descriptors,
+};
+
 pub const METHOD_PING: &str = "slipbox/ping";
 pub const METHOD_STATUS: &str = "slipbox/status";
 pub const METHOD_INDEX: &str = "slipbox/index";
