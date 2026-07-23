@@ -20,11 +20,11 @@ use slipbox_rpc::{
     METHOD_REVIEW_FINDING_REMEDIATION_PREVIEW, METHOD_REVIEW_ROUTINE, METHOD_REVIEW_RUN,
     METHOD_RUN_REVIEW_ROUTINE, METHOD_RUN_WORKFLOW, METHOD_SAVE_CORPUS_AUDIT_REVIEW,
     METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SAVE_REVIEW_RUN, METHOD_SAVE_WORKFLOW_REVIEW,
-    METHOD_SEARCH_FILES, METHOD_SEARCH_GLOSSARY, METHOD_SEARCH_NODES, METHOD_SEARCH_OCCURRENCES,
-    METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS, METHOD_SLIPBOX_LINK_REWRITE_APPLY,
-    METHOD_SLIPBOX_LINK_REWRITE_PREVIEW, METHOD_STATUS, METHOD_UNLINKED_REFERENCES,
-    METHOD_UPDATE_NODE_METADATA, METHOD_VALIDATE_WORKBENCH_PACK, METHOD_WORKBENCH_PACK,
-    METHOD_WORKFLOW,
+    METHOD_SEARCH_FILES, METHOD_SEARCH_GLOSSARY, METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES,
+    METHOD_SEARCH_OCCURRENCES, METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS,
+    METHOD_SLIPBOX_LINK_REWRITE_APPLY, METHOD_SLIPBOX_LINK_REWRITE_PREVIEW, METHOD_STATUS,
+    METHOD_UNLINKED_REFERENCES, METHOD_UPDATE_NODE_METADATA, METHOD_VALIDATE_WORKBENCH_PACK,
+    METHOD_WORKBENCH_PACK, METHOD_WORKFLOW,
 };
 
 use crate::server::handlers::{query, write};
@@ -66,11 +66,9 @@ macro_rules! operation {
     };
 }
 
-/// Method-to-handler table for the JSON-RPC surface.
-///
-/// The order mirrors the `slipbox-rpc` descriptor inventory; the drift test
-/// pins the two lists together so a new method cannot ship a handler without a
-/// classification, or a classification without a handler.
+/// Method-to-handler table for the JSON-RPC surface, ordered to mirror the
+/// `slipbox-rpc` descriptor inventory that `handler_table_matches_rpc_classification`
+/// pins it against.
 const OPERATIONS: &[Operation] = &[
     operation!(METHOD_PING, ping),
     operation!(METHOD_STATUS, status),
@@ -82,6 +80,7 @@ const OPERATIONS: &[Operation] = &[
     operation!(METHOD_DIAGNOSE_NODE, query::diagnose_node),
     operation!(METHOD_DIAGNOSE_INDEX, diagnose_index),
     operation!(METHOD_SEARCH_NODES, query::search_nodes),
+    operation!(METHOD_SEARCH_NODE_CONTENT, query::search_node_content),
     operation!(METHOD_RANDOM_NODE, query::random_node),
     operation!(METHOD_NODE_FROM_ID, query::node_from_id),
     operation!(METHOD_NODE_FROM_KEY, query::node_from_key),

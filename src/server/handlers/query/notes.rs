@@ -2,10 +2,11 @@ use std::collections::BTreeSet;
 use std::fs;
 
 use slipbox_core::{
-    AnchorFromKeyParams, AnchorRecord, NodeAtPointParams, NodeFromIdParams, NodeFromKeyParams,
-    NodeFromTitleOrAliasParams, NodeKind, NoteContextParams, NoteContextResult, RandomNodeResult,
-    ReadFileSourceParams, ReadFileSourceResult, ReadNodeSourceParams, ReadNodeSourceResult,
-    SearchNodesParams, SearchNodesResult, SourceSlice,
+    AnchorFromKeyParams, AnchorRecord, NodeAtPointParams, NodeContentHit, NodeFromIdParams,
+    NodeFromKeyParams, NodeFromTitleOrAliasParams, NodeKind, NoteContextParams, NoteContextResult,
+    RandomNodeResult, ReadFileSourceParams, ReadFileSourceResult, ReadNodeSourceParams,
+    ReadNodeSourceResult, SearchNodeContentParams, SearchNodeContentResult, SearchNodesParams,
+    SearchNodesResult, SourceSlice,
 };
 use slipbox_rpc::JsonRpcError;
 
@@ -29,6 +30,19 @@ pub(crate) fn search_nodes(
         .map_err(|error| internal_error(error.context("failed to query nodes")))?;
     let nodes = live_nodes(state, nodes)?;
     to_value(SearchNodesResult { nodes })
+}
+
+pub(crate) fn search_node_content(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: SearchNodeContentParams = parse_params(params)?;
+    let hits = state
+        .database
+        .search_node_content(&params.query, params.normalized_limit())
+        .map_err(|error| internal_error(error.context("failed to search note content")))?;
+    let hits = live_content_hits(state, hits)?;
+    to_value(SearchNodeContentResult { hits })
 }
 
 pub(crate) fn random_node(
@@ -128,6 +142,25 @@ fn live_nodes(
             live.push(node);
         } else {
             missing.insert(node.file_path);
+        }
+    }
+    for file_path in missing {
+        state.remove_indexed_file_path(&file_path, "missing indexed node file")?;
+    }
+    Ok(live)
+}
+
+fn live_content_hits(
+    state: &mut ServerState,
+    hits: Vec<NodeContentHit>,
+) -> Result<Vec<NodeContentHit>, JsonRpcError> {
+    let mut live = Vec::with_capacity(hits.len());
+    let mut missing = BTreeSet::new();
+    for hit in hits {
+        if state.indexed_file_is_live(&hit.node.file_path) {
+            live.push(hit);
+        } else {
+            missing.insert(hit.node.file_path);
         }
     }
     for file_path in missing {

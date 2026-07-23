@@ -30,14 +30,15 @@ use slipbox_core::{
     RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
     SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
     SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult, SearchFilesParams,
-    SearchFilesResult, SearchGlossaryParams, SearchGlossaryResult, SearchNodesParams,
-    SearchNodesResult, SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams,
-    SearchRefsResult, SearchTagsParams, SearchTagsResult, SlipboxLinkRewriteApplyParams,
-    SlipboxLinkRewriteApplyResult, SlipboxLinkRewritePreviewParams,
-    SlipboxLinkRewritePreviewResult, StatusInfo, StructuralWriteReport, UnlinkedReferencesParams,
-    UnlinkedReferencesResult, UpdateNodeMetadataParams, ValidateWorkbenchPackParams,
-    ValidateWorkbenchPackResult, WorkbenchPackIdParams, WorkbenchPackManifest, WorkbenchPackResult,
-    WorkflowIdParams, WorkflowResult,
+    SearchFilesResult, SearchGlossaryParams, SearchGlossaryResult, SearchNodeContentParams,
+    SearchNodeContentResult, SearchNodesParams, SearchNodesResult, SearchOccurrencesParams,
+    SearchOccurrencesResult, SearchRefsParams, SearchRefsResult, SearchTagsParams,
+    SearchTagsResult, SlipboxLinkRewriteApplyParams, SlipboxLinkRewriteApplyResult,
+    SlipboxLinkRewritePreviewParams, SlipboxLinkRewritePreviewResult, StatusInfo,
+    StructuralWriteReport, UnlinkedReferencesParams, UnlinkedReferencesResult,
+    UpdateNodeMetadataParams, ValidateWorkbenchPackParams, ValidateWorkbenchPackResult,
+    WorkbenchPackIdParams, WorkbenchPackManifest, WorkbenchPackResult, WorkflowIdParams,
+    WorkflowResult,
 };
 use slipbox_rpc::{
     JsonRpcRequest, JsonRpcResponse, METHOD_AGENDA, METHOD_ANCHOR_AT_POINT, METHOD_ANCHOR_FROM_KEY,
@@ -61,11 +62,11 @@ use slipbox_rpc::{
     METHOD_REVIEW_FINDING_REMEDIATION_PREVIEW, METHOD_REVIEW_ROUTINE, METHOD_REVIEW_RUN,
     METHOD_RUN_REVIEW_ROUTINE, METHOD_RUN_WORKFLOW, METHOD_SAVE_CORPUS_AUDIT_REVIEW,
     METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SAVE_REVIEW_RUN, METHOD_SAVE_WORKFLOW_REVIEW,
-    METHOD_SEARCH_FILES, METHOD_SEARCH_GLOSSARY, METHOD_SEARCH_NODES, METHOD_SEARCH_OCCURRENCES,
-    METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS, METHOD_SLIPBOX_LINK_REWRITE_APPLY,
-    METHOD_SLIPBOX_LINK_REWRITE_PREVIEW, METHOD_STATUS, METHOD_UNLINKED_REFERENCES,
-    METHOD_UPDATE_NODE_METADATA, METHOD_VALIDATE_WORKBENCH_PACK, METHOD_WORKBENCH_PACK,
-    METHOD_WORKFLOW,
+    METHOD_SEARCH_FILES, METHOD_SEARCH_GLOSSARY, METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES,
+    METHOD_SEARCH_OCCURRENCES, METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS,
+    METHOD_SLIPBOX_LINK_REWRITE_APPLY, METHOD_SLIPBOX_LINK_REWRITE_PREVIEW, METHOD_STATUS,
+    METHOD_UNLINKED_REFERENCES, METHOD_UPDATE_NODE_METADATA, METHOD_VALIDATE_WORKBENCH_PACK,
+    METHOD_WORKBENCH_PACK, METHOD_WORKFLOW,
 };
 
 use crate::error::DaemonClientError;
@@ -202,6 +203,13 @@ where
         params: &SearchNodesParams,
     ) -> Result<SearchNodesResult, DaemonClientError> {
         self.request(METHOD_SEARCH_NODES, params)
+    }
+
+    pub(crate) fn search_node_content(
+        &mut self,
+        params: &SearchNodeContentParams,
+    ) -> Result<SearchNodeContentResult, DaemonClientError> {
+        self.request(METHOD_SEARCH_NODE_CONTENT, params)
     }
 
     pub(crate) fn random_node(&mut self) -> Result<RandomNodeResult, DaemonClientError> {

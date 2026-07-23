@@ -24,11 +24,11 @@ use crate::{
     METHOD_REVIEW_FINDING_REMEDIATION_APPLY, METHOD_REVIEW_FINDING_REMEDIATION_PREVIEW,
     METHOD_REVIEW_ROUTINE, METHOD_REVIEW_RUN, METHOD_RUN_REVIEW_ROUTINE, METHOD_RUN_WORKFLOW,
     METHOD_SAVE_CORPUS_AUDIT_REVIEW, METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SAVE_REVIEW_RUN,
-    METHOD_SAVE_WORKFLOW_REVIEW, METHOD_SEARCH_FILES, METHOD_SEARCH_GLOSSARY, METHOD_SEARCH_NODES,
-    METHOD_SEARCH_OCCURRENCES, METHOD_SEARCH_REFS, METHOD_SEARCH_TAGS,
-    METHOD_SLIPBOX_LINK_REWRITE_APPLY, METHOD_SLIPBOX_LINK_REWRITE_PREVIEW, METHOD_STATUS,
-    METHOD_UNLINKED_REFERENCES, METHOD_UPDATE_NODE_METADATA, METHOD_VALIDATE_WORKBENCH_PACK,
-    METHOD_WORKBENCH_PACK, METHOD_WORKFLOW,
+    METHOD_SAVE_WORKFLOW_REVIEW, METHOD_SEARCH_FILES, METHOD_SEARCH_GLOSSARY,
+    METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES, METHOD_SEARCH_OCCURRENCES, METHOD_SEARCH_REFS,
+    METHOD_SEARCH_TAGS, METHOD_SLIPBOX_LINK_REWRITE_APPLY, METHOD_SLIPBOX_LINK_REWRITE_PREVIEW,
+    METHOD_STATUS, METHOD_UNLINKED_REFERENCES, METHOD_UPDATE_NODE_METADATA,
+    METHOD_VALIDATE_WORKBENCH_PACK, METHOD_WORKBENCH_PACK, METHOD_WORKFLOW,
 };
 
 /// Public bucket a method belongs to.
@@ -163,6 +163,13 @@ const DESCRIPTORS: &[OperationDescriptor] = &[
         ReadOnly,
         ReadsDerivedIndex,
         "Search indexed note records."
+    ),
+    descriptor!(
+        METHOD_SEARCH_NODE_CONTENT,
+        Notes,
+        ReadOnly,
+        ReadsDerivedIndex,
+        "Search indexed note content and return a highlighted excerpt per hit."
     ),
     descriptor!(
         METHOD_RANDOM_NODE,
@@ -759,6 +766,12 @@ mod tests {
             ("slipbox/diagnoseNode", Diagnostics, ReadOnly, ReportsState),
             ("slipbox/diagnoseIndex", Diagnostics, ReadOnly, ReportsState),
             ("slipbox/searchNodes", Notes, ReadOnly, ReadsDerivedIndex),
+            (
+                "slipbox/searchNodeContent",
+                Notes,
+                ReadOnly,
+                ReadsDerivedIndex,
+            ),
             ("slipbox/randomNode", Notes, ReadOnly, ReadsDerivedIndex),
             ("slipbox/nodeFromId", Notes, ReadOnly, ReadsDerivedIndex),
             ("slipbox/nodeFromKey", Notes, ReadOnly, ReadsDerivedIndex),

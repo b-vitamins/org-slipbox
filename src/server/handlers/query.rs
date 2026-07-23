@@ -20,7 +20,7 @@ pub(crate) use glossary::{glossary_due, glossary_term, list_glossary_terms, sear
 pub(crate) use notes::{
     anchor_at_point, anchor_from_key, node_at_point, node_from_id, node_from_key,
     node_from_title_or_alias, note_context, random_node, read_file_source, read_node_source,
-    search_nodes,
+    search_node_content, search_nodes,
 };
 pub(crate) use relations::{
     agenda, backlinks, forward_links, graph_dot, node_from_ref, reflinks, search_occurrences,

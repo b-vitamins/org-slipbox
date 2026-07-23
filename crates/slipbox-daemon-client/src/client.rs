@@ -29,9 +29,10 @@ use slipbox_core::{
     SaveCorpusAuditReviewResult, SaveExplorationArtifactParams, SaveExplorationArtifactResult,
     SaveReviewRunParams, SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
     SearchFilesParams, SearchFilesResult, SearchGlossaryParams, SearchGlossaryResult,
-    SearchNodesParams, SearchNodesResult, SearchOccurrencesParams, SearchOccurrencesResult,
-    SearchRefsParams, SearchRefsResult, SearchTagsParams, SearchTagsResult,
-    SlipboxLinkRewriteApplyParams, SlipboxLinkRewriteApplyResult, SlipboxLinkRewritePreviewParams,
+    SearchNodeContentParams, SearchNodeContentResult, SearchNodesParams, SearchNodesResult,
+    SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams, SearchRefsResult,
+    SearchTagsParams, SearchTagsResult, SlipboxLinkRewriteApplyParams,
+    SlipboxLinkRewriteApplyResult, SlipboxLinkRewritePreviewParams,
     SlipboxLinkRewritePreviewResult, StatusInfo, StructuralWriteReport, UnlinkedReferencesParams,
     UnlinkedReferencesResult, UpdateNodeMetadataParams, ValidateWorkbenchPackParams,
     ValidateWorkbenchPackResult, WorkbenchPackIdParams, WorkbenchPackManifest, WorkbenchPackResult,
@@ -127,6 +128,13 @@ impl DaemonClient {
         params: &SearchNodesParams,
     ) -> Result<SearchNodesResult, DaemonClientError> {
         self.rpc.search_nodes(params)
+    }
+
+    pub fn search_node_content(
+        &mut self,
+        params: &SearchNodeContentParams,
+    ) -> Result<SearchNodeContentResult, DaemonClientError> {
+        self.rpc.search_node_content(params)
     }
 
     pub fn random_node(&mut self) -> Result<RandomNodeResult, DaemonClientError> {
