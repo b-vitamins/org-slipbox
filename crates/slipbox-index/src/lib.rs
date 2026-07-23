@@ -1,6 +1,6 @@
 mod discovery;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -129,17 +129,22 @@ fn parse_document(file_path: &str, mtime_ns: i64, source: &str) -> IndexedFile {
             level: 0,
             line: 1,
             kind: NodeKind::File,
+            body: String::new(),
         });
     }
     let mut links = Vec::new();
     let mut occurrence_line_rows = Vec::new();
     let mut occurrence_search_lines = Vec::new();
+    let mut node_bodies: HashMap<String, String> = HashMap::new();
+    let mut in_property_drawer = false;
     let mut current_source_node_key = (!file_excluded).then_some(file_node_key);
     let mut outline_stack: Vec<String> = Vec::new();
     let mut exclusion_stack: Vec<bool> = Vec::new();
 
     for (index, line) in lines.iter().enumerate() {
+        let mut is_heading = false;
         if let Some((level, todo_keyword, title, heading_tags)) = parse_heading(line) {
+            is_heading = true;
             outline_stack.truncate(level.saturating_sub(1));
             exclusion_stack.truncate(level.saturating_sub(1));
             outline_stack.push(title.clone());
@@ -186,8 +191,11 @@ fn parse_document(file_path: &str, mtime_ns: i64, source: &str) -> IndexedFile {
                     level: level as u32,
                     line: (index + 1) as u32,
                     kind: NodeKind::Heading,
+                    body: String::new(),
                 });
             }
+            // A heading line closes any drawer the previous node had open.
+            in_property_drawer = false;
         }
 
         if let Some(source_node_key) = current_source_node_key.as_deref() {
@@ -196,11 +204,24 @@ fn parse_document(file_path: &str, mtime_ns: i64, source: &str) -> IndexedFile {
                 occurrence_search_lines.push((*line).to_owned());
             }
             extract_id_links(line, source_node_key, (index + 1) as u32, &mut links);
+            if !is_heading && let Some(text) = body_line(line, &mut in_property_drawer) {
+                let body = node_bodies.entry(source_node_key.to_owned()).or_default();
+                if !body.is_empty() {
+                    body.push('\n');
+                }
+                body.push_str(text);
+            }
         }
     }
 
     if !excluded_explicit_ids.is_empty() {
         links.retain(|link| !excluded_explicit_ids.contains(&link.destination_explicit_id));
+    }
+
+    for node in &mut nodes {
+        if let Some(body) = node_bodies.remove(&node.node_key) {
+            node.body = body;
+        }
     }
 
     let occurrence_document = if occurrence_search_lines.is_empty() {
@@ -709,6 +730,29 @@ fn is_planning_line(line: &str) -> bool {
         .any(|keyword| extract_planning_timestamp(line, keyword).is_some())
 }
 
+/// Trimmed prose text of a body line, or `None` for a structural line: drawer
+/// contents, a `#+keyword:` line, a planning line, or a blank.
+/// `in_property_drawer` is updated in place as drawers open and close.
+fn body_line<'a>(line: &'a str, in_property_drawer: &mut bool) -> Option<&'a str> {
+    let trimmed = line.trim();
+
+    if *in_property_drawer {
+        if trimmed.eq_ignore_ascii_case(":END:") {
+            *in_property_drawer = false;
+        }
+        return None;
+    }
+    if trimmed.eq_ignore_ascii_case(":PROPERTIES:") {
+        *in_property_drawer = true;
+        return None;
+    }
+    if trimmed.is_empty() || trimmed.starts_with("#+") || is_planning_line(trimmed) {
+        return None;
+    }
+
+    Some(trimmed)
+}
+
 fn extract_planning_timestamp(line: &str, keyword: &str) -> Option<String> {
     let position = line.find(keyword)?;
     let value = line[position + keyword.len()..].trim_start();
@@ -787,6 +831,14 @@ mod tests {
             .into_iter()
             .find(|node| node.kind == NodeKind::File)
             .expect("a non-excluded file yields a file node")
+    }
+
+    fn node_titled(source: &str, title: &str) -> IndexedNode {
+        let file = scan_source("term.org", source);
+        file.nodes
+            .into_iter()
+            .find(|node| node.title == title)
+            .unwrap_or_else(|| panic!("a node titled {title:?} is indexed"))
     }
 
     #[test]
@@ -955,5 +1007,89 @@ Body text.
             !file.nodes.iter().any(|node| node.kind == NodeKind::File),
             "an excluded file contributes no file node"
         );
+    }
+
+    #[test]
+    fn file_body_excludes_drawer_keywords_and_planning() {
+        let source = "\
+#+title: Riemann integral
+#+glossary: t
+:PROPERTIES:
+:ID: 7f3a1c
+:END:
+
+A definite integral over an interval.
+It measures signed area.
+";
+        let node = file_node(source);
+        assert_eq!(
+            node.body,
+            "A definite integral over an interval.\nIt measures signed area."
+        );
+    }
+
+    #[test]
+    fn body_is_empty_when_node_has_no_prose() {
+        let node = file_node("#+title: Bare\n#+glossary: t\n");
+        assert!(node.body.is_empty());
+    }
+
+    #[test]
+    fn body_is_scoped_to_the_owning_node() {
+        let source = "\
+#+title: Parent
+#+filetags: :math:
+
+File-level prose.
+
+* Child heading
+:PROPERTIES:
+:ID: child1
+:END:
+SCHEDULED: <2026-08-01 Sat>
+
+Heading prose only.
+";
+        let file_node = node_titled(source, "Parent");
+        let heading_node = node_titled(source, "Child heading");
+        assert_eq!(file_node.body, "File-level prose.");
+        assert_eq!(heading_node.body, "Heading prose only.");
+    }
+
+    #[test]
+    fn heading_title_never_appears_in_body() {
+        let source = "\
+#+title: Doc
+
+* Uniqueheadingword
+Ordinary sentence.
+";
+        let heading = node_titled(source, "Uniqueheadingword");
+        assert_eq!(heading.body, "Ordinary sentence.");
+        assert!(!heading.body.contains("Uniqueheadingword"));
+    }
+
+    #[test]
+    fn excluded_heading_contributes_no_body() {
+        let source = "\
+#+title: Doc
+
+Kept prose.
+
+* Secret
+:PROPERTIES:
+:ROAM_EXCLUDE: t
+:END:
+
+Dropped prose.
+";
+        let file = scan_source("term.org", source);
+        let file_node = file
+            .nodes
+            .iter()
+            .find(|node| node.kind == NodeKind::File)
+            .expect("the file node is indexed");
+        assert_eq!(file_node.body, "Kept prose.");
+        assert!(!file.nodes.iter().any(|node| node.body.contains("Dropped")));
     }
 }

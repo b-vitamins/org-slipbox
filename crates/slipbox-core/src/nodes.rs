@@ -303,6 +303,13 @@ impl From<IndexedNode> for PreviewNodeRecord {
     }
 }
 
+/// Shortest word, in characters, any search path will match on.
+///
+/// Words are widened into prefix terms, so a shorter word would rank most of the
+/// corpus. Every surface measures against this one declaration, and every count of
+/// it is over characters rather than bytes.
+pub const MIN_SEARCH_TERM_CHARACTERS: usize = 2;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SearchNodesSort {
@@ -333,6 +340,52 @@ impl SearchNodesParams {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchNodesResult {
     pub nodes: Vec<NodeRecord>,
+}
+
+/// A run of snippet text tagged with whether it matched the query.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContentSegment {
+    pub text: String,
+    #[serde(default)]
+    pub matched: bool,
+}
+
+/// A highlighted excerpt of a node's body around a content-search match.
+///
+/// The segments concatenate, in order, to the excerpt text; an empty list
+/// denotes no excerpt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContentSnippet {
+    #[serde(default)]
+    pub segments: Vec<ContentSegment>,
+}
+
+/// One content-search hit: the matched node and a highlighted body excerpt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeContentHit {
+    pub node: NodeRecord,
+    pub snippet: ContentSnippet,
+}
+
+/// Parameters for ranked, snippet-highlighted note-content search.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchNodeContentParams {
+    pub query: String,
+    #[serde(default = "default_search_limit")]
+    pub limit: usize,
+}
+
+impl SearchNodeContentParams {
+    #[must_use]
+    pub fn normalized_limit(&self) -> usize {
+        self.limit.clamp(1, 200)
+    }
+}
+
+/// Result of a note-content search, ranked most-relevant first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchNodeContentResult {
+    pub hits: Vec<NodeContentHit>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

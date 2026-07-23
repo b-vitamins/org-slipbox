@@ -146,6 +146,9 @@ pub struct IndexedNode {
     pub level: u32,
     pub line: u32,
     pub kind: NodeKind,
+    /// Body prose the node owns, newline-joined, excluding its own heading line,
+    /// property drawers, `#+keyword:` lines, and planning lines.
+    pub body: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
