@@ -340,7 +340,10 @@ pub(crate) fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result
         lines.push(String::new());
         let rendered = lines.join("\n") + "\n";
         fs::write(&absolute_path, &rendered).with_context(|| {
-            format!("failed to write glossary term file {}", absolute_path.display())
+            format!(
+                "failed to write glossary term file {}",
+                absolute_path.display()
+            )
         })?;
     }
 

@@ -30,9 +30,8 @@ pub(crate) use structural::{
 pub(crate) use workbench::{
     benchmark_audit_save_review, benchmark_corpus_audit, benchmark_glossary_grade,
     benchmark_pack_catalog, benchmark_pack_import, benchmark_pack_validation,
-    benchmark_remediation_preview,
-    benchmark_report_profile_rendering, benchmark_review_diff, benchmark_review_list,
-    benchmark_review_mark, benchmark_review_show, benchmark_routine_run,
+    benchmark_remediation_preview, benchmark_report_profile_rendering, benchmark_review_diff,
+    benchmark_review_list, benchmark_review_mark, benchmark_review_show, benchmark_routine_run,
     benchmark_workflow_catalog, benchmark_workflow_run, benchmark_workflow_save_review,
     prepare_declarative_extension_benchmark_fixture, prepare_review_benchmark_fixtures,
 };
