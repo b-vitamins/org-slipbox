@@ -20,6 +20,7 @@ pub fn serve(
     db: PathBuf,
     workflow_dirs: Vec<PathBuf>,
     discovery: DiscoveryPolicy,
+    read_only: bool,
 ) -> Result<()> {
     let mut service = SlipboxService::new(root, db, workflow_dirs, discovery)?;
     let stdin = io::stdin();
@@ -30,7 +31,7 @@ pub fn serve(
     loop {
         match read_framed_message(&mut reader) {
             Ok(Some(request)) => {
-                let response = handle_request(&mut service, request);
+                let response = handle_request(&mut service, request, read_only);
                 write_framed_message(&mut writer, &response)?;
             }
             Ok(None) => break,

@@ -34,7 +34,7 @@ struct Cli {
 enum Command {
     /// Run the JSON-RPC daemon over stdio.
     #[command(
-        long_about = "Run the JSON-RPC daemon over stdio for daemon-backed commands and editor clients."
+        long_about = "Run the JSON-RPC daemon over stdio for daemon-backed commands and editor clients. Pass --read-only to serve a session that refuses every mutating method at dispatch, for read-only front-ends such as the web reader."
     )]
     Serve(ServeArgs),
     /// Show daemon and index status.
@@ -168,6 +168,9 @@ enum Command {
 struct ServeArgs {
     #[command(flatten)]
     scope: cli::ScopeArgs,
+    /// Refuse every mutating method at dispatch, serving a read-only session.
+    #[arg(long = "read-only")]
+    read_only: bool,
 }
 
 fn main() -> ExitCode {
@@ -217,5 +220,6 @@ fn run_serve(args: ServeArgs) -> Result<()> {
         args.scope.db,
         args.scope.workflow_dirs,
         discovery,
+        args.read_only,
     )
 }
