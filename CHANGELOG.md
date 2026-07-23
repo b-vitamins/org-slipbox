@@ -15,6 +15,11 @@ The format follows Keep a Changelog, and this project follows SemVer.
   websocket push, spaced-repetition grade writeback, global force-directed
   graph, and MCP surface out of that front-end.
 
+### Fixed
+- Use tab recipe prefixes in the source-build `Makefile` instead of the
+  `.RECIPEPREFIX` directive, so every target, including the release metadata
+  gate, runs under the GNU Make 3.81 that ships as `make` on macOS.
+
 ## [0.16.0] - 2026-07-22
 
 ### Added
