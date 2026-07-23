@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::Database;
 
-const SCHEMA_VERSION: i32 = 21;
+const SCHEMA_VERSION: i32 = 23;
 
 impl Database {
     pub(crate) fn migrate(&self) -> Result<()> {
@@ -25,7 +25,10 @@ impl Database {
     }
 
     fn rebuild_schema(&self) -> Result<()> {
-        self.connection.execute_batch(
+        // The version stamped here is the constant `migrate` compares against; a
+        // lower stamp sends every subsequent open back through this rebuild, which
+        // drops and recreates the derived tables.
+        self.connection.execute_batch(&format!(
             "PRAGMA journal_mode = WAL;
              PRAGMA foreign_keys = ON;
              PRAGMA synchronous = NORMAL;
@@ -36,6 +39,8 @@ impl Database {
              DROP TABLE IF EXISTS refs;
              DROP TABLE IF EXISTS occurrence_document_fts;
              DROP TABLE IF EXISTS occurrence_documents;
+             DROP TABLE IF EXISTS node_phrase_fts;
+             DROP TABLE IF EXISTS node_content_fts;
              DROP TABLE IF EXISTS node_fts;
              DROP TABLE IF EXISTS nodes;
              DROP TABLE IF EXISTS files;
@@ -82,6 +87,18 @@ impl Database {
                ref_text,
                tag_text,
                tokenize='porter unicode61 remove_diacritics 2'
+             );
+
+             CREATE VIRTUAL TABLE IF NOT EXISTS node_content_fts USING fts5(
+               title,
+               aliases,
+               body,
+               tokenize='porter unicode61 remove_diacritics 2'
+             );
+
+             CREATE VIRTUAL TABLE IF NOT EXISTS node_phrase_fts USING fts5(
+               text,
+               tokenize='unicode61 remove_diacritics 2'
              );
 
              CREATE TABLE IF NOT EXISTS occurrence_documents (
@@ -201,8 +218,8 @@ impl Database {
                ON nodes (sr_due)
                WHERE glossary = 1;
 
-             PRAGMA user_version = 21;",
-        )?;
+             PRAGMA user_version = {SCHEMA_VERSION};"
+        ))?;
         Ok(())
     }
 }
@@ -226,6 +243,20 @@ mod tests {
             scan_root_with_policy(&root, &DiscoveryPolicy::default()).context("fixture scan")?;
         database.sync_index(&files).context("fixture index sync")?;
         Ok(database)
+    }
+
+    #[test]
+    fn a_rebuilt_database_opens_without_rebuilding_again() -> Result<()> {
+        let workspace = tempfile::tempdir().context("workspace should be created")?;
+        let path = workspace.path().join("index.sqlite3");
+        Database::open(&path)?;
+
+        let database = Database::open(&path)?;
+        let stamped: i32 = database
+            .connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        assert_eq!(stamped, super::SCHEMA_VERSION);
+        Ok(())
     }
 
     #[test]

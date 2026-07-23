@@ -4,7 +4,10 @@ use anyhow::{Context, Result};
 use rusqlite::{OptionalExtension, params, params_from_iter};
 use serde_json::Value;
 
-use slipbox_core::{AnchorRecord, NodeKind, NodeRecord, SearchNodesSort};
+use slipbox_core::{
+    AnchorRecord, ContentSegment, ContentSnippet, MIN_SEARCH_TERM_CHARACTERS, NodeContentHit,
+    NodeKind, NodeRecord, SearchNodesSort,
+};
 
 use crate::Database;
 
@@ -394,6 +397,82 @@ impl Database {
         }
     }
 
+    /// Search note body, title, and aliases through `node_content_fts`, ranked,
+    /// with a highlighted snippet per hit.
+    pub fn search_node_content(&self, query: &str, limit: usize) -> Result<Vec<NodeContentHit>> {
+        let limit = limit.clamp(1, 200) as i64;
+        let Some(fts_query) = build_fts_query(query) else {
+            return Ok(Vec::new());
+        };
+        // The phrase probe runs against `node_phrase_fts`, which is unstemmed and
+        // asks for exact terms; `node_content_fts` stems with `porter`, so a phrase
+        // there would match a merely related spelling. The probe is joined in, never
+        // filtered on.
+        let phrase_query = build_fts_phrase_query(query);
+        let (phrase_join, phrase_rank) = match phrase_query {
+            Some(_) => (
+                "LEFT JOIN (SELECT rowid
+                              FROM node_phrase_fts
+                             WHERE node_phrase_fts MATCH ?5) AS phrase
+                        ON phrase.rowid = node_content_fts.rowid",
+                "phrase.rowid IS NULL, ",
+            ),
+            None => ("", ""),
+        };
+        // The two equality tests below are the ones `idx_nodes_title_nocase` and
+        // `idx_aliases_alias_nocase` serve. `UNION` keeps them as separate indexed
+        // lookups; a single `OR` bridging `nodes` and `aliases` would reach neither
+        // index. NOCASE is ASCII only and does not reach the diacritics the FTS
+        // tokenizers strip.
+        let headword_query = query.split_whitespace().collect::<Vec<_>>().join(" ");
+        // The snippet comes from the body column (index 2), wrapping matched runs in
+        // control characters that cannot occur in Org prose.
+        let sql = format!(
+            "SELECT {},
+                    snippet(node_content_fts, 2, char(2), char(3), '…', ?2)
+               FROM node_content_fts
+               JOIN nodes AS n ON n.id = node_content_fts.rowid
+               LEFT JOIN (SELECT id
+                            FROM nodes
+                           WHERE title = ?4 COLLATE NOCASE
+                           UNION
+                          SELECT nodes.id
+                            FROM nodes
+                            JOIN aliases ON aliases.node_key = nodes.node_key
+                           WHERE aliases.alias = ?4 COLLATE NOCASE) AS headword
+                       ON headword.id = node_content_fts.rowid
+               {}
+              WHERE node_content_fts MATCH ?1
+                AND {}
+              ORDER BY headword.id IS NULL, {}bm25(node_content_fts), n.file_path, n.line
+              LIMIT ?3",
+            anchor_select_columns("n"),
+            phrase_join,
+            note_where("n"),
+            phrase_rank,
+        );
+        // The phrase param is bound last so parameter numbering holds whether or not
+        // the query has a phrase to prefer.
+        let mut arguments: Vec<rusqlite::types::Value> = vec![
+            fts_query.into(),
+            SNIPPET_TOKEN_BUDGET.into(),
+            limit.into(),
+            headword_query.into(),
+        ];
+        arguments.extend(phrase_query.map(Into::into));
+        let mut statement = self.connection.prepare(&sql)?;
+        let rows = statement.query_map(params_from_iter(arguments), |row| {
+            let node = row_to_note(row)?;
+            let raw: String = row.get(ANCHOR_SELECT_COLUMN_COUNT)?;
+            Ok(NodeContentHit {
+                node,
+                snippet: parse_snippet(&raw),
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("failed to read note content search results")
+    }
+
     pub fn glossary_due_terms(&self, today: &str, limit: usize) -> Result<Vec<NodeRecord>> {
         // A term is due when it has never been reviewed (`reps` unset or zero) or
         // its stored due date is at or before `today`. Scheduling values are
@@ -656,28 +735,94 @@ fn anchor_owner_note_keys(anchors: &[AnchorRecord]) -> HashMap<String, String> {
     owner_keys
 }
 
-fn build_fts_query(query: &str) -> Option<String> {
-    let terms = query
+/// Maximum tokens FTS5 puts in a content snippet before eliding.
+const SNIPPET_TOKEN_BUDGET: i64 = 32;
+
+/// Start-of-match delimiter, a C0 control character that never appears in Org
+/// prose.
+const MATCH_OPEN: char = '\u{2}';
+
+/// End-of-match delimiter paired with [`MATCH_OPEN`].
+const MATCH_CLOSE: char = '\u{3}';
+
+/// Split an FTS5 `snippet()` string on the match delimiters into alternating
+/// plain and matched segments, dropping the delimiters and any empty run.
+fn parse_snippet(raw: &str) -> ContentSnippet {
+    fn flush(text: &mut String, matched: bool, segments: &mut Vec<ContentSegment>) {
+        if !text.is_empty() {
+            segments.push(ContentSegment {
+                text: std::mem::take(text),
+                matched,
+            });
+        }
+    }
+
+    let mut segments = Vec::new();
+    let mut matched = false;
+    let mut current = String::new();
+
+    for character in raw.chars() {
+        match character {
+            MATCH_OPEN => {
+                flush(&mut current, matched, &mut segments);
+                matched = true;
+            }
+            MATCH_CLOSE => {
+                flush(&mut current, matched, &mut segments);
+                matched = false;
+            }
+            _ => current.push(character),
+        }
+    }
+    flush(&mut current, matched, &mut segments);
+
+    ContentSnippet { segments }
+}
+
+/// Usable FTS terms in a raw query: whitespace-separated runs, stripped of
+/// surrounding punctuation, at least [`MIN_SEARCH_TERM_CHARACTERS`] long.
+fn fts_terms(query: &str) -> Vec<&str> {
+    query
         .split_whitespace()
         .filter_map(|term| {
             let trimmed = term.trim_matches(|character: char| !character.is_alphanumeric());
-            if trimmed.len() >= 3 {
+            if trimmed.chars().count() >= MIN_SEARCH_TERM_CHARACTERS {
                 Some(trimmed)
             } else {
                 None
             }
         })
-        .collect::<Vec<_>>();
+        .collect()
+}
+
+/// Render terms as quoted FTS5 terms joined by `separator`, each a prefix term
+/// when `prefix` is set.
+fn join_fts_terms(terms: &[&str], separator: &str, prefix: bool) -> String {
+    let star = if prefix { "*" } else { "" };
+    terms
+        .iter()
+        .map(|term| format!("\"{}\"{star}", term.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(separator)
+}
+
+fn build_fts_query(query: &str) -> Option<String> {
+    let terms = fts_terms(query);
     if terms.is_empty() {
         None
     } else {
-        Some(
-            terms
-                .into_iter()
-                .map(|term| format!("\"{}\"*", term.replace('"', "\"\"")))
-                .collect::<Vec<_>>()
-                .join(" "),
-        )
+        Some(join_fts_terms(&terms, " ", true))
+    }
+}
+
+/// The query terms as one FTS5 phrase joined by `+`, whole rather than prefixes,
+/// for the unstemmed `node_phrase_fts`. A single term yields `None`.
+fn build_fts_phrase_query(query: &str) -> Option<String> {
+    let terms = fts_terms(query);
+    if terms.len() < 2 {
+        None
+    } else {
+        Some(join_fts_terms(&terms, " + ", false))
     }
 }
 
@@ -859,6 +1004,473 @@ mod tests {
 
         let due = database.glossary_due_terms("2026-07-21", 2)?;
         assert_eq!(titles(&due), vec!["A", "B"]);
+        Ok(())
+    }
+
+    fn content_titles(hits: &[slipbox_core::NodeContentHit]) -> Vec<String> {
+        hits.iter().map(|hit| hit.node.title.clone()).collect()
+    }
+
+    fn snippet_text(hit: &slipbox_core::NodeContentHit) -> String {
+        hit.snippet
+            .segments
+            .iter()
+            .map(|segment| segment.text.as_str())
+            .collect()
+    }
+
+    fn matched_text(hit: &slipbox_core::NodeContentHit) -> Vec<String> {
+        hit.snippet
+            .segments
+            .iter()
+            .filter(|segment| segment.matched)
+            .map(|segment| segment.text.clone())
+            .collect()
+    }
+
+    #[test]
+    fn content_search_matches_body_and_highlights_the_term() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[(
+            "integral.org",
+            "#+title: Integral\n\nThe fundamental theorem links it to the derivative.\n",
+        )])?;
+
+        let hits = database.search_node_content("fundamental", 20)?;
+        assert_eq!(content_titles(&hits), vec!["Integral"]);
+        assert!(
+            snippet_text(&hits[0]).contains("fundamental theorem"),
+            "the snippet should quote the matched body prose"
+        );
+        assert_eq!(
+            matched_text(&hits[0]),
+            vec!["fundamental"],
+            "only the query term is highlighted"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn content_search_reaches_title_and_aliases() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[(
+            "d.org",
+            "#+title: Derivative\n:PROPERTIES:\n:ROAM_ALIASES: \"Differential quotient\"\n:END:\n\nRate of change.\n",
+        )])?;
+
+        assert_eq!(
+            content_titles(&database.search_node_content("Derivative", 20)?),
+            vec!["Derivative"]
+        );
+        assert_eq!(
+            content_titles(&database.search_node_content("quotient", 20)?),
+            vec!["Derivative"]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn content_search_stems_and_folds_like_note_search() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            (
+                "d.org",
+                "#+title: Rates\n\nThe derivative measures instantaneous change.\n",
+            ),
+            ("g.org", "#+title: Logic\n\nGödel proved incompleteness.\n"),
+        ])?;
+
+        assert_eq!(
+            content_titles(&database.search_node_content("derivatives", 20)?),
+            vec!["Rates"]
+        );
+        assert_eq!(
+            content_titles(&database.search_node_content("godel", 20)?),
+            vec!["Logic"]
+        );
+        Ok(())
+    }
+
+    fn phrase_fixture() -> [(&'static str, &'static str); 2] {
+        [
+            (
+                "local.org",
+                "#+title: Local optimality and the maximum principle\n\nMaximization is global here.\n",
+            ),
+            (
+                "proto.org",
+                "#+title: Proto-maximum principle\n\nThe proto rule anticipates global maximization by a century, and the surrounding discussion works through compactness, continuity, convexity, and a long list of side conditions before it reaches any conclusion at all.\n",
+            ),
+        ]
+    }
+
+    #[test]
+    fn content_search_ranks_the_exact_phrase_first() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&phrase_fixture())?;
+
+        assert_eq!(
+            content_titles(&database.search_node_content("global maximization", 20)?),
+            vec![
+                "Proto-maximum principle",
+                "Local optimality and the maximum principle"
+            ],
+            "the note spelling the phrase out ranks above one merely mentioning both words"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn content_search_does_not_read_a_sentence_boundary_as_a_phrase() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            (
+                "decoy.org",
+                "#+title: Decoy\n\nEvery local minimum is automatically global. Maxima are defined by reversing the sign.\n",
+            ),
+            (
+                "phrase.org",
+                "#+title: Phrase\n\nThe variational approach establishes stationarity, not global maximization, and the surrounding discussion works through compactness, continuity, convexity, and a long list of side conditions before it reaches any conclusion at all.\n",
+            ),
+        ])?;
+
+        assert_eq!(
+            content_titles(&database.search_node_content("global maximization", 20)?),
+            vec!["Phrase", "Decoy"]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn content_search_does_not_read_a_shared_stem_as_a_phrase() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            (
+                "stemmed.org",
+                "#+title: Stemmed\n\nGlobal maximizing behaviour.\n",
+            ),
+            (
+                "spelled.org",
+                "#+title: Spelled\n\nGlobal maximization holds here, and the surrounding discussion works through compactness, continuity, convexity, and a long list of side conditions before it reaches any conclusion at all.\n",
+            ),
+        ])?;
+
+        assert_eq!(
+            content_titles(&database.search_node_content("global maximization", 20)?),
+            vec!["Spelled", "Stemmed"]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn content_search_keeps_every_multi_word_match() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&phrase_fixture())?;
+
+        let mut both = content_titles(&database.search_node_content("global maximization", 20)?);
+        both.sort();
+        assert_eq!(
+            both,
+            vec![
+                "Local optimality and the maximum principle",
+                "Proto-maximum principle"
+            ]
+        );
+        assert_eq!(database.search_node_content("global", 20)?.len(), 2);
+        assert_eq!(database.search_node_content("maximization", 20)?.len(), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn content_search_ranks_a_single_word_query_by_relevance_alone() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            (
+                "long.org",
+                "#+title: Long\n\nGlobal maximization opens a long discussion that wanders through compactness, continuity, convexity, and several other conditions before it ever reaches a conclusion.\n",
+            ),
+            ("short.org", "#+title: Short\n\nMaximization.\n"),
+        ])?;
+
+        assert_eq!(
+            content_titles(&database.search_node_content("maximization", 20)?),
+            vec!["Short", "Long"]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn content_search_still_matches_words_in_a_different_order() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&phrase_fixture())?;
+
+        let mut reversed =
+            content_titles(&database.search_node_content("maximization global", 20)?);
+        reversed.sort();
+        assert_eq!(
+            reversed,
+            vec![
+                "Local optimality and the maximum principle",
+                "Proto-maximum principle"
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn content_search_phrase_preference_folds_case_and_whitespace() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&phrase_fixture())?;
+
+        let expected = vec![
+            "Proto-maximum principle".to_owned(),
+            "Local optimality and the maximum principle".to_owned(),
+        ];
+        assert_eq!(
+            content_titles(&database.search_node_content("  GLOBAL   Maximization ", 20)?),
+            expected
+        );
+        Ok(())
+    }
+
+    fn headword_fixture() -> [(&'static str, &'static str); 3] {
+        [
+            (
+                "hamiltonian.org",
+                "#+title: Hamiltonian\n\nThe total energy of a system, written in canonical coordinates.\n",
+            ),
+            (
+                "pmp.org",
+                "#+title: Time-dependent Hamiltonian in the PMP\n\nThe Hamiltonian of a control problem varies with time, so the Hamiltonian is no longer conserved along an extremal; the maximized Hamiltonian picks up the partial derivative of the Hamiltonian with respect to time, and the transversality condition on the Hamiltonian closes the system.\n",
+            ),
+            (
+                "legendre.org",
+                "#+title: Legendre transform\n\nIt carries a Lagrangian to a Hamiltonian.\n",
+            ),
+        ]
+    }
+
+    #[test]
+    fn content_search_ranks_an_exact_title_first() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&headword_fixture())?;
+
+        assert_eq!(
+            content_titles(&database.search_node_content("Hamiltonian", 20)?),
+            vec![
+                "Hamiltonian",
+                "Time-dependent Hamiltonian in the PMP",
+                "Legendre transform"
+            ],
+            "the note the query names outright ranks above every note merely discussing it"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn content_search_exact_title_preference_folds_case() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&headword_fixture())?;
+
+        assert_eq!(
+            content_titles(&database.search_node_content("  hAMILTONIAN ", 20)?),
+            vec![
+                "Hamiltonian",
+                "Time-dependent Hamiltonian in the PMP",
+                "Legendre transform"
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn content_search_ranks_an_exact_alias_first() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            (
+                "energy.org",
+                "#+title: Total energy function\n:PROPERTIES:\n:ROAM_ALIASES: Hamiltonian\n:END:\n\nWritten in canonical coordinates.\n",
+            ),
+            headword_fixture()[1],
+        ])?;
+
+        assert_eq!(
+            content_titles(&database.search_node_content("Hamiltonian", 20)?),
+            vec![
+                "Total energy function",
+                "Time-dependent Hamiltonian in the PMP"
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn content_search_keeps_every_match_around_an_exact_title() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&headword_fixture())?;
+
+        let mut every = content_titles(&database.search_node_content("Hamiltonian", 20)?);
+        every.sort();
+        assert_eq!(
+            every,
+            vec![
+                "Hamiltonian",
+                "Legendre transform",
+                "Time-dependent Hamiltonian in the PMP"
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn content_search_ranks_an_exact_multi_word_title_first() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            (
+                "minima.org",
+                "#+title: local and global minima\n\nA short gloss on the distinction.\n",
+            ),
+            (
+                "descent.org",
+                "#+title: Descent methods\n\nThe distinction between local and global minima drives the subject: local and global minima coincide for a convex objective, while for a non-convex one the gap between local and global minima is what every escape heuristic chases.\n",
+            ),
+        ])?;
+
+        assert_eq!(
+            content_titles(&database.search_node_content("local and global minima", 20)?),
+            vec!["local and global minima", "Descent methods"]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn content_search_prefers_the_phrase_among_untitled_matches() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&phrase_fixture())?;
+
+        assert_eq!(
+            content_titles(&database.search_node_content("global maximization", 20)?),
+            vec![
+                "Proto-maximum principle",
+                "Local optimality and the maximum principle"
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_two_character_acronym_is_a_term_every_search_path_matches_on() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            (
+                "kl.org",
+                "#+title: KL divergence\n\nAn asymmetric measure between two distributions.\n",
+            ),
+            (
+                "descent.org",
+                "#+title: Gradient descent\n\nA note that has nothing to do with it.\n",
+            ),
+        ])?;
+
+        assert_eq!(
+            titles(&database.search_nodes("KL", 20, None)?),
+            vec!["KL divergence"]
+        );
+        assert_eq!(
+            content_titles(&database.search_node_content("KL", 20)?),
+            vec!["KL divergence"]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_word_below_the_floor_is_not_a_term_whatever_its_byte_length() -> Result<()> {
+        let (_workspace, database, _root) =
+            indexed_database(&[("cat.org", "#+title: 猫\n\nA single-character headword.\n")])?;
+
+        assert!(database.search_node_content("猫", 20)?.is_empty());
+        assert!(database.search_node_content("a", 20)?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn content_search_scopes_snippet_to_the_owning_node() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[(
+            "doc.org",
+            "#+title: Parent\n\nParent mentions apples.\n\n* Child\n:PROPERTIES:\n:ID: child1\n:END:\n\nChild mentions oranges.\n",
+        )])?;
+
+        let apple = database.search_node_content("apples", 20)?;
+        assert_eq!(content_titles(&apple), vec!["Parent"]);
+
+        let orange = database.search_node_content("oranges", 20)?;
+        assert_eq!(content_titles(&orange), vec!["Child"]);
+        assert!(
+            !snippet_text(&orange[0]).contains("apples"),
+            "the child's snippet must not leak the parent's prose"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn content_search_with_no_usable_terms_returns_nothing() -> Result<()> {
+        let (_workspace, database, _root) =
+            indexed_database(&[("a.org", "#+title: Alpha\n\nBody text.\n")])?;
+
+        assert!(database.search_node_content("!!", 20)?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn content_snippet_never_reinterprets_markup_in_prose() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[(
+            "m.org",
+            "#+title: Markup\n\nThe unmistakable widget renders <mark> and [[id:abc][a link]].\n",
+        )])?;
+
+        let hits = database.search_node_content("unmistakable", 20)?;
+        assert_eq!(content_titles(&hits), vec!["Markup"]);
+        let plain: String = hits[0]
+            .snippet
+            .segments
+            .iter()
+            .filter(|segment| !segment.matched)
+            .map(|segment| segment.text.as_str())
+            .collect();
+        assert!(plain.contains("<mark>"));
+        assert!(plain.contains("[[id:abc][a link]]"));
+        assert_eq!(matched_text(&hits[0]), vec!["unmistakable"]);
+        Ok(())
+    }
+
+    #[test]
+    fn content_search_leaves_metadata_search_recall_unchanged() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[(
+            "n.org",
+            "#+title: Topology\n\nThe unmistakable body keyword lives here.\n",
+        )])?;
+
+        assert!(
+            database.search_nodes("unmistakable", 20, None)?.is_empty(),
+            "a body-only word must not surface through node_fts metadata search"
+        );
+        assert_eq!(
+            content_titles(&database.search_node_content("unmistakable", 20)?),
+            vec!["Topology"]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn content_index_survives_forced_rebuild() -> Result<()> {
+        let (_workspace, mut database, root) = indexed_database(&[(
+            "term.org",
+            "#+title: Integral\n\nThe fundamental theorem of calculus.\n",
+        )])?;
+
+        assert_eq!(
+            content_titles(&database.search_node_content("fundamental", 20)?),
+            vec!["Integral"]
+        );
+
+        database
+            .connection
+            .execute_batch("PRAGMA user_version = 0;")?;
+        database.migrate()?;
+        assert!(
+            database.search_node_content("fundamental", 20)?.is_empty(),
+            "a forced rebuild empties the content index"
+        );
+
+        let files = scan_root_with_policy(&root, &DiscoveryPolicy::default())?;
+        database.sync_index(&files)?;
+        assert_eq!(
+            content_titles(&database.search_node_content("fundamental", 20)?),
+            vec!["Integral"]
+        );
         Ok(())
     }
 

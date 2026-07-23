@@ -514,6 +514,26 @@ fn insert_file_rows(transaction: &Transaction<'_>, file: &IndexedFile) -> Result
             ],
         )?;
 
+        // Content search shares the node's rowid, so a hit resolves back to the
+        // same node row.
+        transaction.execute(
+            "INSERT INTO node_content_fts (rowid, title, aliases, body)
+                 VALUES (?1, ?2, ?3, ?4)",
+            params![row_id, node.title, node.aliases.join(" "), node.body],
+        )?;
+
+        // The same text on the same rowid, tokenized without stemming, in one
+        // column: this is what a phrase is matched against. Columns are separated so
+        // a phrase cannot run from the end of one into the start of the next.
+        transaction.execute(
+            "INSERT INTO node_phrase_fts (rowid, text)
+                 VALUES (?1, ?2)",
+            params![
+                row_id,
+                format!("{}\n{}\n{}", node.title, node.aliases.join("\n"), node.body)
+            ],
+        )?;
+
         for reference in &node.refs {
             transaction.execute(
                 "INSERT INTO refs (node_key, ref)
@@ -650,6 +670,24 @@ fn delete_file_rows(transaction: &Transaction<'_>, file_path: &str) -> Result<()
     )?;
     transaction.execute(
         "DELETE FROM node_fts
+          WHERE rowid IN (
+                SELECT id
+                  FROM nodes
+                 WHERE file_path = ?1
+          )",
+        params![file_path],
+    )?;
+    transaction.execute(
+        "DELETE FROM node_content_fts
+          WHERE rowid IN (
+                SELECT id
+                  FROM nodes
+                 WHERE file_path = ?1
+          )",
+        params![file_path],
+    )?;
+    transaction.execute(
+        "DELETE FROM node_phrase_fts
           WHERE rowid IN (
                 SELECT id
                   FROM nodes
