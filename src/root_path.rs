@@ -23,14 +23,14 @@ pub fn resolve_root_path_from_canonical_root(
 ) -> Result<ResolvedRootPath> {
     let relative = if file_path.is_absolute() {
         let absolute = normalize_absolute_path(file_path)?;
-        let root_relative = absolute.strip_prefix(root).map_err(|_| {
+        let root_relative = root_relative_tail(root, &absolute).ok_or_else(|| {
             anyhow!(
                 "file path {} is not under {}",
                 file_path.display(),
                 root.display()
             )
         })?;
-        normalize_relative_path(root_relative)?
+        normalize_relative_path(&root_relative)?
     } else {
         normalize_relative_path(file_path)?
     };
@@ -41,6 +41,34 @@ pub fn resolve_root_path_from_canonical_root(
         absolute_path: root.join(relative),
         relative_path,
     })
+}
+
+/// Split an absolute path into the tail that follows `root`, or `None` when the
+/// path lies elsewhere.
+///
+/// `root` is canonical, so a path spelled through a symlinked ancestor cannot be
+/// compared to it lexically (`/var/folders/x/root` and
+/// `/private/var/folders/x/root` are the same place); successively longer
+/// ancestors are canonicalized until one resolves to `root`. The walk stops at
+/// that first match, leaving the tail exactly as spelled for
+/// `reject_symlink_components` to inspect.
+fn root_relative_tail(root: &Path, absolute: &Path) -> Option<PathBuf> {
+    if let Ok(tail) = absolute.strip_prefix(root) {
+        return Some(tail.to_path_buf());
+    }
+
+    let components: Vec<Component> = absolute.components().collect();
+    for boundary in 1..components.len() {
+        let ancestor: PathBuf = components[..boundary].iter().collect();
+        match ancestor.canonicalize() {
+            Ok(resolved) if resolved == root => {
+                return Some(components[boundary..].iter().collect());
+            }
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+    None
 }
 
 fn normalize_absolute_path(path: &Path) -> Result<PathBuf> {
@@ -133,6 +161,53 @@ mod tests {
     }
 
     #[test]
+    fn resolver_accepts_absolute_paths_spelled_through_an_unresolved_root() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let root = temp.path().join("root");
+        fs::create_dir_all(root.join("notes"))?;
+        fs::write(root.join("notes/a.org"), "#+title: A\n")?;
+
+        let resolved = resolve_root_path(&root, &root.join("notes/a.org"))?;
+
+        assert_eq!(resolved.relative_path, "notes/a.org");
+        assert_eq!(
+            resolved.absolute_path,
+            root.canonicalize()?.join("notes/a.org")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn resolver_accepts_absolute_paths_to_files_that_do_not_exist_yet() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let root = temp.path().join("root");
+        fs::create_dir_all(root.join("notes"))?;
+
+        let resolved = resolve_root_path(&root, &root.join("notes/new.org"))?;
+
+        assert_eq!(resolved.relative_path, "notes/new.org");
+        assert_eq!(
+            resolved.absolute_path,
+            root.canonicalize()?.join("notes/new.org")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn resolver_rejects_absolute_paths_outside_the_root() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let root = temp.path().join("root");
+        fs::create_dir_all(&root)?;
+        let outside = temp.path().join("outside.org");
+        fs::write(&outside, "#+title: Outside\n")?;
+
+        let error = resolve_root_path(&root, &outside).unwrap_err();
+
+        assert!(error.to_string().contains("is not under"));
+        Ok(())
+    }
+
+    #[test]
     fn resolver_rejects_parent_components() -> Result<()> {
         let temp = tempfile::tempdir()?;
         let root = temp.path().join("root");
@@ -144,6 +219,22 @@ mod tests {
             error
                 .to_string()
                 .contains("must stay within the slipbox root")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn resolver_rejects_parent_components_in_absolute_paths() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let root = temp.path().join("root");
+        fs::create_dir_all(&root)?;
+
+        let error = resolve_root_path(&root, &root.join("../outside.org")).unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("must not contain parent-directory components")
         );
         Ok(())
     }
@@ -161,6 +252,24 @@ mod tests {
         symlink(&outside, root.join("linked"))?;
 
         let error = resolve_root_path(&root, "linked/escape.org".as_ref()).unwrap_err();
+
+        assert!(error.to_string().contains("crosses symlink component"));
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolver_rejects_symlink_components_in_absolute_paths() -> Result<()> {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir()?;
+        let root = temp.path().join("root");
+        let outside = temp.path().join("outside");
+        fs::create_dir_all(&root)?;
+        fs::create_dir_all(&outside)?;
+        symlink(&outside, root.join("linked"))?;
+
+        let error = resolve_root_path(&root, &root.join("linked/escape.org")).unwrap_err();
 
         assert!(error.to_string().contains("crosses symlink component"));
         Ok(())

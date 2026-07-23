@@ -16,6 +16,11 @@ The format follows Keep a Changelog, and this project follows SemVer.
   graph, and MCP surface out of that front-end.
 
 ### Fixed
+- Resolve an absolute file path against the canonical root by matching the
+  path's own ancestors, so a root reached through a symlinked parent no
+  longer rejects its own children as outside the slipbox. Components below
+  the root stay as spelled, so a path leaving the root through a symlink
+  inside it is still refused.
 - Use tab recipe prefixes in the source-build `Makefile` instead of the
   `.RECIPEPREFIX` directive, so every target, including the release metadata
   gate, runs under the GNU Make 3.81 that ships as `make` on macOS.
