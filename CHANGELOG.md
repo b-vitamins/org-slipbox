@@ -6,6 +6,15 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+### Changed
+- Defined the `0.17.x` reading-surface band as the deliberate, bounded
+  introduction of a read-only web front-end over Notes and Glossary, bridging
+  HTTP to a spawned read-only `slipbox serve` over the same daemon-client
+  boundary Emacs and the CLI use, while keeping the surface localhost-only and
+  single-user and keeping a second database, separate sync mechanism, SSE or
+  websocket push, spaced-repetition grade writeback, global force-directed
+  graph, and MCP surface out of that front-end.
+
 ## [0.16.0] - 2026-07-22
 
 ### Added

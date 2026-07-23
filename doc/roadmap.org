@@ -119,6 +119,47 @@ Exit signal:
 - no web UI, HTTP server, SSE hub, SPA, second database, separate sync
   mechanism, or MCP surface is introduced
 
+* 0.17.x: Reading Surface
+
+Theme: add a read-only web reading surface as a third front-end over Notes and
+Glossary, the deliberate and bounded introduction of the web UI, HTTP server,
+and SPA that the 0.16.x line explicitly deferred.
+
+Focus:
+
+- a `slipbox-web` crate that bridges HTTP to a spawned `slipbox serve
+  --read-only`, over the same daemon-client boundary Emacs and the CLI use,
+  never an in-process service
+- operation mutation classification hosted in `slipbox-rpc` beside the method
+  constants, so read-only is a machine-checkable allowlist and the serve guard
+  rejects any non-read-only method at dispatch
+- a bounded read-only HTTP API over Notes and Glossary: node lookup, a note
+  reading context, node and glossary search, random node, relations, glossary
+  terms, definitions, and due selection, and a hop-bounded neighborhood
+- a SolidJS reading client with URL-as-state navigation, an Org reading column
+  with a near/far spine, glance/pin/go navigation, a search-first entry
+  surface, and a glossary dictionary with peek and an inert study trail
+- a `slipbox web` command that embeds the built client behind a build feature,
+  serves it with an SPA fallback, binds localhost only, and self-spawns the
+  read-only daemon
+- CI that builds and tests the reading client, and user documentation for the
+  reading surface
+
+Exit signal:
+
+- the web surface serves Notes and Glossary read-only, and no HTTP path can
+  reach a mutating operation
+- the reading client builds and tests in CI and is documented for ordinary
+  users
+- the introduced surface stays bounded: read-only, localhost-only, single
+  user, no second database, no separate sync mechanism, no SSE or websocket
+  push, and no MCP surface
+- no new public bucket is added; the web reader is a third front-end over the
+  same daemon-owned model, and Explorations, Reviews, and Assets get no web
+  surface
+- spaced-repetition grade writeback and any global or force-directed graph
+  remain deferred
+
 * 1.0.x: Stability Line
 
 Theme: make the public surface dependable enough for ordinary users,

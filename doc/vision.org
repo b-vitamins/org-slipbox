@@ -52,13 +52,17 @@ The Emacs package, CLI, and daemon JSON-RPC surface should share one model:
 
 Each surface may present the model differently, but semantic ownership should
 stay the same. The dedicated Emacs buffer is the richest interactive cockpit.
-The CLI is the task-shaped headless surface.
+The CLI is the task-shaped headless surface. A read-only web reader is a third
+front-end over Notes and Glossary; it reads through the same daemon and adds no
+public bucket of its own.
 
 * Architecture
 
 - Rust owns parse/index/query/write semantics.
 - Emacs Lisp owns commands, buffers, session state, and presentation.
 - Daemon-backed automation goes through `slipbox serve`.
+- The web reader bridges HTTP to a spawned read-only `slipbox serve`; it never
+  mutates notes and binds localhost only.
 - File-level updates stay incremental and explicit.
 - Public durable records live outside the derived SQLite index.
 - Persistent UI paths stay cheap; explicit cockpit and headless commands own

@@ -27,9 +27,12 @@ promoted into separate public domains.
 - Durable side stores live beside the database and remain separate from notes,
   search, refs, and graph identity.
 - The daemon owns parsing, indexing, querying, ranking, and file mutation.
-- Emacs and the CLI are two front-ends over the same daemon-owned model.
+- Emacs and the CLI are two front-ends over the same daemon-owned model, and a
+  read-only web reader is a third front-end over Notes and Glossary; it owns no
+  new public bucket.
 - JSON-RPC is the transport boundary; public commands and durable records stay
-  task-shaped.
+  task-shaped. Each RPC method carries a mutation class, so a read-only front-end
+  is an allowlist over that classification, not a separate contract.
 
 * Public Buckets
 
