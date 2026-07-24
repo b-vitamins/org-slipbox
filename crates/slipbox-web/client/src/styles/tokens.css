@@ -1,0 +1,131 @@
+/*
+ * Design tokens for the slipbox reading surface: type scale, palette, column
+ * geometry, chrome, and motion. The spine's geometry math reads the same column
+ * tokens, so both stay in step.
+ */
+
+:root {
+  /* Type: a system stack. */
+  --font-body:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    monospace;
+  --text-size: 17px;
+  --text-line: 24px;
+  --text-letter-spacing: -0.0024em;
+  --h1-size: 28px;
+  --h1-line: 34px;
+  --h2-size: 25px;
+  --h2-line: 31px;
+  --code-size: 13px;
+  --code-line: 17px;
+
+  /* Palette: paper and ink, with quiet greys and link accents. Every tone that
+   * carries text (--ink, --muted, --muted-2, --link, --link-visited) clears
+   * WCAG AA 4.5:1 on both --surface and --paper; --muted-3 and --hairline are
+   * decorative hairlines, exempt from the text-contrast floor. */
+  --paper: #fafafc;
+  --surface: #ffffff;
+  --ink: #333333;
+  --muted: #6b6b6b;
+  --muted-2: #717171;
+  --muted-3: #dddddd;
+  --hairline: #dadada;
+  --column-border: rgba(0, 0, 0, 0.05);
+  --link: #0a6ed1;
+  --link-visited: #9333c4;
+  --link-active-bg: rgba(10, 110, 209, 0.15);
+
+  /* Column geometry for the reading spine. */
+  --column-width: 625px;
+  --column-sliver: 40px;
+  --column-step: 585px;
+  --note-padding: 32px;
+  --note-padding-mobile: 16px;
+
+  --header-min-height: 44px;
+  --header-padding-y: 10px;
+  --header-padding-x: 32px;
+  --radius-card: 16px;
+  /* The platform accessibility guidelines' minimum touch target, applied as a
+   * floor by the `pointer: coarse` block below. */
+  --touch-target: 44px;
+  --overlay-shadow: 0 0 15px 3px rgba(0, 0, 0, 0.1);
+
+  /* Motion: a fast-out expo settle, plus supporting durations. */
+  --ease-settle: cubic-bezier(0.19, 1, 0.22, 1);
+  --dur-column: 200ms;
+  --dur-shadow: 100ms;
+  --dur-opacity: 75ms;
+  --dur-crossfade: 150ms;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--text-size);
+  line-height: var(--text-line);
+  letter-spacing: var(--text-letter-spacing);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+a:visited {
+  color: var(--link-visited);
+}
+
+/* Where the pointer is a finger, every control clears the touch-target floor.
+ *
+ * `min-height` has no effect on a non-replaced inline element, which is what
+ * scopes the anchor rule: it reaches a link laid out as a box (a flex or
+ * inline-flex control) and is inert on a link inside body prose.
+ *
+ * `--header-min-height` is restated as what the bar now measures, since anything
+ * sizing itself as the viewport minus that token would otherwise hand the
+ * difference to a whole-page scroll. */
+@media (pointer: coarse) {
+  :root {
+    --header-padding-y: 6px;
+    --header-padding-x: 16px;
+    --header-min-height: calc(var(--touch-target) + 2 * var(--header-padding-y));
+  }
+
+  a,
+  button,
+  input,
+  [role="option"] {
+    min-height: var(--touch-target);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-column: 0ms;
+    --dur-shadow: 0ms;
+    --dur-opacity: 0ms;
+    --dur-crossfade: 0ms;
+  }
+}

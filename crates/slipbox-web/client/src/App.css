@@ -1,0 +1,93 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  min-height: var(--header-min-height);
+  padding: var(--header-padding-y) var(--header-padding-x);
+  background: var(--surface);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.app-header__title {
+  font-size: 17px;
+  font-weight: 500;
+}
+
+.app-main {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  padding: var(--note-padding);
+}
+
+.app-note {
+  color: var(--muted);
+}
+
+.app-note--error {
+  color: var(--ink);
+}
+
+.status-card {
+  align-self: flex-start;
+  max-width: var(--column-width);
+  width: 100%;
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  padding: var(--note-padding);
+}
+
+.status-card__root {
+  margin: 0 0 24px;
+  font-size: var(--h2-size);
+  line-height: var(--h2-line);
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.status-card__facts {
+  display: flex;
+  gap: 32px;
+  margin: 0;
+}
+
+.status-card__fact {
+  display: flex;
+  flex-direction: column;
+}
+
+.status-card__fact dt {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.status-card__fact dd {
+  margin: 4px 0 0;
+  font-size: var(--h1-size);
+  line-height: var(--h1-line);
+  font-weight: 600;
+}
+
+.status-card__version {
+  margin: 24px 0 0;
+  font-size: 13px;
+  color: var(--muted-2);
+}
+
+@media (max-width: 800px) {
+  .app-main {
+    padding: var(--note-padding-mobile);
+  }
+
+  .status-card {
+    padding: var(--note-padding-mobile);
+  }
+}
