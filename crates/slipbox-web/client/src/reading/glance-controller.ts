@@ -11,18 +11,8 @@
 
 import { createSignal, type Accessor } from "solid-js";
 
+import { WINDOW_SCHEDULER, type Scheduler } from "../data/scheduler.js";
 import type { GlanceRequest } from "../org/navigation.jsx";
-
-/** A cancellable timer seam, defaulting to the window timer functions. */
-export interface Scheduler {
-  readonly set: (fn: () => void, ms: number) => number;
-  readonly clear: (handle: number) => void;
-}
-
-const WINDOW_SCHEDULER: Scheduler = {
-  set: (fn, ms) => window.setTimeout(fn, ms),
-  clear: (handle) => window.clearTimeout(handle),
-};
 
 export interface GlanceController {
   readonly request: Accessor<GlanceRequest | null>;

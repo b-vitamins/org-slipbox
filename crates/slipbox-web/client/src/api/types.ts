@@ -54,6 +54,11 @@ export interface StatusInfo {
   db: string;
   files_indexed: number;
   nodes_indexed: number;
+  /**
+   * Addressable notes: file nodes and headings carrying an explicit id. A
+   * subset of `nodes_indexed`, which also counts plain headings.
+   */
+  notes_indexed: number;
   links_indexed: number;
 }
 

@@ -1,7 +1,8 @@
 import { createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
 
-import { createGlanceController, type Scheduler } from "./glance-controller.js";
+import { createGlanceController } from "./glance-controller.js";
+import type { Scheduler } from "../data/scheduler.js";
 import type { GlanceRequest } from "../org/navigation.jsx";
 
 /** A manual scheduler: callbacks fire only when `flush` is called. */
