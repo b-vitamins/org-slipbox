@@ -6,8 +6,9 @@ use slipbox_core::{
     GlossaryDueResult, GlossaryTermParams, GlossaryTermResult, ListGlossaryTermsParams,
     ListGlossaryTermsResult, NodeFromIdParams, NodeFromKeyParams, NodeFromTitleOrAliasParams,
     NodeRecord, NoteContextParams, NoteContextResult, PingInfo, RandomNodeResult, ReflinksParams,
-    ReflinksResult, SearchGlossaryParams, SearchGlossaryResult, SearchNodesParams,
-    SearchNodesResult, StatusInfo, UnlinkedReferencesParams, UnlinkedReferencesResult,
+    ReflinksResult, SearchGlossaryParams, SearchGlossaryResult, SearchNodeContentParams,
+    SearchNodeContentResult, SearchNodesParams, SearchNodesResult, StatusInfo,
+    UnlinkedReferencesParams, UnlinkedReferencesResult,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonClientError, DaemonServeConfig};
 
@@ -114,6 +115,16 @@ impl ReadingBridge {
         params: &SearchNodesParams,
     ) -> Result<SearchNodesResult, ReadingBridgeError> {
         self.with_client(|client| client.search_nodes(params))
+    }
+
+    /// Search indexed note bodies, ranked, with a highlighted excerpt per hit.
+    /// A separate index from [`search_nodes`](Self::search_nodes), which matches
+    /// note metadata.
+    pub fn search_node_content(
+        &self,
+        params: &SearchNodeContentParams,
+    ) -> Result<SearchNodeContentResult, ReadingBridgeError> {
+        self.with_client(|client| client.search_node_content(params))
     }
 
     /// Return one random indexed note.
@@ -272,5 +283,9 @@ mod tests {
                 method: "slipbox/status"
             }
         ));
+        assert!(!lost_the_daemon(&DaemonClientError::MalformedResult {
+            method: "slipbox/status",
+            source: serde_json::from_str::<u32>("nope").expect_err("not a number"),
+        }));
     }
 }

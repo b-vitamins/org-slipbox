@@ -55,8 +55,10 @@ tempfile.workspace = true
 [dev-dependencies]
 anyhow.workspace = true
 chrono.workspace = true
+serde_json.workspace = true
 slipbox-index = { path = "crates/slipbox-index" }
 slipbox-store = { path = "crates/slipbox-store", default-features = false }
 slipbox-web = { path = "crates/slipbox-web" }
 slipbox-write = { path = "crates/slipbox-write" }
 tempfile.workspace = true
+urlencoding.workspace = true

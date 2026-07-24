@@ -572,6 +572,7 @@ dependencies = [
  "slipbox-web",
  "slipbox-write",
  "tempfile",
+ "urlencoding",
 ]
 
 [[package]]
@@ -633,9 +634,14 @@ dependencies = [
 name = "slipbox-web"
 version = "0.16.0"
 dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
  "slipbox-core",
  "slipbox-daemon-client",
+ "slipbox-rpc",
  "thiserror",
+ "urlencoding",
 ]
 
 [[package]]
