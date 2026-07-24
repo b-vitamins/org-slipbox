@@ -127,6 +127,11 @@ and SPA that the 0.16.x line explicitly deferred.
 
 Focus:
 
+- ranked note-content search as a third search concept beside node search and
+  occurrence search, landing across core, store, RPC, server, daemon-client, and
+  the CLI, and exposed on the reading API; it is a parallel path that leaves
+  `node search` and the Emacs recall behavior unchanged, and the reading entry
+  surface searches note bodies through it, showing each hit's matched excerpt
 - a `slipbox-web` crate that bridges HTTP to a spawned `slipbox serve
   --read-only`, over the same daemon-client boundary Emacs and the CLI use,
   never an in-process service
@@ -134,8 +139,9 @@ Focus:
   constants, so read-only is a machine-checkable allowlist and the serve guard
   rejects any non-read-only method at dispatch
 - a bounded read-only HTTP API over Notes and Glossary: node lookup, a note
-  reading context, node and glossary search, random node, relations, glossary
-  terms, definitions, and due selection, and a hop-bounded neighborhood
+  reading context, node, content, and glossary search, random node, relations,
+  glossary terms, definitions, and due selection, and a hop-bounded
+  neighborhood
 - a SolidJS reading client with URL-as-state navigation, an Org reading column
   with a near/far spine, glance/pin/go navigation, a search-first entry
   surface, and a glossary dictionary with peek and an inert study trail
@@ -147,6 +153,9 @@ Focus:
 
 Exit signal:
 
+- note-content search ships as a parallel path with its own index and ranked,
+  snippet-bearing contract, and node search, `node_fts`, and the Emacs recall
+  path are byte-for-byte unchanged
 - the web surface serves Notes and Glossary read-only, and no HTTP path can
   reach a mutating operation
 - the reading client builds and tests in CI and is documented for ordinary

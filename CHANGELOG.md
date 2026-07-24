@@ -6,7 +6,33 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+### Added
+- Added ranked note-content search as a third search concept alongside node
+  search and occurrence search: `search content` matches a note's body, title,
+  and aliases through a dedicated `node_content_fts` index, ranks whole notes
+  by relevance, and returns a highlighted excerpt per hit.
+- Added the `slipbox/searchNodeContent` RPC method and a `search content` CLI
+  command that renders each ranked hit with its highlighted body excerpt,
+  exposed across core, store, RPC, server, daemon-client, and the CLI.
+- Added a highlighted-snippet contract carried as structured `ContentSnippet`
+  segments, each flagged matched or unmatched, so a client renders emphasis
+  without re-scanning the body or trusting an in-band delimiter.
+- Added an indexed-note count to `status`, reporting the addressable note
+  surface (file notes and explicit-ID headings) as a strict subset of the
+  indexed node count.
+- Added note-content contract and benchmark coverage, including a gate proving
+  the content probe stays invisible to metadata search so the two remain
+  parallel paths.
+
 ### Changed
+- Changed note-content search to be a parallel path to node search rather than
+  a change to it: `node search`, its `node_fts` metadata index, and the Emacs
+  `org-slipbox-node-find` recall path keep their exact matching behavior and
+  result shape; content search adds a separate index, contract, and ranked
+  snippet-bearing result beside them.
+- Bumped the derived schema version so the note-content index builds on open;
+  the index is derived from Org bodies and rebuildable, and its relevance
+  ordering and tokenizer stay internal.
 - Defined the `0.17.x` reading-surface band as the deliberate, bounded
   introduction of a read-only web front-end over Notes and Glossary, bridging
   HTTP to a spawned read-only `slipbox serve` over the same daemon-client

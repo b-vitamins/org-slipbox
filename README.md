@@ -21,7 +21,7 @@ is:
 - `Notes`: Org files, file nodes, heading anchors, metadata, capture, dailies,
   and structural edits.
 - `Relations`: links, refs, tags, backlinks, forward links, occurrence search,
-  agenda entries, and graph edges.
+  ranked note-content search, agenda entries, and graph edges.
 - `Explorations`: lenses, comparisons, trails, explanations, and saved
   exploration artifacts.
 - `Reviews`: audits, review runs, status, diffs, remediation previews, and
@@ -383,11 +383,24 @@ output modes, and JSON intent. Representative commands:
 slipbox sync root --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox node show --id project-alpha --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox node search planning --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
+slipbox search content "spectral clustering" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox ref resolve cite:smith2026 --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox agenda today --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox note create --title "Project Alpha" --file notes/project-alpha.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox capture preview --file inbox.org --title Inbox --type plain --content "Draft only" --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 ```
+
+Searching text is three distinct commands, each a parallel path with its own
+index and result shape:
+
+- `node search` matches note metadata (title, aliases, refs, tags, outline) and
+  returns node records. This is the recall path Emacs `org-slipbox-node-find`
+  uses, and its matching behavior is unchanged.
+- `search occurrences` matches raw literal text anywhere in indexed bodies and
+  returns each location with its owning anchor and source position.
+- `search content` matches a note's body, title, and aliases, ranks whole notes
+  by relevance, and returns a highlighted excerpt per hit. It is a parallel path
+  to `node search`, not a change to it.
 
 Writes return read-your-writes results after daemon-owned index refresh. For
 structural edits, JSON output is a `StructuralWriteReport` with changed files,
