@@ -44,6 +44,7 @@ impl ScopeArgs {
             workflow_dirs: self.workflow_dirs.clone(),
             file_extensions: self.file_extensions.clone(),
             exclude_regexps: self.exclude_regexps.clone(),
+            read_only: false,
         }
     }
 }

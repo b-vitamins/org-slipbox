@@ -569,6 +569,7 @@ dependencies = [
  "slipbox-index",
  "slipbox-rpc",
  "slipbox-store",
+ "slipbox-web",
  "slipbox-write",
  "tempfile",
 ]
@@ -626,6 +627,15 @@ dependencies = [
  "slipbox-index",
  "tempfile",
  "urlencoding",
+]
+
+[[package]]
+name = "slipbox-web"
+version = "0.16.0"
+dependencies = [
+ "slipbox-core",
+ "slipbox-daemon-client",
+ "thiserror",
 ]
 
 [[package]]

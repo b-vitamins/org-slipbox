@@ -1580,6 +1580,55 @@ Points to [[id:missing-id][Missing]].
 }
 
 #[test]
+fn read_only_daemon_serves_reads_and_refuses_mutations() -> Result<()> {
+    let (_workspace, root, db, _anonymous_anchor_key) = build_indexed_fixture()?;
+    let mut client = DaemonClient::spawn(
+        daemon_binary(),
+        &DaemonServeConfig::new(&root, &db).read_only(true),
+    )?;
+
+    let status = client.status()?;
+    assert_eq!(status.files_indexed, 3);
+    assert_eq!(status.nodes_indexed, 5);
+
+    let search = client.search_nodes(&SearchNodesParams {
+        query: "Alpha".to_owned(),
+        limit: 10,
+        sort: None,
+    })?;
+    assert!(search.nodes.iter().any(|node| node.title == "Alpha"));
+
+    let refused = client
+        .capture_node(&CaptureNodeParams {
+            title: "Should Not Persist".to_owned(),
+            file_path: Some("blocked.org".to_owned()),
+            head: None,
+            refs: Vec::new(),
+        })
+        .expect_err("a read-only session must refuse captureNode");
+    match refused {
+        DaemonClientError::Rpc(error) => {
+            assert_eq!(error.code, -32600);
+            assert!(
+                error
+                    .message
+                    .contains("not available on a read-only slipbox session"),
+                "{}",
+                error.message
+            );
+        }
+        other => panic!("expected JSON-RPC invalid-request refusal, got {other:?}"),
+    }
+
+    assert!(!root.join("blocked.org").exists());
+    let status_after = client.status()?;
+    assert_eq!(status_after.files_indexed, 3);
+
+    client.shutdown()?;
+    Ok(())
+}
+
+#[test]
 fn daemon_client_can_attach_to_a_spawned_daemon_child() -> Result<()> {
     let workspace = tempdir()?;
     let root = workspace.path().join("notes");

@@ -1,0 +1,12 @@
+[package]
+name = "slipbox-web"
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+slipbox-core = { path = "../slipbox-core" }
+slipbox-daemon-client = { path = "../slipbox-daemon-client" }
+thiserror.workspace = true
