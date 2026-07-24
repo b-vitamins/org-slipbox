@@ -17,22 +17,22 @@ use slipbox_core::{
     GraphParams, ImportWorkbenchPackResult, ListExplorationArtifactsResult,
     ListReviewRoutinesResult, ListReviewRunsResult, ListWorkbenchPacksResult, ListWorkflowsResult,
     MarkReviewFindingResult, NodeKind, NoteComparisonEntry, NoteComparisonExplanation,
-    NoteComparisonGroup, NoteComparisonResult, NoteComparisonSectionKind, ReportJsonlLineKind,
-    ReportProfileMetadata, ReportProfileMode, ReportProfileSpec, ReportProfileSubject,
-    ReviewFinding, ReviewFindingPayload, ReviewFindingRemediationApplyParams,
-    ReviewFindingRemediationApplyResult, ReviewFindingRemediationPreviewResult,
-    ReviewFindingStatus, ReviewRoutineComparePolicy, ReviewRoutineCompareTarget,
-    ReviewRoutineMetadata, ReviewRoutineReportLine, ReviewRoutineResult,
-    ReviewRoutineSaveReviewPolicy, ReviewRoutineSource, ReviewRoutineSourceExecutionResult,
-    ReviewRoutineSpec, ReviewRun, ReviewRunDiffBucket, ReviewRunDiffResult, ReviewRunMetadata,
-    ReviewRunPayload, ReviewRunResult, RunReviewRoutineResult, RunWorkflowResult,
-    SaveCorpusAuditReviewResult, SaveExplorationArtifactResult, SaveReviewRunResult,
-    SaveWorkflowReviewResult, SavedComparisonArtifact, SavedExplorationArtifact,
-    SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, SearchNodeContentResult,
-    SearchNodesResult, SearchRefsResult, StatusInfo, TrailReplayStepResult,
-    ValidateWorkbenchPackResult, WorkbenchPackCompatibility, WorkbenchPackIssueKind,
-    WorkbenchPackManifest, WorkbenchPackMetadata, WorkbenchPackResult, WorkflowInputAssignment,
-    WorkflowMetadata, WorkflowResolveTarget, WorkflowResult, WorkflowSpec,
+    NoteComparisonGroup, NoteComparisonResult, NoteComparisonSectionKind, NoteContextResult,
+    ReadNodeSourceResult, ReportJsonlLineKind, ReportProfileMetadata, ReportProfileMode,
+    ReportProfileSpec, ReportProfileSubject, ReviewFinding, ReviewFindingPayload,
+    ReviewFindingRemediationApplyParams, ReviewFindingRemediationApplyResult,
+    ReviewFindingRemediationPreviewResult, ReviewFindingStatus, ReviewRoutineComparePolicy,
+    ReviewRoutineCompareTarget, ReviewRoutineMetadata, ReviewRoutineReportLine,
+    ReviewRoutineResult, ReviewRoutineSaveReviewPolicy, ReviewRoutineSource,
+    ReviewRoutineSourceExecutionResult, ReviewRoutineSpec, ReviewRun, ReviewRunDiffBucket,
+    ReviewRunDiffResult, ReviewRunMetadata, ReviewRunPayload, ReviewRunResult,
+    RunReviewRoutineResult, RunWorkflowResult, SaveCorpusAuditReviewResult,
+    SaveExplorationArtifactResult, SaveReviewRunResult, SaveWorkflowReviewResult,
+    SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact,
+    SavedTrailStep, SearchNodeContentResult, SearchNodesResult, SearchRefsResult, StatusInfo,
+    TrailReplayStepResult, ValidateWorkbenchPackResult, WorkbenchPackCompatibility,
+    WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackMetadata, WorkbenchPackResult,
+    WorkflowInputAssignment, WorkflowMetadata, WorkflowResolveTarget, WorkflowResult, WorkflowSpec,
     WorkflowSpecCompatibility, WorkflowStepPayload, WorkflowStepReport, WorkflowStepReportPayload,
     WorkflowStepSpec,
 };
@@ -46,11 +46,11 @@ use super::{
     execute_saved_exploration_artifact_by_id, execute_workflow_spec, exploration_artifact, explore,
     export_workbench_pack, glossary_term, import_workbench_pack, list_exploration_artifacts,
     list_review_routines, list_review_runs, list_workbench_packs, list_workflows,
-    mark_review_finding, node_from_ref, review_finding_remediation_apply,
-    review_finding_remediation_preview, review_routine, review_run, run_review_routine,
-    run_workflow, save_corpus_audit_review, save_exploration_artifact, save_review_run,
-    save_workflow_review, search_node_content, search_nodes, search_refs, status,
-    validate_workbench_pack, workbench_pack, workflow,
+    mark_review_finding, node_from_ref, note_context, read_node_source,
+    review_finding_remediation_apply, review_finding_remediation_preview, review_routine,
+    review_run, run_review_routine, run_workflow, save_corpus_audit_review,
+    save_exploration_artifact, save_review_run, save_workflow_review, search_node_content,
+    search_nodes, search_refs, status, validate_workbench_pack, workbench_pack, workflow,
 };
 use crate::server::handlers::write::grade_term;
 use crate::server::state::ServerState;
@@ -258,8 +258,8 @@ fn status_counts_notes_as_the_addressable_search_surface() {
     let status: StatusInfo = serde_json::from_value(status(&state).expect("status should succeed"))
         .expect("status result should decode");
 
-    // Every note the addressable surface returns is counted, and nothing else:
-    // the empty-query node search enumerates exactly that surface.
+    // An empty query enumerates the whole addressable surface, which is what
+    // `notes_indexed` counts.
     let notes: SearchNodesResult = serde_json::from_value(
         search_nodes(&mut state, json!({ "query": "", "limit": 200 }))
             .expect("node search should succeed"),
@@ -267,8 +267,7 @@ fn status_counts_notes_as_the_addressable_search_surface() {
     .expect("node search result should decode");
     assert_eq!(status.notes_indexed, notes.nodes.len() as u64);
 
-    // The fixture carries plain headings that are nodes but not notes, so the
-    // note count is a strict subset of the raw node count.
+    // The fixture carries plain headings, which are nodes but not notes.
     assert!(
         status.notes_indexed < status.nodes_indexed,
         "notes ({}) must exclude plain headings counted in nodes ({})",
@@ -4493,4 +4492,201 @@ Weakly integrated body.
         .node_key;
 
     (workspace, state, focus_key)
+}
+
+/// The `node_key` of an indexed heading, looked up by title so a test need not
+/// spell a positional key's line number.
+fn heading_key_by_title(state: &ServerState, file_path: &str, title: &str) -> String {
+    state
+        .database
+        .anchors_in_file(file_path)
+        .expect("indexed file anchors should load")
+        .into_iter()
+        .find(|anchor| anchor.title == title && matches!(anchor.kind, NodeKind::Heading))
+        .unwrap_or_else(|| panic!("fixture heading {title:?} should be indexed"))
+        .node_key
+}
+
+#[test]
+fn note_context_describes_one_note_for_a_positional_heading_key() {
+    // A heading with no explicit ID is addressed by position
+    // (`heading:<file>:<line>`) and owned by the file note around it, so the key
+    // resolves wholly to that owner: identity, source extent, and relations.
+    let (_workspace, state, _target_key) = indexed_state();
+    let mut state = state;
+    let heading_key = heading_key_by_title(&state, "alpha.org", "Reflink Source");
+
+    let context: NoteContextResult = serde_json::from_value(
+        note_context(&mut state, json!({ "node_key": heading_key }))
+            .expect("note context should resolve a positional heading"),
+    )
+    .expect("note context result should decode");
+
+    assert_eq!(context.note.node_key, "file:alpha.org");
+    assert!(
+        context.source.content.starts_with("#+title: Alpha"),
+        "the file note's source reads from its top, got: {:?}",
+        context.source.content
+    );
+    assert_eq!(context.node_start_line, 1);
+    assert!(
+        context
+            .source
+            .content
+            .contains("This mentions cite:smith2024 near Target."),
+        "the file note's source covers the heading it owns, got: {:?}",
+        context.source.content
+    );
+}
+
+#[test]
+fn note_context_reads_a_whole_file_note_from_its_top() {
+    let (_workspace, mut state, _target_key) = indexed_state();
+
+    let context: NoteContextResult = serde_json::from_value(
+        note_context(&mut state, json!({ "node_key": "file:alpha.org" }))
+            .expect("note context should resolve a file note"),
+    )
+    .expect("note context result should decode");
+
+    assert_eq!(context.note.node_key, "file:alpha.org");
+    assert!(
+        context.source.content.starts_with("#+title: Alpha"),
+        "a file note reads from its top, got: {:?}",
+        context.source.content
+    );
+    assert_eq!(context.source.start_line, 1);
+}
+
+#[test]
+fn note_context_scopes_an_explicit_id_heading_to_its_subtree() {
+    // An explicit-ID heading is itself a note, so it owns its own context.
+    let (_workspace, mut state, target_key) = indexed_state();
+
+    let context: NoteContextResult = serde_json::from_value(
+        note_context(&mut state, json!({ "node_key": target_key.clone() }))
+            .expect("note context should resolve an explicit-id heading"),
+    )
+    .expect("note context result should decode");
+
+    assert_eq!(context.note.node_key, target_key);
+    assert_eq!(context.note.title, "Target");
+    assert!(
+        context.source.content.contains("* TODO Target"),
+        "an id heading reads its own subtree, got: {:?}",
+        context.source.content
+    );
+    assert!(
+        !context.source.content.contains("* Source"),
+        "an id heading read must not spill into a sibling heading: {:?}",
+        context.source.content
+    );
+}
+
+#[test]
+fn note_context_matches_read_node_source_scope_for_its_resolved_note() {
+    let (_workspace, mut state, target_key) = indexed_state();
+
+    let context: NoteContextResult = serde_json::from_value(
+        note_context(&mut state, json!({ "node_key": target_key.clone() }))
+            .expect("note context should resolve"),
+    )
+    .expect("note context result should decode");
+    let source: ReadNodeSourceResult = serde_json::from_value(
+        read_node_source(&mut state, json!({ "node_key": target_key }))
+            .expect("node source should resolve"),
+    )
+    .expect("node source result should decode");
+
+    assert_eq!(context.node_start_line, source.node_start_line);
+    assert_eq!(context.node_line_count, source.node_line_count);
+    assert_eq!(context.source.content, source.source.content);
+}
+
+#[test]
+fn note_context_reports_a_complete_subtree_as_untruncated() {
+    // The truncation flags are relative to the extent the read asked for, not
+    // the file around it, so a whole subtree mid-file is untruncated on both
+    // sides even though the file continues past it.
+    let (_workspace, mut state, target_key) = indexed_state();
+
+    let context: NoteContextResult = serde_json::from_value(
+        note_context(&mut state, json!({ "node_key": target_key }))
+            .expect("note context should resolve"),
+    )
+    .expect("note context result should decode");
+
+    assert!(
+        context.source.start_line > 1,
+        "the fixture heading should sit below the file top, got {}",
+        context.source.start_line
+    );
+    assert!(
+        context.source.line_count < context.source.total_lines,
+        "the fixture file should continue past the heading's subtree",
+    );
+    assert!(
+        !context.source.truncated_before,
+        "a subtree read asks for nothing above itself, so it is never truncated before",
+    );
+    assert!(
+        !context.source.truncated_after,
+        "a subtree returned whole is not truncated after",
+    );
+}
+
+#[test]
+fn note_context_reports_truncation_after_when_max_lines_clips_the_subtree() {
+    // A `max_lines` too small to hold the extent is the only truncation a node
+    // read can report.
+    let (_workspace, mut state, target_key) = indexed_state();
+
+    let context: NoteContextResult = serde_json::from_value(
+        note_context(
+            &mut state,
+            json!({ "node_key": target_key, "source_max_lines": 2 }),
+        )
+        .expect("note context should resolve"),
+    )
+    .expect("note context result should decode");
+
+    assert_eq!(context.source.line_count, 2);
+    assert!(
+        context.node_line_count > 2,
+        "the fixture subtree should be longer than the requested slice, got {}",
+        context.node_line_count
+    );
+    assert!(
+        context.source.truncated_after,
+        "a subtree clipped by max_lines is truncated after",
+    );
+    assert!(!context.source.truncated_before);
+}
+
+#[test]
+fn read_node_source_reports_a_complete_subtree_as_untruncated() {
+    let (_workspace, mut state, target_key) = indexed_state();
+
+    let source: ReadNodeSourceResult = serde_json::from_value(
+        read_node_source(&mut state, json!({ "node_key": target_key }))
+            .expect("node source should resolve"),
+    )
+    .expect("node source result should decode");
+
+    assert!(source.source.start_line > 1);
+    assert!(source.source.line_count < source.source.total_lines);
+    assert!(!source.source.truncated_before);
+    assert!(!source.source.truncated_after);
+}
+
+#[test]
+fn note_context_reports_unknown_key_as_not_found() {
+    let (_workspace, mut state, _target_key) = indexed_state();
+
+    let error = note_context(&mut state, json!({ "node_key": "heading:alpha.org:9999" }))
+        .expect_err("an unknown heading key should be an error");
+    assert!(
+        error.into_inner().message.contains("unknown context note"),
+        "an unresolvable key should be reported as a missing context note",
+    );
 }

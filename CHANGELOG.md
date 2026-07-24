@@ -50,6 +50,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Use tab recipe prefixes in the source-build `Makefile` instead of the
   `.RECIPEPREFIX` directive, so every target, including the release metadata
   gate, runs under the GNU Make 3.81 that ships as `make` on macOS.
+- Report source truncation on node source reads and note contexts against the
+  window the read asked for, the node's own line range plus any requested
+  context, instead of against the whole file, so a heading that holds its
+  entire subtree reads as complete rather than truncated on both sides.
 
 ## [0.16.0] - 2026-07-22
 

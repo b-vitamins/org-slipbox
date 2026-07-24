@@ -218,6 +218,8 @@ pub(crate) fn note_context(
     params: serde_json::Value,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let params: NoteContextParams = parse_params(params)?;
+    // A key naming a heading with no explicit ID resolves to the note that owns
+    // it, and identity, source, and relations all come from that owning note.
     let note = state.known_note_for_node_or_anchor(&params.node_key, "context note")?;
     let source = read_anchor_source(
         state,
@@ -316,13 +318,27 @@ fn read_anchor_source(
     let requested_end = node_end_line
         .saturating_add(context_after)
         .min(total_lines.max(node_end_line));
+    let available_lines = if requested_start > total_lines {
+        0
+    } else {
+        requested_end
+            .min(total_lines)
+            .saturating_sub(requested_start)
+            .saturating_add(1)
+    };
     let requested_lines = requested_end
         .saturating_sub(requested_start)
         .saturating_add(1)
         .min(max_lines as u32) as usize;
+    // Truncation is reported against the requested window (the node's extent plus
+    // the requested context), not against the file, so a slice covering that whole
+    // window is complete even where the file continues on either side.
+    let mut slice = source_slice(relative_path, &source, requested_start, requested_lines);
+    slice.truncated_before = false;
+    slice.truncated_after = slice.line_count < available_lines;
     Ok(ReadNodeSourceResult {
         anchor,
-        source: source_slice(relative_path, &source, requested_start, requested_lines),
+        source: slice,
         node_start_line,
         node_line_count: node_end_line
             .saturating_sub(node_start_line)
