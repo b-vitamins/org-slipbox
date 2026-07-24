@@ -1,0 +1,364 @@
+/*
+ * The reading spine and Org column typography.
+ *
+ * The spine is a horizontal scroller of fixed-width, `sticky` columns: an
+ * earlier column pins to a per-index left offset and, once marked obscured,
+ * collapses to a vertical-title sliver. Column geometry and motion durations
+ * come from the shared tokens, which the spine's geometry math reads too.
+ */
+
+.spine {
+  flex: 1;
+  /* A flex child defaults to `min-height: auto`, which floors the spine at its
+   * tallest column's content height; `0` lets it hold its viewport height so
+   * each column scrolls internally. */
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  /* `safe` falls back to start alignment once the path outgrows the viewport, so
+   * the first column stays reachable at scroll offset zero instead of being
+   * centered off the scrollable edge. A browser that does not know the keyword
+   * drops the declaration and aligns to the start throughout. */
+  justify-content: safe center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: calc(100vh - var(--header-min-height));
+}
+
+.spine-column {
+  position: sticky;
+  flex: 0 0 var(--column-width);
+  width: var(--column-width);
+  height: 100%;
+  overflow-y: auto;
+  background: var(--surface);
+  border-left: 1px solid var(--column-border);
+  transition:
+    box-shadow var(--dur-shadow) linear,
+    transform var(--dur-column) var(--ease-settle);
+}
+
+.spine-column:first-of-type {
+  border-left: none;
+}
+
+.spine-column--overlay {
+  box-shadow: var(--overlay-shadow);
+}
+
+/* Obscured columns keep full width and stay in the scroll flow, so `scrollWidth`
+ * is a constant `count * column-width` independent of scroll offset. The next
+ * column, pinned one sliver right and painted over this one by document order,
+ * leaves only the leftmost sliver exposed; `overflow: hidden` clips the covered
+ * remainder so it never scrolls behind that sliver. */
+.spine-column--obscured {
+  overflow: hidden;
+}
+
+.reading-note {
+  padding: var(--note-padding);
+}
+
+.reading-note--obscured {
+  height: 100%;
+  width: var(--column-sliver);
+  padding: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.reading-note__sliver-label {
+  /* Bottom-to-top glyph run. Equivalent to `writing-mode: sideways-lr`, spelled
+   * as `vertical-rl` + 180deg for browsers that lack `sideways-lr`. */
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  padding: var(--note-padding) 0;
+  color: var(--muted);
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reading-note__status {
+  color: var(--muted);
+}
+
+.reading-note__status--error {
+  color: var(--ink);
+}
+
+/* The key the failed column was asked for. It wraps anywhere, since a key has no
+ * spaces to break at. */
+.reading-note__reference {
+  margin: 8px 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--code-size);
+  line-height: var(--code-line);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.reading-note__ways-out {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.reading-note__retry {
+  margin-top: 16px;
+  padding: 8px 14px;
+  font-family: inherit;
+  font-size: 15px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-card);
+  cursor: pointer;
+  transition:
+    color var(--dur-crossfade) var(--ease-settle),
+    border-color var(--dur-crossfade) var(--ease-settle);
+}
+
+.reading-note__retry:hover {
+  color: var(--ink);
+  border-color: var(--muted-2);
+}
+
+.reading-note__search {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 16px;
+  padding: 8px 14px;
+  font-size: 15px;
+}
+
+.reading-note__title {
+  margin: 0 0 24px;
+  font-size: var(--h1-size);
+  line-height: var(--h1-line);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.reading-note__truncated {
+  margin: 24px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--hairline);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* Org body typography. */
+.org-document {
+  font-size: var(--text-size);
+  line-height: var(--text-line);
+}
+
+.org-paragraph {
+  margin: 0 0 1em;
+}
+
+.org-heading {
+  margin: 1.4em 0 0.5em;
+  font-weight: 600;
+}
+
+.org-document h2.org-heading {
+  font-size: var(--h2-size);
+  line-height: var(--h2-line);
+  font-weight: 400;
+}
+
+.org-list {
+  margin: 0 0 1em;
+  padding-left: 1.4em;
+}
+
+.org-list li {
+  margin: 0.2em 0;
+}
+
+.org-verbatim,
+.org-src,
+.org-example {
+  font-family: var(--font-mono);
+  font-size: var(--code-size);
+  line-height: var(--code-line);
+}
+
+.org-verbatim {
+  background: var(--paper);
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+}
+
+.org-src,
+.org-example {
+  margin: 0 0 1em;
+  background: var(--paper);
+  border-radius: 8px;
+}
+
+.org-quote {
+  margin: 0 0 1em;
+  padding-left: 16px;
+  border-left: 2px solid var(--muted-3);
+  color: var(--muted);
+}
+
+.org-quote > :last-child {
+  margin-bottom: 0;
+}
+
+.org-example {
+  padding: 12px 16px;
+  overflow-x: auto;
+}
+
+.org-src {
+  padding: 0;
+}
+
+.org-src__chrome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.org-src__lang {
+  font-family: var(--font-body);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.org-src__copy {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--link);
+  background: none;
+  border: none;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.org-src__copy:hover {
+  background: var(--surface);
+}
+
+.org-src__copy--failed {
+  color: var(--muted);
+}
+
+.org-src__code {
+  margin: 0;
+  padding: 12px 16px;
+  overflow-x: auto;
+}
+
+.org-table {
+  margin: 0 0 1em;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+
+.org-table th {
+  padding: 4px 12px;
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 2px solid var(--muted-3);
+}
+
+.org-table td {
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--muted-3);
+}
+
+.org-math--display {
+  margin: 1em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* Lea Verou's scrolling shadows: the cover gradients
+   * (background-attachment: local) sit against each edge and scroll away,
+   * unmasking the shadow gradients (attachment: scroll), so an edge shadow shows
+   * only while there is more equation to reveal on that side. */
+  background:
+    linear-gradient(to right, var(--surface) 30%, rgba(255, 255, 255, 0)) left
+      center,
+    linear-gradient(to left, var(--surface) 30%, rgba(255, 255, 255, 0)) right
+      center,
+    radial-gradient(
+        farthest-side at 0 50%,
+        rgba(0, 0, 0, 0.12),
+        rgba(0, 0, 0, 0)
+      )
+      left center,
+    radial-gradient(
+        farthest-side at 100% 50%,
+        rgba(0, 0, 0, 0.12),
+        rgba(0, 0, 0, 0)
+      )
+      right center;
+  background-repeat: no-repeat;
+  background-size:
+    40px 100%,
+    40px 100%,
+    14px 100%,
+    14px 100%;
+  background-attachment: local, local, scroll, scroll;
+}
+
+.org-link--external::after {
+  content: "↗";
+  font-size: 0.75em;
+  vertical-align: super;
+  margin-left: 0.1em;
+  color: var(--muted-2);
+}
+
+/* On a narrow viewport the column system collapses to a single reader. */
+@media (max-width: 800px) {
+  .spine {
+    flex-direction: column;
+    justify-content: flex-start;
+    overflow-x: hidden;
+    overflow-y: auto;
+    height: auto;
+  }
+
+  /* A column grows to its note, but `min-height: 100%` keeps a screenful so the
+   * last column can be scrolled to the top: the scroll extent stays a function
+   * of the stack rather than of note length. */
+  .spine-column {
+    position: static;
+    flex-basis: auto;
+    width: 100%;
+    height: auto;
+    min-height: 100%;
+    left: 0 !important;
+    border-left: none;
+    border-top: 1px solid var(--column-border);
+  }
+
+  .spine-column--obscured {
+    flex-basis: auto;
+    width: 100%;
+    overflow: visible;
+  }
+
+  .reading-note {
+    padding: var(--note-padding-mobile);
+  }
+
+  .reading-note--obscured {
+    display: none;
+  }
+}

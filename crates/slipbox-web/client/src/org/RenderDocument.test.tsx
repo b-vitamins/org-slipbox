@@ -1,0 +1,89 @@
+import { render, screen } from "@solidjs/testing-library";
+import { describe, expect, it, vi } from "vitest";
+
+import { NavigationProvider, type Navigation } from "./navigation.jsx";
+import { parseOrg } from "./parse.js";
+import { RenderDocument } from "./RenderDocument.jsx";
+
+describe("RenderDocument", () => {
+  it("renders paragraphs, emphasis, and headings", () => {
+    const doc = parseOrg("* Section\n\nA /clear/ and *bold* line.");
+    render(() => <RenderDocument document={doc} />);
+
+    expect(screen.getByRole("heading", { name: "Section" })).toBeInTheDocument();
+    expect(screen.getByText("clear").tagName).toBe("EM");
+    expect(screen.getByText("bold").tagName).toBe("STRONG");
+  });
+
+  it("renders inline math through KaTeX", () => {
+    const doc = parseOrg("mass \\\\(E = mc^2\\\\) done");
+    const { container } = render(() => <RenderDocument document={doc} />);
+
+    // KaTeX emits a `.katex` root and an accessible MathML annotation.
+    const katex = container.querySelector(".katex");
+    expect(katex).not.toBeNull();
+    expect(container.querySelector("annotation")?.textContent).toBe("E = mc^2");
+  });
+
+  it("renders a quoted passage as a blockquote around its prose", () => {
+    const doc = parseOrg("#+begin_quote\nThe map is not the territory.\n#+end_quote");
+    const { container } = render(() => <RenderDocument document={doc} />);
+
+    const quote = container.querySelector("blockquote.org-quote");
+    expect(quote).not.toBeNull();
+    expect(quote?.querySelector("p")?.textContent).toBe(
+      "The map is not the territory.",
+    );
+  });
+
+  it("routes an id link through the navigation seam instead of the browser", () => {
+    const follow = vi.fn();
+    const navigation: Navigation = { follow };
+    const doc = parseOrg("see [[id:abc-123][the algorithm]] now");
+
+    render(() => (
+      <NavigationProvider navigation={navigation}>
+        <RenderDocument document={doc} />
+      </NavigationProvider>
+    ));
+
+    const link = screen.getByText("the algorithm").closest("a")!;
+    // The href is the real URL the router reads, not a decorative hash.
+    expect(link.getAttribute("href")).toBe("?note=id%3Aabc-123");
+    link.click();
+
+    expect(follow).toHaveBeenCalledTimes(1);
+    expect(follow.mock.calls[0]![0]).toEqual({ id: "abc-123", target: "id:abc-123" });
+  });
+
+  it("renders a source block verbatim with its language and a copy control", () => {
+    const doc = parseOrg("#+begin_src python\nprint(1)\n#+end_src");
+    const { container } = render(() => <RenderDocument document={doc} />);
+
+    const figure = container.querySelector("figure.org-src");
+    expect(figure?.getAttribute("data-lang")).toBe("python");
+    expect(container.querySelector(".org-src__code")?.textContent).toBe("print(1)");
+
+    // The language is surfaced and a copy control is present and labelled.
+    expect(container.querySelector(".org-src__lang")?.textContent).toBe("python");
+    expect(
+      screen.getByRole("button", { name: "Copy code to clipboard" }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders a table header as th and typesets math cells through KaTeX", () => {
+    const doc = parseOrg("| quantity | value |\n|---+---|\n| \\\\(d\\\\) | 0 |");
+    const { container } = render(() => <RenderDocument document={doc} />);
+
+    // The pre-rule row is a real header, not another body row.
+    const headers = container.querySelectorAll("thead th");
+    expect(headers).toHaveLength(2);
+    expect(headers[0]?.textContent).toBe("quantity");
+    expect(container.querySelectorAll("tbody td")).toHaveLength(2);
+
+    // The math cell renders through KaTeX rather than printing raw TeX.
+    const bodyCell = container.querySelector("tbody td");
+    expect(bodyCell?.querySelector(".katex")).not.toBeNull();
+    expect(bodyCell?.textContent).not.toContain("\\(");
+  });
+});

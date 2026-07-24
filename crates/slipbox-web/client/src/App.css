@@ -1,7 +1,11 @@
 .app {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  /* A definite height, not a floor: with `min-height` a tall note grows the app
+   * to its content height, and the spine's `flex: 1` then overrides its own
+   * `height: calc(100vh - header)` to match, scrolling the page instead of the
+   * column. */
+  height: 100vh;
 }
 
 .app-header {
