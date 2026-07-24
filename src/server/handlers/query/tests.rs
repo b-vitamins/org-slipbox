@@ -28,10 +28,11 @@ use slipbox_core::{
     ReviewRunPayload, ReviewRunResult, RunReviewRoutineResult, RunWorkflowResult,
     SaveCorpusAuditReviewResult, SaveExplorationArtifactResult, SaveReviewRunResult,
     SaveWorkflowReviewResult, SavedComparisonArtifact, SavedExplorationArtifact,
-    SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, SearchNodesResult, SearchRefsResult,
-    TrailReplayStepResult, ValidateWorkbenchPackResult, WorkbenchPackCompatibility,
-    WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackMetadata, WorkbenchPackResult,
-    WorkflowInputAssignment, WorkflowMetadata, WorkflowResolveTarget, WorkflowResult, WorkflowSpec,
+    SavedLensViewArtifact, SavedTrailArtifact, SavedTrailStep, SearchNodeContentResult,
+    SearchNodesResult, SearchRefsResult, StatusInfo, TrailReplayStepResult,
+    ValidateWorkbenchPackResult, WorkbenchPackCompatibility, WorkbenchPackIssueKind,
+    WorkbenchPackManifest, WorkbenchPackMetadata, WorkbenchPackResult, WorkflowInputAssignment,
+    WorkflowMetadata, WorkflowResolveTarget, WorkflowResult, WorkflowSpec,
     WorkflowSpecCompatibility, WorkflowStepPayload, WorkflowStepReport, WorkflowStepReportPayload,
     WorkflowStepSpec,
 };
@@ -48,8 +49,8 @@ use super::{
     mark_review_finding, node_from_ref, review_finding_remediation_apply,
     review_finding_remediation_preview, review_routine, review_run, run_review_routine,
     run_workflow, save_corpus_audit_review, save_exploration_artifact, save_review_run,
-    save_workflow_review, search_nodes, search_refs, validate_workbench_pack, workbench_pack,
-    workflow,
+    save_workflow_review, search_node_content, search_nodes, search_refs, status,
+    validate_workbench_pack, workbench_pack, workflow,
 };
 use crate::server::handlers::write::grade_term;
 use crate::server::state::ServerState;
@@ -183,6 +184,96 @@ fn search_nodes_prunes_deleted_note_files_from_the_index() {
             .indexed_files()
             .expect("indexed file list should load")
             .is_empty()
+    );
+}
+
+#[test]
+fn search_node_content_finds_body_text_without_perturbing_metadata_search() {
+    let (_workspace, mut state, _target_key) = indexed_state();
+
+    // "body" lives only in the Target node's prose, never in a title, alias, or
+    // ref, so metadata search cannot see it.
+    let metadata: SearchNodesResult = serde_json::from_value(
+        search_nodes(&mut state, json!({ "query": "body", "limit": 50 }))
+            .expect("node search should succeed"),
+    )
+    .expect("node search result should decode");
+    assert!(
+        metadata.nodes.is_empty(),
+        "a body-only word must stay invisible to node_fts metadata search"
+    );
+
+    let content: SearchNodeContentResult = serde_json::from_value(
+        search_node_content(&mut state, json!({ "query": "body", "limit": 50 }))
+            .expect("content search should succeed"),
+    )
+    .expect("content search result should decode");
+    assert_eq!(
+        content
+            .hits
+            .iter()
+            .map(|hit| hit.node.title.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Target"],
+        "content search reaches the body text metadata search cannot"
+    );
+    let hit = &content.hits[0];
+    assert!(
+        hit.snippet
+            .segments
+            .iter()
+            .any(|segment| segment.matched && segment.text.to_lowercase().contains("body")),
+        "the snippet must mark the matched term: {:?}",
+        hit.snippet.segments
+    );
+}
+
+#[test]
+fn search_node_content_prunes_deleted_note_files_from_the_index() {
+    let (workspace, mut state, _target_key) = indexed_state();
+    fs::remove_file(workspace.path().join("notes/alpha.org"))
+        .expect("indexed fixture file should be removable");
+
+    let result: SearchNodeContentResult = serde_json::from_value(
+        search_node_content(&mut state, json!({ "query": "body", "limit": 50 }))
+            .expect("content search should tolerate stale index rows"),
+    )
+    .expect("content search result should decode");
+
+    assert!(result.hits.is_empty());
+    assert!(
+        state
+            .database
+            .indexed_files()
+            .expect("indexed file list should load")
+            .is_empty(),
+        "a content hit from a deleted file prunes the stale index row"
+    );
+}
+
+#[test]
+fn status_counts_notes_as_the_addressable_search_surface() {
+    let (_workspace, mut state, _target_key) = indexed_state();
+
+    let status: StatusInfo = serde_json::from_value(status(&state).expect("status should succeed"))
+        .expect("status result should decode");
+
+    // Every note the addressable surface returns is counted, and nothing else:
+    // the empty-query node search enumerates exactly that surface.
+    let notes: SearchNodesResult = serde_json::from_value(
+        search_nodes(&mut state, json!({ "query": "", "limit": 200 }))
+            .expect("node search should succeed"),
+    )
+    .expect("node search result should decode");
+    assert_eq!(status.notes_indexed, notes.nodes.len() as u64);
+
+    // The fixture carries plain headings that are nodes but not notes, so the
+    // note count is a strict subset of the raw node count.
+    assert!(
+        status.notes_indexed < status.nodes_indexed,
+        "notes ({}) must exclude plain headings counted in nodes ({})",
+        status.notes_indexed,
+        status.nodes_indexed
     );
 }
 

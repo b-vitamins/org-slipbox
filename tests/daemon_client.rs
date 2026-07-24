@@ -25,12 +25,12 @@ use slipbox_core::{
     RunReviewRoutineParams, RunWorkflowParams, SaveCorpusAuditReviewParams,
     SaveExplorationArtifactParams, SaveReviewRunParams, SaveWorkflowReviewParams,
     SavedExplorationArtifact, SavedLensViewArtifact, SearchFilesParams, SearchGlossaryParams,
-    SearchNodesParams, SearchOccurrencesParams, SearchRefsParams, SearchTagsParams,
-    StructuralWriteIndexRefreshStatus, StructuralWriteOperationKind, StructuralWriteResult,
-    UnlinkedReferencesParams, UpdateNodeMetadataParams, ValidateWorkbenchPackParams,
-    WorkbenchPackCompatibility, WorkbenchPackIdParams, WorkbenchPackIssueKind,
-    WorkbenchPackManifest, WorkbenchPackMetadata, WorkflowIdParams, WorkflowInputAssignment,
-    WorkflowResult,
+    SearchNodeContentParams, SearchNodesParams, SearchOccurrencesParams, SearchRefsParams,
+    SearchTagsParams, StructuralWriteIndexRefreshStatus, StructuralWriteOperationKind,
+    StructuralWriteResult, UnlinkedReferencesParams, UpdateNodeMetadataParams,
+    ValidateWorkbenchPackParams, WorkbenchPackCompatibility, WorkbenchPackIdParams,
+    WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackMetadata, WorkflowIdParams,
+    WorkflowInputAssignment, WorkflowResult,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonClientError, DaemonServeConfig};
 use slipbox_index::scan_root;
@@ -219,6 +219,33 @@ fn daemon_client_exposes_everyday_read_operations() -> Result<()> {
     })?;
     assert_eq!(occurrence_search.occurrences.len(), 1);
     assert_eq!(occurrence_search.occurrences[0].file_path, "weak.org");
+
+    // "integrated" lives only in Weak's body prose, which metadata search does
+    // not cover.
+    let metadata_miss = client.search_nodes(&SearchNodesParams {
+        query: "integrated".to_owned(),
+        limit: 10,
+        sort: None,
+    })?;
+    assert!(
+        metadata_miss.nodes.is_empty(),
+        "a body-only word must not surface through metadata node search"
+    );
+    let content_search = client.search_node_content(&SearchNodeContentParams {
+        query: "integrated".to_owned(),
+        limit: 10,
+    })?;
+    assert_eq!(content_search.hits.len(), 1);
+    assert_eq!(content_search.hits[0].node.title, "Weak");
+    assert!(
+        content_search.hits[0]
+            .snippet
+            .segments
+            .iter()
+            .any(|segment| segment.matched && segment.text.to_lowercase().contains("integrated")),
+        "content search must isolate the matched term: {:?}",
+        content_search.hits[0].snippet.segments
+    );
 
     let tag_search = client.search_tags(&SearchTagsParams {
         query: "sha".to_owned(),
@@ -1066,6 +1093,9 @@ fn daemon_client_queries_spawned_daemon_and_round_trips_artifacts() -> Result<()
     let status = client.status()?;
     assert_eq!(status.files_indexed, 3);
     assert_eq!(status.nodes_indexed, 5);
+    // Of the five nodes, only the anonymous follow-up heading is unaddressable
+    // (no id, not a file), leaving four notes.
+    assert_eq!(status.notes_indexed, 4);
 
     let alpha = client
         .search_nodes(&SearchNodesParams {

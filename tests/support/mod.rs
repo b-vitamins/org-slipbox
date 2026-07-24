@@ -202,6 +202,18 @@ pub fn assert_file_record_keys(value: &Value) {
     assert_exact_object_keys(value, &["file_path", "title", "mtime_ns", "node_count"]);
 }
 
+pub fn assert_content_hit_keys(value: &Value) {
+    assert_exact_object_keys(value, &["node", "snippet"]);
+    assert_node_record_keys(&value["node"]);
+    assert_exact_object_keys(&value["snippet"], &["segments"]);
+    let segments = value["snippet"]["segments"]
+        .as_array()
+        .expect("snippet segments should be an array");
+    for segment in segments {
+        assert_exact_object_keys(segment, &["text", "matched"]);
+    }
+}
+
 pub fn assert_occurrence_record_keys(value: &Value) {
     assert_exact_object_keys(
         value,

@@ -23,10 +23,11 @@ use tempfile::tempdir;
 mod support;
 
 use support::{
-    assert_anchor_record_keys, assert_error_failure, assert_exact_object_keys,
-    assert_file_record_keys, assert_node_record_keys, assert_occurrence_record_keys, json_command,
-    json_command_path, json_command_path_with_bad_server, run_slipbox, run_slipbox_with_stdin,
-    scoped_server_args, slipbox_binary,
+    assert_anchor_record_keys, assert_content_hit_keys, assert_error_failure,
+    assert_exact_object_keys, assert_file_record_keys, assert_node_record_keys,
+    assert_occurrence_record_keys, json_command, json_command_path,
+    json_command_path_with_bad_server, run_slipbox, run_slipbox_with_stdin, scoped_server_args,
+    slipbox_binary,
 };
 
 fn build_indexed_fixture() -> Result<(tempfile::TempDir, String, String, String)> {
@@ -830,6 +831,19 @@ fn headless_commands_expose_stable_json_shapes() -> Result<()> {
             "links_indexed",
         ],
     );
+    // The fixture carries plain headings, which are nodes but not addressable
+    // notes, so the two counts cannot be equal.
+    let nodes_indexed = status_json["nodes_indexed"]
+        .as_u64()
+        .expect("nodes_indexed should be a number");
+    let notes_indexed = status_json["notes_indexed"]
+        .as_u64()
+        .expect("notes_indexed should be a number");
+    assert!(notes_indexed > 0);
+    assert!(
+        notes_indexed < nodes_indexed,
+        "notes ({notes_indexed}) must exclude plain headings counted in nodes ({nodes_indexed})"
+    );
 
     let resolve = json_command("resolve-node", &root, &db, &["--id", "left-id"])?;
     assert!(resolve.status.success(), "{resolve:?}");
@@ -1121,7 +1135,7 @@ fn everyday_cli_commands_expose_stable_json_shapes() -> Result<()> {
 #+title: Everyday
 #+filetags: :base:
 
-Links to [[id:left-id][Left]].
+Links to [[id:left-id][Left]]. Prose mentions a serendipitous keyword.
 * TODO Planned
 SCHEDULED: <2026-05-13 Wed>
 Body mentions durable phrase.
@@ -1289,6 +1303,42 @@ Body mentions durable phrase.
     assert_exact_object_keys(&occurrence_json, &["occurrences"]);
     assert_occurrence_record_keys(&occurrence_json["occurrences"][0]);
     assert_anchor_record_keys(&occurrence_json["occurrences"][0]["owning_anchor"]);
+
+    // "serendipitous" appears only in the everyday note's body, which metadata
+    // search does not cover.
+    let node_body_search = json_command_path(&["node", "search"], &root, &db, &["serendipitous"])?;
+    assert!(node_body_search.status.success(), "{node_body_search:?}");
+    let node_body_json: Value = serde_json::from_slice(&node_body_search.stdout)?;
+    assert_exact_object_keys(&node_body_json, &["nodes"]);
+    assert!(
+        node_body_json["nodes"]
+            .as_array()
+            .expect("nodes should be an array")
+            .is_empty(),
+        "a body-only word must not surface through metadata node search"
+    );
+
+    let content_search = json_command_path(&["search", "content"], &root, &db, &["serendipitous"])?;
+    assert!(content_search.status.success(), "{content_search:?}");
+    let content_json: Value = serde_json::from_slice(&content_search.stdout)?;
+    assert_exact_object_keys(&content_json, &["hits"]);
+    let hits = content_json["hits"]
+        .as_array()
+        .expect("content hits should be an array");
+    assert_eq!(hits.len(), 1);
+    assert_content_hit_keys(&hits[0]);
+    assert_eq!(hits[0]["node"]["title"], "Everyday");
+    assert!(
+        hits[0]["snippet"]["segments"]
+            .as_array()
+            .expect("snippet segments should be an array")
+            .iter()
+            .any(|segment| segment["matched"] == Value::Bool(true)
+                && segment["text"]
+                    .as_str()
+                    .is_some_and(|text| text.to_lowercase().contains("serendipitous"))),
+        "content search must isolate the matched term for highlighting: {content_json}"
+    );
 
     let agenda_today = json_command_path(&["agenda", "today"], &root, &db, &[])?;
     assert!(agenda_today.status.success(), "{agenda_today:?}");
