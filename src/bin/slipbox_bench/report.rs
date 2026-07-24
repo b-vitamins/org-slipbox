@@ -19,6 +19,7 @@ pub(crate) struct BenchmarkReport {
     pub(crate) search_nodes_sorted: TimingReport,
     pub(crate) search_files: TimingReport,
     pub(crate) search_occurrences: TimingReport,
+    pub(crate) search_node_content: TimingReport,
     pub(crate) backlinks: TimingReport,
     pub(crate) forward_links: TimingReport,
     pub(crate) reflinks: TimingReport,
@@ -139,6 +140,11 @@ pub(crate) fn enforce_thresholds(
             "search_occurrences",
             report.search_occurrences.p95_ms,
             thresholds.search_occurrences_p95_ms,
+        ),
+        (
+            "search_node_content",
+            report.search_node_content.p95_ms,
+            thresholds.search_node_content_p95_ms,
         ),
         (
             "backlinks",
@@ -417,6 +423,7 @@ pub(crate) fn print_summary(report: &BenchmarkReport, check: bool, output_path: 
     print_metric("searchNodesSorted", &report.search_nodes_sorted);
     print_metric("searchFiles", &report.search_files);
     print_metric("searchOccurrences", &report.search_occurrences);
+    print_metric("searchNodeContent", &report.search_node_content);
     print_metric("backlinks", &report.backlinks);
     print_metric("forwardLinks", &report.forward_links);
     print_metric("reflinks", &report.reflinks);

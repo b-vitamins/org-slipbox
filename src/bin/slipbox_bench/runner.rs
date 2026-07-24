@@ -21,8 +21,8 @@ use crate::slipbox_bench::metrics::{
     benchmark_pack_validation, benchmark_persistent_buffer, benchmark_reflinks,
     benchmark_remediation_apply, benchmark_remediation_preview, benchmark_report_profile_rendering,
     benchmark_review_diff, benchmark_review_list, benchmark_review_mark, benchmark_review_show,
-    benchmark_routine_run, benchmark_search_files, benchmark_search_nodes,
-    benchmark_search_nodes_sorted, benchmark_search_occurrences,
+    benchmark_routine_run, benchmark_search_files, benchmark_search_node_content,
+    benchmark_search_nodes, benchmark_search_nodes_sorted, benchmark_search_occurrences,
     benchmark_slipbox_link_rewrite_apply, benchmark_slipbox_link_rewrite_preview,
     benchmark_structural_demote_file, benchmark_structural_extract_subtree,
     benchmark_structural_promote_file, benchmark_structural_refile_region,
@@ -194,6 +194,7 @@ pub(crate) fn run_profile(
     let search_nodes_sorted = benchmark_search_nodes_sorted(&mut database, profile, fixture)?;
     let search_files = benchmark_search_files(&mut database, profile, fixture)?;
     let search_occurrences = benchmark_search_occurrences(&mut database, profile, fixture)?;
+    let search_node_content = benchmark_search_node_content(&mut database, profile)?;
     let backlinks = benchmark_backlinks(&mut database, profile, &hot_node)?;
     let forward_links = benchmark_forward_links(&mut database, profile, &forward_node)?;
     let reflinks = benchmark_reflinks(&mut database, profile, &fixture.root, &hot_node)?;
@@ -353,6 +354,7 @@ pub(crate) fn run_profile(
         search_nodes_sorted,
         search_files,
         search_occurrences,
+        search_node_content,
         backlinks,
         forward_links,
         reflinks,

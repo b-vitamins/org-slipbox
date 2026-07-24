@@ -11,8 +11,9 @@ use slipbox_core::{
 use slipbox_store::Database;
 
 use crate::slipbox_bench::constants::{
-    EXPLORATION_FOCUS_INDEX, EXPLORATION_FOCUS_REF, EXPLORATION_SHARED_REF, GLOSSARY_QUERY,
-    GLOSSARY_TERM_COUNT, HOT_NODE_ID, WORKFLOW_BENCHMARK_ID, WORKFLOW_DISCOVERY_DIR,
+    CONTENT_QUERY, EXPLORATION_FOCUS_INDEX, EXPLORATION_FOCUS_REF, EXPLORATION_SHARED_REF,
+    GLOSSARY_QUERY, GLOSSARY_TERM_COUNT, HOT_NODE_ID, WORKFLOW_BENCHMARK_ID,
+    WORKFLOW_DISCOVERY_DIR,
 };
 use crate::slipbox_bench::fixtures::{CorpusFixture, PointQuery};
 use crate::slipbox_bench::profile::CorpusConfig;
@@ -192,7 +193,7 @@ pub(crate) fn generate_corpus(workspace: &Path, config: &CorpusConfig) -> Result
             } else if !is_special_fixture && global_index % config.deadline_stride == 0 {
                 lines.push(format!("DEADLINE: <2026-03-{day:02} Tue>"));
             }
-            lines.push(format!("Bench body for {title}."));
+            lines.push(format!("Bench {CONTENT_QUERY} for {title}."));
             if is_duplicate_title_upper {
                 lines.push(format!(
                     "Links to [[id:node-{:06}][matching duplicate]].",

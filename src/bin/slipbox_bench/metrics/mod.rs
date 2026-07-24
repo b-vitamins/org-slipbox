@@ -16,8 +16,8 @@ pub(crate) use read::{
     benchmark_everyday_occurrence_search, benchmark_forward_links, benchmark_full_index,
     benchmark_glossary_due, benchmark_glossary_list, benchmark_glossary_search,
     benchmark_index_file, benchmark_node_at_point, benchmark_reflinks, benchmark_search_files,
-    benchmark_search_nodes, benchmark_search_nodes_sorted, benchmark_search_occurrences,
-    benchmark_unlinked_references, prepare_database,
+    benchmark_search_node_content, benchmark_search_nodes, benchmark_search_nodes_sorted,
+    benchmark_search_occurrences, benchmark_unlinked_references, prepare_database,
 };
 pub(crate) use structural::{
     benchmark_remediation_apply, benchmark_slipbox_link_rewrite_apply,

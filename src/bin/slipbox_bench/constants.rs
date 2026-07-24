@@ -15,6 +15,9 @@ pub(crate) const REMEDIATION_APPLY_REVIEW_ID: &str = "review/benchmark/remediati
 pub(crate) const AGENDA_START: &str = "2026-03-01";
 pub(crate) const AGENDA_END: &str = "2026-03-31";
 pub(crate) const DEDICATED_COMPARE_CANDIDATE_LIMIT: usize = 12;
+/// Body-only token every seeded node carries in its prose, absent from every
+/// title, alias, tag, and ref.
+pub(crate) const CONTENT_QUERY: &str = "body";
 /// Number of dedicated glossary term files seeded into the corpus.
 pub(crate) const GLOSSARY_TERM_COUNT: usize = 16;
 /// Shared headword token every seeded glossary title carries, so a glossary

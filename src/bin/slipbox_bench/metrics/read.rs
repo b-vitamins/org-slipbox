@@ -16,7 +16,9 @@ use slipbox_store::Database;
 use crate::occurrences_query::query_occurrences;
 use crate::reflinks_query::query_reflinks;
 use crate::slipbox_bench::WorkbenchBench;
-use crate::slipbox_bench::constants::{AGENDA_END, AGENDA_START, GLOSSARY_QUERY, GLOSSARY_TODAY};
+use crate::slipbox_bench::constants::{
+    AGENDA_END, AGENDA_START, CONTENT_QUERY, GLOSSARY_QUERY, GLOSSARY_TODAY,
+};
 use crate::slipbox_bench::corpus::assert_expected_counts;
 use crate::slipbox_bench::fixtures::CorpusFixture;
 use crate::slipbox_bench::profile::BenchmarkProfile;
@@ -189,6 +191,35 @@ pub(crate) fn benchmark_search_occurrences(
             );
         }
         black_box(occurrences.len());
+        Ok(())
+    })
+}
+
+pub(crate) fn benchmark_search_node_content(
+    database: &mut Database,
+    profile: &BenchmarkProfile,
+) -> Result<TimingReport> {
+    let sample = database
+        .search_node_content(CONTENT_QUERY, profile.iterations.search_limit)
+        .context("failed to fetch content search sample")?;
+    if sample.is_empty() {
+        bail!("benchmark content search returned no hits");
+    }
+    // The probe token is body-only, so the metadata path matches nothing.
+    let metadata = database
+        .search_nodes(CONTENT_QUERY, profile.iterations.search_limit, None)
+        .context("failed to confirm content probe is invisible to metadata search")?;
+    if !metadata.is_empty() {
+        bail!("benchmark content probe {CONTENT_QUERY} leaked into metadata search");
+    }
+    measure_iterations(profile.iterations.search_node_content, |_| {
+        let hits = database
+            .search_node_content(CONTENT_QUERY, profile.iterations.search_limit)
+            .context("failed to search node content")?;
+        if hits.is_empty() {
+            bail!("benchmark content search returned no hits");
+        }
+        black_box(hits.len());
         Ok(())
     })
 }
