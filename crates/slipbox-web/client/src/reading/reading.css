@@ -59,12 +59,24 @@
   padding: var(--note-padding);
 }
 
+/* The sliver is a button with native chrome reset. Its width is
+ * `--column-sliver`, the strip left visible at the column's left edge, so clicks
+ * stay off the remainder the next column is painted over. */
 .reading-note--obscured {
   height: 100%;
   width: var(--column-sliver);
   padding: 0;
   display: flex;
   justify-content: center;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.reading-note--obscured:hover .reading-note__sliver-label {
+  color: var(--ink);
 }
 
 .reading-note__sliver-label {
@@ -322,6 +334,78 @@
   vertical-align: super;
   margin-left: 0.1em;
   color: var(--muted-2);
+}
+
+/* A formula inside a glance card's excerpt is set at the surrounding text's size
+ * and color: KaTeX's own 1.21em would tower over a 15px line, and an excerpt is
+ * one quiet fragment. Vertical overflow is clipped so a subscript or a fraction
+ * cannot push the line taller than the prose beside it. */
+.glance-card__excerpt .katex {
+  font-size: inherit;
+  color: inherit;
+}
+
+.glance-card__excerpt .org-math {
+  overflow: hidden;
+  vertical-align: bottom;
+}
+
+/* The glance preview: a floating peek at a link's target. */
+.glance-card {
+  position: fixed;
+  z-index: 10;
+  width: 340px;
+  max-width: calc(100vw - 24px);
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  box-shadow: var(--overlay-shadow);
+  pointer-events: none;
+  /* Hidden until measured, so it never flashes at the origin before placement. */
+  opacity: 0;
+  transform: translateY(4px);
+  transition:
+    opacity var(--dur-crossfade) var(--ease-settle),
+    transform var(--dur-crossfade) var(--ease-settle);
+}
+
+.glance-card--above {
+  transform: translateY(-4px);
+}
+
+.glance-card--placed {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.glance-card__title {
+  margin: 0 0 6px;
+  font-size: var(--text-size);
+  line-height: var(--text-line);
+  font-weight: 600;
+}
+
+.glance-card__excerpt {
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 21px;
+}
+
+.glance-card__hint {
+  margin: 10px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--hairline);
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+
+.glance-card__status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
 }
 
 /* On a narrow viewport the column system collapses to a single reader. */

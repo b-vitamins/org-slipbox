@@ -83,6 +83,24 @@ export function columnState(
   return floating ? "overlay" : "resting";
 }
 
+/**
+ * Every column rests in the narrow layout: the sliver is hidden by CSS there and
+ * an `obscured` column hides its body, so a collapsed column would vanish.
+ */
+export function columnStates(
+  count: number,
+  scrollLeft: number,
+  metrics: SpineMetrics,
+  narrow: boolean,
+): ColumnState[] {
+  if (narrow) {
+    return Array.from({ length: count }, () => "resting");
+  }
+  return Array.from({ length: count }, (_, index) =>
+    columnState(index, count, scrollLeft, metrics),
+  );
+}
+
 export interface VerticalScrollport {
   /** The scrollport's top edge in viewport coordinates. */
   readonly top: number;

@@ -2,51 +2,28 @@
  * One reading column: a single note, fetched, parsed, and rendered.
  *
  * The column owns its own focus-aware resource keyed on a note *reference* —
- * either an `id:<uuid>` link target or a raw slipbox key. An id reference is
- * resolved to its node first (ids survive edits that shift a key's line), then
- * the whole note body is fetched in one slice (the corpus is atomic notes, so a
- * single generous `max_lines` returns a complete body). Resolving a note also
- * records its identity, which is how the stack recognizes a link to a note some
- * column already holds under its other name.
+ * either an `id:<uuid>` link target or a raw slipbox key (see `fetchNoteContext`
+ * for how an id is resolved before the body is read).
  *
  * The column renders in one of the spine's presentation states. When `obscured`
- * it collapses to a vertical title sliver drawn from the loaded note; otherwise
- * it renders the title as the column's `h1` chrome and the parsed Org body
- * beneath. Links are followed through the navigation seam into `onFollow`, which
- * the spine binds to this column's position in the stack.
+ * it collapses to a vertical title sliver drawn from the loaded note; the sliver
+ * is a real button, so a scrolled-away column can be brought back with a click
+ * or the keyboard (`onReveal`) instead of being a dead, `aria-hidden` label.
+ * Otherwise it renders the title as the column's `h1` chrome and the parsed Org
+ * body beneath. Links inside the body speak the navigation grammar
+ * (glance/pin/go); this column supplies the `Navigation` the spine builds for
+ * its stack position.
  */
 
 import { Show, createMemo, type Component } from "solid-js";
 
-import { client } from "../api/client.js";
 import { ApiError } from "../api/client.js";
-import type { NoteContext } from "../api/types.js";
 import { createReadingResource } from "../data/create-reading-resource.js";
-import {
-  NavigationProvider,
-  type LinkTarget,
-  type Navigation,
-} from "../org/navigation.jsx";
+import { NavigationProvider, type Navigation } from "../org/navigation.jsx";
 import { parseOrg } from "../org/parse.js";
 import { RenderDocument } from "../org/RenderDocument.jsx";
-import { noteIdentities } from "./note-identity.js";
+import { fetchNoteContext, WHOLE_NOTE_MAX_LINES } from "./fetch-note.js";
 import type { ColumnState } from "./spine-geometry.js";
-
-/** Request enough lines to cover a whole atomic note in one slice. */
-const WHOLE_NOTE_MAX_LINES = 1000;
-
-/** Resolve a note reference (`id:<uuid>` or a key) to its reading context. */
-async function fetchContext(reference: string): Promise<NoteContext> {
-  const context = reference.startsWith("id:")
-    ? await client
-        .nodeById(reference.slice(3))
-        .then((node) =>
-          client.noteContext(node.node_key, { maxLines: WHOLE_NOTE_MAX_LINES }),
-        )
-    : await client.noteContext(reference, { maxLines: WHOLE_NOTE_MAX_LINES });
-  noteIdentities.learn(context.note);
-  return context;
-}
 
 function describeError(error: unknown): string {
   if (error instanceof ApiError) {
@@ -58,23 +35,19 @@ function describeError(error: unknown): string {
 export const ReadingColumn: Component<{
   reference: string;
   state: ColumnState;
-  onFollow: (reference: string) => void;
+  navigation: Navigation;
+  /** Bring this column back into view from its collapsed sliver. */
+  onReveal: () => void;
 }> = (props) => {
   const context = createReadingResource(
     () => props.reference,
-    (reference) => fetchContext(reference),
+    (reference) => fetchNoteContext(reference, WHOLE_NOTE_MAX_LINES),
   );
 
   const document = createMemo(() => {
     const value = context.ready();
     return value ? parseOrg(value.source.content) : null;
   });
-
-  const navigation: Navigation = {
-    follow: (target: LinkTarget) => {
-      props.onFollow(target.id ? `id:${target.id}` : target.target);
-    },
-  };
 
   const title = (): string => context.ready()?.note.title ?? "…";
 
@@ -93,7 +66,7 @@ export const ReadingColumn: Component<{
                   <header class="reading-note__header">
                     <h1 class="reading-note__title">{ready().note.title}</h1>
                   </header>
-                  <NavigationProvider navigation={navigation}>
+                  <NavigationProvider navigation={props.navigation}>
                     <Show when={document()}>
                       {(parsed) => <RenderDocument document={parsed()} />}
                     </Show>
@@ -111,9 +84,14 @@ export const ReadingColumn: Component<{
         </Show>
       </article>
     }>
-      <div class="reading-note reading-note--obscured" aria-hidden="true">
+      <button
+        type="button"
+        class="reading-note reading-note--obscured"
+        onClick={() => props.onReveal()}
+        aria-label={`Reveal ${title()}`}
+      >
         <span class="reading-note__sliver-label">{title()}</span>
-      </div>
+      </button>
     </Show>
   );
 };

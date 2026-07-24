@@ -1,34 +1,14 @@
 /*
- * The reading spine: a horizontal stack of note columns.
- *
- * The spine renders one column per reference in the reading stack and drives
- * the near/far presentation: as the reader scrolls right, earlier columns
- * collapse to a titled sliver (`obscured`) or float pinned over their neighbors
- * (`overlay`). Column states are recomputed from the live scroll offset via the
- * pure `spine-geometry` helpers; this component owns only the DOM wiring —
- * measuring the container, tracking `scrollLeft`, and smooth-scrolling a
- * freshly opened column into view.
- *
- * Following a link is routed from a column into the stack reducer: a click in
- * column `n` prunes the columns to its right and appends the target, and the
- * URL updates as a side effect of the stack commit. The reducer answers with the
- * column the target landed in — a fresh one, or the one already holding that
- * note — and the spine scrolls there, so a follow always ends with its note in
- * view whether or not it opened a column.
- *
- * Each column is rendered behind its own error boundary. A column parses and
- * renders a note the reader did not write and cannot repair, and a note the
- * renderer cannot draw throws out of the update that resolved it — where nothing
- * else is listening. Bounding each column separately turns that into one column
- * reporting itself unreadable, rather than a column that keeps saying it is
- * still reading a note it will never draw. A caught error holds until its
- * boundary is reset, so the boundary offers the reader a way to reset it: a
- * retry button in the column that could not be drawn.
+ * The reading spine: a horizontal stack of note columns. Owns the DOM wiring
+ * only; states come from `spine-geometry` and the navigation verbs from
+ * `spine-navigation`. Each column and the preview card sits behind its own error
+ * boundary, since a caught Solid error latches until reset.
  */
 
 import {
   ErrorBoundary,
   For,
+  Show,
   createEffect,
   createMemo,
   createSignal,
@@ -37,11 +17,24 @@ import {
   type Component,
 } from "solid-js";
 
+import { createReadingResource } from "../data/create-reading-resource.js";
+import { scrollBehavior } from "../dom/reduced-motion.js";
+import { useDocumentTitle } from "../dom/document-title.js";
+import { referenceOf } from "../org/navigation.jsx";
+import { createGlanceController } from "./glance-controller.js";
+import { GlancePreview } from "./GlancePreview.jsx";
 import { ReadingColumn } from "./ReadingColumn.jsx";
 import {
+  frontmostReference,
+  resolveNoteTitle,
+  unresolvedTitle,
+} from "./reading-title.js";
+import { spineNavigation } from "./spine-navigation.js";
+import {
   columnOffset,
-  columnState,
+  columnStates,
   scrollTargetFor,
+  verticalRevealTop,
   type ColumnState,
   type SpineMetrics,
 } from "./spine-geometry.js";
@@ -85,55 +78,114 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
     scrollWidth: 0,
   });
 
-  const measure = (): void => {
-    setMetrics({
+  // Read from the computed `flex-direction` rather than a duplicated breakpoint,
+  // so reading.css stays the single source of the narrow-layout media query.
+  const [narrow, setNarrow] = createSignal(false);
+
+  const glances = createGlanceController();
+  onCleanup(() => glances.cancel());
+
+  // Handle of the reveal frame in flight, so a rapid re-pin supersedes it rather
+  // than two chains fighting over the scroll offset.
+  let revealFrame: number | null = null;
+  const cancelReveal = (): void => {
+    if (revealFrame !== null) {
+      cancelAnimationFrame(revealFrame);
+      revealFrame = null;
+    }
+  };
+  onCleanup(cancelReveal);
+
+  // The tab is titled after the frontmost column. While the resolve is in
+  // flight the accessor returns undefined, so `useDocumentTitle` falls back to
+  // the product name rather than holding a stale title.
+  const frontmost = createMemo(() => frontmostReference(props.stack.keys()));
+  const focusTitle = createReadingResource(frontmost, resolveNoteTitle);
+  useDocumentTitle(() =>
+    focusTitle.error() ? unresolvedTitle(focusTitle.error()) : focusTitle.ready(),
+  );
+
+  // Returns the same snapshot it publishes, so `revealColumn` can read the fresh
+  // geometry before Solid flushes the signal write into `metrics()`.
+  const measure = (): SpineMetrics => {
+    const next: SpineMetrics = {
       columnWidth: readPixelToken(container, "--column-width", 625),
       sliver: readPixelToken(container, "--column-sliver", 40),
       viewport: container.clientWidth,
       scrollWidth: container.scrollWidth,
-    });
+    };
+    setMetrics(next);
+    setNarrow(getComputedStyle(container).flexDirection === "column");
+    return next;
   };
 
   onMount(() => {
     measure();
-    const onResize = (): void => measure();
+    const onResize = (): void => void measure();
     window.addEventListener("resize", onResize);
     onCleanup(() => window.removeEventListener("resize", onResize));
   });
 
-  // Scroll column `index` into view. The microtask defers the measure until the
-  // freshly opened column is laid out, so the scroll target is computed from the
-  // new scrollable width rather than the previous one.
+  // Scroll column `index` into view. The rAF defers the measure until the freshly
+  // pinned column is laid out. The narrow layout stacks vertically, so it scrolls
+  // by the live distance between the two boxes (see `verticalRevealTop`).
   const revealColumn = (index: number): void => {
-    queueMicrotask(() => {
-      measure();
-      const target = scrollTargetFor(index, metrics());
+    cancelReveal();
+    const behavior = scrollBehavior();
+    revealFrame = requestAnimationFrame(() => {
+      revealFrame = null;
+      const snapshot = measure();
+      if (narrow()) {
+        const column = container.children.item(index);
+        if (column instanceof HTMLElement) {
+          container.scrollTo({
+            top: verticalRevealTop(
+              {
+                top: container.getBoundingClientRect().top,
+                scrollTop: container.scrollTop,
+              },
+              column.getBoundingClientRect().top,
+            ),
+            behavior,
+          });
+        }
+        return;
+      }
+      const target = scrollTargetFor(index, snapshot);
       if (target !== null) {
-        container.scrollTo({ left: target, behavior: "smooth" });
+        container.scrollTo({ left: target, behavior });
       }
     });
   };
 
-  // Whenever the stack changes — mounted from a URL, or restored by back and
-  // forward — bring its frontmost column into view.
+  // Tracks the key list, not its length, so a stack that changed without growing
+  // (a mid-stack pin replacing the columns to its right) still reveals.
   createEffect(() => {
     const keys = props.stack.keys();
     revealColumn(keys.length - 1);
   });
 
-  const onScroll = (): void => {
-    setScrollLeft(container.scrollLeft);
+  // A card is positioned against the link that raised it, so any scroll dismisses
+  // it. `scroll` does not bubble, so a column's own vertical scroll reaches the
+  // spine only on the capture phase.
+  const onScroll = (event: Event): void => {
+    if (event.target === container) {
+      setScrollLeft(container.scrollLeft);
+    }
+    glances.glance(null);
   };
 
-  const states = createMemo<ColumnState[]>(() => {
-    const keys = props.stack.keys();
-    return keys.map((_, index) =>
-      columnState(index, keys.length, scrollLeft(), metrics()),
-    );
+  onMount(() => {
+    container.addEventListener("scroll", onScroll, true);
+    onCleanup(() => container.removeEventListener("scroll", onScroll, true));
   });
 
+  const states = createMemo<ColumnState[]>(() =>
+    columnStates(props.stack.keys().length, scrollLeft(), metrics(), narrow()),
+  );
+
   return (
-    <div ref={container} class="spine" onScroll={onScroll}>
+    <div ref={container} class="spine">
       <For each={props.stack.keys()}>
         {(reference, index) => (
           <section
@@ -155,12 +207,27 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
               <ReadingColumn
                 reference={reference}
                 state={states()[index()] ?? "resting"}
-                onFollow={(target) => revealColumn(props.stack.follow(index(), target))}
+                navigation={spineNavigation(props.stack, glances, index, revealColumn)}
+                onReveal={() => revealColumn(index())}
               />
             </ErrorBoundary>
           </section>
         )}
       </For>
+      <Show when={glances.request()}>
+        {(request) => (
+          // Keyed to the target: a caught error latches until the boundary is
+          // discarded, and moving between links swaps an open card in place, so
+          // one shared boundary would silence every later preview. The fallback
+          // must take the error, since Solid logs a stack for any fallback that
+          // does not.
+          <Show when={referenceOf(request().target)} keyed>
+            <ErrorBoundary fallback={(_error) => null}>
+              <GlancePreview request={request()} />
+            </ErrorBoundary>
+          </Show>
+        )}
+      </Show>
     </div>
   );
 };

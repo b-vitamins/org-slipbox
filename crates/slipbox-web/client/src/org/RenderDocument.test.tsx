@@ -36,9 +36,8 @@ describe("RenderDocument", () => {
     );
   });
 
-  it("routes an id link through the navigation seam instead of the browser", () => {
-    const follow = vi.fn();
-    const navigation: Navigation = { follow };
+  it("pins an id link on a plain click instead of following the browser", () => {
+    const navigation: Navigation = { glance: vi.fn(), pin: vi.fn(), go: vi.fn() };
     const doc = parseOrg("see [[id:abc-123][the algorithm]] now");
 
     render(() => (
@@ -50,10 +49,33 @@ describe("RenderDocument", () => {
     const link = screen.getByText("the algorithm").closest("a")!;
     // The href is the real URL the router reads, not a decorative hash.
     expect(link.getAttribute("href")).toBe("?note=id%3Aabc-123");
-    link.click();
+    link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 
-    expect(follow).toHaveBeenCalledTimes(1);
-    expect(follow.mock.calls[0]![0]).toEqual({ id: "abc-123", target: "id:abc-123" });
+    expect(navigation.pin).toHaveBeenCalledTimes(1);
+    expect((navigation.pin as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toEqual({
+      id: "abc-123",
+      target: "id:abc-123",
+    });
+    expect(navigation.go).not.toHaveBeenCalled();
+  });
+
+  it("escalates to go on an alt-click", () => {
+    const navigation: Navigation = { glance: vi.fn(), pin: vi.fn(), go: vi.fn() };
+    const doc = parseOrg("see [[id:abc-123][the algorithm]] now");
+
+    render(() => (
+      <NavigationProvider navigation={navigation}>
+        <RenderDocument document={doc} />
+      </NavigationProvider>
+    ));
+
+    const link = screen.getByText("the algorithm").closest("a")!;
+    link.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true, altKey: true }),
+    );
+
+    expect(navigation.go).toHaveBeenCalledTimes(1);
+    expect(navigation.pin).not.toHaveBeenCalled();
   });
 
   it("renders a source block verbatim with its language and a copy control", () => {
