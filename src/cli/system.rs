@@ -162,12 +162,13 @@ impl HeadlessCommand for StatusArgs {
 
     fn render_human(&self, output: &Self::Output) -> String {
         format!(
-            "version: {}\nroot: {}\ndb: {}\nfiles indexed: {}\nnodes indexed: {}\nlinks indexed: {}\n",
+            "version: {}\nroot: {}\ndb: {}\nfiles indexed: {}\nnodes indexed: {}\nnotes indexed: {}\nlinks indexed: {}\n",
             output.version,
             output.root,
             output.db,
             output.files_indexed,
             output.nodes_indexed,
+            output.notes_indexed,
             output.links_indexed,
         )
     }

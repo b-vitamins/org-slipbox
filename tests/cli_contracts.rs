@@ -826,6 +826,7 @@ fn headless_commands_expose_stable_json_shapes() -> Result<()> {
             "db",
             "files_indexed",
             "nodes_indexed",
+            "notes_indexed",
             "links_indexed",
         ],
     );

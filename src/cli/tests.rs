@@ -10,6 +10,7 @@ fn writes_json_output_from_structured_results() {
         db: "/tmp/db.sqlite".to_owned(),
         files_indexed: 1,
         nodes_indexed: 2,
+        notes_indexed: 2,
         links_indexed: 3,
     };
 

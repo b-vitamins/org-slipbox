@@ -27,12 +27,17 @@ pub(crate) fn status(state: &ServerState) -> Result<serde_json::Value, JsonRpcEr
         .database
         .stats()
         .map_err(|error| internal_error(error.context("failed to read index statistics")))?;
+    let notes_indexed = state
+        .database
+        .notes_indexed()
+        .map_err(|error| internal_error(error.context("failed to count indexed notes")))?;
     to_value(StatusInfo {
         version: env!("CARGO_PKG_VERSION").to_owned(),
         root: state.root.display().to_string(),
         db: state.db_path.display().to_string(),
         files_indexed: stats.files_indexed,
         nodes_indexed: stats.nodes_indexed,
+        notes_indexed,
         links_indexed: stats.links_indexed,
     })
 }

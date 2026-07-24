@@ -3,6 +3,7 @@ use anyhow::{Context, Result};
 use slipbox_core::IndexStats;
 
 use crate::Database;
+use crate::nodes::note_where;
 
 impl Database {
     pub fn stats(&self) -> Result<IndexStats> {
@@ -20,6 +21,18 @@ impl Database {
                 .query_row("SELECT COUNT(*) FROM links", [], |row| row.get::<_, u64>(0))
                 .context("failed to count indexed links")?,
         })
+    }
+
+    /// Count addressable notes with the same predicate note and content search
+    /// use: file nodes and explicit-id headings.
+    pub fn notes_indexed(&self) -> Result<u64> {
+        self.connection
+            .query_row(
+                &format!("SELECT COUNT(*) FROM nodes WHERE {}", note_where("nodes")),
+                [],
+                |row| row.get::<_, u64>(0),
+            )
+            .context("failed to count indexed notes")
     }
 
     pub fn indexed_files(&self) -> Result<Vec<String>> {

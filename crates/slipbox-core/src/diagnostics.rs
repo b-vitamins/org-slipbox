@@ -19,6 +19,9 @@ pub struct StatusInfo {
     pub db: String,
     pub files_indexed: u64,
     pub nodes_indexed: u64,
+    /// Addressable notes: file nodes and headings carrying an explicit id, a
+    /// subset of `nodes_indexed`.
+    pub notes_indexed: u64,
     pub links_indexed: u64,
 }
 

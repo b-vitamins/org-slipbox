@@ -1385,6 +1385,7 @@ fn rejects_response_id_mismatch() {
             db: "/tmp/slipbox.sqlite".to_owned(),
             files_indexed: 1,
             nodes_indexed: 1,
+            notes_indexed: 1,
             links_indexed: 0,
         })
         .expect("status should serialize"),
