@@ -1,7 +1,8 @@
 use super::explorations::{render_anchor_identity, render_node_identity};
 use slipbox_core::{
-    AnchorRecord, BacklinksResult, CaptureTemplatePreviewResult, ForwardLinksResult, NodeRecord,
-    RandomNodeResult, SearchNodesResult, StructuralWriteReport, StructuralWriteResult,
+    AnchorRecord, BacklinksResult, CaptureTemplatePreviewResult, ContentSnippet,
+    ForwardLinksResult, NodeRecord, RandomNodeResult, SearchNodeContentResult, SearchNodesResult,
+    StructuralWriteReport, StructuralWriteResult,
 };
 
 pub(crate) fn render_structural_write_report(report: &StructuralWriteReport) -> String {
@@ -128,6 +129,37 @@ pub(crate) fn render_node_search_result(result: &SearchNodesResult) -> String {
         output.push_str(&format!("- {}\n", render_node_identity(node)));
     }
     output
+}
+
+pub(crate) fn render_content_search_result(result: &SearchNodeContentResult) -> String {
+    let mut output = format!("hits: {}\n", result.hits.len());
+    for hit in &result.hits {
+        output.push_str(&format!("- {}\n", render_node_identity(&hit.node)));
+        output.push_str(&format!(
+            "  snippet: {}\n",
+            render_content_snippet(&hit.snippet)
+        ));
+    }
+    output
+}
+
+/// Flatten a snippet to one line, bracketing matched runs as `[term]`.
+///
+/// A literal `[` in prose is not escaped. Interior whitespace runs collapse to
+/// single spaces, since body prose is newline-joined and the output must stay on
+/// one line.
+fn render_content_snippet(snippet: &ContentSnippet) -> String {
+    let mut line = String::new();
+    for segment in &snippet.segments {
+        if segment.matched {
+            line.push('[');
+            line.push_str(&segment.text);
+            line.push(']');
+        } else {
+            line.push_str(&segment.text);
+        }
+    }
+    line.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 pub(crate) fn render_random_node_result(result: &RandomNodeResult) -> String {

@@ -72,9 +72,9 @@ enum Command {
         long_about = "Search indexed tags. Tags are derived from Org metadata and heading tags."
     )]
     Tag(cli::TagArgs),
-    /// Search indexed note text occurrences.
+    /// Search indexed note text occurrences and ranked note content.
     #[command(
-        long_about = "Search raw indexed text occurrences. Results include the owning anchor and source location."
+        long_about = "Search indexed note text. `occurrences` returns raw literal matches with the owning anchor and source location; `content` returns notes ranked by body relevance, each with a highlighted excerpt. Content search is a parallel path to `node search` and does not change its metadata-matching behavior."
     )]
     Search(cli::SearchArgs),
     /// Query scheduled, deadline, and closed planning entries.
