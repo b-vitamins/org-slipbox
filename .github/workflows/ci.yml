@@ -5,6 +5,10 @@ on:
     branches:
       - master
   pull_request:
+  # Callable so the release workflow can gate a tag on this exact suite instead
+  # of a copy of it: whatever verification means here is what a published
+  # archive has passed.
+  workflow_call:
   workflow_dispatch:
 
 jobs:
@@ -36,6 +40,12 @@ jobs:
           cache: npm
           cache-dependency-path: crates/slipbox-web/client/package-lock.json
 
+      - name: Typecheck reading client
+        run: make lint-web
+
+      - name: Test reading client
+        run: make test-web
+
       # Build the client before the Rust steps: the workspace `--all-features`
       # clippy gate enables `embed-assets`, whose build script compiles this
       # tree in and fails when it is absent.
@@ -59,3 +69,27 @@ jobs:
 
       - name: Run benchmark regression gate
         run: make bench-check PROFILE=ci
+
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      # A Node-only job: the end-to-end suite drives the built client in a real
+      # browser and needs no Rust or Emacs toolchain, so it runs beside `verify`
+      # rather than lengthening its critical path.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: crates/slipbox-web/client/package-lock.json
+
+      # `make test-e2e` builds the client, provisions Chromium, then runs the
+      # Playwright suite against `vite preview`; the config owns the server
+      # lifecycle. This is the layer the jsdom unit suite cannot reach.
+      - name: Run reading-client end-to-end tests
+        run: make test-e2e

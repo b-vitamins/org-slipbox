@@ -44,7 +44,7 @@ promoted into separate public domains.
 | Reviews | Corpus audits, review runs, finding status, review diffs, remediation previews, remediation apply records | Audit/workflow/routine execution evidence and explicit user status decisions | `.review-runs/v1` beside the database for review runs; note files only change for explicit remediation apply | Reviews inspect Notes and Relations while staying outside note graph/search/ref identity | `audit`, `review` | Review runs, review diffs, remediation previews, and apply records are public JSON contracts | Review record formats and status transitions are compatibility-sensitive |
 | Assets | Workflow specs, built-in workflows, discovered workflows, review routines, report profiles, workbench packs | Built-in catalog, configured workflow directories, local JSON files, and imported pack manifests | Workflow files in configured directories; `.workbench-packs/v1` beside the database for imported packs | Assets can execute queries over notes, relations, explorations, and reviews, but are not indexed as notes | `workflow`, `routine`, `pack`; report output options on workflow/audit/routine commands | Workflow specs, routines, report profiles, and pack manifests are portable JSON assets with validation | Workflow and pack compatibility version `1` is supported; future versions are rejected before typed parsing |
 | Glossary | Glossary terms, term lookup and search, definition peek, due-term selection, spaced-repetition (SM-2) scheduling and grading, term marking | Org term notes: headword is `#+title`, synonyms are `ROAM_ALIASES`, the definition is the body, cross-references are links, and review state is the term's property drawer | Org files, including the `#+glossary:` marker and the `GLOSSARY_STATUS`/`SR_*` drawer keys; derived glossary columns live in the same `nodes` index, not a second database | A term is a note, so it participates fully in node search, backlinks, refs, and graph; the glossary adds stemmed/folded lookup, due-review selection, and grading over those notes | `glossary` | Glossary list, search, term, due, grade, and mark result shapes are public JSON; the Org term note and its drawer are the durable record | CLI/RPC JSON is compatibility-sensitive; the derived glossary columns and SM-2 rescheduling internals are internal and rebuildable |
-| System | Daemon, CLI runtime, scope, index freshness, file discovery, indexed-file surfaces, diagnostics, benchmark profiles, compatibility policy | Configured root, database path, daemon process state, repository benchmark profiles | SQLite index and db-adjacent side stores; benchmark profile JSON in the repository | Maintains the index used by every other bucket; diagnostics describe file/index state without making SQLite public | `serve`, `status`, `sync`, `file`, `diagnose`; shared `--root`, `--db`, `--json`, `--jsonl`, and daemon-spawn behavior | Status, sync, file, diagnostic, and benchmark report shapes are public task records; SQLite schema is internal | CLI/RPC envelopes are compatibility-sensitive; internal schema can change with rebuild/migration support |
+| System | Daemon, CLI runtime, scope, index freshness, file discovery, indexed-file surfaces, diagnostics, benchmark profiles, compatibility policy | Configured root, database path, daemon process state, repository benchmark profiles | SQLite index and db-adjacent side stores; benchmark profile JSON in the repository | Maintains the index used by every other bucket; diagnostics describe file/index state without making SQLite public | `serve`, `status`, `sync`, `file`, `diagnose`, `web`; shared `--root`, `--db`, `--json`, `--jsonl`, and daemon-spawn behavior | Status, sync, file, diagnostic, and benchmark report shapes are public task records; SQLite schema is internal | CLI/RPC envelopes are compatibility-sensitive; internal schema can change with rebuild/migration support |
 
 Command ownership and record ownership are separate. For example,
 `workflow run --save-review` and `routine run` remain Asset commands, but the
@@ -117,7 +117,7 @@ not exhaustive command help.
 | Reviews | `audit`, `review` |
 | Assets | `workflow`, `routine`, `pack` |
 | Glossary | `glossary` |
-| System | `serve`, `status`, `sync`, `file`, `diagnose` |
+| System | `serve`, `status`, `sync`, `file`, `diagnose`, `web` |
 
 ** Full CLI Inventory
 
@@ -188,6 +188,7 @@ from another bucket; command ownership follows the user-facing command family.
 | System | `sync file` | refresh one indexed file |
 | System | `file list/search` | inspect indexed file inventory |
 | System | `diagnose file/node/index` | inspect file, node, or index health |
+| System | `web` | serve the read-only web reading surface over Notes and Glossary |
 
 ** Duplicate Affordances
 

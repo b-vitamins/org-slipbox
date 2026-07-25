@@ -1,0 +1,312 @@
+/*
+ * A stubbed JSON API for the end-to-end specs: an in-memory world served
+ * through Playwright request interception, so a run needs no daemon, no
+ * database, and no slipbox on disk. The envelopes reproduce the wire contract
+ * in `src/api/types.ts`, serde's snake_case field names included, so the client
+ * fetches, parses, and renders exactly as it does in production.
+ */
+
+import type { Page, Route } from "@playwright/test";
+
+export interface FixtureNote {
+  /** The slipbox key, `file:<path>` or `heading:<path>::<line>`. */
+  key: string;
+  /** Present only when the note is id-addressable; an `id:` link needs one. */
+  id?: string;
+  title: string;
+  /** Raw Org source, which the reading column parses. */
+  body: string;
+  forwardLinks?: FixtureLink[];
+  backlinks?: FixtureLink[];
+  /** Present only on a marked glossary term; absence keeps a note out of it. */
+  glossaryStatus?: "stub" | "confirmed";
+  /** `YYYY-MM-DD`; a term with one set is what `/api/glossary/due` returns. */
+  srDue?: string;
+}
+
+export interface FixtureLink {
+  key: string;
+  id?: string;
+  title: string;
+  /** The linking line, verbatim Org; the client flattens it to a preview. */
+  preview: string;
+}
+
+export interface FixtureWorld {
+  notes: FixtureNote[];
+  status?: Partial<StatusInfo>;
+}
+
+interface StatusInfo {
+  version: string;
+  root: string;
+  db: string;
+  files_indexed: number;
+  nodes_indexed: number;
+  notes_indexed: number;
+  links_indexed: number;
+}
+
+/** A complete `NodeRecord`, every field the client parses filled in. */
+function nodeRecord(note: FixtureNote): Record<string, unknown> {
+  return {
+    node_key: note.key,
+    explicit_id: note.id ?? null,
+    file_path: fileOf(note.key),
+    title: note.title,
+    outline_path: note.title,
+    aliases: [],
+    tags: [],
+    refs: [],
+    todo_keyword: null,
+    scheduled_for: null,
+    deadline_for: null,
+    closed_at: null,
+    glossary: note.glossaryStatus !== undefined,
+    glossary_status: note.glossaryStatus ?? null,
+    sr_due: note.srDue ?? null,
+    sr_ease: null,
+    sr_interval: null,
+    sr_reps: null,
+    sr_last: null,
+    level: note.key.startsWith("heading:") ? 1 : 0,
+    line: 1,
+    kind: note.key.startsWith("heading:") ? "heading" : "file",
+    file_mtime_ns: 0,
+    backlink_count: (note.backlinks ?? []).length,
+    forward_link_count: (note.forwardLinks ?? []).length,
+  };
+}
+
+/** A relation endpoint's record. Its body is empty: only the link names it. */
+function linkNode(link: FixtureLink): Record<string, unknown> {
+  return nodeRecord({ key: link.key, id: link.id, title: link.title, body: "" });
+}
+
+function fileOf(key: string): string {
+  const withoutKind = key.replace(/^(file|heading):/, "");
+  const path = withoutKind.split("::")[0] ?? withoutKind;
+  return path.split(":")[0] ?? path;
+}
+
+/**
+ * The `NoteContext` envelope. Every note is served whole and untruncated from
+ * line 1, so `line_count` equals `total_lines`.
+ */
+function noteContext(note: FixtureNote): Record<string, unknown> {
+  const lines = note.body.split("\n").length;
+  return {
+    note: nodeRecord(note),
+    source: {
+      file_path: fileOf(note.key),
+      start_line: 1,
+      line_count: lines,
+      total_lines: lines,
+      content: note.body,
+      truncated_before: false,
+      truncated_after: false,
+    },
+    node_start_line: 1,
+    node_line_count: lines,
+    backlinks: (note.backlinks ?? []).map((link) => ({
+      source_note: linkNode(link),
+      source_anchor: null,
+      row: 1,
+      col: 0,
+      preview: link.preview,
+      explanation: { kind: "backlink" },
+    })),
+    forward_links: (note.forwardLinks ?? []).map((link) => ({
+      destination_note: linkNode(link),
+      row: 1,
+      col: 0,
+      preview: link.preview,
+      explanation: { kind: "forward-link" },
+    })),
+  };
+}
+
+function isTerm(note: FixtureNote): boolean {
+  return note.glossaryStatus !== undefined;
+}
+
+/** Substring of title-or-body, standing in for the server's FTS ranking. */
+function matches(note: FixtureNote, query: string): boolean {
+  const needle = query.toLowerCase();
+  return (
+    note.title.toLowerCase().includes(needle) ||
+    note.body.toLowerCase().includes(needle)
+  );
+}
+
+/** Characters of context an excerpt carries on either side of the match. */
+const EXCERPT_CONTEXT = 40;
+
+/**
+ * A `ContentSnippet` around the first occurrence of `query`. Like the server's,
+ * the segments are slices of raw Org source cut at both ends, so a spec asserting
+ * on one is asserting on markup the client has to render.
+ */
+function excerpt(note: FixtureNote, query: string): Record<string, unknown> {
+  const at = note.body.toLowerCase().indexOf(query.toLowerCase());
+  if (at === -1) {
+    return { segments: [] };
+  }
+  const from = Math.max(0, at - EXCERPT_CONTEXT);
+  const to = Math.min(note.body.length, at + query.length + EXCERPT_CONTEXT);
+  return {
+    segments: [
+      { text: note.body.slice(from, at), matched: false },
+      { text: note.body.slice(at, at + query.length), matched: true },
+      { text: note.body.slice(at + query.length, to), matched: false },
+    ].filter((segment) => segment.text.length > 0),
+  };
+}
+
+function statusInfo(world: FixtureWorld): StatusInfo {
+  return {
+    version: "0.17.0",
+    root: "/home/reader/slipbox",
+    db: "/home/reader/slipbox/.slipbox/index.db",
+    files_indexed: world.notes.length,
+    nodes_indexed: world.notes.length,
+    notes_indexed: world.notes.length,
+    links_indexed: world.notes.reduce(
+      (sum, note) => sum + (note.forwardLinks ?? []).length,
+      0,
+    ),
+    ...world.status,
+  };
+}
+
+async function json(route: Route, body: unknown): Promise<void> {
+  await route.fulfill({
+    status: 200,
+    contentType: "application/json; charset=utf-8",
+    body: JSON.stringify(body),
+  });
+}
+
+/** The API's shared error envelope: `{ error: { kind, message } }`. */
+async function apiError(
+  route: Route,
+  status: number,
+  kind: string,
+  message: string,
+): Promise<void> {
+  await route.fulfill({
+    status,
+    contentType: "application/json; charset=utf-8",
+    body: JSON.stringify({ error: { kind, message } }),
+  });
+}
+
+/**
+ * Intercept every `/api/` request for `page` and answer it from `world`. Must
+ * be installed before the navigation that triggers the fetches. A key `world`
+ * does not model answers with a real 404 envelope, so a spec can drive the
+ * client's not-found path by naming a note that is absent.
+ */
+export async function mountApi(page: Page, world: FixtureWorld): Promise<void> {
+  const byKey = new Map(world.notes.map((note) => [note.key, note]));
+  const byId = new Map(
+    world.notes.filter((note) => note.id).map((note) => [note.id as string, note]),
+  );
+
+  await page.route(/\/api\//, async (route) => {
+    const url = new URL(route.request().url());
+    const params = url.searchParams;
+
+    switch (url.pathname) {
+      case "/api/status":
+        return json(route, statusInfo(world));
+
+      case "/api/healthz":
+        return json(route, { status: "ok" });
+
+      case "/api/node": {
+        const id = params.get("id");
+        const key = params.get("key");
+        const note = id ? byId.get(id) : key ? byKey.get(key) : undefined;
+        return note
+          ? json(route, nodeRecord(note))
+          : apiError(route, 404, "not-found", "no note matched the given selector");
+      }
+
+      case "/api/note/context": {
+        const note = byKey.get(params.get("key") ?? "");
+        return note
+          ? json(route, noteContext(note))
+          : apiError(route, 404, "not-found", "no note for the given key");
+      }
+
+      case "/api/search/nodes": {
+        const q = (params.get("q") ?? "").toLowerCase();
+        const nodes = world.notes
+          .filter((note) => note.title.toLowerCase().includes(q))
+          .map(nodeRecord);
+        return json(route, { nodes });
+      }
+
+      // Unlike `/api/search/nodes`, this path matches bodies as well as titles
+      // and carries an excerpt with the matched run flagged.
+      case "/api/search/content": {
+        const q = params.get("q") ?? "";
+        const hits = world.notes
+          .filter((note) => matches(note, q))
+          .map((note) => ({ node: nodeRecord(note), snippet: excerpt(note, q) }));
+        return json(route, { hits });
+      }
+
+      // The glossary routes serve the marked subset of the same notes, so a
+      // world with nothing marked answers each with an empty term list.
+      case "/api/glossary/terms":
+        return json(route, { terms: world.notes.filter(isTerm).map(nodeRecord) });
+
+      case "/api/glossary/search": {
+        const q = params.get("q") ?? "";
+        const terms = world.notes
+          .filter((note) => isTerm(note) && matches(note, q))
+          .map(nodeRecord);
+        return json(route, { terms });
+      }
+
+      case "/api/glossary/due":
+        return json(route, {
+          terms: world.notes.filter((note) => isTerm(note) && note.srDue).map(nodeRecord),
+        });
+
+      // Deterministic: always the first note in `world`, never a real choice.
+      case "/api/random": {
+        const first = world.notes[0];
+        return json(route, { node: first ? nodeRecord(first) : null });
+      }
+
+      // The walk is not modeled: every neighborhood is empty, so a spec needing
+      // a ring member has to build one itself.
+      case "/api/neighborhood": {
+        const origin = params.get("key") ?? "";
+        return json(route, {
+          origin,
+          hops: 2,
+          nodes: [],
+          edges: [],
+          truncated: false,
+        });
+      }
+
+      default:
+        return apiError(route, 404, "not-found", `no reading route for ${url.pathname}`);
+    }
+  });
+}
+
+/** A body of `paragraphs` blank-line-separated paragraphs, one line each. */
+export function tallBody(paragraphs = 80): string {
+  return Array.from(
+    { length: paragraphs },
+    (_, i) =>
+      `Paragraph ${i + 1}. This note is deliberately long so the reading ` +
+      `column must scroll its own body rather than stretching the page.`,
+  ).join("\n\n");
+}

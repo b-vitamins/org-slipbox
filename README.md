@@ -372,7 +372,7 @@ The top-level command families follow the public model:
 | Reviews | `audit`, `review` |
 | Assets | `workflow`, `routine`, `pack` |
 | Glossary | `glossary` |
-| System | `serve`, `status`, `sync`, `file`, `diagnose` |
+| System | `serve`, `status`, `sync`, `file`, `diagnose`, `web` |
 
 Use `slipbox --help`, `slipbox <family> --help`, and
 `slipbox <family> <command> --help` as the command reference. Help output now
@@ -423,6 +423,75 @@ Preview/apply pairs keep mutation explicit:
 slipbox link rewrite-slipbox preview --file notes/project.org --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 slipbox review remediation preview review/dangling/current audit/dangling/source/missing-id --root ~/notes --db ~/.cache/org-slipbox.sqlite --json
 ```
+
+## Web Reading Surface
+
+The reading surface is a read-only web front-end over Notes and Glossary, a
+third surface beside Emacs and the CLI. A `slipbox web` command bridges HTTP to
+a spawned `slipbox serve --read-only`, over the same daemon-client boundary
+Emacs and the CLI use, and serves a small SolidJS reading client beneath a
+bounded JSON API. It adds no capability of its own: every HTTP path resolves to
+a read-only daemon operation, so no request can create, edit, or reschedule a
+note.
+
+The client is a reading view, not an editor. It presents an Org reading column
+with a near/far spine, glance/pin/go navigation, a search-first entry surface,
+a glossary dictionary with definition peek, and a hop-bounded neighborhood.
+Entry search is the ranked content path, so it matches a phrase from the middle
+of a note and shows the excerpt each hit was found in. The reading trail, the
+surface that is up, and the search term all live in the URL, so a reading
+position is a plain link and a reload lands back on it.
+
+### Build And Run
+
+Release archives are built with the client already embedded, so an unpacked
+`slipbox` serves the reading surface with no Node toolchain present.
+
+To build it from source, the client is a separate npm package under
+`crates/slipbox-web/client`. Build it, then build the daemon with the
+`embed-web-client` feature so the binary carries the client:
+
+```bash
+make build-web
+make build BUILD_FEATURES="--features embed-web-client"
+```
+
+`make build-web` runs `npm ci` and `vite build` to produce
+`crates/slipbox-web/client/dist`; the feature build compiles that tree into the
+`slipbox` binary. A default `make build` omits the client and needs no Node
+toolchain.
+
+Run the surface against a slipbox root:
+
+```bash
+slipbox web --root ~/notes --db ~/.cache/org-slipbox.sqlite
+```
+
+`slipbox web` self-spawns a read-only daemon from the running executable, binds
+`127.0.0.1` on `--port` (default `8080`), and serves the embedded client
+beneath the API. Pass `--port 0` to let the OS choose a free port; the bound
+address is printed on startup. `--workers` (default `4`) sizes the request
+thread pool sharing the one daemon pipe: the pipe is serialized, so extra
+workers only overlap request parsing and asset writes with a daemon round-trip.
+Stop it with Ctrl-C; the spawned daemon exits with it. A binary built without
+`embed-web-client` still runs `slipbox web` and serves the JSON API, returning
+a not-found for client paths instead of a broken page.
+
+### Boundaries
+
+The reading surface is deliberately bounded:
+
+- read-only: it fronts a read-only daemon, and the serve guard rejects any
+  non-read-only method at dispatch, so no HTTP path can reach a mutating
+  operation
+- localhost-only and single-user: it binds the loopback interface and is not a
+  multi-user server
+- one model: it reads through the same daemon and derived index as the other
+  front-ends, with no second database and no separate sync mechanism
+- no push: there is no SSE or websocket channel; the client reads over plain
+  HTTP request and response
+- Explorations, Reviews, and Assets get no web surface, and spaced-repetition
+  grade writeback and any global or force-directed graph remain deferred
 
 ## Workbench Data
 
@@ -556,8 +625,17 @@ make bench-check PROFILE=ci
 make bench PROFILE=release
 ```
 
-Before milestone commits, run the relevant Rust, Elisp, and benchmark checks
-for the touched surfaces.
+The reading client has its own gates, kept out of `make test` because the Guix
+manifest ships no Node toolchain:
+
+```bash
+make lint-web
+make test-web
+make test-e2e
+```
+
+Before milestone commits, run the relevant Rust, Elisp, client, and benchmark
+checks for the touched surfaces.
 
 GitHub milestones are the literal upcoming release buckets. Keep broad
 direction in [doc/roadmap.org](doc/roadmap.org), keep per-release cut lists in

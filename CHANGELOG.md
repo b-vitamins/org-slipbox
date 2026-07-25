@@ -23,6 +23,32 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Added note-content contract and benchmark coverage, including a gate proving
   the content probe stays invisible to metadata search so the two remain
   parallel paths.
+- Added a read-only web reading surface as a third front-end over Notes and
+  Glossary beside Emacs and the CLI, owning no new public bucket: a `slipbox
+  web` command bridges HTTP to a spawned `slipbox serve --read-only`, binds
+  localhost only, self-spawns the daemon, and serves a small SolidJS reading
+  client beneath a bounded JSON API.
+- Added an operation mutation classification hosted in `slipbox-rpc` beside the
+  method constants, and a read-only serve guard that rejects any non-read-only
+  method at dispatch, so read-only is a machine-checkable allowlist rather than
+  a convention and no HTTP path can reach a mutating operation.
+- Added the `slipbox-web` crate: a read-only daemon bridge and a bounded HTTP
+  API over Notes and Glossary covering node lookup, a note reading context,
+  node, content, and glossary search, random node, relations, glossary terms,
+  definitions, due selection, and a hop-bounded neighborhood.
+- Added a SolidJS reading client with URL-as-state navigation, an Org reading
+  column with a near/far spine, glance/pin/go navigation reachable by cursor,
+  keyboard, and touch, a search-first entry surface over ranked content search,
+  and a glossary dictionary with definition peek and an inert study trail.
+- Added an `embed-web-client` build feature that compiles the built client into
+  the binary for a self-contained reader, CI that typechecks, tests, and builds
+  the client, and user documentation for the reading surface.
+- Added an end-to-end reading-client suite driving a real browser against the
+  built client over a stubbed JSON API, with a `test-e2e` target and a CI job,
+  covering the behaviors the jsdom unit suite cannot see: the spine holding the
+  viewport height while a tall note scrolls internally, a restored multi-note
+  trail revealing its frontmost column, real browser-history back and forward,
+  native link destinations, and the narrow-layout responsive breakpoint.
 
 ### Changed
 - Changed note-content search to be a parallel path to node search rather than

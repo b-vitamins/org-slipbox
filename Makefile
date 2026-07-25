@@ -56,12 +56,35 @@ $(WEB_INSTALL_STAMP): $(WEB_CLIENT)/package-lock.json
 	$(NPM) --prefix $(WEB_CLIENT) ci
 	touch $@
 
+.PHONY: install-web
+install-web: $(WEB_INSTALL_STAMP)
+
+.PHONY: lint-web
+lint-web: $(WEB_INSTALL_STAMP)
+	$(NPM) --prefix $(WEB_CLIENT) run typecheck
+
+.PHONY: test-web
+test-web: $(WEB_INSTALL_STAMP)
+	$(NPM) --prefix $(WEB_CLIENT) run test
+
 # Build the client into $(WEB_CLIENT)/dist. This is the tree the `embed-assets`
 # feature compiles in, so a release build of `slipbox web` and the workspace
 # `--all-features` clippy gate both need it to have run first.
 .PHONY: build-web
 build-web: $(WEB_INSTALL_STAMP)
 	$(NPM) --prefix $(WEB_CLIENT) run build
+
+# End-to-end tests: drive a real Chromium against the built client, the layer
+# the jsdom unit suite structurally cannot see (real scroll geometry, browser
+# history, native link navigation). The suite serves `dist/` via `vite preview`,
+# so it depends on `build-web`; Playwright's config starts and stops that server
+# itself. The browser binary is installed on demand and cached, so a fresh
+# checkout provisions Chromium once. Kept out of `test` like the other web
+# targets: the Guix manifest ships no Node or browser toolchain.
+.PHONY: test-e2e
+test-e2e: build-web
+	$(NPM) --prefix $(WEB_CLIENT) exec -- playwright install --with-deps chromium
+	$(NPM) --prefix $(WEB_CLIENT) run test:e2e
 
 PROFILE ?= ci
 BENCH_CARGO_FLAGS ?= --release
@@ -108,6 +131,20 @@ check-release-metadata:
 	status=0; \
 	if ! grep -Fq "The latest shipped release is \`$$version\`" README.md; then \
 		echo "README.md: latest shipped release line does not mention $$version"; \
+		status=1; \
+	fi; \
+	client="crates/slipbox-web/client"; \
+	for manifest in "$$client/package.json" "$$client/package-lock.json"; do \
+		declared="$$(sed -n 's/^  "version": "\([^"]*\)".*/\1/p' "$$manifest" | head -n 1)"; \
+		if [ "$$declared" != "$$version" ]; then \
+			echo "$$manifest: version is \"$$declared\", not $$version"; \
+			status=1; \
+		fi; \
+	done; \
+	locked="$$(sed -n '/^    "": {$$/,/^    },$$/s/^      "version": "\([^"]*\)".*/\1/p' \
+		"$$client/package-lock.json" | head -n 1)"; \
+	if [ "$$locked" != "$$version" ]; then \
+		echo "$$client/package-lock.json: root package version is \"$$locked\", not $$version"; \
 		status=1; \
 	fi; \
 	for file in $$(find . -name '*.el' -not -path './.git/*' | sort); do \

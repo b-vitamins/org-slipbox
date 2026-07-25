@@ -159,3 +159,42 @@ Exit criteria:
 - glossary study stays distinct from Reviews maintenance
 - no web UI, HTTP server, SSE hub, SPA, second database, or separate sync
   mechanism is introduced
+
+* Milestone 8: Read-Only Reading Surface
+
+Purpose: add a read-only web reading surface as a third front-end over Notes
+and Glossary, the deliberate and bounded introduction of the web UI, HTTP
+server, and SPA the glossary milestone explicitly deferred, without adding a
+new public bucket.
+
+Outcomes:
+
+- an operation mutation classification hosted in `slipbox-rpc` beside the method
+  constants, so read-only is a machine-checkable allowlist and a serve guard
+  rejects any non-read-only method at dispatch
+- a `slipbox-web` crate that bridges HTTP to a spawned read-only `slipbox
+  serve`, over the same daemon-client boundary Emacs and the CLI use, never an
+  in-process service
+- a bounded read-only HTTP API over Notes and Glossary: node lookup, a note
+  reading context, node, content, and glossary search, random node, relations,
+  glossary terms, definitions, due selection, and a hop-bounded neighborhood
+- a SolidJS reading client with URL-as-state navigation, an Org reading column
+  with a near/far spine, glance/pin/go navigation, a search-first entry
+  surface, and a glossary dictionary with peek and an inert study trail
+- a `slipbox web` command that embeds the built client behind a build feature,
+  serves it with an SPA fallback, binds localhost only, and self-spawns the
+  read-only daemon
+- CI that builds and tests the reading client, and user documentation for the
+  reading surface
+
+Exit criteria:
+
+- the web surface serves Notes and Glossary read-only, and no HTTP path can
+  reach a mutating operation
+- the reading client builds and tests in CI and is documented for ordinary
+  users
+- the surface stays bounded: read-only, localhost-only, single user, no second
+  database, no separate sync mechanism, no SSE or websocket push, and no MCP
+  surface
+- no new public bucket is added, and spaced-repetition grade writeback and any
+  global or force-directed graph remain deferred
