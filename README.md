@@ -442,6 +442,11 @@ of a note and shows the excerpt each hit was found in. The reading trail, the
 surface that is up, and the search term all live in the URL, so a reading
 position is a plain link and a reload lands back on it.
 
+The palette follows the operating system's light or dark preference. A header
+control cycles Auto, Light, and Dark for a reader who wants the opposite of what
+the platform reports; that choice is stored in the browser rather than the URL,
+so a shared link carries the reading position and not the sender's theme.
+
 ### Build And Run
 
 Release archives are built with the client already embedded, so an unpacked

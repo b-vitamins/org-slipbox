@@ -303,20 +303,20 @@
    * unmasking the shadow gradients (attachment: scroll), so an edge shadow shows
    * only while there is more equation to reveal on that side. */
   background:
-    linear-gradient(to right, var(--surface) 30%, rgba(255, 255, 255, 0)) left
+    linear-gradient(to right, var(--surface) 30%, var(--surface-fade)) left
       center,
-    linear-gradient(to left, var(--surface) 30%, rgba(255, 255, 255, 0)) right
+    linear-gradient(to left, var(--surface) 30%, var(--surface-fade)) right
       center,
     radial-gradient(
         farthest-side at 0 50%,
-        rgba(0, 0, 0, 0.12),
-        rgba(0, 0, 0, 0)
+        var(--edge-shadow),
+        var(--edge-shadow-fade)
       )
       left center,
     radial-gradient(
         farthest-side at 100% 50%,
-        rgba(0, 0, 0, 0.12),
-        rgba(0, 0, 0, 0)
+        var(--edge-shadow),
+        var(--edge-shadow-fade)
       )
       right center;
   background-repeat: no-repeat;

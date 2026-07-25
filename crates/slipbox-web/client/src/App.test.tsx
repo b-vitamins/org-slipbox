@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App.js";
 import type { NodeRecord } from "./api/types.js";
 import { __resetRefocusForTests } from "./data/refetch-on-focus.js";
+import { SCHEME_ATTRIBUTE } from "./dom/color-scheme.js";
 import { BASE_TITLE } from "./dom/document-title.js";
 
 const status = {
@@ -97,6 +98,10 @@ describe("App shell", () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     document.title = "";
+    // The scheme control writes the document root and localStorage, both of
+    // which outlive a render.
+    document.documentElement.removeAttribute(SCHEME_ATTRIBUTE);
+    window.localStorage.clear();
   });
 
   it("reads /api/status and rests on the entry surface with the served identity", async () => {
@@ -311,5 +316,42 @@ describe("App shell", () => {
     expect(
       await screen.findByRole("combobox", { name: "Search notes" }),
     ).toBeInTheDocument();
+  });
+
+  it("cycles the color scheme from the header and keeps the control across the frame", async () => {
+    // Starting in the spine exercises the control on the reading view and then
+    // follows it out to the entry, across a frame swap.
+    window.history.replaceState(null, "", "?note=notes/missing.org::0");
+    vi.stubGlobal("fetch", routedFetch({ "/api/status": status }));
+
+    render(() => <App />);
+
+    // Auto is the absence of the override attribute.
+    const control = await screen.findByRole("button", {
+      name: "Color scheme: Auto",
+    });
+    expect(document.documentElement.hasAttribute(SCHEME_ATTRIBUTE)).toBe(false);
+
+    fireEvent.click(control);
+    expect(
+      await screen.findByRole("button", { name: "Color scheme: Light" }),
+    ).toBeInTheDocument();
+    expect(document.documentElement.getAttribute(SCHEME_ATTRIBUTE)).toBe("light");
+
+    fireEvent.click(control);
+    expect(
+      await screen.findByRole("button", { name: "Color scheme: Dark" }),
+    ).toBeInTheDocument();
+    expect(document.documentElement.getAttribute(SCHEME_ATTRIBUTE)).toBe("dark");
+
+    fireEvent.click(screen.getByRole("button", { name: "slipbox" }));
+
+    expect(
+      await screen.findByRole("combobox", { name: "Search notes" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Color scheme: Dark" }),
+    ).toBeInTheDocument();
+    expect(document.documentElement.getAttribute(SCHEME_ATTRIBUTE)).toBe("dark");
   });
 });

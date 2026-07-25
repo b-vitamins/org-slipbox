@@ -10,8 +10,11 @@ import { type Component } from "solid-js";
 
 import "katex/dist/katex.min.css";
 
-/** The color both degraded paths show unrenderable TeX in: KaTeX's own. */
-const ERROR_COLOR = "#cc0000";
+/*
+ * The color unrenderable TeX is shown in. KaTeX writes this straight into a
+ * `style` attribute, where a custom property resolves against the element.
+ */
+const ERROR_COLOR = "var(--math-error)";
 
 /**
  * Raw `tex` marked up the way KaTeX marks up TeX it has rejected. Built through

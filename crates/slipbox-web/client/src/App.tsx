@@ -1,22 +1,13 @@
 /*
  * The reading-surface shell.
  *
- * The shell owns the reading stack — the ordered notes on screen, mirrored to
- * the URL — and chooses what fills the frame: the reading spine when the URL
- * names at least one note, and otherwise one of two entry surfaces. Which entry
- * surface (the search-first note entry, or the glossary dictionary) is itself
- * URL state, toggled from the header. Opening a note or a term from either
- * surface seeds the stack's root, which swaps the frame to the spine; the back
- * button walks all the way out to the entry again. Both the stack and the
- * surface mode re-read from the URL on `popstate`, so history stays authoritative.
- *
- * The header wordmark doubles as the in-app exit: while a note is open it is a
- * Home button back to the entry, so a shared, bookmarked, or missing-note URL is
- * never a dead end reachable only through browser chrome.
+ * Owns the reading stack and the entry surface mode, both mirrored to the URL
+ * and re-read on `popstate`, and mounts the spine, note entry, or glossary.
  */
 
 import { Show, onCleanup, type Component } from "solid-js";
 
+import { createColorScheme, SCHEME_LABELS } from "./dom/color-scheme.js";
 import { EntrySurface } from "./entry/EntrySurface.jsx";
 import { GlossaryDictionary } from "./entry/GlossaryDictionary.jsx";
 import { createSurfaceView } from "./entry/surface-view.js";
@@ -30,6 +21,7 @@ export const App: Component = () => {
   const history = browserHistory();
   const stack = createReadingStack(history);
   const view = createSurfaceView(history);
+  const colorScheme = createColorScheme();
   onCleanup(
     onPopState(() => {
       stack.sync();
@@ -85,6 +77,14 @@ export const App: Component = () => {
             </button>
           </nav>
         </Show>
+        <button
+          type="button"
+          class="app-header__scheme"
+          aria-label={`Color scheme: ${SCHEME_LABELS[colorScheme.scheme()]}`}
+          onClick={colorScheme.cycle}
+        >
+          {SCHEME_LABELS[colorScheme.scheme()]}
+        </button>
       </header>
       <Show when={atEntry()} fallback={<Spine stack={stack} />}>
         <Show when={atGlossary()} fallback={<EntrySurface onOpen={stack.open} />}>

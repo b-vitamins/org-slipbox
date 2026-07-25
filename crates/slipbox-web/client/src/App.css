@@ -67,3 +67,22 @@
   color: var(--ink);
   font-weight: 500;
 }
+
+/* `margin-left: auto` holds this at the trailing edge whether or not the entry
+   tabs are present. */
+.app-header__scheme {
+  margin-left: auto;
+  padding: 4px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--muted);
+  background: none;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color var(--dur-crossfade) var(--ease-settle);
+}
+
+.app-header__scheme:hover {
+  color: var(--ink);
+}

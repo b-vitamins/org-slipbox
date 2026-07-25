@@ -145,6 +145,8 @@ Focus:
 - a SolidJS reading client with URL-as-state navigation, an Org reading column
   with a near/far spine, glance/pin/go navigation, a search-first entry
   surface, and a glossary dictionary with peek and an inert study trail
+- a reading palette that follows the platform's light or dark preference, with
+  a reader override held per browser rather than in the URL
 - a `slipbox web` command that embeds the built client behind a build feature,
   serves it with an SPA fallback, binds localhost only, and self-spawns the
   read-only daemon

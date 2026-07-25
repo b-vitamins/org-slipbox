@@ -43,6 +43,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Added an `embed-web-client` build feature that compiles the built client into
   the binary for a self-contained reader, CI that typechecks, tests, and builds
   the client, and user documentation for the reading surface.
+- Added a reading-surface color scheme that follows the operating system's light
+  or dark preference, with a header control cycling Auto, Light, and Dark for a
+  reader who wants the opposite. The palette is one set of `light-dark()` token
+  pairs, so both schemes come from a single source, and the choice is stored per
+  browser rather than in the URL so a shared link carries a reading position and
+  not a theme.
 - Added an end-to-end reading-client suite driving a real browser against the
   built client over a stubbed JSON API, with a `test-e2e` target and a CI job,
   covering the behaviors the jsdom unit suite cannot see: the spine holding the

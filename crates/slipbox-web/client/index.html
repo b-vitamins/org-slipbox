@@ -3,8 +3,26 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="light" />
+    <meta name="color-scheme" content="light dark" />
     <title>slipbox</title>
+    <!--
+      Apply a stored scheme before first paint. The palette follows the platform
+      on its own, so this runs only for a reader who chose the opposite: without
+      it the platform's canvas paints first and is repainted when the client
+      mounts, which is a flash of the scheme the reader rejected. Inline and
+      blocking for that reason. Held in step with src/dom/color-scheme.ts by a
+      test that reads this file, not by convention.
+    -->
+    <script>
+      try {
+        var scheme = window.localStorage.getItem("slipbox:color-scheme");
+        if (scheme === "light" || scheme === "dark") {
+          document.documentElement.setAttribute("data-theme", scheme);
+        }
+      } catch (error) {
+        /* Storage blocked: the platform scheme stands. */
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

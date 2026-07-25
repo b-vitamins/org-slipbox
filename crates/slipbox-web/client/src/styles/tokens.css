@@ -21,21 +21,36 @@
   --code-size: 13px;
   --code-line: 17px;
 
-  /* Palette: paper and ink, with quiet greys and link accents. Every tone that
-   * carries text (--ink, --muted, --muted-2, --link, --link-visited) clears
-   * WCAG AA 4.5:1 on both --surface and --paper; --muted-3 and --hairline are
-   * decorative hairlines, exempt from the text-contrast floor. */
-  --paper: #fafafc;
-  --surface: #ffffff;
-  --ink: #333333;
-  --muted: #6b6b6b;
-  --muted-2: #717171;
-  --muted-3: #dddddd;
-  --hairline: #dadada;
-  --column-border: rgba(0, 0, 0, 0.05);
-  --link: #0a6ed1;
-  --link-visited: #9333c4;
-  --link-active-bg: rgba(10, 110, 209, 0.15);
+  /* The scheme `light-dark()` resolves against, on the root so form controls and
+   * scrollbars follow it too. `light dark` follows the platform; [data-theme]
+   * below is the only override. */
+  color-scheme: light dark;
+
+  /* Palette, each tone a light/dark pair. Every tone that carries text (--ink,
+   * --muted, --muted-2, --link, --link-visited, --math-error) clears WCAG AA
+   * 4.5:1 on both --surface and --paper in both schemes; --muted-3 and
+   * --hairline are decorative hairlines, exempt from that floor. */
+  --paper: light-dark(#fafafc, #16161a);
+  --surface: light-dark(#ffffff, #1d1d21);
+  --ink: light-dark(#333333, #d7d7da);
+  --muted: light-dark(#6b6b6b, #8d8d90);
+  --muted-2: light-dark(#717171, #878789);
+  --muted-3: light-dark(#dddddd, #3e3e40);
+  --hairline: light-dark(#dadada, #454547);
+  --link: light-dark(#0a6ed1, #5aa6ea);
+  --link-visited: light-dark(#9333c4, #b78ada);
+  --math-error: light-dark(#cc0000, #ff6b6b);
+
+  /* Tones layered over the canvas. A black wash reads as depth on paper and
+   * disappears on a dark canvas, so the dark side lifts toward white instead. */
+  --column-border: light-dark(rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.06));
+  --link-active-bg: light-dark(
+    rgba(10, 110, 209, 0.15),
+    rgba(90, 166, 234, 0.24)
+  );
+  --edge-shadow: light-dark(rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.5));
+  --edge-shadow-fade: light-dark(rgba(0, 0, 0, 0), rgba(0, 0, 0, 0));
+  --surface-fade: light-dark(rgba(255, 255, 255, 0), rgba(29, 29, 33, 0));
 
   /* Column geometry for the reading spine. */
   --column-width: 625px;
@@ -51,7 +66,7 @@
   /* The platform accessibility guidelines' minimum touch target, applied as a
    * floor by the `pointer: coarse` block below. */
   --touch-target: 44px;
-  --overlay-shadow: 0 0 15px 3px rgba(0, 0, 0, 0.1);
+  --overlay-shadow: 0 0 15px 3px light-dark(rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.55));
 
   /* Motion: a fast-out expo settle, plus supporting durations. */
   --ease-settle: cubic-bezier(0.19, 1, 0.22, 1);
@@ -95,6 +110,17 @@ a:hover {
 
 a:visited {
   color: var(--link-visited);
+}
+
+/* The reader's override of the platform scheme. Only `color-scheme` is restated:
+ * every palette token above resolves through `light-dark()`, so pinning the
+ * scheme here repaints the whole surface. */
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 /* Where the pointer is a finger, every control clears the touch-target floor.
