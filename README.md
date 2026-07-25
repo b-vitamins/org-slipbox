@@ -9,11 +9,11 @@ daemon-owned writes fast enough for interactive use. Emacs owns editing UI,
 session state, and presentation. Rust owns parsing, indexing, ranking, query
 execution, and file mutation.
 
-The latest shipped release is `0.16.0`, which introduces a first-class personal
-glossary as a new public bucket: terms are Org notes with a `#+glossary:`
-marker, SM-2 spaced-repetition state lives in the Org drawer so it syncs and
-rebuilds with the notes, and Emacs gains capture, lookup, a cockpit lens, and a
-card-at-a-time review buffer.
+The latest shipped release is `0.17.0`, which adds a read-only web reading
+surface as a third front-end over Notes and Glossary beside Emacs and the CLI:
+a `slipbox web` command bridges HTTP to a spawned read-only daemon, binds
+localhost only, and serves a SolidJS reading client beneath a bounded JSON API,
+without adding a new public bucket or any way to mutate notes over HTTP.
 
 For the product model, see [doc/model.org](doc/model.org). The short version
 is:

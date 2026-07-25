@@ -6,6 +6,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-07-25
+
 ### Added
 - Added ranked note-content search as a third search concept alongside node
   search and occurrence search: `search content` matches a note's body, title,
