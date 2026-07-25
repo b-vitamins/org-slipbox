@@ -1,21 +1,8 @@
 /*
- * The reading surface's navigation grammar.
- *
- * A rendered Org link can be acted on three ways, an escalating ladder of
- * commitment — but *how* each is honored (float a preview, push a column,
- * replace the reading path) is the spine's concern, not the renderer's. This
- * context is that seam: the renderer translates a raw gesture into one grammar
- * verb and the surrounding spine decides what it means.
- *
- * - `glance` — the lightest touch: preview the target without disturbing the
- *   stack or the URL. Passing `null` dismisses the current preview.
- * - `pin`    — open the target as a new column beside its origin (the
- *   stacked-notes default; a plain click or Enter).
- * - `go`     — replace the whole reading path, opening the target as a fresh
- *   root (a deliberate escalation; Alt-click or Alt-Enter).
- *
- * The grammar only ever runs on internal `id:` links; an external link is left
- * to the browser, so every `LinkTarget` reaching a verb carries a real id.
+ * The context carrying the reading surface's navigation grammar: the renderer
+ * turns a gesture into one of `glance`, `pin`, `go` and the spine decides how
+ * each is honored. The grammar runs only on internal `id:` links, so every
+ * `LinkTarget` reaching a verb carries a real id.
  */
 
 import {
@@ -31,11 +18,23 @@ export interface LinkTarget {
   readonly target: string;
 }
 
-/** A request to preview a target, anchored at the link that raised it. */
+/**
+ * How the reader raised a glance. `pointer` is a cursor resting on a link or a
+ * link taking keyboard focus, so a commit gesture is still ahead of it. `touch`
+ * is a tap, which nothing follows, so the preview must carry the way onward.
+ */
+export type GlanceGesture = "pointer" | "touch";
+
 export interface GlanceRequest {
   readonly target: LinkTarget;
   /** The link element the preview positions itself against. */
   readonly origin: HTMLElement;
+  readonly gesture: GlanceGesture;
+  /** The `pin` and `go` verbs for this target, each dismissing the preview. */
+  readonly pin: () => void;
+  readonly go: () => void;
+  /** Close the preview, committing to nothing. */
+  readonly dismiss: () => void;
 }
 
 export interface Navigation {

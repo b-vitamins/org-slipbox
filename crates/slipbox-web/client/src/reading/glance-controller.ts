@@ -1,12 +1,8 @@
 /*
- * The glance intent controller.
- *
- * Hovering a link should not fire a fetch on every quick pass-over, so showing
- * a preview is delayed by a short intent window; dismissing is instant. Once a
- * preview is already visible, moving to another link swaps it immediately —
- * the reader has clearly committed to glancing, so re-imposing the delay would
- * feel laggy. The timer is injectable so the debounce is unit-testable without
- * real time.
+ * The glance intent controller. Showing waits out a short intent window so a
+ * pass-over hover fires no fetch; dismissing and swapping an open card are
+ * immediate. A touch-raised glance also shows at once, since a tap states its
+ * intent. The timer is injectable so the debounce is testable without real time.
  */
 
 import { createSignal, type Accessor } from "solid-js";
@@ -43,8 +39,7 @@ export function createGlanceController(
       setRequest(null);
       return;
     }
-    // A preview is already open: swap immediately. Otherwise wait for intent.
-    if (request() !== null) {
+    if (request() !== null || next.gesture === "touch") {
       setRequest(next);
       return;
     }

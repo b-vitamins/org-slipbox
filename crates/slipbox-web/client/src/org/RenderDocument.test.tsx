@@ -10,7 +10,9 @@ describe("RenderDocument", () => {
     const doc = parseOrg("* Section\n\nA /clear/ and *bold* line.");
     render(() => <RenderDocument document={doc} />);
 
-    expect(screen.getByRole("heading", { name: "Section" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Section" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("clear").tagName).toBe("EM");
     expect(screen.getByText("bold").tagName).toBe("STRONG");
   });
@@ -37,7 +39,11 @@ describe("RenderDocument", () => {
   });
 
   it("pins an id link on a plain click instead of following the browser", () => {
-    const navigation: Navigation = { glance: vi.fn(), pin: vi.fn(), go: vi.fn() };
+    const navigation: Navigation = {
+      glance: vi.fn(),
+      pin: vi.fn(),
+      go: vi.fn(),
+    };
     const doc = parseOrg("see [[id:abc-123][the algorithm]] now");
 
     render(() => (
@@ -49,10 +55,14 @@ describe("RenderDocument", () => {
     const link = screen.getByText("the algorithm").closest("a")!;
     // The href is the real URL the router reads, not a decorative hash.
     expect(link.getAttribute("href")).toBe("?note=id%3Aabc-123");
-    link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    link.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
 
     expect(navigation.pin).toHaveBeenCalledTimes(1);
-    expect((navigation.pin as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toEqual({
+    expect(
+      (navigation.pin as ReturnType<typeof vi.fn>).mock.calls[0]![0],
+    ).toEqual({
       id: "abc-123",
       target: "id:abc-123",
     });
@@ -60,7 +70,11 @@ describe("RenderDocument", () => {
   });
 
   it("escalates to go on an alt-click", () => {
-    const navigation: Navigation = { glance: vi.fn(), pin: vi.fn(), go: vi.fn() };
+    const navigation: Navigation = {
+      glance: vi.fn(),
+      pin: vi.fn(),
+      go: vi.fn(),
+    };
     const doc = parseOrg("see [[id:abc-123][the algorithm]] now");
 
     render(() => (
@@ -71,7 +85,11 @@ describe("RenderDocument", () => {
 
     const link = screen.getByText("the algorithm").closest("a")!;
     link.dispatchEvent(
-      new MouseEvent("click", { bubbles: true, cancelable: true, altKey: true }),
+      new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        altKey: true,
+      }),
     );
 
     expect(navigation.go).toHaveBeenCalledTimes(1);
@@ -84,17 +102,23 @@ describe("RenderDocument", () => {
 
     const figure = container.querySelector("figure.org-src");
     expect(figure?.getAttribute("data-lang")).toBe("python");
-    expect(container.querySelector(".org-src__code")?.textContent).toBe("print(1)");
+    expect(container.querySelector(".org-src__code")?.textContent).toBe(
+      "print(1)",
+    );
 
     // The language is surfaced and a copy control is present and labelled.
-    expect(container.querySelector(".org-src__lang")?.textContent).toBe("python");
+    expect(container.querySelector(".org-src__lang")?.textContent).toBe(
+      "python",
+    );
     expect(
       screen.getByRole("button", { name: "Copy code to clipboard" }),
     ).toBeInTheDocument();
   });
 
   it("renders a table header as th and typesets math cells through KaTeX", () => {
-    const doc = parseOrg("| quantity | value |\n|---+---|\n| \\\\(d\\\\) | 0 |");
+    const doc = parseOrg(
+      "| quantity | value |\n|---+---|\n| \\\\(d\\\\) | 0 |",
+    );
     const { container } = render(() => <RenderDocument document={doc} />);
 
     // The pre-rule row is a real header, not another body row.

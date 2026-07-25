@@ -1,15 +1,8 @@
 /*
- * The glance preview card.
- *
- * A floating, read-only peek at a link's target: its title and a one-line
- * excerpt of its opening prose, fetched lazily the first time the reader lingers
- * on a link. The excerpt is rendered, not spelled out — a note whose first
- * sentence carries a formula previews with that formula typeset, since a peek at
- * a note should look like the note. The card is decorative chrome — the link
- * itself stays the accessible, actionable element — so it is `aria-hidden` and
- * never traps focus. It positions itself with fixed coordinates from
- * `placeGlance`, measuring its own box after mount so the flip-above and
- * edge-clamp use the real rendered size.
+ * The glance preview card: a floating peek at a link's target, placed in
+ * viewport coordinates by `placeGlance` and remeasured after mount. A cursor- or
+ * focus-raised card is decorative chrome and `aria-hidden`; a touch-raised one
+ * carries the only commit gesture available, so it is not.
  */
 
 import { Show, createEffect, createMemo, createSignal, type Component } from "solid-js";
@@ -42,6 +35,8 @@ function describeError(error: unknown): string {
 export const GlancePreview: Component<{ request: GlanceRequest }> = (props) => {
   let card!: HTMLDivElement;
   const [placement, setPlacement] = createSignal<GlancePlacement | null>(null);
+
+  const commits = (): boolean => props.request.gesture === "touch";
 
   const reference = (): string => referenceOf(props.request.target);
   const context = createReadingResource(reference, (ref) =>
@@ -77,12 +72,13 @@ export const GlancePreview: Component<{ request: GlanceRequest }> = (props) => {
       classList={{
         "glance-card--above": placement()?.above ?? false,
         "glance-card--placed": placement() !== null,
+        "glance-card--committing": commits(),
       }}
       style={{
         left: `${placement()?.left ?? 0}px`,
         top: `${placement()?.top ?? 0}px`,
       }}
-      aria-hidden="true"
+      aria-hidden={commits() ? undefined : "true"}
     >
       <Show
         when={context.ready()}
@@ -105,9 +101,38 @@ export const GlancePreview: Component<{ request: GlanceRequest }> = (props) => {
                 <RenderPreview prose={excerpt()} class="glance-card__prose" />
               </p>
             </Show>
-            {/* Surface the otherwise-invisible navigation grammar at the moment
-             * the reader is poised over a link. */}
-            <p class="glance-card__hint">Click to open · Alt-click to replace</p>
+            <Show
+              when={commits()}
+              fallback={
+                <p class="glance-card__hint">Click to open · Alt-click to replace</p>
+              }
+            >
+              <div class="glance-card__actions">
+                <button
+                  type="button"
+                  class="glance-card__action"
+                  onClick={() => props.request.pin()}
+                >
+                  Open
+                </button>
+                <button
+                  type="button"
+                  class="glance-card__action"
+                  onClick={() => props.request.go()}
+                >
+                  Replace
+                </button>
+                {/* Touch has no pointer-out to dismiss with, so the way out is
+                 * an explicit control. */}
+                <button
+                  type="button"
+                  class="glance-card__action glance-card__action--quiet"
+                  onClick={() => props.request.dismiss()}
+                >
+                  Close
+                </button>
+              </div>
+            </Show>
           </>
         )}
       </Show>

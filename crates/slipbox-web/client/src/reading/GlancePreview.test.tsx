@@ -21,11 +21,18 @@ function noteContextResponse(title: string, content: string): Response {
   );
 }
 
-/** A glance request anchored at a throwaway element (raw-key target). */
-function requestFor(target: string): GlanceRequest {
+function requestFor(
+  target: string,
+  verbs: Partial<Pick<GlanceRequest, "gesture" | "pin" | "go" | "dismiss">> = {},
+): GlanceRequest {
   return {
     target: { id: null, target },
     origin: document.createElement("a"),
+    gesture: "pointer",
+    pin: () => {},
+    go: () => {},
+    dismiss: () => {},
+    ...verbs,
   };
 }
 
@@ -47,14 +54,59 @@ describe("GlancePreview", () => {
       ),
     );
 
-    render(() => <GlancePreview request={requestFor("notes/gradient.org")} />);
+    const { container } = render(() => (
+      <GlancePreview request={requestFor("notes/gradient.org")} />
+    ));
 
     expect(await screen.findByText("Gradient descent")).toBeInTheDocument();
     expect(screen.getByText("Click to open · Alt-click to replace")).toBeInTheDocument();
+
+    expect(container.querySelectorAll("button")).toHaveLength(0);
+    expect(container.querySelector(".glance-card")).toHaveAttribute(
+      "aria-hidden",
+      "true",
+    );
   });
 
-  // A peek at a note should look like the note: an excerpt carrying a formula
-  // previews with that formula typeset, not with its TeX spelled out.
+  it("offers the committing verbs as controls when a tap raised it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(noteContextResponse("Duality gap", "The gap closes.")),
+      ),
+    );
+    const pin = vi.fn();
+    const go = vi.fn();
+    const dismiss = vi.fn();
+
+    const { container } = render(() => (
+      <GlancePreview
+        request={requestFor("notes/duality.org", {
+          gesture: "touch",
+          pin,
+          go,
+          dismiss,
+        })}
+      />
+    ));
+
+    expect(await screen.findByText("Duality gap")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Click to open · Alt-click to replace"),
+    ).not.toBeInTheDocument();
+
+    const card = container.querySelector(".glance-card");
+    expect(card).not.toHaveAttribute("aria-hidden");
+    expect(card?.classList.contains("glance-card--committing")).toBe(true);
+
+    screen.getByRole("button", { name: "Open" }).click();
+    expect(pin).toHaveBeenCalledTimes(1);
+    screen.getByRole("button", { name: "Replace" }).click();
+    expect(go).toHaveBeenCalledTimes(1);
+    screen.getByRole("button", { name: "Close" }).click();
+    expect(dismiss).toHaveBeenCalledTimes(1);
+  });
+
   it("typesets math in the excerpt through KaTeX", async () => {
     vi.stubGlobal(
       "fetch",

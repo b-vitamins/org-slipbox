@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { createGlanceController } from "./glance-controller.js";
 import type { Scheduler } from "../data/scheduler.js";
-import type { GlanceRequest } from "../org/navigation.jsx";
+import type { GlanceGesture, GlanceRequest } from "../org/navigation.jsx";
 
 /** A manual scheduler: callbacks fire only when `flush` is called. */
 function manualScheduler(): Scheduler & { flush: () => void; pending: () => number } {
@@ -29,10 +29,14 @@ function manualScheduler(): Scheduler & { flush: () => void; pending: () => numb
 }
 
 /** A glance request carrying a distinguishable id, without a real DOM node. */
-function requestFor(id: string): GlanceRequest {
+function requestFor(id: string, gesture: GlanceGesture = "pointer"): GlanceRequest {
   return {
     target: { id, target: `id:${id}` },
     origin: {} as HTMLElement,
+    gesture,
+    pin: () => {},
+    go: () => {},
+    dismiss: () => {},
   };
 }
 
@@ -76,6 +80,21 @@ describe("createGlanceController", () => {
 
       controller.glance(requestFor("b"));
       expect(controller.request()?.target.id).toBe("b"); // no flush needed
+      expect(scheduler.pending()).toBe(0);
+      dispose();
+    });
+  });
+
+  // The window exists to tell a deliberate hover from a cursor passing over. A
+  // tap is already deliberate, and it is the whole gesture — nothing follows it —
+  // so waiting would read as the tap having been missed.
+  it("shows a tapped preview at once, without the intent window", () => {
+    createRoot((dispose) => {
+      const scheduler = manualScheduler();
+      const controller = createGlanceController(120, scheduler);
+
+      controller.glance(requestFor("a", "touch"));
+      expect(controller.request()?.target.id).toBe("a");
       expect(scheduler.pending()).toBe(0);
       dispose();
     });
