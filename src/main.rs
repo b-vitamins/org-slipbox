@@ -1,10 +1,13 @@
 mod cli;
 
+use std::env;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::process::ExitCode;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
 use slipbox::server;
+use slipbox_web::{Assets, ReadingBridge, ReadingServer};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -37,6 +40,11 @@ enum Command {
         long_about = "Run the JSON-RPC daemon over stdio for daemon-backed commands and editor clients. Pass --read-only to serve a session that refuses every mutating method at dispatch, for read-only front-ends such as the web reader."
     )]
     Serve(ServeArgs),
+    /// Serve the read-only web reading surface over HTTP.
+    #[command(
+        long_about = "Serve the read-only web reading surface over HTTP. This self-spawns a `slipbox serve --read-only` daemon, binds a loopback address only, and serves the notes and glossary reading client together with its JSON API on one port. It is read-only, single-user, and localhost-only; it runs until interrupted."
+    )]
+    Web(WebArgs),
     /// Show daemon and index status.
     #[command(
         long_about = "Show daemon and derived-index status. This is a read-only daemon-backed command; use --json for the stable machine envelope."
@@ -173,6 +181,18 @@ struct ServeArgs {
     read_only: bool,
 }
 
+#[derive(Debug, Args)]
+struct WebArgs {
+    #[command(flatten)]
+    scope: cli::ScopeArgs,
+    /// Loopback port to bind. Defaults to 8080; pass 0 to let the OS choose.
+    #[arg(long, default_value_t = 8080)]
+    port: u16,
+    /// Number of request worker threads sharing the one daemon pipe.
+    #[arg(long, default_value_t = 4)]
+    workers: usize,
+}
+
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
@@ -185,6 +205,9 @@ fn run() -> Result<(), cli::CliCommandError> {
     match cli.command {
         Command::Serve(args) => run_serve(args)
             .map_err(|error| cli::CliCommandError::new(cli::OutputMode::Human, error)),
+        Command::Web(args) => {
+            run_web(args).map_err(|error| cli::CliCommandError::new(cli::OutputMode::Human, error))
+        }
         Command::Status(args) => cli::run_status(&args),
         Command::Sync(args) => cli::run_sync(&args),
         Command::File(args) => cli::run_file(&args),
@@ -222,4 +245,53 @@ fn run_serve(args: ServeArgs) -> Result<()> {
         discovery,
         args.read_only,
     )
+}
+
+fn run_web(args: WebArgs) -> Result<()> {
+    // Validate discovery before spawning anything, so a bad scope fails fast.
+    args.scope.discovery_policy()?;
+
+    // The daemon is self-spawned from this executable and exits when its stdin
+    // pipe closes, so it never orphans. The bridge forces the session read-only
+    // regardless of config.
+    let program = env::current_exe().context("failed to resolve the slipbox executable")?;
+    let bridge = ReadingBridge::spawn(program, args.scope.daemon_config())
+        .context("failed to spawn the read-only reading daemon")?;
+
+    // A spawn only starts the child; the first round trip is what proves it can
+    // answer, so it runs before any banner.
+    let served = bridge
+        .status()
+        .context("the read-only reading daemon could not read the slipbox")?;
+
+    let assets = Assets::embedded();
+    let client_embedded = !assets.is_empty();
+
+    // Loopback only: the surface is unauthenticated and must not be reachable off
+    // this host. The loopback interface is an enforced invariant, not a default.
+    let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, args.port));
+    let server = ReadingServer::start(addr, bridge, assets, args.workers)
+        .context("failed to start the reading server")?;
+    let local_addr = server.local_addr();
+
+    println!("slipbox web reading surface on http://{local_addr}");
+    println!(
+        "serving {} read-only: {} notes, {} links; press Ctrl-C to stop",
+        args.scope.root.display(),
+        served.notes_indexed,
+        served.links_indexed
+    );
+    if !client_embedded {
+        println!(
+            "this binary carries no reading client: the JSON API answers under /api, \
+             every other path is a not-found"
+        );
+    }
+
+    // Serving happens on the server's worker threads. Park the main thread so the
+    // process stays alive until interrupted; the OS then tears the process group
+    // down, closing the daemon pipe. There is no in-band stop signal.
+    loop {
+        std::thread::park();
+    }
 }

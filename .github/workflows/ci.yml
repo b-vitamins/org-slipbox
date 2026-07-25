@@ -29,6 +29,19 @@ jobs:
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: crates/slipbox-web/client/package-lock.json
+
+      # Build the client before the Rust steps: the workspace `--all-features`
+      # clippy gate enables `embed-assets`, whose build script compiles this
+      # tree in and fails when it is absent.
+      - name: Build reading client
+        run: make build-web
+
       - name: Check formatting
         run: cargo fmt --all --check
 

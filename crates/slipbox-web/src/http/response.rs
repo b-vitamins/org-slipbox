@@ -33,12 +33,12 @@ impl ApiError {
         Self::new(404, "not-found", message)
     }
 
-    /// A verb other than `GET` reached a reading route.
+    /// A verb the reading surface does not serve reached a route.
     pub(crate) fn method_not_allowed() -> Self {
         Self::new(
             405,
             "method-not-allowed",
-            "the reading API serves GET requests only",
+            "the reading API serves GET and HEAD requests only",
         )
     }
 

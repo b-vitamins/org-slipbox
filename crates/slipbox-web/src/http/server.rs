@@ -6,35 +6,27 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crate::ReadingBridge;
+use crate::assets::{Assets, StaticResponse};
 use crate::http::response::ApiError;
 use crate::http::routes;
-use crate::http::wire::{self, HeadError, RequestHead, WireResponse};
+use crate::http::wire::{self, HeadError, RequestHead, Verb, WireResponse};
 
-/// The one JSON content type every API response carries.
 const JSON: &str = "application/json; charset=utf-8";
 /// The verbs a reading route answers, as the `Allow` header spells them.
-const ALLOWED_METHODS: &str = "GET";
+const ALLOWED_METHODS: &str = "GET, HEAD";
 /// API bodies are live index state, never revalidatable: a note read after a
 /// re-index must reach the daemon rather than a browser or proxy cache.
 const NO_STORE: &str = "no-store";
 /// How long to wait between the connections that release parked workers during
-/// shutdown. Short enough to be imperceptible, long enough not to spin.
+/// shutdown.
 const WAKE_INTERVAL: Duration = Duration::from_millis(2);
 
 /// A running read-only HTTP reading server.
 ///
-/// The server answers `GET /api/...` over one port, backed by a worker pool that
-/// shares one [`ReadingBridge`] across all connections; the bridge's internal
-/// lock serializes the single daemon pipe, so the pool size trades latency
-/// against nothing but daemon round-trip time. Dropping the handle — or calling
-/// [`ReadingServer::shutdown`] — stops the pool and joins every worker, then
-/// shuts the daemon down cleanly.
-///
-/// One connection carries one request: a worker reads the head under a size and
-/// time bound, never reads a request body, writes a `Content-Length`-framed
-/// reply, and closes. A worker therefore holds a connection for a bounded time
-/// whatever a client does with it, which is what keeps both serving and shutdown
-/// prompt no matter how many sockets are open.
+/// `GET /api/...` is answered from the daemon and every other path from the
+/// embedded reading client, over one port. One connection carries one request: a
+/// worker reads the head under a size and time bound, never reads a request body,
+/// writes a `Content-Length`-framed reply, and closes.
 pub struct ReadingServer {
     /// Cleared to stop the pool; a worker reads it around each accept.
     running: Arc<AtomicBool>,
@@ -52,10 +44,14 @@ pub struct ReadingServer {
 impl ReadingServer {
     /// Bind `addr`, spawn `workers` request threads, and start serving.
     ///
-    /// The bridge is expected to already front a read-only daemon; the server
-    /// adds no capability of its own, it only exposes the reading routes over
-    /// HTTP. `workers` is clamped to at least one.
-    pub fn start(addr: SocketAddr, bridge: ReadingBridge, workers: usize) -> io::Result<Self> {
+    /// The bridge is expected to already front a read-only daemon. An empty
+    /// asset set serves the API alone. `workers` is clamped to at least one.
+    pub fn start(
+        addr: SocketAddr,
+        bridge: ReadingBridge,
+        assets: Assets,
+        workers: usize,
+    ) -> io::Result<Self> {
         let listener = TcpListener::bind(addr)
             .map_err(|error| io::Error::other(format!("failed to bind {addr}: {error}")))?;
         // With port 0 the OS assigns a port, so the concrete address has to be
@@ -65,6 +61,7 @@ impl ReadingServer {
         let listener = Arc::new(listener);
         let running = Arc::new(AtomicBool::new(true));
         let bridge = Arc::new(bridge);
+        let assets = Arc::new(assets);
         let worker_count = workers.max(1);
         let live = Arc::new(AtomicUsize::new(worker_count));
         let mut handles = Vec::with_capacity(worker_count);
@@ -73,12 +70,13 @@ impl ReadingServer {
             let running = Arc::clone(&running);
             let live = Arc::clone(&live);
             let bridge = Arc::clone(&bridge);
+            let assets = Arc::clone(&assets);
             handles.push(thread::spawn(move || {
                 // A guard, not a decrement after the call, so a worker that
                 // unwinds still reports having left the pool; shutdown would
                 // otherwise wait forever on a thread that is already gone.
                 let _leaving = Leaving(live);
-                serve_loop(&listener, &running, &bridge);
+                serve_loop(&listener, &running, &bridge, &assets);
             }));
         }
 
@@ -158,14 +156,19 @@ impl Drop for Leaving {
 /// answering each and closing it. The flag is read again after the accept, since
 /// the connection that released the worker may be a shutdown wake whose head
 /// would never arrive.
-fn serve_loop(listener: &TcpListener, running: &AtomicBool, bridge: &ReadingBridge) {
+fn serve_loop(
+    listener: &TcpListener,
+    running: &AtomicBool,
+    bridge: &ReadingBridge,
+    assets: &Assets,
+) {
     while running.load(Ordering::SeqCst) {
         match listener.accept() {
             Ok((stream, _)) => {
                 if !running.load(Ordering::SeqCst) {
                     break;
                 }
-                handle(bridge, running, stream);
+                handle(bridge, assets, running, stream);
             }
             Err(_) => continue,
         }
@@ -175,24 +178,30 @@ fn serve_loop(listener: &TcpListener, running: &AtomicBool, bridge: &ReadingBrid
 /// Answer one connection: read the head under its bounds, dispatch, reply, close.
 /// A head that never arrives, overruns its bound, or declares a body is answered
 /// from the failure alone, without running a route.
-fn handle(bridge: &ReadingBridge, running: &AtomicBool, mut stream: TcpStream) {
-    let reply = match wire::read_head(&stream, running) {
-        Ok(head) => answer(bridge, &head),
-        Err(error) => Reply::from(head_error(&error)),
+fn handle(bridge: &ReadingBridge, assets: &Assets, running: &AtomicBool, mut stream: TcpStream) {
+    let (verb, reply) = match wire::read_head(&stream, running) {
+        Ok(head) => (head.verb, answer(bridge, assets, &head)),
+        // The verb is unknown on this path, but the reply still has to carry its
+        // body, so it is framed as a `GET` reply rather than a `HEAD` one.
+        Err(error) => (Some(Verb::Get), Reply::from(head_error(&error))),
     };
-    let _ = wire::write_response(&mut stream, &reply.into_wire());
+    let _ = wire::write_response(&mut stream, verb, &reply.into_wire());
 }
 
-/// The reply a well-formed head earns: reject verbs the surface does not serve,
-/// split the target, then dispatch the reading route it names.
-fn answer(bridge: &ReadingBridge, head: &RequestHead) -> Reply {
+/// The reply a well-formed head earns: either an API route or a static asset.
+/// `HEAD` is routed exactly like `GET`, and the wire layer withholds the body.
+fn answer(bridge: &ReadingBridge, assets: &Assets, head: &RequestHead) -> Reply {
     if head.verb.is_none() {
         return Reply::from(ApiError::method_not_allowed());
     }
     let (path, raw_query) = split_url(&head.target);
-    match routes::dispatch(bridge, &path, &raw_query) {
-        Ok(response) => Reply::json(200, response.body),
-        Err(error) => Reply::from(error),
+    if is_api_path(&path) {
+        match routes::dispatch(bridge, &path, &raw_query) {
+            Ok(response) => Reply::json(200, response.body),
+            Err(error) => Reply::from(error),
+        }
+    } else {
+        serve_static(assets, &path)
     }
 }
 
@@ -208,8 +217,21 @@ fn head_error(error: &HeadError) -> ApiError {
     }
 }
 
-/// A fully-rendered reply: status, headers, and body bytes, with nothing left for
-/// the wire layer to decide beyond framing it.
+/// True for a path the JSON API owns: the `/api` root and everything beneath it,
+/// which answers in the JSON envelope rather than the app shell.
+fn is_api_path(path: &str) -> bool {
+    path == "/api" || path.starts_with("/api/")
+}
+
+/// Resolve a non-API path against the embedded client.
+fn serve_static(assets: &Assets, path: &str) -> Reply {
+    match assets.resolve(path) {
+        Some(response) => Reply::asset(&response),
+        None => Reply::not_found(),
+    }
+}
+
+/// A fully-rendered reply, leaving the wire layer only the framing.
 struct Reply {
     status: u16,
     content_type: &'static str,
@@ -224,6 +246,26 @@ impl Reply {
             content_type: JSON,
             headers: vec![("Cache-Control", NO_STORE)],
             body: body.into_bytes(),
+        }
+    }
+
+    fn asset(response: &StaticResponse<'_>) -> Self {
+        Self {
+            status: 200,
+            content_type: response.content_type,
+            headers: vec![("Cache-Control", response.cache_control)],
+            body: response.bytes.to_vec(),
+        }
+    }
+
+    /// A not-found for a non-API path that resolved to nothing. Text rather than
+    /// the JSON API envelope, since it is not an API result.
+    fn not_found() -> Self {
+        Self {
+            status: 404,
+            content_type: "text/plain; charset=utf-8",
+            headers: vec![("Cache-Control", NO_STORE)],
+            body: b"not found".to_vec(),
         }
     }
 
@@ -258,7 +300,7 @@ fn split_url(url: &str) -> (String, String) {
 
 #[cfg(test)]
 mod tests {
-    use super::{ALLOWED_METHODS, Reply, head_error, split_url};
+    use super::{ALLOWED_METHODS, Reply, head_error, is_api_path, split_url};
     use crate::http::response::ApiError;
     use crate::http::wire::HeadError;
 
@@ -284,6 +326,16 @@ mod tests {
             split_url("/api/status?"),
             ("/api/status".to_owned(), String::new())
         );
+    }
+
+    #[test]
+    fn api_paths_are_the_api_root_and_everything_under_it() {
+        assert!(is_api_path("/api/status"));
+        assert!(is_api_path("/api/glossary/terms"));
+        assert!(is_api_path("/api"));
+        assert!(!is_api_path("/"));
+        assert!(!is_api_path("/assets/index-abc123.js"));
+        assert!(!is_api_path("/some/reading/path"));
     }
 
     #[test]

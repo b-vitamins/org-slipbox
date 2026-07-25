@@ -29,8 +29,26 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: crates/slipbox-web/client/package-lock.json
+
+      # A published binary carries the reading client, so the client builds
+      # first: `embed-web-client` compiles `client/dist` into the binary and its
+      # build script fails when that tree is absent. Driven through npm rather
+      # than `make build-web` because this matrix includes a Windows runner with
+      # no GNU make.
+      - name: Install reading-client dependencies
+        run: npm --prefix crates/slipbox-web/client ci
+
+      - name: Build reading client
+        run: npm --prefix crates/slipbox-web/client run build
+
       - name: Build release daemon
-        run: cargo build --release --locked
+        run: cargo build --release --locked --features embed-web-client
 
       - name: Package release archive (Unix)
         id: package-unix

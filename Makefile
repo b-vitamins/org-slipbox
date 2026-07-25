@@ -5,6 +5,9 @@ SLIPBOX_CARGO_ENV = $(if $(SLIPBOX_CC),CC="$(SLIPBOX_CC)")
 GUIX ?= guix
 GUIX_MANIFEST ?= manifest.scm
 GUIX_SHELL = $(GUIX) shell -m $(GUIX_MANIFEST) --
+NPM ?= npm
+WEB_CLIENT ?= crates/slipbox-web/client
+WEB_INSTALL_STAMP = $(WEB_CLIENT)/node_modules/.install-stamp
 
 .PHONY: build
 build:
@@ -40,6 +43,25 @@ test-elisp:
 
 .PHONY: test
 test: test-rust test-elisp check-release-metadata
+
+# Reading-client targets. These drive the SolidJS client under $(WEB_CLIENT)
+# through npm and stay separate from `test`: the Guix manifest provides no Node
+# toolchain, so `guix-test` must not depend on them.
+#
+# Each client target depends on an install stamp rather than a phony install,
+# so a fresh checkout installs once and later targets reuse it; the stamp is
+# refreshed only when the lockfile changes. This keeps every target
+# self-sufficient while the client invocations CI runs cost a single `npm ci`.
+$(WEB_INSTALL_STAMP): $(WEB_CLIENT)/package-lock.json
+	$(NPM) --prefix $(WEB_CLIENT) ci
+	touch $@
+
+# Build the client into $(WEB_CLIENT)/dist. This is the tree the `embed-assets`
+# feature compiles in, so a release build of `slipbox web` and the workspace
+# `--all-features` clippy gate both need it to have run first.
+.PHONY: build-web
+build-web: $(WEB_INSTALL_STAMP)
+	$(NPM) --prefix $(WEB_CLIENT) run build
 
 PROFILE ?= ci
 BENCH_CARGO_FLAGS ?= --release

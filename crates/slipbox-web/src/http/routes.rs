@@ -26,11 +26,9 @@ impl ApiResponse {
     }
 }
 
-/// Dispatch one already-split request to the matching read route.
-///
-/// `path` is the URL path with its query removed; `raw_query` is the portion
-/// after `?`. Only paths under `/api/` are served; anything else is a 404 so
-/// the future SPA fallback (M10) owns every non-API path without ambiguity.
+/// Dispatch one already-split request to the matching read route. `path` is the
+/// URL path with its query removed; `raw_query` is the portion after `?`. Only
+/// `/api/` paths reach here, so an unknown route is an API not-found.
 pub(crate) fn dispatch(
     bridge: &ReadingBridge,
     path: &str,

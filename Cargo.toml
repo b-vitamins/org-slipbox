@@ -12,6 +12,9 @@ publish = false
 default = ["bundled-sqlite"]
 bundled-sqlite = ["slipbox-store/bundled-sqlite"]
 system-sqlite = ["slipbox-store/system-sqlite"]
+# Compile the built reading client into the binary so `slipbox web` ships a
+# self-contained reader. Off by default: a plain build needs no built client.
+embed-web-client = ["slipbox-web/embed-assets"]
 
 [workspace]
 members = ["crates/*"]
@@ -49,6 +52,7 @@ slipbox-daemon-client = { path = "crates/slipbox-daemon-client" }
 slipbox-index = { path = "crates/slipbox-index" }
 slipbox-rpc = { path = "crates/slipbox-rpc" }
 slipbox-store = { path = "crates/slipbox-store", default-features = false }
+slipbox-web = { path = "crates/slipbox-web" }
 slipbox-write = { path = "crates/slipbox-write" }
 tempfile.workspace = true
 
@@ -58,7 +62,6 @@ chrono.workspace = true
 serde_json.workspace = true
 slipbox-index = { path = "crates/slipbox-index" }
 slipbox-store = { path = "crates/slipbox-store", default-features = false }
-slipbox-web = { path = "crates/slipbox-web" }
 slipbox-write = { path = "crates/slipbox-write" }
 tempfile.workspace = true
 urlencoding.workspace = true

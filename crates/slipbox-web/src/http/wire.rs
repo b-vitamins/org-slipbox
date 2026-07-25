@@ -1,26 +1,10 @@
 //! The HTTP/1.1 wire layer: read one request head, write one framed response.
 //!
-//! The reading surface answers a fixed, tiny protocol — `GET` over loopback, one
-//! request per connection, every response framed by `Content-Length` — so the
-//! transport is owned here rather than delegated. That keeps three properties
-//! structural rather than hoped for:
-//!
-//! - **No request body is ever read.** A reading route has no body to consume,
-//!   so a request that declares one is refused on its face and the connection is
-//!   closed. Nothing derived from a client-supplied length reaches an allocation.
-//! - **Every read is bounded in size and in time.** A head is capped at
-//!   [`MAX_HEAD_BYTES`], and it is capped in time twice: a short
-//!   [`FIRST_BYTE_TIMEOUT`] grace for a connection that has said nothing, then a
-//!   generous [`IO_TIMEOUT`] once it starts speaking. A client that connects and
-//!   stalls therefore costs a worker a moment, not the window a real request is
-//!   owed, so more silent sockets than workers cannot hold the surface shut.
-//! - **A worker is never parked indefinitely.** Every wait is sliced, and the
-//!   pool's serving flag is read between slices, so those bounds also let the
-//!   pool retire without waiting on a client that has gone quiet.
-//!
-//! Only the request line and headers are parsed, and only the three header
-//! fields the surface acts on are inspected. Everything else in the head is
-//! read, bounded, and discarded.
+//! The served protocol is `GET` and `HEAD`, one request per connection, every
+//! response framed by `Content-Length`. No request body is ever read, so nothing
+//! derived from a client-supplied length reaches an allocation. Only the request
+//! line and headers are parsed, and only the three header fields the surface acts
+//! on are inspected; everything else is read, bounded, and discarded.
 
 use std::io::{self, BufReader, Read, Write};
 use std::net::TcpStream;
@@ -47,6 +31,7 @@ const POLL_SLICE: Duration = Duration::from_millis(50);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Verb {
     Get,
+    Head,
 }
 
 /// One request head, reduced to what the reading surface acts on.
@@ -214,17 +199,18 @@ fn parse_request_line(line: &str) -> Option<(Option<Verb>, String)> {
     if !matches!(version, "HTTP/1.1" | "HTTP/1.0") {
         return None;
     }
-    // Verb comparison is case-sensitive: HTTP methods are case-sensitive tokens,
-    // so `get` is an unknown method rather than a spelling of `GET`.
+    // HTTP methods are case-sensitive tokens, so `get` is an unknown method
+    // rather than a spelling of `GET`.
     let verb = match method {
         "GET" => Some(Verb::Get),
+        "HEAD" => Some(Verb::Head),
         _ => None,
     };
     Some((verb, target.to_owned()))
 }
 
-/// Whether a header line announces a request body, in any of the three ways a
-/// client can: a length, a transfer encoding, or asking leave to send one.
+/// Whether a header line announces a request body: a length, a transfer
+/// encoding, or asking leave to send one.
 ///
 /// A zero `Content-Length` announces no body and is allowed, so a client library
 /// that always sets the field can still read. An unparseable length declares a
@@ -255,11 +241,15 @@ pub(crate) struct WireResponse {
 
 /// Write one response and close the connection.
 ///
-/// The body is always fully materialized, so `Content-Length` is always known
-/// and no chunked encoding is needed. `Connection: close` is unconditional: one
-/// request per connection means a worker never waits on a socket for a request
-/// that may never come.
-pub(crate) fn write_response(stream: &mut TcpStream, response: &WireResponse) -> io::Result<()> {
+/// The body is always fully materialized, so `Content-Length` is always known and
+/// no chunked encoding is needed. `Connection: close` is unconditional. A `HEAD`
+/// reply carries the headers of the `GET` it mirrors, the same length included,
+/// with the body withheld.
+pub(crate) fn write_response(
+    stream: &mut TcpStream,
+    verb: Option<Verb>,
+    response: &WireResponse,
+) -> io::Result<()> {
     let reason = reason_phrase(response.status);
     let mut head = format!(
         "HTTP/1.1 {} {reason}\r\n\
@@ -279,7 +269,9 @@ pub(crate) fn write_response(stream: &mut TcpStream, response: &WireResponse) ->
     head.push_str("\r\n");
 
     stream.write_all(head.as_bytes())?;
-    stream.write_all(&response.body)?;
+    if verb != Some(Verb::Head) {
+        stream.write_all(&response.body)?;
+    }
     stream.flush()
 }
 
@@ -338,6 +330,12 @@ mod tests {
             parse_request_line("GET /api/node?key=file:a.org HTTP/1.1").expect("well-formed");
         assert_eq!(verb, Some(Verb::Get));
         assert_eq!(target, "/api/node?key=file:a.org");
+    }
+
+    #[test]
+    fn head_is_its_own_verb() {
+        let (verb, _) = parse_request_line("HEAD /api/status HTTP/1.1").expect("well-formed");
+        assert_eq!(verb, Some(Verb::Head));
     }
 
     #[test]
