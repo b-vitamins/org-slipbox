@@ -24,3 +24,46 @@
   font-size: 17px;
   font-weight: 500;
 }
+
+.app-header__home {
+  padding: 0;
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 500;
+  color: inherit;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.app-header__home:hover {
+  color: var(--link);
+}
+
+.app-nav {
+  display: flex;
+  gap: 4px;
+  margin-left: 24px;
+}
+
+.app-nav__tab {
+  padding: 4px 12px;
+  font-family: inherit;
+  font-size: 15px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color var(--dur-crossfade) var(--ease-settle);
+}
+
+.app-nav__tab:hover {
+  color: var(--ink);
+}
+
+.app-nav__tab--active {
+  color: var(--ink);
+  font-weight: 500;
+}
