@@ -489,8 +489,11 @@ The reading surface is deliberately bounded:
 - read-only: it fronts a read-only daemon, and the serve guard rejects any
   non-read-only method at dispatch, so no HTTP path can reach a mutating
   operation
-- localhost-only and single-user: it binds the loopback interface and is not a
-  multi-user server
+- localhost-only and single-user: it binds the loopback interface, answers only
+  to a loopback `Host`, and is not a multi-user server. The `Host` check is what
+  stops DNS rebinding: a page whose own name resolves to `127.0.0.1` is
+  same-origin with this server as far as a browser is concerned, so binding
+  loopback alone would not keep it out
 - one model: it reads through the same daemon and derived index as the other
   front-ends, with no second database and no separate sync mechanism
 - no push: there is no SSE or websocket channel; the client reads over plain

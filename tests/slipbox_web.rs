@@ -304,7 +304,7 @@ fn http_get(addr: SocketAddr, target: &str) -> Result<HttpResponse> {
 }
 
 fn http_request(addr: SocketAddr, method: &str, target: &str) -> Result<HttpResponse> {
-    http_send(addr, method, target, None)
+    http_send(addr, method, target, LOOPBACK_HOST, None)
 }
 
 fn http_head_with(
@@ -313,17 +313,26 @@ fn http_head_with(
     target: &str,
     header: &str,
 ) -> Result<HttpResponse> {
-    http_send(addr, method, target, Some(header))
+    http_send(addr, method, target, LOOPBACK_HOST, Some(header))
 }
+
+/// A `GET` sent under an authority of the caller's choosing, for the `Host` check.
+fn http_get_as_host(addr: SocketAddr, target: &str, host: &str) -> Result<HttpResponse> {
+    http_send(addr, "GET", target, host, None)
+}
+
+/// The authority a reader's browser sends, and what every other request uses.
+const LOOPBACK_HOST: &str = "localhost";
 
 fn http_send(
     addr: SocketAddr,
     method: &str,
     target: &str,
+    host: &str,
     header: Option<&str>,
 ) -> Result<HttpResponse> {
     let mut stream = TcpStream::connect(addr)?;
-    write!(stream, "{method} {target} HTTP/1.1\r\nHost: localhost\r\n")?;
+    write!(stream, "{method} {target} HTTP/1.1\r\nHost: {host}\r\n")?;
     if let Some(header) = header {
         write!(stream, "{header}\r\n")?;
     }
@@ -780,6 +789,60 @@ fn reading_server_refuses_a_request_that_declares_a_body() -> Result<()> {
     // A refusal ends one connection and touches neither the worker pool nor the
     // daemon session behind it.
     assert_eq!(http_get(addr, "/api/node?id=alpha-id")?.status, 200);
+
+    server.shutdown()?;
+    Ok(())
+}
+
+#[test]
+fn reading_server_answers_only_to_a_loopback_host() -> Result<()> {
+    let (_workspace, root, db) = build_reading_fixture()?;
+    let server = start_reading_server(&root, &db)?;
+    let addr = server.local_addr();
+    let port = addr.port();
+
+    // A DNS rebinding attack turns a name the attacker controls into a loopback
+    // address, so the browser treats their page as this server's origin and sends
+    // their name as the `Host`. Binding loopback does not stop it; refusing the
+    // foreign authority does, before any note content is read.
+    for host in [
+        "notes.attacker.example".to_owned(),
+        format!("notes.attacker.example:{port}"),
+        "localhost.attacker.example".to_owned(),
+        "10.0.0.7".to_owned(),
+        "[2001:db8::1]".to_owned(),
+    ] {
+        let refused = http_get_as_host(addr, "/api/node?id=alpha-id", &host)?;
+        assert_eq!(refused.status, 403, "{host} should be refused");
+        assert_eq!(refused.json()?["error"]["kind"], "forbidden");
+        // The refusal precedes the route, so no note is disclosed in the body.
+        assert!(
+            !refused.body.contains("Alpha"),
+            "{host} should learn nothing about the note"
+        );
+    }
+
+    // A non-API path is refused on the same terms: the app shell is what a
+    // rebound page would need to bootstrap a reader against this port.
+    assert_eq!(
+        http_get_as_host(addr, "/", "notes.attacker.example")?.status,
+        403
+    );
+
+    // Every authority a reader's own browser sends is served, including the
+    // literal forms and the port the server is actually on.
+    for host in [
+        "localhost".to_owned(),
+        format!("localhost:{port}"),
+        format!("127.0.0.1:{port}"),
+        format!("[::1]:{port}"),
+    ] {
+        let served = http_get_as_host(addr, "/api/node?id=alpha-id", &host)?;
+        assert_eq!(served.status, 200, "{host} names this server");
+    }
+
+    // A refusal ends one connection and leaves the pool and daemon serving.
+    assert_eq!(http_get(addr, "/api/status")?.status, 200);
 
     server.shutdown()?;
     Ok(())

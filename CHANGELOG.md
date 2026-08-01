@@ -6,6 +6,15 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+### Fixed
+- Refuse a reading-surface request whose `Host` is not a loopback authority with
+  a 403, before any route runs. The surface binds loopback only, but a browser
+  sends the name it was given, so a page under a name that resolves to
+  `127.0.0.1` reaches the port as a same-origin caller and binding alone does not
+  keep it out. `localhost` and any loopback literal are served with or without a
+  port; a name that merely resolves to loopback is refused, as is a head carrying
+  two `Host` fields, and an HTTP/1.0 request that names no host is unaffected.
+
 ## [0.17.0] - 2026-07-25
 
 ### Added

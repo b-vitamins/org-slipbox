@@ -3,11 +3,11 @@
 //! The served protocol is `GET` and `HEAD`, one request per connection, every
 //! response framed by `Content-Length`. No request body is ever read, so nothing
 //! derived from a client-supplied length reaches an allocation. Only the request
-//! line and headers are parsed, and only the three header fields the surface acts
+//! line and headers are parsed, and only the four header fields the surface acts
 //! on are inspected; everything else is read, bounded, and discarded.
 
 use std::io::{self, BufReader, Read, Write};
-use std::net::TcpStream;
+use std::net::{IpAddr, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -51,6 +51,9 @@ pub(crate) enum HeadError {
     /// The request declared a body, which reading one would mean trusting a
     /// client-supplied length for.
     BodyNotAllowed,
+    /// The `Host` field named something other than a loopback authority, so the
+    /// request reached this port under a name that is not this server's.
+    ForeignHost,
     /// The connection failed, ended, or ran past a deadline before a whole head
     /// arrived. Carries no error: every such cause is answered the same way.
     Incomplete,
@@ -59,7 +62,8 @@ pub(crate) enum HeadError {
 /// Read one request head from `stream`, bounded in both size and time.
 ///
 /// A head that declares a body by `Content-Length`, `Transfer-Encoding`, or
-/// `Expect: 100-continue` is [`HeadError::BodyNotAllowed`]. `serving` is the
+/// `Expect: 100-continue` is [`HeadError::BodyNotAllowed`], and one whose `Host`
+/// is not a loopback authority is [`HeadError::ForeignHost`]. `serving` is the
 /// pool's flag; a read waiting on a silent socket gives up when it clears.
 pub(crate) fn read_head(
     stream: &TcpStream,
@@ -83,6 +87,9 @@ pub(crate) fn read_head(
     let (verb, target) = parse_request_line(&request_line).ok_or(HeadError::Malformed)?;
 
     let mut declares_body = false;
+    // `None` until a `Host` line arrives. A second one makes the authority
+    // ambiguous, which is not a head this surface will act on.
+    let mut host: Option<Result<(), HeadError>> = None;
     loop {
         let line = read_line(&mut reader, &mut limit)?;
         // The empty line ends the head.
@@ -90,12 +97,74 @@ pub(crate) fn read_head(
             break;
         }
         declares_body |= header_declares_body(&line);
+        if let Some((name, value)) = line.split_once(':')
+            && name.eq_ignore_ascii_case("Host")
+        {
+            host = Some(match host {
+                None if host_is_loopback(value.trim()) => Ok(()),
+                None => Err(HeadError::ForeignHost),
+                Some(_) => Err(HeadError::Malformed),
+            });
+        }
     }
 
     if declares_body {
         return Err(HeadError::BodyNotAllowed);
     }
+    // HTTP/1.1 requires `Host`; HTTP/1.0 does not send one, and a request that
+    // omits it carries no attacker-chosen name to check.
+    if let Some(verdict) = host {
+        verdict?;
+    }
     Ok(RequestHead { verb, target })
+}
+
+/// Whether a `Host` field value names this server rather than a name that merely
+/// resolves to it.
+///
+/// The surface binds loopback only, so the sole legitimate authorities are
+/// `localhost` and a loopback literal, each with an optional port. The port is
+/// not checked: the OS already proved it by routing the connection here, and
+/// `--port 0` means the served port is not known until bind time.
+///
+/// This is what stops DNS rebinding. A name the attacker controls that answers
+/// `127.0.0.1` puts a browser on the same origin as this server, so loopback
+/// binding alone does not keep the page out; the `Host` the browser faithfully
+/// sends is the attacker's name, and refusing it closes the hole.
+fn host_is_loopback(value: &str) -> bool {
+    if value.is_empty() {
+        return false;
+    }
+    // A bracketed IPv6 authority is the only place a colon is not the port
+    // separator, so it is unwrapped before the port is split off.
+    let authority = if let Some(rest) = value.strip_prefix('[') {
+        match rest.split_once(']') {
+            // Anything after the bracket must be a port, never more authority.
+            Some((inside, tail)) if tail.is_empty() || tail.starts_with(':') => inside,
+            _ => return false,
+        }
+    } else {
+        match value.split_once(':') {
+            // An unbracketed value with two colons is an IPv6 literal missing
+            // its brackets, which is malformed rather than a host and a port.
+            Some((host, port)) if !port.contains(':') => host,
+            Some(_) => return false,
+            None => value,
+        }
+    };
+
+    // `localhost` is reserved to loopback, and is what a reader types. The
+    // comparison is case-insensitive because a host name is.
+    if authority.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    // Every literal in `127.0.0.0/8` and `::1` is loopback, so the whole range
+    // is admitted rather than the one address the server happens to bind. A name
+    // that is not a literal is refused: resolving it is exactly the lookup a
+    // rebinding attack controls.
+    authority
+        .parse::<IpAddr>()
+        .is_ok_and(|address| address.is_loopback())
 }
 
 /// What one head is allowed to consume: bytes, time, and a still-serving pool.
@@ -301,8 +370,8 @@ mod tests {
     use std::thread;
 
     use super::{
-        HeadError, RequestHead, Verb, header_declares_body, parse_request_line, read_head,
-        reason_phrase,
+        HeadError, RequestHead, Verb, header_declares_body, host_is_loopback, parse_request_line,
+        read_head, reason_phrase,
     };
 
     /// Send `request` verbatim over a loopback socket and read the head back.
@@ -442,6 +511,81 @@ mod tests {
                 "{truncated:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_loopback_authority_is_admitted_however_it_is_spelled() {
+        for value in [
+            "localhost",
+            "LocalHost",
+            "localhost:8080",
+            "127.0.0.1",
+            "127.0.0.1:8080",
+            // The whole of `127.0.0.0/8` is loopback, not just `127.0.0.1`.
+            "127.1.2.3",
+            "[::1]",
+            "[::1]:8080",
+        ] {
+            assert!(host_is_loopback(value), "{value} names this server");
+        }
+    }
+
+    #[test]
+    fn a_host_that_only_resolves_to_loopback_is_refused() {
+        for value in [
+            // The rebinding case: a name the attacker controls, pointed at
+            // loopback. Refusing it is the whole point of the check.
+            "notes.attacker.example",
+            "notes.attacker.example:8080",
+            // A name that merely reads as loopback is still a name to resolve.
+            "localhost.attacker.example",
+            "notlocalhost",
+            "127.0.0.1.attacker.example",
+            // An off-host literal, including the address a rebinding page would
+            // reach a LAN peer's surface by.
+            "10.0.0.7",
+            "0.0.0.0:8080",
+            "[2001:db8::1]",
+            // Malformed authorities: an unbracketed IPv6 literal, a stray
+            // bracket, and an empty field.
+            "::1",
+            "[::1",
+            "::1]:8080",
+            "",
+            " ",
+        ] {
+            assert!(!host_is_loopback(value), "{value} is not this server");
+        }
+    }
+
+    #[test]
+    fn a_foreign_host_is_refused_over_the_wire_before_a_route_runs() {
+        let rebound = "GET /api/status HTTP/1.1\r\nHost: notes.attacker.example\r\n\r\n";
+        assert_eq!(
+            read_over_socket(rebound).err(),
+            Some(HeadError::ForeignHost)
+        );
+    }
+
+    #[test]
+    fn a_second_host_field_is_malformed_rather_than_resolved_to_either() {
+        // Header smuggling: one authority passes the check and the other is the
+        // one a naive reader would act on. Neither is trusted.
+        let doubled = "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\
+                       Host: notes.attacker.example\r\n\r\n";
+        assert_eq!(read_over_socket(doubled).err(), Some(HeadError::Malformed));
+        let reversed = "GET /api/status HTTP/1.1\r\nHost: notes.attacker.example\r\n\
+                        Host: localhost\r\n\r\n";
+        assert_eq!(read_over_socket(reversed).err(), Some(HeadError::Malformed));
+    }
+
+    #[test]
+    fn an_http_1_0_request_without_a_host_is_still_served() {
+        // HTTP/1.0 predates a mandatory `Host`. A head that sends none carries no
+        // attacker-chosen name, so there is nothing to refuse.
+        let head = read_over_socket("GET /api/random HTTP/1.0\r\n\r\n")
+            .expect("a request that names no host is served");
+        assert_eq!(head.target, "/api/random");
     }
 
     #[test]

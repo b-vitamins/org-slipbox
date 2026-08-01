@@ -52,6 +52,16 @@ impl ApiError {
         )
     }
 
+    /// The request reached this port under a `Host` that is not this server's, so
+    /// it is refused before a route runs.
+    pub(crate) fn foreign_host() -> Self {
+        Self::new(
+            403,
+            "forbidden",
+            "the reading surface answers only to a loopback Host",
+        )
+    }
+
     /// A response value could not be serialized: a defect in this server, kept
     /// distinct from an upstream failure.
     pub(crate) fn internal(message: impl Into<String>) -> Self {

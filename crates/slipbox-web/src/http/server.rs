@@ -211,6 +211,9 @@ fn head_error(error: &HeadError) -> ApiError {
         // 413 says the request is the problem: a reading route consumes no body
         // at any size.
         HeadError::BodyNotAllowed => ApiError::payload_too_large(),
+        // The head is well-formed and simply not addressed to this server, so it
+        // is refused rather than called malformed.
+        HeadError::ForeignHost => ApiError::foreign_host(),
         HeadError::Malformed | HeadError::Incomplete => {
             ApiError::bad_request("the reading surface could not read a well-formed HTTP request")
         }
@@ -360,5 +363,11 @@ mod tests {
     fn a_malformed_or_stalled_head_is_a_bad_request() {
         assert_eq!(head_error(&HeadError::Malformed).status, 400);
         assert_eq!(head_error(&HeadError::Incomplete).status, 400);
+    }
+
+    #[test]
+    fn a_foreign_host_is_forbidden_rather_than_malformed() {
+        let error = head_error(&HeadError::ForeignHost);
+        assert_eq!(error.status, 403);
     }
 }
