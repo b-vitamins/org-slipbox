@@ -14,6 +14,18 @@ The format follows Keep a Changelog, and this project follows SemVer.
   keep it out. `localhost` and any loopback literal are served with or without a
   port; a name that merely resolves to loopback is refused, as is a head carrying
   two `Host` fields, and an HTTP/1.0 request that names no host is unaffected.
+- Follow only an external Org link target whose scheme navigates (`http`,
+  `https`, `mailto`), and render every other target as inert text still carrying
+  its label. A target reached the DOM as an `href` unfiltered, and a note body is
+  not necessarily the reader's own, so a `javascript:` link in an imported,
+  clipped, or shared note ran in the reading origin, which holds same-origin read
+  access to every note and glossary term the API serves; read-only bars the
+  write, not the read, and the corpus is what such a link would be after. The
+  scheme is read the way a browser reads one, after the tab, newline, and leading
+  control characters a browser strips before parsing a URL, and the href handed
+  to the DOM is that normalized target rather than the raw one. A `file:` or
+  relative target, which this surface could not follow over HTTP anyway, now
+  reads as text rather than as a dead link.
 
 ## [0.17.0] - 2026-07-25
 

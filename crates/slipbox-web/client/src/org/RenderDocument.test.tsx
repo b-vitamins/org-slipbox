@@ -96,6 +96,27 @@ describe("RenderDocument", () => {
     expect(navigation.pin).not.toHaveBeenCalled();
   });
 
+  it("renders an external link as an anchor the browser follows", () => {
+    const doc = parseOrg("see [[https://example.org/a][the paper]] now");
+    render(() => <RenderDocument document={doc} />);
+
+    const link = screen.getByText("the paper").closest("a");
+    expect(link?.getAttribute("href")).toBe("https://example.org/a");
+  });
+
+  // An Org body may be imported, clipped, or shared, and this origin can read
+  // the whole corpus, so a target that would execute here earns no anchor.
+  it("renders a script-bearing link target as inert text, not an anchor", () => {
+    const doc = parseOrg("see [[javascript:alert(1)][the paper]] now");
+    const { container } = render(() => <RenderDocument document={doc} />);
+
+    expect(container.querySelector("a")).toBeNull();
+    // The label is still prose the reader can read.
+    const inert = screen.getByText("the paper");
+    expect(inert.tagName).toBe("SPAN");
+    expect(inert).toHaveClass("org-link--inert");
+  });
+
   it("renders a source block verbatim with its language and a copy control", () => {
     const doc = parseOrg("#+begin_src python\nprint(1)\n#+end_src");
     const { container } = render(() => <RenderDocument document={doc} />);

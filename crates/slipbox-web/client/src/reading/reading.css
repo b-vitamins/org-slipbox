@@ -336,6 +336,14 @@
   color: var(--muted-2);
 }
 
+/* A link whose target the surface will not follow. The label is prose and keeps
+ * its contrast; only the decoration marks it, in the hairline tone. */
+.org-link--inert {
+  text-decoration: underline dotted;
+  text-decoration-color: var(--muted-3);
+  text-underline-offset: 0.15em;
+}
+
 .relations {
   margin-top: 48px;
   padding-top: 24px;
