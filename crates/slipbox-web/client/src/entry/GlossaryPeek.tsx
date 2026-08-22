@@ -10,9 +10,11 @@ import { Show, createMemo, type Component } from "solid-js";
 import { ApiError } from "../api/client.js";
 import type { NodeRecord } from "../api/types.js";
 import { createReadingResource } from "../data/create-reading-resource.js";
+import { GrammarLink } from "../org/GrammarLink.jsx";
 import {
   NavigationProvider,
   referenceOf,
+  targetForNote,
   type LinkTarget,
   type Navigation,
 } from "../org/navigation.jsx";
@@ -81,52 +83,53 @@ export const GlossaryPeek: Component<{
   const navigation = peekNavigation((reference) => props.onOpen(reference));
 
   return (
-    <article class="glossary-peek">
-      <header class="glossary-peek__header">
-        <h2 class="glossary-peek__title">{props.term.title}</h2>
-        <Show when={props.term.glossary_status}>
-          <span
-            class="glossary-peek__status"
-            classList={{ "glossary-peek__status--stub": isStub() }}
-          >
-            {props.term.glossary_status}
-          </span>
-        </Show>
-      </header>
-
-      <Show
-        when={context.error()}
-        fallback={
-          <Show
-            when={context.ready()}
-            fallback={<p class="glossary-peek__status-note">Reading…</p>}
-          >
-            <Show when={document()}>
-              {(parsed) => (
-                <NavigationProvider navigation={navigation}>
-                  <RenderDocument document={parsed()} />
-                </NavigationProvider>
-              )}
-            </Show>
+    // The provider covers the header as well as the body: the way into the reader
+    // is a link to the term itself, routed through the same grammar as a link out
+    // of the definition, so one place decides what opening means here.
+    <NavigationProvider navigation={navigation}>
+      <article class="glossary-peek">
+        <header class="glossary-peek__header">
+          <h2 class="glossary-peek__title">{props.term.title}</h2>
+          <Show when={props.term.glossary_status}>
+            <span
+              class="glossary-peek__status"
+              classList={{ "glossary-peek__status--stub": isStub() }}
+            >
+              {props.term.glossary_status}
+            </span>
           </Show>
-        }
-      >
-        {(error) => (
-          <p class="glossary-peek__status-note glossary-peek__status-note--error">
-            {describeError(error())}
-          </p>
-        )}
-      </Show>
+          {/* Beside the headword rather than under the definition, which a term
+              with a long body would carry off the bottom of the pane. */}
+          <GrammarLink
+            class="glossary-peek__open"
+            target={targetForNote(props.term.node_key, props.term.explicit_id)}
+          >
+            Open in reader
+          </GrammarLink>
+        </header>
 
-      <StudyFacts term={props.term} />
+        <Show
+          when={context.error()}
+          fallback={
+            <Show
+              when={context.ready()}
+              fallback={<p class="glossary-peek__status-note">Reading…</p>}
+            >
+              <Show when={document()}>
+                {(parsed) => <RenderDocument document={parsed()} />}
+              </Show>
+            </Show>
+          }
+        >
+          {(error) => (
+            <p class="glossary-peek__status-note glossary-peek__status-note--error">
+              {describeError(error())}
+            </p>
+          )}
+        </Show>
 
-      <button
-        type="button"
-        class="glossary-peek__open"
-        onClick={() => props.onOpen(props.term.node_key)}
-      >
-        Open in reader
-      </button>
-    </article>
+        <StudyFacts term={props.term} />
+      </article>
+    </NavigationProvider>
   );
 };

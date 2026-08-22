@@ -170,16 +170,21 @@
   color: var(--ink);
 }
 
+/* The way into the reader, at the trailing edge of the header. An anchor rather
+   than a button, so the destination is one a reader can copy or open in a new
+   tab, and a flex box, so the label stays centered when the coarse pointer's
+   `min-height` floor stretches the box taller than its own text. */
 .glossary-peek__open {
-  margin-top: 24px;
-  padding: 8px 16px;
-  font-family: inherit;
-  font-size: 15px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  padding: 6px 14px;
   color: var(--link);
-  background: none;
+  font-size: 13px;
+  text-decoration: none;
   border: 1px solid var(--hairline);
-  border-radius: 10px;
-  cursor: pointer;
+  border-radius: 999px;
   transition: border-color var(--dur-crossfade) var(--ease-settle);
 }
 

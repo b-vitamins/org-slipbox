@@ -31,6 +31,9 @@ const WORLD: FixtureWorld = {
 /** The definition the sole marked term peeks on arrival. */
 const DEFINITION = "A measure of uncertainty, dual to";
 
+/** The `min-height` the stylesheet gives a control under a coarse pointer. */
+const TOUCH_TARGET = 44;
+
 test.describe("the glossary peek", () => {
   test.beforeEach(async ({ page }) => {
     await mountApi(page, WORLD);
@@ -60,6 +63,23 @@ test.describe("the glossary peek", () => {
     // committed to nothing. No card either: the preview is the spine's chrome.
     await expect(page.locator(".glossary")).toBeVisible();
     await expect(page.locator(".glance-card")).toHaveCount(0);
+  });
+
+  test("the term's own control opens it in the reader", async ({ page }) => {
+    await page.goto("/?view=glossary");
+    await expect(page.getByText(DEFINITION)).toBeVisible();
+
+    const control = page.getByRole("link", { name: "Open in reader" });
+    expect(await control.getAttribute("href")).toBe("?note=file%3Aentropy.org");
+
+    await control.click();
+
+    // The peek heads its definition with an h2; the reading column heads a note
+    // with an h1, so the level is what separates the two surfaces here.
+    await expect(
+      page.getByRole("heading", { name: "Entropy", level: 1 }),
+    ).toBeVisible();
+    await expect(page.locator(".glossary")).toHaveCount(0);
   });
 
   test("the opened note is a history entry the way back undoes", async ({ page }) => {
@@ -94,5 +114,17 @@ test.describe("the glossary peek under a hoverless pointer", () => {
     // finger could never follow.
     await expect(page.locator(".glance-card")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Prior" })).toBeVisible();
+  });
+
+  test("the term's own control clears the touch-target floor", async ({ page }) => {
+    await page.goto("/?view=glossary");
+    await expect(page.getByText(DEFINITION)).toBeVisible();
+
+    // The floor comes off `min-height`, which an inline box ignores, so this
+    // control has to be laid out as one that does not.
+    const box = await page
+      .getByRole("link", { name: "Open in reader" })
+      .boundingBox();
+    expect(box!.height).toBeGreaterThanOrEqual(TOUCH_TARGET);
   });
 });

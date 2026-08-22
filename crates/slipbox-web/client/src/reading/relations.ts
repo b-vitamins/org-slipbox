@@ -6,7 +6,7 @@
  */
 
 import type { NoteContext } from "../api/types.js";
-import type { LinkTarget } from "../org/navigation.jsx";
+import { targetForNote, type LinkTarget } from "../org/navigation.jsx";
 import { parseInline } from "../org/parse-inline.js";
 import { inlinePreview } from "../org/prose.js";
 import type { Inline } from "../org/types.js";
@@ -18,13 +18,6 @@ export interface RelationRow {
   readonly title: string;
   /** One line of the linking context as preview prose; may be empty. */
   readonly preview: readonly Inline[];
-}
-
-/** Prefer an id target (stable across edits), else fall back to the key. */
-function targetFor(key: string, explicitId: string | null): LinkTarget {
-  return explicitId
-    ? { id: explicitId, target: `id:${explicitId}` }
-    : { id: null, target: key };
 }
 
 function previewProse(raw: string): readonly Inline[] {
@@ -47,7 +40,7 @@ export function forwardRelations(context: NoteContext): RelationRow[] {
   return dedupe(
     context.forward_links.map((link) => ({
       key: link.destination_note.node_key,
-      target: targetFor(
+      target: targetForNote(
         link.destination_note.node_key,
         link.destination_note.explicit_id,
       ),
@@ -61,7 +54,7 @@ export function backwardRelations(context: NoteContext): RelationRow[] {
   return dedupe(
     context.backlinks.map((link) => ({
       key: link.source_note.node_key,
-      target: targetFor(
+      target: targetForNote(
         link.source_note.node_key,
         link.source_note.explicit_id,
       ),
