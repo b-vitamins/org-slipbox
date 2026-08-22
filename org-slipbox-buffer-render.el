@@ -724,6 +724,18 @@ When NODE carries no review state, insert a short note instead."
             label
             (org-slipbox-buffer--format-explanation-list references))))
 
+(defun org-slipbox-buffer--shared-reference-lines (explanation)
+  "Return the shared-reference line for EXPLANATION, or nil when it shares none."
+  (when (append (plist-get explanation :references) nil)
+    (list (format "because %s"
+                  (org-slipbox-buffer--shared-reference-summary explanation)))))
+
+(defun org-slipbox-buffer--bridge-via-note-lines (explanation)
+  "Return the bridge-note line for EXPLANATION, or nil when it travels through none."
+  (when (append (plist-get explanation :via_notes) nil)
+    (list (format "via bridge notes: %s"
+                  (org-slipbox-buffer--bridge-via-note-summary explanation)))))
+
 (defun org-slipbox-buffer--planning-field-label (field)
   "Return a short display label for planning FIELD."
   (pcase field
@@ -807,11 +819,9 @@ When NODE carries no review state, insert a short note instead."
                 (org-slipbox-buffer--planning-field-label
                  (plist-get entry :right_field)))))
       ("bridge-candidate"
-       (list
-        (format "because %s"
-                (org-slipbox-buffer--shared-reference-summary explanation))
-        (format "via bridge notes: %s"
-                (org-slipbox-buffer--bridge-via-note-summary explanation))))
+       (append
+        (org-slipbox-buffer--shared-reference-lines explanation)
+        (org-slipbox-buffer--bridge-via-note-lines explanation)))
       ("dormant-shared-reference"
        (list
         (format "because %s"
@@ -824,11 +834,11 @@ When NODE carries no review state, insert a short note instead."
         (format "task state: %s"
                 (plist-get explanation :todo_keyword))))
       ("weakly-integrated-shared-reference"
-       (list
-        (format "because %s"
-                (org-slipbox-buffer--shared-reference-summary explanation))
-        (format "structural links: %s"
-                (plist-get explanation :structural_link_count))))
+       (append
+        (org-slipbox-buffer--shared-reference-lines explanation)
+        (org-slipbox-buffer--bridge-via-note-lines explanation)
+        (list (format "structural links: %s"
+                      (plist-get explanation :structural_link_count)))))
       ("time-neighbor"
        (list
         (format "because planning overlap: %s"

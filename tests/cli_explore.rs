@@ -397,6 +397,7 @@ fn explore_command_supports_unresolved_lens() -> Result<()> {
                 && record.explanation == ExplorationExplanation::WeaklyIntegratedSharedReference {
                     references: vec!["@shared2024".to_owned()],
                     structural_link_count: 0,
+                    via_notes: Vec::new(),
                 }
     )));
 

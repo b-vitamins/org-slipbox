@@ -3586,6 +3586,60 @@ ROOT-NODE defaults to NODE."
             (should (string-match-p "structural links: 1" (buffer-string))))
         (kill-buffer (current-buffer))))))
 
+(ert-deftest org-slipbox-test-buffer-topology-results-omit-absent-shared-references ()
+  "Results reached through link topology alone should claim no shared reference."
+  (let ((node '(:node_key "file:focus.org"
+                :title "Focus"
+                :file_path "focus.org"
+                :line 1)))
+    (with-current-buffer (get-buffer-create "*org-slipbox topology lens test*")
+      (unwind-protect
+          (progn
+            (setq-local org-slipbox-buffer-session
+                        (org-slipbox-test--buffer-session 'dedicated node))
+            (cl-letf (((symbol-function 'org-slipbox-rpc-explore)
+                       (lambda (_node-key lens &optional _limit _unique)
+                         (pcase lens
+                           ('bridges
+                            '(:lens "bridges"
+                              :sections
+                              [(:kind "bridge-candidates"
+                                :entries
+                                [(:kind "anchor"
+                                  :anchor (:node_key "file:bridge.org"
+                                           :title "Bridge"
+                                           :file_path "bridge.org"
+                                           :line 7)
+                                  :explanation (:kind "bridge-candidate"
+                                                :references []
+                                                :via_notes [(:node_key "heading:focus.org:7"
+                                                             :explicit_id "neighbor-id"
+                                                             :title "Neighbor")]))])]))
+                           (_
+                            '(:lens "unresolved"
+                              :sections
+                              [(:kind "weakly-integrated-notes"
+                                :entries
+                                [(:kind "anchor"
+                                  :anchor (:node_key "file:weak.org"
+                                           :title "Weak"
+                                           :file_path "weak.org"
+                                           :line 9)
+                                  :explanation (:kind "weakly-integrated-shared-reference"
+                                                :references []
+                                                :structural_link_count 0
+                                                :via_notes [(:node_key "heading:focus.org:7"
+                                                             :explicit_id "neighbor-id"
+                                                             :title "Neighbor")]))])]))))))
+              (org-slipbox-buffer-switch-lens 'bridges)
+              (should (string-match-p "via bridge notes: Neighbor" (buffer-string)))
+              (should-not (string-match-p "shared ref" (buffer-string)))
+              (org-slipbox-buffer-switch-lens 'unresolved))
+            (should (string-match-p "via bridge notes: Neighbor" (buffer-string)))
+            (should (string-match-p "structural links: 0" (buffer-string)))
+            (should-not (string-match-p "shared ref" (buffer-string))))
+        (kill-buffer (current-buffer))))))
+
 (ert-deftest org-slipbox-test-buffer-time-and-task-lenses-render-explicit-relations ()
   "Time and task lenses should render explicit planning relations."
   (let ((node '(:node_key "file:focus.org"

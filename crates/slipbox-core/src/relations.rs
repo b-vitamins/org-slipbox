@@ -184,6 +184,10 @@ pub enum ExplorationExplanation {
     WeaklyIntegratedSharedReference {
         references: Vec<String>,
         structural_link_count: u64,
+        /// Notes both the focus note and the candidate reach; empty when a
+        /// shared reference alone found the candidate.
+        #[serde(default)]
+        via_notes: Vec<BridgeEvidenceRecord>,
     },
 }
 

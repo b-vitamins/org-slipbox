@@ -29,14 +29,16 @@ impl SharedRefCandidate {
     }
 }
 
-struct BridgeCandidate {
+/// A note near the focus note, carrying both kinds of evidence that found it so
+/// each lens keeps the one it asks about.
+struct RelatedCandidate {
     anchor: AnchorRecord,
     references: Vec<String>,
     via_notes: Vec<BridgeEvidenceRecord>,
 }
 
-impl BridgeCandidate {
-    fn bridge_count(&self) -> usize {
+impl RelatedCandidate {
+    fn via_note_count(&self) -> usize {
         self.via_notes.len()
     }
 
@@ -112,41 +114,11 @@ impl Database {
         note: &NodeRecord,
         limit: usize,
     ) -> Result<Vec<AnchorExplorationRecord>> {
-        let direct_neighbors = self.direct_neighbor_map(note)?;
-        if direct_neighbors.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let direct_neighbor_keys = direct_neighbors.keys().cloned().collect::<BTreeSet<_>>();
-        let direct_neighbor_key_list = direct_neighbor_keys.iter().cloned().collect::<Vec<_>>();
-        let direct_neighbor_explicit_ids = direct_neighbors
-            .values()
-            .filter_map(|neighbor| neighbor.explicit_id.clone())
+        let mut bridge_candidates = self
+            .related_candidates(note, limit)?
+            .into_iter()
+            .filter(|candidate| !candidate.via_notes.is_empty())
             .collect::<Vec<_>>();
-        let anchors = self.bridge_candidate_anchors(
-            note,
-            &direct_neighbor_key_list,
-            &direct_neighbor_explicit_ids,
-            &excluded_keys(note, &direct_neighbor_keys),
-            widened_limit(limit),
-        )?;
-
-        let mut bridge_candidates = Vec::new();
-        for anchor in anchors {
-            let via_notes = self.bridge_notes(
-                anchor.node_key.as_str(),
-                anchor.explicit_id.as_deref(),
-                &direct_neighbor_key_list,
-                &direct_neighbor_explicit_ids,
-            )?;
-            if !via_notes.is_empty() {
-                bridge_candidates.push(BridgeCandidate {
-                    references: intersecting_references(note, &anchor),
-                    anchor,
-                    via_notes,
-                });
-            }
-        }
         bridge_candidates.sort_by(compare_bridge_candidates);
 
         Ok(bridge_candidates
@@ -242,25 +214,14 @@ impl Database {
             .collect())
     }
 
+    /// Return nearby notes that almost nothing links to.
     pub fn weakly_integrated_notes(
         &self,
         note: &NodeRecord,
         limit: usize,
     ) -> Result<Vec<AnchorExplorationRecord>> {
-        if note.refs.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let direct_neighbor_keys = self
-            .direct_neighbor_map(note)?
-            .into_keys()
-            .collect::<BTreeSet<_>>();
         let mut candidates = self
-            .shared_ref_candidates(
-                note,
-                &excluded_keys(note, &direct_neighbor_keys),
-                widened_limit(limit),
-            )?
+            .related_candidates(note, limit)?
             .into_iter()
             .filter(|candidate| {
                 candidate.anchor.todo_keyword.is_none()
@@ -273,11 +234,12 @@ impl Database {
             .into_iter()
             .take(limit.clamp(1, 1_000))
             .map(|candidate| AnchorExplorationRecord {
-                anchor: candidate.anchor.clone(),
                 explanation: ExplorationExplanation::WeaklyIntegratedSharedReference {
                     references: candidate.references,
                     structural_link_count: structural_link_count(&candidate.anchor),
+                    via_notes: candidate.via_notes,
                 },
+                anchor: candidate.anchor,
             })
             .collect())
     }
@@ -505,14 +467,51 @@ impl Database {
             .collect())
     }
 
-    /// Collect the candidate universe for the bridge lens.
+    /// Collect the notes near `note`, each carrying the evidence that found it.
+    /// A candidate with no evidence at all is dropped here.
+    fn related_candidates(&self, note: &NodeRecord, limit: usize) -> Result<Vec<RelatedCandidate>> {
+        let direct_neighbors = self.direct_neighbor_map(note)?;
+        let direct_neighbor_keys = direct_neighbors.keys().cloned().collect::<BTreeSet<_>>();
+        let direct_neighbor_key_list = direct_neighbor_keys.iter().cloned().collect::<Vec<_>>();
+        let direct_neighbor_explicit_ids = direct_neighbors
+            .values()
+            .filter_map(|neighbor| neighbor.explicit_id.clone())
+            .collect::<Vec<_>>();
+        let anchors = self.related_candidate_anchors(
+            note,
+            &direct_neighbor_key_list,
+            &direct_neighbor_explicit_ids,
+            &excluded_keys(note, &direct_neighbor_keys),
+            widened_limit(limit),
+        )?;
+
+        let mut candidates = Vec::new();
+        for anchor in anchors {
+            let via_notes = self.bridge_notes(
+                anchor.node_key.as_str(),
+                anchor.explicit_id.as_deref(),
+                &direct_neighbor_key_list,
+                &direct_neighbor_explicit_ids,
+            )?;
+            let references = intersecting_references(note, &anchor);
+            if !via_notes.is_empty() || !references.is_empty() {
+                candidates.push(RelatedCandidate {
+                    anchor,
+                    references,
+                    via_notes,
+                });
+            }
+        }
+        Ok(candidates)
+    }
+
+    /// Collect the candidate universe for the lenses that ask what a note sits
+    /// beside.
     ///
-    /// Two-hop link neighbors come first because they are what a bridge is.
-    /// Shared-reference candidates are unioned in so a citation-linked note keeps
-    /// its place even when the widened two-hop window is already full, which
-    /// preserves every result the lens surfaced when references were its only
-    /// entry condition.
-    fn bridge_candidate_anchors(
+    /// Two-hop link neighbors come first. Shared-reference candidates are unioned
+    /// in so a citation-linked note keeps its place even when the widened two-hop
+    /// window is already full.
+    fn related_candidate_anchors(
         &self,
         note: &NodeRecord,
         neighbor_node_keys: &[String],
@@ -881,10 +880,10 @@ fn compare_shared_ref_candidates_by_evidence(
         .then_with(|| compare_anchor_records(&left.anchor, &right.anchor))
 }
 
-fn compare_bridge_candidates(left: &BridgeCandidate, right: &BridgeCandidate) -> Ordering {
+fn compare_bridge_candidates(left: &RelatedCandidate, right: &RelatedCandidate) -> Ordering {
     right
-        .bridge_count()
-        .cmp(&left.bridge_count())
+        .via_note_count()
+        .cmp(&left.via_note_count())
         .then_with(|| {
             right
                 .shared_reference_count()
@@ -906,13 +905,20 @@ fn compare_unresolved_candidates(
     compare_shared_ref_candidates_by_evidence(left, right)
 }
 
+/// Order the least linked note first, then the best explained one.
 fn compare_weakly_integrated_candidates(
-    left: &SharedRefCandidate,
-    right: &SharedRefCandidate,
+    left: &RelatedCandidate,
+    right: &RelatedCandidate,
 ) -> Ordering {
     structural_link_count(&left.anchor)
         .cmp(&structural_link_count(&right.anchor))
-        .then_with(|| compare_shared_ref_candidates_by_evidence(left, right))
+        .then_with(|| right.via_note_count().cmp(&left.via_note_count()))
+        .then_with(|| {
+            right
+                .shared_reference_count()
+                .cmp(&left.shared_reference_count())
+        })
+        .then_with(|| compare_anchor_records(&left.anchor, &right.anchor))
 }
 
 #[cfg(test)]
@@ -1046,6 +1052,7 @@ Weakly integrated body.
             ExplorationExplanation::WeaklyIntegratedSharedReference {
                 references: vec!["@shared2024".to_owned()],
                 structural_link_count: 0,
+                via_notes: Vec::new(),
             }
         );
 
@@ -1777,6 +1784,195 @@ Shares the reference and nothing else.
             .context("focus note should exist")?;
 
         assert!(database.bridge_candidates(&focus, 20)?.is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn weakly_integrated_notes_surface_link_poor_notes_without_shared_references() -> Result<()> {
+        let workspace = tempfile::tempdir().context("workspace should be created")?;
+        let root = workspace.path().join("notes");
+        fs::create_dir_all(&root).context("notes root should be created")?;
+        fs::write(
+            root.join("focus.org"),
+            r#"#+title: Focus
+
+* Focus
+:PROPERTIES:
+:ID: focus-id
+:END:
+Links to [[id:neighbor-id]].
+
+* Neighbor
+:PROPERTIES:
+:ID: neighbor-id
+:END:
+Links to [[id:sparse-id]] and [[id:dense-id]].
+"#,
+        )
+        .context("focus fixture should be written")?;
+        fs::write(
+            root.join("sparse.org"),
+            r#"#+title: Sparse
+
+* Sparse Thread
+:PROPERTIES:
+:ID: sparse-id
+:END:
+Reached through the neighbor and linked from nowhere else.
+"#,
+        )
+        .context("sparse fixture should be written")?;
+        fs::write(
+            root.join("dense.org"),
+            r#"#+title: Dense
+
+* Dense Thread
+:PROPERTIES:
+:ID: dense-id
+:END:
+Links to [[id:extra-one-id]] and [[id:extra-two-id]].
+"#,
+        )
+        .context("dense fixture should be written")?;
+        fs::write(
+            root.join("extras.org"),
+            r#"#+title: Extras
+
+* Extra One
+:PROPERTIES:
+:ID: extra-one-id
+:END:
+Three hops from the focus note.
+
+* Extra Two
+:PROPERTIES:
+:ID: extra-two-id
+:END:
+Three hops from the focus note.
+"#,
+        )
+        .context("extras fixture should be written")?;
+
+        let mut database = Database::open(&workspace.path().join("index.sqlite3"))?;
+        let files =
+            scan_root_with_policy(&root, &DiscoveryPolicy::default()).context("fixture scan")?;
+        database.sync_index(&files).context("fixture index sync")?;
+        let focus = database
+            .node_from_id("focus-id")?
+            .context("focus note should exist")?;
+
+        // Nothing here cites anything; Dense Thread is two hops out like Sparse
+        // Thread and is excluded only by its own link count.
+        let weakly_integrated = database.weakly_integrated_notes(&focus, 20)?;
+        assert_eq!(
+            weakly_integrated
+                .iter()
+                .map(|record| record.anchor.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Sparse Thread"]
+        );
+        assert!(matches!(
+            weakly_integrated[0].explanation,
+            ExplorationExplanation::WeaklyIntegratedSharedReference {
+                ref references,
+                structural_link_count,
+                ref via_notes,
+            } if references.is_empty()
+                && structural_link_count == 1
+                && via_notes.len() == 1
+                && via_notes[0].explicit_id.as_deref() == Some("neighbor-id")
+        ));
+
+        Ok(())
+    }
+
+    #[test]
+    fn weakly_integrated_notes_order_the_least_linked_note_first() -> Result<()> {
+        let workspace = tempfile::tempdir().context("workspace should be created")?;
+        let root = workspace.path().join("notes");
+        fs::create_dir_all(&root).context("notes root should be created")?;
+        fs::write(
+            root.join("focus.org"),
+            r#"#+title: Focus
+
+* Focus
+:PROPERTIES:
+:ID: focus-id
+:ROAM_REFS: cite:shared2024
+:END:
+Links to [[id:neighbor-id]].
+
+* Neighbor
+:PROPERTIES:
+:ID: neighbor-id
+:END:
+Links to [[id:sparse-id]].
+"#,
+        )
+        .context("focus fixture should be written")?;
+        fs::write(
+            root.join("a-sparse.org"),
+            r#"#+title: Sparse
+
+* Sparse Thread
+:PROPERTIES:
+:ID: sparse-id
+:END:
+One link in, none out.
+"#,
+        )
+        .context("sparse fixture should be written")?;
+        fs::write(
+            root.join("z-isolated.org"),
+            r#"#+title: Isolated
+
+* Isolated Thread
+:PROPERTIES:
+:ID: isolated-id
+:ROAM_REFS: cite:shared2024
+:END:
+Nothing links here at all.
+"#,
+        )
+        .context("isolated fixture should be written")?;
+
+        let mut database = Database::open(&workspace.path().join("index.sqlite3"))?;
+        let files =
+            scan_root_with_policy(&root, &DiscoveryPolicy::default()).context("fixture scan")?;
+        database.sync_index(&files).context("fixture index sync")?;
+        let focus = database
+            .node_from_id("focus-id")?
+            .context("focus note should exist")?;
+
+        // File-path order puts the sparse note first, so only the link count can
+        // put the isolated one ahead of it.
+        let weakly_integrated = database.weakly_integrated_notes(&focus, 20)?;
+        assert_eq!(
+            weakly_integrated
+                .iter()
+                .map(|record| record.anchor.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Isolated Thread", "Sparse Thread"]
+        );
+        assert!(matches!(
+            weakly_integrated[0].explanation,
+            ExplorationExplanation::WeaklyIntegratedSharedReference {
+                ref references,
+                structural_link_count,
+                ref via_notes,
+            } if references == &vec!["@shared2024".to_owned()]
+                && structural_link_count == 0
+                && via_notes.is_empty()
+        ));
+        assert!(matches!(
+            weakly_integrated[1].explanation,
+            ExplorationExplanation::WeaklyIntegratedSharedReference {
+                ref references,
+                structural_link_count,
+                ref via_notes,
+            } if references.is_empty() && structural_link_count == 1 && via_notes.len() == 1
+        ));
 
         Ok(())
     }

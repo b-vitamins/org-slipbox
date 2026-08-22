@@ -1098,13 +1098,39 @@ fn exploration_explanation_serializes_with_tagged_kinds() {
         serde_json::to_value(ExplorationExplanation::WeaklyIntegratedSharedReference {
             references: vec!["@shared2024".to_owned(), "@shared2025".to_owned()],
             structural_link_count: 1,
+            via_notes: vec![BridgeEvidenceRecord {
+                node_key: "heading:neighbor.org:3".to_owned(),
+                explicit_id: Some("neighbor-id".to_owned()),
+                title: "Neighbor".to_owned(),
+            }],
         })
         .expect("weak integration explanation should serialize"),
         json!({
             "kind": "weakly-integrated-shared-reference",
             "references": ["@shared2024", "@shared2025"],
-            "structural_link_count": 1
+            "structural_link_count": 1,
+            "via_notes": [
+                {
+                    "node_key": "heading:neighbor.org:3",
+                    "explicit_id": "neighbor-id",
+                    "title": "Neighbor"
+                }
+            ]
         })
+    );
+
+    assert_eq!(
+        serde_json::from_value::<ExplorationExplanation>(json!({
+            "kind": "weakly-integrated-shared-reference",
+            "references": ["@shared2024"],
+            "structural_link_count": 1
+        }))
+        .expect("weak integration explanation should deserialize without bridge notes"),
+        ExplorationExplanation::WeaklyIntegratedSharedReference {
+            references: vec!["@shared2024".to_owned()],
+            structural_link_count: 1,
+            via_notes: Vec::new(),
+        }
     );
 }
 

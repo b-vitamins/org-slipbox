@@ -528,6 +528,7 @@ fn explore_dispatches_non_obvious_lenses() {
                 == ExplorationExplanation::WeaklyIntegratedSharedReference {
                     references: vec!["@shared2024".to_owned()],
                     structural_link_count: 0,
+                    via_notes: Vec::new(),
                 }
     )));
 }
