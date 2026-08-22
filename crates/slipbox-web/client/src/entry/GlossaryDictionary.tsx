@@ -100,8 +100,11 @@ const EmptyGlossary: Component<{ mode: GlossaryMode; searched: boolean }> = (
 );
 
 export const GlossaryDictionary: Component<{
-  /** Open a term as a fresh reading root, by slipbox key. */
-  onOpen: (key: string) => void;
+  /**
+   * Open a note as a fresh reading root: a term by its slipbox key, or a note a
+   * definition links to by the reference that link carried.
+   */
+  onOpen: (reference: string) => void;
   /** Which list to show. Owned by the frame, which keeps it in the URL. */
   mode: GlossaryMode;
   /** Report a mode the reader chose, for the owner to record and hand back. */

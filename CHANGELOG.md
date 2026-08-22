@@ -26,6 +26,17 @@ The format follows Keep a Changelog, and this project follows SemVer.
   to the DOM is that normalized target rather than the raw one. A `file:` or
   relative target, which this surface could not follow over HTTP anyway, now
   reads as text rather than as a dead link.
+- Follow a link inside a glossary definition. The peek pane draws a definition
+  with the same Org renderer the reading column uses, so its `id:` links came out
+  as real anchors, but the navigation grammar those anchors route through was
+  provided only inside a reading column. Unprovided, it fell back to the inert
+  one, where the anchor's own `preventDefault` swallowed the click and no verb
+  ran, leaving a link that read as live and behaved worse than inert text: a
+  modified click still opened it in a new tab while a plain one did nothing at
+  all. The glossary is an entry surface with no spine standing beside the
+  definition, so both committing verbs open the target as the reading root, and a
+  tap from a hoverless pointer commits rather than glancing at a preview card
+  this surface does not mount.
 
 ## [0.17.0] - 2026-07-25
 

@@ -291,6 +291,33 @@ describe("GlossaryDictionary", () => {
     expect(onOpen).toHaveBeenCalledWith("notes/entropy.org::0");
   });
 
+  it("follows a link inside a definition to the note it names", async () => {
+    const onOpen = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/glossary/terms": {
+          terms: [term("notes/entropy.org::0", "Entropy")],
+        },
+        "/api/note/context": contextFor(
+          "notes/entropy.org::0",
+          "Entropy",
+          "Dual to [[id:prior-uuid][the prior]] over the same events.",
+        ),
+      }),
+    );
+
+    mount({ onOpen });
+
+    const link = await screen.findByRole("link", { name: "the prior" });
+    // The anchor advertises a real destination, so it must honor one: a link the
+    // surface renders live and then swallows is worse than inert text.
+    expect(link).toHaveAttribute("href", "?note=id%3Aprior-uuid");
+
+    fireEvent.click(link);
+    expect(onOpen).toHaveBeenCalledWith("id:prior-uuid");
+  });
+
   it("opens a term on Enter over the highlighted row", async () => {
     const onOpen = vi.fn();
     vi.stubGlobal(

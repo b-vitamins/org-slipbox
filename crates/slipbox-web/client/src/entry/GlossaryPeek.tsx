@@ -1,7 +1,8 @@
 /*
  * The glossary peek pane: a selected term's definition, confirmation status, and
- * read-only SM-2 facts, rendered in place without touching the reading stack or
- * the URL. "Open in reader" hands the key up to be opened as a spine root.
+ * read-only SM-2 facts. Peeking a term costs no history entry; following a link
+ * out of one hands its target up to be opened as a spine root, the same way
+ * "Open in reader" hands up the term itself.
  */
 
 import { Show, createMemo, type Component } from "solid-js";
@@ -9,6 +10,12 @@ import { Show, createMemo, type Component } from "solid-js";
 import { ApiError } from "../api/client.js";
 import type { NodeRecord } from "../api/types.js";
 import { createReadingResource } from "../data/create-reading-resource.js";
+import {
+  NavigationProvider,
+  referenceOf,
+  type LinkTarget,
+  type Navigation,
+} from "../org/navigation.jsx";
 import { parseOrg } from "../org/parse.js";
 import { RenderDocument } from "../org/RenderDocument.jsx";
 import { fetchNoteContext, WHOLE_NOTE_MAX_LINES } from "../reading/fetch-note.js";
@@ -21,9 +28,41 @@ function describeError(error: unknown): string {
   return "This term could not be read.";
 }
 
+/**
+ * The navigation grammar as this surface can honor it. Without one, the links a
+ * definition renders fall back to the inert navigation, where a click is
+ * swallowed by the anchor's own `preventDefault` and commits nothing.
+ *
+ * The glossary is an entry surface: no spine stands beside the definition, so
+ * `pin`'s "open beside its origin" and `go`'s "replace the reading path" are one
+ * act here, opening the target as the reading root.
+ *
+ * A hovering pointer raises no preview, since the glance card is the spine's own
+ * chrome. A hoverless pointer has none either, and its tap stands in for a hover
+ * the device cannot make, so the tap commits: glancing into nothing would leave
+ * a link no finger could follow.
+ */
+function peekNavigation(onOpen: (reference: string) => void): Navigation {
+  const open = (target: LinkTarget): void => onOpen(referenceOf(target));
+  return {
+    glance: (request) => {
+      if (request?.gesture === "touch") {
+        request.go();
+      }
+    },
+    pin: open,
+    go: open,
+  };
+}
+
 export const GlossaryPeek: Component<{
   term: NodeRecord;
-  onOpen: (key: string) => void;
+  /**
+   * Open a note as a fresh reading root. The term itself is named by its slipbox
+   * key; a link out of the definition is named by whichever reference the link
+   * carried, which for an `id:` link is `id:<uuid>`.
+   */
+  onOpen: (reference: string) => void;
 }> = (props) => {
   const context = createReadingResource(
     () => props.term.node_key,
@@ -36,6 +75,10 @@ export const GlossaryPeek: Component<{
   });
 
   const isStub = (): boolean => props.term.glossary_status === "stub";
+
+  // One navigation for the pane's whole life, reading `props.onOpen` at call time
+  // rather than capturing it, so the provider beneath is never rebuilt.
+  const navigation = peekNavigation((reference) => props.onOpen(reference));
 
   return (
     <article class="glossary-peek">
@@ -59,7 +102,11 @@ export const GlossaryPeek: Component<{
             fallback={<p class="glossary-peek__status-note">Reading…</p>}
           >
             <Show when={document()}>
-              {(parsed) => <RenderDocument document={parsed()} />}
+              {(parsed) => (
+                <NavigationProvider navigation={navigation}>
+                  <RenderDocument document={parsed()} />
+                </NavigationProvider>
+              )}
             </Show>
           </Show>
         }
