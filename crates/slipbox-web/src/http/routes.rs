@@ -8,7 +8,6 @@ use slipbox_core::{
 };
 
 use crate::ReadingBridge;
-use crate::http::neighborhood;
 use crate::http::query::Query;
 use crate::http::response::ApiError;
 
@@ -47,7 +46,6 @@ pub(crate) fn dispatch(
         "/api/forward-links" => forward_links(bridge, &query),
         "/api/reflinks" => reflinks(bridge, &query),
         "/api/unlinked-references" => unlinked_references(bridge, &query),
-        "/api/neighborhood" => neighborhood_route(bridge, &query),
         "/api/glossary/terms" => glossary_terms(bridge, &query),
         "/api/glossary/search" => glossary_search(bridge, &query),
         "/api/glossary/term" => glossary_term(bridge, &query),
@@ -166,26 +164,6 @@ fn unlinked_references(bridge: &ReadingBridge, query: &Query) -> Result<ApiRespo
         limit: query.bounded("limit", DEFAULT_RELATION_LIMIT, 1, MAX_RELATION_LIMIT)?,
     };
     ApiResponse::json(&bridge.unlinked_references(&params)?)
-}
-
-/// A hop-bounded local neighborhood around one note, composed from the note
-/// relation primitives.
-fn neighborhood_route(bridge: &ReadingBridge, query: &Query) -> Result<ApiResponse, ApiError> {
-    let origin = query.require("key")?;
-    let hops = query.bounded(
-        "hops",
-        neighborhood::DEFAULT_HOPS,
-        1,
-        neighborhood::MAX_HOPS,
-    )?;
-    let fanout = query.bounded(
-        "fanout",
-        neighborhood::DEFAULT_FANOUT,
-        1,
-        neighborhood::MAX_FANOUT,
-    )?;
-    let neighborhood = neighborhood::walk(bridge, &origin, hops, fanout)?;
-    ApiResponse::json(&neighborhood)
 }
 
 /// The glossary as a dictionary listing.

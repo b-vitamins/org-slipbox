@@ -518,65 +518,6 @@ fn reading_server_serves_the_note_and_glossary_surface_over_http() -> Result<()>
     Ok(())
 }
 
-#[test]
-fn reading_server_walks_a_hop_bounded_neighborhood() -> Result<()> {
-    let (_workspace, root, db) = build_reading_fixture()?;
-    let server = start_reading_server(&root, &db)?;
-    let addr = server.local_addr();
-
-    let alpha = http_get(addr, "/api/node?id=alpha-id")?.json()?;
-    let alpha_key = alpha["node_key"]
-        .as_str()
-        .context("Alpha has a key")?
-        .to_owned();
-
-    let neighborhood = http_get(
-        addr,
-        &format!("/api/neighborhood?key={}", encode(&alpha_key)),
-    )?;
-    assert_eq!(neighborhood.status, 200);
-    let body = neighborhood.json()?;
-
-    assert_eq!(body["origin"], alpha_key);
-    assert_eq!(body["hops"], 1);
-    let nodes = body["nodes"].as_array().context("neighborhood has nodes")?;
-    assert!(
-        nodes
-            .iter()
-            .any(|node| node["node"]["title"] == "Alpha" && node["distance"] == 0)
-    );
-    assert!(
-        nodes
-            .iter()
-            .any(|node| node["node"]["title"] == "Beta" && node["distance"] == 1)
-    );
-    assert!(
-        body["edges"]
-            .as_array()
-            .context("neighborhood has edges")?
-            .iter()
-            .any(|edge| edge["kind"] == "forward")
-    );
-    // 32 is the route's default fan-out, which Alpha's one link fits well inside.
-    assert_eq!(body["fanout"], 32);
-    assert_eq!(body["truncated"], false);
-
-    // A fan-out of one admits Alpha's single link and fills the budget doing it.
-    // The walk cannot tell that from a second link it never asked for, so the
-    // reply reports `truncated` and echoes the bound that did the cutting.
-    let bounded = http_get(
-        addr,
-        &format!("/api/neighborhood?key={}&fanout=1", encode(&alpha_key)),
-    )?;
-    assert_eq!(bounded.status, 200);
-    let bounded_body = bounded.json()?;
-    assert_eq!(bounded_body["fanout"], 1);
-    assert_eq!(bounded_body["truncated"], true);
-
-    server.shutdown()?;
-    Ok(())
-}
-
 #[cfg(unix)]
 #[test]
 fn reading_server_recovers_from_a_daemon_that_died_under_it() -> Result<()> {
@@ -669,16 +610,12 @@ fn reading_server_refuses_a_parameter_it_cannot_honour_as_written() -> Result<()
     let addr = server.local_addr();
 
     // A target outside each of the routes' bounds: search limit 1..=200,
-    // relation limit 1..=1000, hops 1..=3, fanout 1..=200, max_lines 1..=1000,
-    // before 0..=200. Every one is a 400, never a clamp.
+    // relation limit 1..=1000, max_lines 1..=1000, before 0..=200. Every one is a
+    // 400, never a clamp.
     for target in [
         "/api/search/nodes?q=alpha&limit=0",
         "/api/search/nodes?q=alpha&limit=201",
         "/api/backlinks?key=file:alpha.org&limit=1001",
-        "/api/neighborhood?key=file:alpha.org&hops=0",
-        "/api/neighborhood?key=file:alpha.org&hops=9",
-        "/api/neighborhood?key=file:alpha.org&fanout=0",
-        "/api/neighborhood?key=file:alpha.org&fanout=201",
         "/api/note/context?key=file:alpha.org&max_lines=1001",
         "/api/note/context?key=file:alpha.org&before=201",
     ] {

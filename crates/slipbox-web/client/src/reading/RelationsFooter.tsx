@@ -1,7 +1,7 @@
 /*
- * The relations footer of a reading column: forward links, backlinks, and the
- * opt-in bounded neighborhood. The link rows come out of the `NoteContext` the
- * column already fetched, so only the neighborhood costs a further request.
+ * The relations footer of a reading column: forward links and backlinks. Both
+ * come out of the `NoteContext` the column already fetched, so the footer costs
+ * no request of its own.
  */
 
 import { For, Show, type Component } from "solid-js";
@@ -9,7 +9,6 @@ import { For, Show, type Component } from "solid-js";
 import type { NoteContext } from "../api/types.js";
 import { GrammarLink } from "../org/GrammarLink.jsx";
 import { RenderPreview } from "../org/RenderPreview.jsx";
-import { NeighborhoodRings } from "./NeighborhoodRings.jsx";
 import {
   backwardRelations,
   forwardRelations,
@@ -44,18 +43,14 @@ export const RelationsFooter: Component<{ context: NoteContext }> = (props) => {
   const forward = (): RelationRow[] => forwardRelations(props.context);
   const backward = (): RelationRow[] => backwardRelations(props.context);
 
-  // Keys the link groups already list, kept out of the rings.
-  const shown = (): Set<string> =>
-    new Set([...forward(), ...backward()].map((row) => row.key));
-
   return (
-    <footer class="relations">
-      <RelationGroup label="Links to" rows={forward()} />
-      <RelationGroup label="Linked from" rows={backward()} />
-      <NeighborhoodRings
-        nodeKey={props.context.note.node_key}
-        shown={shown()}
-      />
-    </footer>
+    // The footer carries a rule above it, which would otherwise be drawn under
+    // an unlinked note as a line with nothing beneath it.
+    <Show when={forward().length > 0 || backward().length > 0}>
+      <footer class="relations">
+        <RelationGroup label="Links to" rows={forward()} />
+        <RelationGroup label="Linked from" rows={backward()} />
+      </footer>
+    </Show>
   );
 };

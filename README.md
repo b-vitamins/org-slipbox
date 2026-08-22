@@ -436,7 +436,7 @@ note.
 
 The client is a reading view, not an editor. It presents an Org reading column
 with a near/far spine, glance/pin/go navigation, a search-first entry surface,
-a glossary dictionary with definition peek, and a hop-bounded neighborhood.
+and a glossary dictionary with definition peek.
 Entry search is the ranked content path, so it matches a phrase from the middle
 of a note and shows the excerpt each hit was found in. The reading trail, the
 surface that is up, and the search term all live in the URL, so a reading

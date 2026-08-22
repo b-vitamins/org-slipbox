@@ -13,7 +13,6 @@ import type {
   GlossaryTermsResult,
   BacklinksResult,
   ForwardLinksResult,
-  Neighborhood,
   NodeRecord,
   NoteContext,
   PingInfo,
@@ -199,15 +198,6 @@ export class ReadingClient {
         limit: options.limit,
         unique: options.unique,
       })}`,
-    );
-  }
-
-  neighborhood(
-    key: string,
-    options: { hops?: number; fanout?: number } = {},
-  ): Promise<Neighborhood> {
-    return this.get<Neighborhood>(
-      `/api/neighborhood${buildQuery({ key, hops: options.hops, fanout: options.fanout })}`,
     );
   }
 

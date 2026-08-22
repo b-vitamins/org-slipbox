@@ -3,7 +3,7 @@
  * serves. Field names match serde's snake_case output and enum spellings match
  * their `rename_all` attributes. Hand-maintained, not generated: keep in
  * lockstep with slipbox-core (`nodes.rs`, `source.rs`, `relations.rs`,
- * `glossary.rs`, `diagnostics.rs`) and slipbox-web (`neighborhood`).
+ * `glossary.rs`, `diagnostics.rs`).
  */
 
 export type NodeKind = "file" | "heading";
@@ -246,29 +246,6 @@ export type SearchNodesSort =
   | "file-mtime"
   | "backlink-count"
   | "forward-link-count";
-
-/** A directed edge in a neighborhood. Mirrors slipbox-web `EdgeKind`. */
-export type EdgeKind = "forward";
-
-export interface NeighborhoodNode {
-  node: NodeRecord;
-  distance: number;
-}
-
-export interface NeighborhoodEdge {
-  source: string;
-  target: string;
-  kind: EdgeKind;
-}
-
-/** A hop-bounded local neighborhood. Mirrors slipbox-web `Neighborhood`. */
-export interface Neighborhood {
-  origin: string;
-  hops: number;
-  nodes: NeighborhoodNode[];
-  edges: NeighborhoodEdge[];
-  truncated: boolean;
-}
 
 /** The shared error envelope every failing response carries. */
 export interface ApiErrorBody {

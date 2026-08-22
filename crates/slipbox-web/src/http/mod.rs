@@ -6,7 +6,6 @@
 //! other path is served from the embedded reading client, so one port answers
 //! both the API and the app.
 
-mod neighborhood;
 mod query;
 mod response;
 mod routes;
