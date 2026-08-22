@@ -30,13 +30,18 @@ impl SharedRefCandidate {
 }
 
 struct BridgeCandidate {
-    candidate: SharedRefCandidate,
+    anchor: AnchorRecord,
+    references: Vec<String>,
     via_notes: Vec<BridgeEvidenceRecord>,
 }
 
 impl BridgeCandidate {
     fn bridge_count(&self) -> usize {
         self.via_notes.len()
+    }
+
+    fn shared_reference_count(&self) -> usize {
+        self.references.len()
     }
 }
 
@@ -95,13 +100,20 @@ impl Database {
             .collect())
     }
 
+    /// Return notes two hops away that the focus note does not already link to.
+    ///
+    /// A bridge is a note reachable through something the focus note links to or
+    /// is linked from, so link topology is the candidate universe and every
+    /// result carries the notes it travels through. Shared references rank a
+    /// candidate rather than admit it: a citation in common is evidence about a
+    /// bridge, not the reason a bridge exists.
     pub fn bridge_candidates(
         &self,
         note: &NodeRecord,
         limit: usize,
     ) -> Result<Vec<AnchorExplorationRecord>> {
         let direct_neighbors = self.direct_neighbor_map(note)?;
-        if note.refs.is_empty() || direct_neighbors.is_empty() {
+        if direct_neighbors.is_empty() {
             return Ok(Vec::new());
         }
 
@@ -111,23 +123,26 @@ impl Database {
             .values()
             .filter_map(|neighbor| neighbor.explicit_id.clone())
             .collect::<Vec<_>>();
-        let candidates = self.shared_ref_candidates(
+        let anchors = self.bridge_candidate_anchors(
             note,
+            &direct_neighbor_key_list,
+            &direct_neighbor_explicit_ids,
             &excluded_keys(note, &direct_neighbor_keys),
             widened_limit(limit),
         )?;
 
         let mut bridge_candidates = Vec::new();
-        for candidate in candidates {
+        for anchor in anchors {
             let via_notes = self.bridge_notes(
-                candidate.anchor.node_key.as_str(),
-                candidate.anchor.explicit_id.as_deref(),
+                anchor.node_key.as_str(),
+                anchor.explicit_id.as_deref(),
                 &direct_neighbor_key_list,
                 &direct_neighbor_explicit_ids,
             )?;
             if !via_notes.is_empty() {
                 bridge_candidates.push(BridgeCandidate {
-                    candidate,
+                    references: intersecting_references(note, &anchor),
+                    anchor,
                     via_notes,
                 });
             }
@@ -138,9 +153,9 @@ impl Database {
             .into_iter()
             .take(limit.clamp(1, 1_000))
             .map(|bridge| AnchorExplorationRecord {
-                anchor: bridge.candidate.anchor,
+                anchor: bridge.anchor,
                 explanation: ExplorationExplanation::BridgeCandidate {
-                    references: bridge.candidate.references,
+                    references: bridge.references,
                     via_notes: bridge.via_notes,
                 },
             })
@@ -490,6 +505,118 @@ impl Database {
             .collect())
     }
 
+    /// Collect the candidate universe for the bridge lens.
+    ///
+    /// Two-hop link neighbors come first because they are what a bridge is.
+    /// Shared-reference candidates are unioned in so a citation-linked note keeps
+    /// its place even when the widened two-hop window is already full, which
+    /// preserves every result the lens surfaced when references were its only
+    /// entry condition.
+    fn bridge_candidate_anchors(
+        &self,
+        note: &NodeRecord,
+        neighbor_node_keys: &[String],
+        neighbor_explicit_ids: &[String],
+        excluded_node_keys: &BTreeSet<String>,
+        limit: usize,
+    ) -> Result<Vec<AnchorRecord>> {
+        let mut anchors = BTreeMap::new();
+        for anchor in self.two_hop_candidates(
+            neighbor_node_keys,
+            neighbor_explicit_ids,
+            excluded_node_keys,
+            limit,
+        )? {
+            anchors.insert(anchor.node_key.clone(), anchor);
+        }
+        for candidate in self.shared_ref_candidates(note, excluded_node_keys, limit)? {
+            anchors
+                .entry(candidate.anchor.node_key.clone())
+                .or_insert(candidate.anchor);
+        }
+        Ok(anchors.into_values().collect())
+    }
+
+    /// Return notes adjacent to one of `neighbor_*`, ranked by how many of them
+    /// they touch.
+    ///
+    /// Adjacency is undirected: a candidate either links to a neighbor or is
+    /// linked from one. Both directions normalize to the neighbor's node key, so
+    /// a candidate that reaches one neighbor both ways still counts it once.
+    fn two_hop_candidates(
+        &self,
+        neighbor_node_keys: &[String],
+        neighbor_explicit_ids: &[String],
+        excluded_node_keys: &BTreeSet<String>,
+        limit: usize,
+    ) -> Result<Vec<AnchorRecord>> {
+        let mut values = Vec::new();
+        let mut adjacency_parts = Vec::new();
+        let mut next_parameter_index = 1;
+        if !neighbor_explicit_ids.is_empty() {
+            let placeholders =
+                numbered_placeholders(next_parameter_index, neighbor_explicit_ids.len());
+            values.extend(neighbor_explicit_ids.iter().cloned());
+            next_parameter_index += neighbor_explicit_ids.len();
+            adjacency_parts.push(format!(
+                "SELECT l.source_note_key AS candidate_node_key,
+                        via.node_key AS via_node_key
+                   FROM links AS l
+                   JOIN nodes AS via ON via.explicit_id = l.destination_explicit_id
+                  WHERE l.destination_explicit_id IN ({placeholders})"
+            ));
+        }
+        if !neighbor_node_keys.is_empty() {
+            let placeholders =
+                numbered_placeholders(next_parameter_index, neighbor_node_keys.len());
+            values.extend(neighbor_node_keys.iter().cloned());
+            next_parameter_index += neighbor_node_keys.len();
+            adjacency_parts.push(format!(
+                "SELECT candidate.node_key AS candidate_node_key,
+                        l.source_note_key AS via_node_key
+                   FROM links AS l
+                   JOIN nodes AS candidate
+                     ON candidate.explicit_id = l.destination_explicit_id
+                  WHERE l.source_note_key IN ({placeholders})
+                    AND {}",
+                note_where("candidate"),
+            ));
+        }
+        if adjacency_parts.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let excluded = excluded_node_keys.iter().cloned().collect::<Vec<_>>();
+        let excluded_placeholders = numbered_placeholders(next_parameter_index, excluded.len());
+        values.extend(excluded);
+        next_parameter_index += excluded_node_keys.len();
+        let limit_placeholder = next_parameter_index;
+        let sql = format!(
+            "SELECT {}
+               FROM (
+                     SELECT adjacency.candidate_node_key,
+                            COUNT(DISTINCT adjacency.via_node_key) AS bridge_count
+                       FROM ({}) AS adjacency
+                      WHERE adjacency.candidate_node_key NOT IN ({})
+                      GROUP BY adjacency.candidate_node_key
+                    ) AS ranked
+               JOIN nodes AS n ON n.node_key = ranked.candidate_node_key
+              WHERE {}
+              ORDER BY ranked.bridge_count DESC, n.file_path, n.line, n.node_key
+              LIMIT ?{}",
+            anchor_select_columns("n"),
+            adjacency_parts.join(" UNION "),
+            excluded_placeholders,
+            note_where("n"),
+            limit_placeholder,
+        );
+        values.push(limit.clamp(1, 1_000).to_string());
+        let mut statement = self.connection.prepare(&sql)?;
+        let rows = statement.query_map(params_from_iter(values.iter()), row_to_anchor)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("failed to read two-hop bridge candidates")
+    }
+
     fn bridge_notes(
         &self,
         candidate_node_key: &str,
@@ -708,6 +835,28 @@ fn structural_link_count(anchor: &AnchorRecord) -> u64 {
     anchor.backlink_count + anchor.forward_link_count
 }
 
+/// References the focus note and a candidate both declare, in reference order.
+///
+/// This is the same set the shared-reference candidate query reports, computed
+/// from indexed reference lists so a candidate found through link topology
+/// explains itself the same way.
+fn intersecting_references(note: &NodeRecord, anchor: &AnchorRecord) -> Vec<String> {
+    let note_references = note
+        .refs
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    let candidate_references = anchor
+        .refs
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    note_references
+        .intersection(&candidate_references)
+        .map(|reference| (*reference).to_owned())
+        .collect()
+}
+
 fn compare_anchor_records(left: &AnchorRecord, right: &AnchorRecord) -> Ordering {
     left.file_path
         .cmp(&right.file_path)
@@ -736,8 +885,12 @@ fn compare_bridge_candidates(left: &BridgeCandidate, right: &BridgeCandidate) ->
     right
         .bridge_count()
         .cmp(&left.bridge_count())
-        .then_with(|| compare_shared_reference_support(&left.candidate, &right.candidate))
-        .then_with(|| compare_anchor_records(&left.candidate.anchor, &right.candidate.anchor))
+        .then_with(|| {
+            right
+                .shared_reference_count()
+                .cmp(&left.shared_reference_count())
+        })
+        .then_with(|| compare_anchor_records(&left.anchor, &right.anchor))
 }
 
 fn compare_dormant_candidates(left: &SharedRefCandidate, right: &SharedRefCandidate) -> Ordering {
@@ -1422,6 +1575,208 @@ Links to [[id:neighbor-a-id]] and [[id:neighbor-b-id]].
                 && via_notes.iter().all(|note| note.title == "Bridge")
                 && via_notes[0].node_key != via_notes[1].node_key
         ));
+
+        Ok(())
+    }
+
+    #[test]
+    fn bridge_candidates_surface_link_topology_without_shared_references() -> Result<()> {
+        let workspace = tempfile::tempdir().context("workspace should be created")?;
+        let root = workspace.path().join("notes");
+        fs::create_dir_all(&root).context("notes root should be created")?;
+        fs::write(
+            root.join("focus.org"),
+            r#"#+title: Focus
+
+* Focus
+:PROPERTIES:
+:ID: focus-id
+:END:
+Links to [[id:neighbor-id]].
+
+* Neighbor
+:PROPERTIES:
+:ID: neighbor-id
+:END:
+Links to [[id:downstream-id]].
+"#,
+        )
+        .context("focus fixture should be written")?;
+        fs::write(
+            root.join("downstream.org"),
+            r#"#+title: Downstream
+
+* Downstream
+:PROPERTIES:
+:ID: downstream-id
+:END:
+Reached from the neighbour side of the bridge.
+"#,
+        )
+        .context("downstream fixture should be written")?;
+        fs::write(
+            root.join("inbound.org"),
+            r#"#+title: Inbound
+
+* Upstream
+:PROPERTIES:
+:ID: upstream-id
+:END:
+Links to [[id:neighbor-id]].
+"#,
+        )
+        .context("inbound fixture should be written")?;
+
+        let mut database = Database::open(&workspace.path().join("index.sqlite3"))?;
+        let files =
+            scan_root_with_policy(&root, &DiscoveryPolicy::default()).context("fixture scan")?;
+        database.sync_index(&files).context("fixture index sync")?;
+        let focus = database
+            .node_from_id("focus-id")?
+            .context("focus note should exist")?;
+
+        let bridges = database.bridge_candidates(&focus, 20)?;
+        assert_eq!(
+            bridges
+                .iter()
+                .map(|record| record.anchor.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Downstream", "Upstream"]
+        );
+        assert!(bridges.iter().all(|record| matches!(
+            record.explanation,
+            ExplorationExplanation::BridgeCandidate { ref references, ref via_notes }
+            if references.is_empty()
+                && via_notes.len() == 1
+                && via_notes[0].explicit_id.as_deref() == Some("neighbor-id")
+        )));
+
+        Ok(())
+    }
+
+    #[test]
+    fn bridge_candidates_rank_shared_references_ahead_of_bare_topology() -> Result<()> {
+        let workspace = tempfile::tempdir().context("workspace should be created")?;
+        let root = workspace.path().join("notes");
+        fs::create_dir_all(&root).context("notes root should be created")?;
+        fs::write(
+            root.join("focus.org"),
+            r#"#+title: Focus
+
+* Focus
+:PROPERTIES:
+:ID: focus-id
+:ROAM_REFS: cite:shared2024
+:END:
+Links to [[id:neighbor-id]].
+
+* Neighbor
+:PROPERTIES:
+:ID: neighbor-id
+:END:
+Neighbor body.
+"#,
+        )
+        .context("focus fixture should be written")?;
+        fs::write(
+            root.join("a-bare.org"),
+            r#"#+title: Bare
+
+* Bare Candidate
+:PROPERTIES:
+:ID: bare-id
+:END:
+Links to [[id:neighbor-id]].
+"#,
+        )
+        .context("bare fixture should be written")?;
+        fs::write(
+            root.join("z-shared.org"),
+            r#"#+title: Shared
+
+* Shared Candidate
+:PROPERTIES:
+:ID: shared-id
+:ROAM_REFS: cite:shared2024
+:END:
+Links to [[id:neighbor-id]].
+"#,
+        )
+        .context("shared fixture should be written")?;
+
+        let mut database = Database::open(&workspace.path().join("index.sqlite3"))?;
+        let files =
+            scan_root_with_policy(&root, &DiscoveryPolicy::default()).context("fixture scan")?;
+        database.sync_index(&files).context("fixture index sync")?;
+        let focus = database
+            .node_from_id("focus-id")?
+            .context("focus note should exist")?;
+
+        // Both candidates bridge through one neighbor, and the bare candidate sorts
+        // first by file path, so only shared-reference support can lift the other.
+        let bridges = database.bridge_candidates(&focus, 20)?;
+        assert_eq!(
+            bridges
+                .iter()
+                .map(|record| record.anchor.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Shared Candidate", "Bare Candidate"]
+        );
+        assert!(matches!(
+            bridges[0].explanation,
+            ExplorationExplanation::BridgeCandidate { ref references, .. }
+            if references == &vec!["@shared2024".to_owned()]
+        ));
+        assert!(matches!(
+            bridges[1].explanation,
+            ExplorationExplanation::BridgeCandidate { ref references, .. }
+            if references.is_empty()
+        ));
+
+        Ok(())
+    }
+
+    #[test]
+    fn bridge_candidates_stay_empty_without_direct_neighbors() -> Result<()> {
+        let workspace = tempfile::tempdir().context("workspace should be created")?;
+        let root = workspace.path().join("notes");
+        fs::create_dir_all(&root).context("notes root should be created")?;
+        fs::write(
+            root.join("focus.org"),
+            r#"#+title: Focus
+
+* Focus
+:PROPERTIES:
+:ID: focus-id
+:ROAM_REFS: cite:shared2024
+:END:
+No links at all.
+"#,
+        )
+        .context("focus fixture should be written")?;
+        fs::write(
+            root.join("peer.org"),
+            r#"#+title: Peer
+
+* Peer
+:PROPERTIES:
+:ID: peer-id
+:ROAM_REFS: cite:shared2024
+:END:
+Shares the reference and nothing else.
+"#,
+        )
+        .context("peer fixture should be written")?;
+
+        let mut database = Database::open(&workspace.path().join("index.sqlite3"))?;
+        let files =
+            scan_root_with_policy(&root, &DiscoveryPolicy::default()).context("fixture scan")?;
+        database.sync_index(&files).context("fixture index sync")?;
+        let focus = database
+            .node_from_id("focus-id")?
+            .context("focus note should exist")?;
+
+        assert!(database.bridge_candidates(&focus, 20)?.is_empty());
 
         Ok(())
     }
