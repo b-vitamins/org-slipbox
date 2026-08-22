@@ -122,6 +122,7 @@ export type ExplorationExplanation =
       kind: "weakly-integrated-shared-reference";
       references: string[];
       structural_link_count: number;
+      via_notes: BridgeEvidenceRecord[];
     };
 
 /** An incoming link. Mirrors `BacklinkRecord`. */

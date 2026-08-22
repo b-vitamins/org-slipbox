@@ -7,6 +7,19 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Changed
+- Draw the weakly integrated notes the `unresolved` lens reports from link
+  topology rather than from shared `:ROAM_REFS:` entries, so a link-poor note
+  surfaces because something the focus note links to, or is linked from, also
+  reaches it. The section names the notes a slipbox has nearly forgotten to
+  connect, and requiring a shared citation refused exactly the notes least likely
+  to carry one. Either kind of evidence now admits a candidate, ordered by
+  structural link count, then by how many notes reach it, then by references in
+  common, so the least connected note is still reported first. A
+  `weakly-integrated-shared-reference` explanation gains a `via_notes` list and
+  its `references` list is empty for a candidate found through links alone;
+  explanations stored before this change load with no via notes. A clause naming
+  evidence a candidate does not have is now left out of the rendered reason, here
+  and in the bridge lens.
 - Draw the bridge lens's candidates from link topology rather than from shared
   `:ROAM_REFS:` entries, so a note two hops out surfaces because something the
   focus note links to, or is linked from, also reaches it. A shared reference was

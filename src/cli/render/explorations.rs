@@ -1,5 +1,5 @@
 use slipbox_core::{
-    AnchorRecord, ComparisonConnectorDirection, ExecutedExplorationArtifact,
+    AnchorRecord, BridgeEvidenceRecord, ComparisonConnectorDirection, ExecutedExplorationArtifact,
     ExecutedExplorationArtifactPayload, ExplorationArtifactKind, ExplorationArtifactSummary,
     ExplorationEntry, ExplorationExplanation, ExplorationLens, ExplorationSectionKind,
     ExploreResult, ListExplorationArtifactsResult, NodeRecord, NoteComparisonEntry,
@@ -185,15 +185,10 @@ pub(crate) fn render_exploration_explanation(explanation: &ExplorationExplanatio
         ExplorationExplanation::BridgeCandidate {
             references,
             via_notes,
-        } => format!(
-            "shared references {}; via {}",
-            references.join(", "),
-            via_notes
-                .iter()
-                .map(|note| format!("{} [{}]", note.title, note.node_key))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
+        } => join_explanation_clauses(vec![
+            shared_references_clause(references),
+            via_notes_clause(via_notes),
+        ]),
         ExplorationExplanation::DormantSharedReference {
             references,
             modified_at_ns,
@@ -213,12 +208,35 @@ pub(crate) fn render_exploration_explanation(explanation: &ExplorationExplanatio
         ExplorationExplanation::WeaklyIntegratedSharedReference {
             references,
             structural_link_count,
-        } => format!(
-            "shared references {}; structural link count {}",
-            references.join(", "),
-            structural_link_count
-        ),
+            via_notes,
+        } => join_explanation_clauses(vec![
+            shared_references_clause(references),
+            via_notes_clause(via_notes),
+            Some(format!("structural link count {structural_link_count}")),
+        ]),
     }
+}
+
+/// Join the clauses an explanation has, skipping the evidence it lacks.
+fn join_explanation_clauses(clauses: Vec<Option<String>>) -> String {
+    clauses.into_iter().flatten().collect::<Vec<_>>().join("; ")
+}
+
+fn shared_references_clause(references: &[String]) -> Option<String> {
+    (!references.is_empty()).then(|| format!("shared references {}", references.join(", ")))
+}
+
+fn via_notes_clause(via_notes: &[BridgeEvidenceRecord]) -> Option<String> {
+    (!via_notes.is_empty()).then(|| {
+        format!(
+            "via {}",
+            via_notes
+                .iter()
+                .map(|note| format!("{} [{}]", note.title, note.node_key))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    })
 }
 
 pub(crate) fn render_planning_relations(relations: &[PlanningRelationRecord]) -> String {
