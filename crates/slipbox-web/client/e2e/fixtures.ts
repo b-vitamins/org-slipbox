@@ -282,19 +282,6 @@ export async function mountApi(page: Page, world: FixtureWorld): Promise<void> {
         return json(route, { node: first ? nodeRecord(first) : null });
       }
 
-      // The walk is not modeled: every neighborhood is empty, so a spec needing
-      // a ring member has to build one itself.
-      case "/api/neighborhood": {
-        const origin = params.get("key") ?? "";
-        return json(route, {
-          origin,
-          hops: 2,
-          nodes: [],
-          edges: [],
-          truncated: false,
-        });
-      }
-
       default:
         return apiError(route, 404, "not-found", `no reading route for ${url.pathname}`);
     }

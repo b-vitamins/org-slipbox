@@ -177,14 +177,15 @@ describe("RelationsFooter", () => {
     });
   });
 
-  it("offers the neighborhood disclosure closed by default", () => {
-    render(() => (
+  // The footer is a hairline rule plus whatever it lists. A note nothing links
+  // to and that links to nothing must not end in a rule with nothing under it.
+  it("draws nothing at all for a note with no relations", () => {
+    const { container } = render(() => (
       <NavigationProvider navigation={inertNav}>
         <RelationsFooter context={context([], [])} />
       </NavigationProvider>
     ));
 
-    const toggle = screen.getByRole("button", { name: "Explore neighborhood" });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(container.querySelector(".relations")).toBeNull();
   });
 });

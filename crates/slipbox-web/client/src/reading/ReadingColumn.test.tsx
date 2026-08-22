@@ -45,19 +45,6 @@ function truncatedContextResponse(shown: number, lines: number): Response {
   );
 }
 
-function neighborhoodResponse(): Response {
-  return new Response(
-    JSON.stringify({
-      origin: "notes/gradient.org",
-      hops: 2,
-      nodes: [],
-      edges: [],
-      truncated: false,
-    }),
-    { status: 200, headers: { "content-type": "application/json" } },
-  );
-}
-
 function errorResponse(status: number, kind: string, message: string): Response {
   return new Response(JSON.stringify({ error: { kind, message } }), {
     status,
@@ -112,16 +99,10 @@ describe("ReadingColumn obscured sliver", () => {
   });
 
   it("hides the note it collapses rather than discarding it", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: string) =>
-        Promise.resolve(
-          input.includes("/api/neighborhood")
-            ? neighborhoodResponse()
-            : noteContextResponse("Gradient descent"),
-        ),
-      ),
+    const read = vi.fn(() =>
+      Promise.resolve(noteContextResponse("Gradient descent", "All of it.")),
     );
+    vi.stubGlobal("fetch", read);
     const [state, setState] = createSignal<ColumnState>("resting");
 
     render(() => (
@@ -133,23 +114,23 @@ describe("ReadingColumn obscured sliver", () => {
       />
     ));
 
-    const toggle = await screen.findByRole("button", {
-      name: "Explore neighborhood",
-    });
-    toggle.click();
-    expect(
-      screen.getByRole("button", { name: "Hide neighborhood" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("All of it.")).toBeInTheDocument();
+    expect(read).toHaveBeenCalledTimes(1);
 
+    // A hidden column is out of the accessibility tree, which is what a role
+    // query walks, so the note reads as gone while its subtree stays mounted.
     setState("obscured");
     expect(
-      screen.queryByRole("button", { name: "Hide neighborhood" }),
+      screen.queryByRole("heading", { level: 1, name: "Gradient descent" }),
     ).not.toBeInTheDocument();
 
     setState("resting");
     expect(
-      screen.getByRole("button", { name: "Hide neighborhood" }),
+      screen.getByRole("heading", { level: 1, name: "Gradient descent" }),
     ).toBeInTheDocument();
+    // Still the one read: the column was hidden and shown again, not discarded
+    // and fetched a second time.
+    expect(read).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -263,13 +244,11 @@ describe("ReadingColumn failure", () => {
     let reachable = false;
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: string) =>
+      vi.fn(() =>
         Promise.resolve(
-          input.includes("/api/neighborhood")
-            ? neighborhoodResponse()
-            : reachable
-              ? noteContextResponse("Gradient descent", "It reads now.")
-              : errorResponse(503, "unavailable", "daemon is down"),
+          reachable
+            ? noteContextResponse("Gradient descent", "It reads now.")
+            : errorResponse(503, "unavailable", "daemon is down"),
         ),
       ),
     );
@@ -395,13 +374,11 @@ describe("ReadingColumn document semantics", () => {
     let reachable = false;
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: string) =>
+      vi.fn(() =>
         Promise.resolve(
-          input.includes("/api/neighborhood")
-            ? neighborhoodResponse()
-            : reachable
-              ? noteContextResponse("Gradient descent", "It reads now.")
-              : errorResponse(404, "not-found", "no note for the given key"),
+          reachable
+            ? noteContextResponse("Gradient descent", "It reads now.")
+            : errorResponse(404, "not-found", "no note for the given key"),
         ),
       ),
     );

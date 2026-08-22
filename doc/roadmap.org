@@ -140,8 +140,7 @@ Focus:
   rejects any non-read-only method at dispatch
 - a bounded read-only HTTP API over Notes and Glossary: node lookup, a note
   reading context, node, content, and glossary search, random node, relations,
-  glossary terms, definitions, and due selection, and a hop-bounded
-  neighborhood
+  glossary terms, definitions, and due selection
 - a SolidJS reading client with URL-as-state navigation, an Org reading column
   with a near/far spine, glance/pin/go navigation, a search-first entry
   surface, and a glossary dictionary with peek and an inert study trail

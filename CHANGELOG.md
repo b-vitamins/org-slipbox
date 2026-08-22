@@ -66,6 +66,19 @@ The format follows Keep a Changelog, and this project follows SemVer.
   touch-target floor, its label centered in the taller box that floor stretches
   it into.
 
+### Removed
+- Retire the reading surface's hop-bounded neighborhood: the `/api/neighborhood`
+  route, its walk, and the ranked distance rings the reading column offered
+  behind a disclosure. The rings answered which notes lie near this one, which is
+  the question the relations footer exists to answer, and answered it worse: a
+  second request per note, a second ranking, a filter box over a list a reader
+  had not asked for, and a second grammar for opening a note. A note's links and
+  backlinks remain in the footer, where they come out of the reading context the
+  column already fetched, and now draw nothing at all for a note with no links
+  either way rather than a rule with nothing beneath it. What goes is the web
+  surface's own walk: the indexed link graph, the store queries over it, and the
+  `slipbox graph` DOT export are untouched, as is every other reading route.
+
 ### Fixed
 - Refuse a reading-surface request whose `Host` is not a loopback authority with
   a 403, before any route runs. The surface binds loopback only, but a browser

@@ -261,28 +261,9 @@ test.describe("the touch grammar", () => {
     for (const control of [
       page.getByRole("link", { name: "Pinned Note", exact: true }),
       page.getByRole("link", { name: /^A deliberately long relation title/ }),
-      page.locator(".neighborhood__toggle"),
     ]) {
       expect(await heightOf(control)).toBeGreaterThanOrEqual(TOUCH_TARGET);
     }
-
-    // The fixture neighborhood walk answers with no nodes, so the opened
-    // disclosure renders no member to measure: the height comes off a probe
-    // carrying the classes the ring builds.
-    await page.locator(".neighborhood__toggle").tap();
-    const member = await page.evaluate(() => {
-      const list = document.createElement("ul");
-      list.className = "neighborhood__members";
-      list.innerHTML =
-        '<li class="neighborhood__member">' +
-        '<a class="neighborhood__link" href="?note=file:pinned.org">Near Note</a>' +
-        "</li>";
-      document.querySelector(".neighborhood")!.append(list);
-      const height = list.querySelector("a")!.getBoundingClientRect().height;
-      list.remove();
-      return height;
-    });
-    expect(member).toBeGreaterThanOrEqual(TOUCH_TARGET);
 
     await page.goto(`/?note=${MISSING_NOTE}`);
     const search = page.getByRole("link", { name: /^Search the slipbox for/ });
