@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!--
+    The tab mark: a filed card carrying a headword line and a shorter line of
+    body. Flat shapes rather than an outline, because a hairline outline closes
+    up at the 16px a tab strip draws.
+
+    The fills are written as presentation attributes so a renderer that ignores
+    the stylesheet still draws the light mark, and the stylesheet inverts the
+    pair for a dark tab strip, where an ink-filled card would disappear into it.
+    The values are the ink and paper pairs of src/styles/tokens.css, repeated
+    rather than referenced: an icon is fetched on its own and cannot read the
+    client's custom properties. (This file is XML, so a comment cannot spell
+    those token names: a doubled hyphen ends a comment and would make the whole
+    icon unparseable.)
+  -->
+  <style>
+    @media (prefers-color-scheme: dark) {
+      .card {
+        fill: #d7d7da;
+      }
+      .rule {
+        fill: #16161a;
+      }
+    }
+  </style>
+  <rect class="card" x="4" y="3" width="24" height="26" rx="3" fill="#333333" />
+  <rect class="rule" x="9" y="11" width="14" height="3" rx="1.5" fill="#fafafc" />
+  <rect class="rule" x="9" y="18" width="9" height="3" rx="1.5" fill="#fafafc" />
+</svg>

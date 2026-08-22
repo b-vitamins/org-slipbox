@@ -6,6 +6,13 @@
     <meta name="color-scheme" content="light dark" />
     <title>slipbox</title>
     <!--
+      One SVG icon and no `.ico`. Declaring an icon is what stops the browser's
+      automatic probe for `/favicon.ico`, which the asset map answers with a
+      not-found on every load: a miss whose last segment names a file must stay a
+      miss, so the probe cannot be satisfied by the shell.
+    -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!--
       Apply a stored scheme before first paint. The palette follows the platform
       on its own, so this runs only for a reader who chose the opposite: without
       it the platform's canvas paints first and is repainted when the client
