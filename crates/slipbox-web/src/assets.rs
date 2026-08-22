@@ -148,6 +148,10 @@ mod tests {
             ("/index.html", b"<!doctype html>shell".to_vec()),
             ("/assets/index-abc123.js", b"console.log(1)".to_vec()),
             ("/assets/index-def456.css", b".a{}".to_vec()),
+            (
+                "/favicon.svg",
+                b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>".to_vec(),
+            ),
         ])
     }
 
@@ -172,6 +176,19 @@ mod tests {
             response.cache_control,
             "public, max-age=31536000, immutable"
         );
+    }
+
+    #[test]
+    fn serves_the_tab_icon_as_an_svg() {
+        let client = client();
+        let response = client.resolve("/favicon.svg").expect("the icon resolves");
+        assert_eq!(response.content_type, "image/svg+xml");
+        assert_eq!(response.cache_control, "no-cache");
+    }
+
+    #[test]
+    fn the_legacy_icon_path_is_not_found() {
+        assert!(client().resolve("/favicon.ico").is_none());
     }
 
     #[test]

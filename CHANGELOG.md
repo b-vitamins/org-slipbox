@@ -6,6 +6,15 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+### Added
+- Ship a tab icon with the reading client. The shell declared none, so every load
+  paid a not-found for the browser's automatic `/favicon.ico` probe, and a reader
+  holding a session of notes open had nothing but the browser's default page mark
+  to tell one tab from another. The mark is one SVG that inverts for a dark tab
+  strip. `/favicon.ico` stays a not-found: a declared icon is what stops the
+  probe, and answering a missing image with the app shell would render as a broken
+  icon rather than a missing one.
+
 ### Changed
 - Draw the `dormant` lens's candidates from link topology rather than from shared
   `:ROAM_REFS:` entries, and order them by age rather than by citations in common.
