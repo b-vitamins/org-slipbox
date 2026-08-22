@@ -29,8 +29,7 @@ impl SharedRefCandidate {
     }
 }
 
-/// A note near the focus note, carrying both kinds of evidence that found it so
-/// each lens keeps the one it asks about.
+/// A nearby note and the evidence used to rank it.
 struct RelatedCandidate {
     anchor: AnchorRecord,
     references: Vec<String>,
@@ -102,13 +101,8 @@ impl Database {
             .collect())
     }
 
-    /// Return notes two hops away that the focus note does not already link to.
-    ///
-    /// A bridge is a note reachable through something the focus note links to or
-    /// is linked from, so link topology is the candidate universe and every
-    /// result carries the notes it travels through. Shared references rank a
-    /// candidate rather than admit it: a citation in common is evidence about a
-    /// bridge, not the reason a bridge exists.
+    /// Return unlinked two-hop neighbors. Shared references rank but do not admit
+    /// candidates.
     pub fn bridge_candidates(
         &self,
         note: &NodeRecord,
@@ -139,20 +133,12 @@ impl Database {
         note: &NodeRecord,
         limit: usize,
     ) -> Result<Vec<AnchorExplorationRecord>> {
-        if note.refs.is_empty() || note.file_mtime_ns <= 0 {
+        if note.file_mtime_ns <= 0 {
             return Ok(Vec::new());
         }
 
-        let direct_neighbor_keys = self
-            .direct_neighbor_map(note)?
-            .into_keys()
-            .collect::<BTreeSet<_>>();
         let mut candidates = self
-            .shared_ref_candidates(
-                note,
-                &excluded_keys(note, &direct_neighbor_keys),
-                widened_limit(limit),
-            )?
+            .related_candidates(note, limit)?
             .into_iter()
             .filter(|candidate| {
                 candidate.anchor.file_mtime_ns > 0
@@ -169,6 +155,7 @@ impl Database {
                 explanation: ExplorationExplanation::DormantSharedReference {
                     references: candidate.references,
                     modified_at_ns: candidate.anchor.file_mtime_ns,
+                    via_notes: candidate.via_notes,
                 },
             })
             .collect())
@@ -467,8 +454,7 @@ impl Database {
             .collect())
     }
 
-    /// Collect the notes near `note`, each carrying the evidence that found it.
-    /// A candidate with no evidence at all is dropped here.
+    /// Collect nearby notes and their ranking evidence.
     fn related_candidates(&self, note: &NodeRecord, limit: usize) -> Result<Vec<RelatedCandidate>> {
         let direct_neighbors = self.direct_neighbor_map(note)?;
         let direct_neighbor_keys = direct_neighbors.keys().cloned().collect::<BTreeSet<_>>();
@@ -505,12 +491,7 @@ impl Database {
         Ok(candidates)
     }
 
-    /// Collect the candidate universe for the lenses that ask what a note sits
-    /// beside.
-    ///
-    /// Two-hop link neighbors come first. Shared-reference candidates are unioned
-    /// in so a citation-linked note keeps its place even when the widened two-hop
-    /// window is already full.
+    /// Union two-hop link neighbors with shared-reference candidates.
     fn related_candidate_anchors(
         &self,
         note: &NodeRecord,
@@ -536,12 +517,7 @@ impl Database {
         Ok(anchors.into_values().collect())
     }
 
-    /// Return notes adjacent to one of `neighbor_*`, ranked by how many of them
-    /// they touch.
-    ///
-    /// Adjacency is undirected: a candidate either links to a neighbor or is
-    /// linked from one. Both directions normalize to the neighbor's node key, so
-    /// a candidate that reaches one neighbor both ways still counts it once.
+    /// Return notes adjacent to `neighbor_*`, ranked by distinct neighbors touched.
     fn two_hop_candidates(
         &self,
         neighbor_node_keys: &[String],
@@ -834,11 +810,7 @@ fn structural_link_count(anchor: &AnchorRecord) -> u64 {
     anchor.backlink_count + anchor.forward_link_count
 }
 
-/// References the focus note and a candidate both declare, in reference order.
-///
-/// This is the same set the shared-reference candidate query reports, computed
-/// from indexed reference lists so a candidate found through link topology
-/// explains itself the same way.
+/// Shared references in the focus note's reference order.
 fn intersecting_references(note: &NodeRecord, anchor: &AnchorRecord) -> Vec<String> {
     let note_references = note
         .refs
@@ -892,9 +864,17 @@ fn compare_bridge_candidates(left: &RelatedCandidate, right: &RelatedCandidate) 
         .then_with(|| compare_anchor_records(&left.anchor, &right.anchor))
 }
 
-fn compare_dormant_candidates(left: &SharedRefCandidate, right: &SharedRefCandidate) -> Ordering {
-    compare_shared_reference_support(left, right)
-        .then_with(|| left.anchor.file_mtime_ns.cmp(&right.anchor.file_mtime_ns))
+/// Order the least recently touched note first, then the best explained one.
+fn compare_dormant_candidates(left: &RelatedCandidate, right: &RelatedCandidate) -> Ordering {
+    left.anchor
+        .file_mtime_ns
+        .cmp(&right.anchor.file_mtime_ns)
+        .then_with(|| right.via_note_count().cmp(&left.via_note_count()))
+        .then_with(|| {
+            right
+                .shared_reference_count()
+                .cmp(&left.shared_reference_count())
+        })
         .then_with(|| compare_anchor_records(&left.anchor, &right.anchor))
 }
 
@@ -1029,8 +1009,11 @@ Weakly integrated body.
             ExplorationExplanation::DormantSharedReference {
                 ref references,
                 modified_at_ns,
+                ref via_notes,
             } if references == &vec!["@shared2024".to_owned()]
                 && modified_at_ns < focus.file_mtime_ns
+                && via_notes.len() == 1
+                && via_notes[0].title == "Neighbor"
         ));
 
         let unresolved = database.unresolved_tasks(&focus, 20)?;
@@ -1448,7 +1431,7 @@ Focus body.
     }
 
     #[test]
-    fn dormant_candidates_break_same_support_ties_by_age() -> Result<()> {
+    fn dormant_candidates_order_the_oldest_note_first() -> Result<()> {
         let workspace = tempfile::tempdir().context("workspace should be created")?;
         let root = workspace.path().join("notes");
         fs::create_dir_all(&root).context("notes root should be created")?;
@@ -1516,6 +1499,68 @@ Neighbor body.
                 .collect::<Vec<_>>(),
             vec!["Older Dormant", "Newer Dormant"]
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn dormant_candidates_surface_older_notes_without_shared_references() -> Result<()> {
+        let workspace = tempfile::tempdir().context("workspace should be created")?;
+        let root = workspace.path().join("notes");
+        fs::create_dir_all(&root).context("notes root should be created")?;
+        fs::write(
+            root.join("old.org"),
+            r#"#+title: Old
+
+* Old Dormant
+:PROPERTIES:
+:ID: old-dormant-id
+:END:
+Links to [[id:neighbor-id]].
+"#,
+        )
+        .context("old fixture should be written")?;
+        sleep(Duration::from_millis(10));
+        fs::write(
+            root.join("focus.org"),
+            r#"#+title: Focus
+
+* Focus
+:PROPERTIES:
+:ID: focus-id
+:END:
+Links to [[id:neighbor-id]].
+
+* Neighbor
+:PROPERTIES:
+:ID: neighbor-id
+:END:
+Neighbor body.
+"#,
+        )
+        .context("focus fixture should be written")?;
+
+        let mut database = Database::open(&workspace.path().join("index.sqlite3"))?;
+        let files =
+            scan_root_with_policy(&root, &DiscoveryPolicy::default()).context("fixture scan")?;
+        database.sync_index(&files).context("fixture index sync")?;
+        let focus = database
+            .node_from_id("focus-id")?
+            .context("focus note should exist")?;
+
+        let dormant = database.dormant_related(&focus, 20)?;
+        assert_eq!(dormant.len(), 1);
+        assert_eq!(dormant[0].anchor.title, "Old Dormant");
+        assert!(matches!(
+            dormant[0].explanation,
+            ExplorationExplanation::DormantSharedReference {
+                ref references,
+                ref via_notes,
+                ..
+            } if references.is_empty()
+                && via_notes.len() == 1
+                && via_notes[0].explicit_id.as_deref() == Some("neighbor-id")
+        ));
 
         Ok(())
     }
@@ -1719,8 +1764,7 @@ Links to [[id:neighbor-id]].
             .node_from_id("focus-id")?
             .context("focus note should exist")?;
 
-        // Both candidates bridge through one neighbor, and the bare candidate sorts
-        // first by file path, so only shared-reference support can lift the other.
+        // Shared-reference support must outrank the earlier file path.
         let bridges = database.bridge_candidates(&focus, 20)?;
         assert_eq!(
             bridges
@@ -1862,8 +1906,7 @@ Three hops from the focus note.
             .node_from_id("focus-id")?
             .context("focus note should exist")?;
 
-        // Nothing here cites anything; Dense Thread is two hops out like Sparse
-        // Thread and is excluded only by its own link count.
+        // Link count alone excludes the dense two-hop candidate.
         let weakly_integrated = database.weakly_integrated_notes(&focus, 20)?;
         assert_eq!(
             weakly_integrated
@@ -1945,8 +1988,7 @@ Nothing links here at all.
             .node_from_id("focus-id")?
             .context("focus note should exist")?;
 
-        // File-path order puts the sparse note first, so only the link count can
-        // put the isolated one ahead of it.
+        // Link count must outrank file-path order.
         let weakly_integrated = database.weakly_integrated_notes(&focus, 20)?;
         assert_eq!(
             weakly_integrated

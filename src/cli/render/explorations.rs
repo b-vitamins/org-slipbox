@@ -192,11 +192,12 @@ pub(crate) fn render_exploration_explanation(explanation: &ExplorationExplanatio
         ExplorationExplanation::DormantSharedReference {
             references,
             modified_at_ns,
-        } => format!(
-            "shared references {}; modified_at_ns {}",
-            references.join(", "),
-            modified_at_ns
-        ),
+            via_notes,
+        } => join_explanation_clauses(vec![
+            shared_references_clause(references),
+            via_notes_clause(via_notes),
+            Some(format!("modified_at_ns {modified_at_ns}")),
+        ]),
         ExplorationExplanation::UnresolvedSharedReference {
             references,
             todo_keyword,

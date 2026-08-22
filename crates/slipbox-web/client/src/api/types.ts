@@ -112,6 +112,7 @@ export type ExplorationExplanation =
       kind: "dormant-shared-reference";
       references: string[];
       modified_at_ns: number;
+      via_notes: BridgeEvidenceRecord[];
     }
   | {
       kind: "unresolved-shared-reference";
