@@ -7,6 +7,20 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Changed
+- Draw the bridge lens's candidates from link topology rather than from shared
+  `:ROAM_REFS:` entries, so a note two hops out surfaces because something the
+  focus note links to, or is linked from, also reaches it. A shared reference was
+  the lens's entry condition, which made the whole lens answer to a citation
+  habit instead of to how the notes are linked: a note carrying no ref of its own
+  was refused before any candidate was considered, and a slipbox whose notes
+  carry no refs got nothing from the lens however densely it was linked.
+  References now rank a candidate rather than admit one, below the number of
+  notes a candidate bridges through and above the file-path order that separates
+  equals, so a citation in common still lifts the candidate that holds it.
+  Candidates a shared reference already reached keep their place, and the
+  `references` list on a `bridge-candidate` explanation is empty for a candidate
+  found through links alone. A note whose neighbors lead nowhere else still
+  returns nothing, because a bridge needs a second hop to exist.
 - Open a glossary term in the reader from a control beside its headword rather
   than one below its definition, where a long body carried it off the bottom of
   the pane and a reader had to scroll past the whole definition to find the way
