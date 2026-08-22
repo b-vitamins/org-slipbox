@@ -823,10 +823,10 @@ When NODE carries no review state, insert a short note instead."
         (org-slipbox-buffer--shared-reference-lines explanation)
         (org-slipbox-buffer--bridge-via-note-lines explanation)))
       ("dormant-shared-reference"
-       (list
-        (format "because %s"
-                (org-slipbox-buffer--shared-reference-summary explanation))
-        "state: older untouched material"))
+       (append
+        (org-slipbox-buffer--shared-reference-lines explanation)
+        (org-slipbox-buffer--bridge-via-note-lines explanation)
+        (list "state: older untouched material")))
       ("unresolved-shared-reference"
        (list
         (format "because %s"

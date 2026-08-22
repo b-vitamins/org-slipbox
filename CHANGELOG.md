@@ -7,6 +7,16 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Changed
+- Draw the `dormant` lens's candidates from link topology rather than from shared
+  `:ROAM_REFS:` entries, and order them by age rather than by citations in common.
+  The lens answers what older material a note should be read against, which a
+  shared citation neither establishes nor is needed for: a focus note carrying no
+  refs got nothing, and among the notes that did qualify the oldest could be
+  reported below a newer one that happened to share more references. Age now
+  leads, then the number of notes a candidate is reached through, then references.
+  A `dormant-shared-reference` explanation gains a `via_notes` list and its
+  `references` list is empty for a candidate found through links alone;
+  explanations stored before this change load with no via notes.
 - Draw the weakly integrated notes the `unresolved` lens reports from link
   topology rather than from shared `:ROAM_REFS:` entries, so a link-poor note
   surfaces because something the focus note links to, or is linked from, also

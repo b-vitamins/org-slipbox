@@ -3615,6 +3615,22 @@ ROOT-NODE defaults to NODE."
                                                 :via_notes [(:node_key "heading:focus.org:7"
                                                              :explicit_id "neighbor-id"
                                                              :title "Neighbor")]))])]))
+                           ('dormant
+                            '(:lens "dormant"
+                              :sections
+                              [(:kind "dormant-notes"
+                                :entries
+                                [(:kind "anchor"
+                                  :anchor (:node_key "file:dormant.org"
+                                           :title "Dormant"
+                                           :file_path "dormant.org"
+                                           :line 3)
+                                  :explanation (:kind "dormant-shared-reference"
+                                                :references []
+                                                :modified_at_ns 42
+                                                :via_notes [(:node_key "heading:focus.org:7"
+                                                             :explicit_id "neighbor-id"
+                                                             :title "Neighbor")]))])]))
                            (_
                             '(:lens "unresolved"
                               :sections
@@ -3633,6 +3649,11 @@ ROOT-NODE defaults to NODE."
                                                              :title "Neighbor")]))])]))))))
               (org-slipbox-buffer-switch-lens 'bridges)
               (should (string-match-p "via bridge notes: Neighbor" (buffer-string)))
+              (should-not (string-match-p "shared ref" (buffer-string)))
+              (org-slipbox-buffer-switch-lens 'dormant)
+              (should (string-match-p "via bridge notes: Neighbor" (buffer-string)))
+              (should (string-match-p "state: older untouched material"
+                                      (buffer-string)))
               (should-not (string-match-p "shared ref" (buffer-string)))
               (org-slipbox-buffer-switch-lens 'unresolved))
             (should (string-match-p "via bridge notes: Neighbor" (buffer-string)))

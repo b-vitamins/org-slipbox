@@ -176,6 +176,10 @@ pub enum ExplorationExplanation {
     DormantSharedReference {
         references: Vec<String>,
         modified_at_ns: i64,
+        /// Notes both the focus note and the candidate reach; empty when a
+        /// shared reference alone found the candidate.
+        #[serde(default)]
+        via_notes: Vec<BridgeEvidenceRecord>,
     },
     UnresolvedSharedReference {
         references: Vec<String>,
