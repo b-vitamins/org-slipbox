@@ -1,8 +1,10 @@
 /*
  * The context carrying the reading surface's navigation grammar: the renderer
  * turns a gesture into one of `glance`, `pin`, `go` and the spine decides how
- * each is honored. The grammar runs only on internal `id:` links, so every
- * `LinkTarget` reaching a verb carries a real id.
+ * each is honored. The grammar runs on internal targets only. An `id:` link
+ * carries the id it named; a target built from a note record instead (a relation
+ * row, a glossary term) carries an id when the note has one and its slipbox key
+ * when it does not.
  */
 
 import {
@@ -49,6 +51,17 @@ export interface Navigation {
 /** The slipbox reference (an `id:` ref or a raw key) a link target opens. */
 export function referenceOf(target: LinkTarget): string {
   return target.id ? `id:${target.id}` : target.target;
+}
+
+/**
+ * The target naming a note this surface knows as a record rather than as a link.
+ * Prefers an id target, which survives an edit that moves the note, and falls
+ * back to the slipbox key for a note carrying no id.
+ */
+export function targetForNote(key: string, explicitId: string | null): LinkTarget {
+  return explicitId
+    ? { id: explicitId, target: `id:${explicitId}` }
+    : { id: null, target: key };
 }
 
 /** A no-op navigation, so a column renders standalone (e.g. in tests). */

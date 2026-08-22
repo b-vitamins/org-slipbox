@@ -268,7 +268,7 @@ describe("GlossaryDictionary", () => {
     ).toBeInTheDocument();
   });
 
-  it("opens the peeked term in the reader from its control", async () => {
+  it("opens the peeked term in the reader from a control beside its headword", async () => {
     const onOpen = vi.fn();
     vi.stubGlobal(
       "fetch",
@@ -287,8 +287,48 @@ describe("GlossaryDictionary", () => {
     mount({ onOpen });
     await screen.findByText("Body.");
 
-    fireEvent.click(screen.getByRole("button", { name: "Open in reader" }));
+    const control = screen.getByRole("link", { name: "Open in reader" });
+    // Beside the headword, not below the definition: a definition long enough to
+    // scroll would carry the way onward off the bottom of the pane.
+    expect(control.closest(".glossary-peek__header")).not.toBeNull();
+    // An anchor rather than a button, so the destination is one a reader can
+    // copy or open in a new tab.
+    expect(control).toHaveAttribute("href", "?note=notes%2Fentropy.org%3A%3A0");
+
+    fireEvent.click(control);
     expect(onOpen).toHaveBeenCalledWith("notes/entropy.org::0");
+  });
+
+  it("names an id-addressable term by its id rather than its file key", async () => {
+    const onOpen = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/glossary/terms": {
+          terms: [
+            term("notes/entropy.org::0", "Entropy", {
+              explicit_id: "entropy-uuid",
+            }),
+          ],
+        },
+        "/api/note/context": contextFor(
+          "notes/entropy.org::0",
+          "Entropy",
+          "Body.",
+        ),
+      }),
+    );
+
+    mount({ onOpen });
+    await screen.findByText("Body.");
+
+    // An id reference survives a rename, so the control opens the term the same
+    // way a link to it would.
+    const control = screen.getByRole("link", { name: "Open in reader" });
+    expect(control).toHaveAttribute("href", "?note=id%3Aentropy-uuid");
+
+    fireEvent.click(control);
+    expect(onOpen).toHaveBeenCalledWith("id:entropy-uuid");
   });
 
   it("follows a link inside a definition to the note it names", async () => {

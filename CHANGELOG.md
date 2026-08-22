@@ -6,6 +6,20 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+### Changed
+- Open a glossary term in the reader from a control beside its headword rather
+  than one below its definition, where a long body carried it off the bottom of
+  the pane and a reader had to scroll past the whole definition to find the way
+  onward. The control is an anchor to the term's own reading URL, so its
+  destination can be copied, opened in a new tab, or middle-clicked the way any
+  other link can, and it routes through the same navigation grammar as a link out
+  of the definition, leaving one place to decide what opening means on this
+  surface. It names the term by its id when the note carries one and by its
+  slipbox key when it does not, the rule the relations footer already followed
+  and now shares a single constructor with, and it clears the coarse pointer's
+  touch-target floor, its label centered in the taller box that floor stretches
+  it into.
+
 ### Fixed
 - Refuse a reading-surface request whose `Host` is not a loopback authority with
   a 403, before any route runs. The surface binds loopback only, but a browser
