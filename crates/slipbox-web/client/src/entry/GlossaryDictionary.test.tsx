@@ -7,6 +7,7 @@ import {
   type GlossaryMode,
 } from "./GlossaryDictionary.jsx";
 import type { QueryUrl } from "./query-url.js";
+import type { TermUrl } from "./term-url.js";
 import { __resetRefocusForTests } from "../data/refetch-on-focus.js";
 import type { NodeRecord } from "../api/types.js";
 
@@ -147,6 +148,31 @@ function twoPageWorld(url: URL): unknown {
   return contextFor(key, key, "Body.");
 }
 
+/**
+ * The two listings sharing no rows, plus the index and a definition for Beta: the
+ * world a term addressed in one listing and absent from the other is read in.
+ */
+function twoListWorld(url: URL): unknown {
+  switch (url.pathname) {
+    case "/api/glossary/due":
+      return {
+        terms: [term("notes/one.org::0", "One", { sr_due: "2024-01-01" })],
+        total: 1,
+        has_more: false,
+      };
+    case "/api/glossary/terms":
+      return {
+        terms: [term("notes/a.org::0", "Alpha"), term("notes/b.org::0", "Beta")],
+        total: 2,
+        has_more: false,
+      };
+    case "/api/glossary/term":
+      return { term: term("notes/b.org::0", "Beta") };
+    default:
+      return contextFor("notes/b.org::0", "Beta", "Beta body.");
+  }
+}
+
 /** The URLs a `pagedFetch` or `routedFetch` double was asked for, in order. */
 function asked(stub: typeof fetch): string[] {
   return (stub as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([url]) =>
@@ -169,10 +195,25 @@ function memoryQueryUrl(initial: string | null = null): QueryUrl & {
   };
 }
 
+function memoryTermUrl(initial: string | null = null): TermUrl & {
+  readonly writes: (string | null)[];
+} {
+  let current = initial;
+  const writes: (string | null)[] = [];
+  return {
+    read: () => current,
+    replace: (key) => {
+      current = key;
+      writes.push(key);
+    },
+    writes,
+  };
+}
+
 /**
  * Mode lives in a signal so a test can both start in a mode and read back the
- * one the surface reports. The `?q=` seam defaults to in-memory and the
- * debounce to zero, so no test writes the real address bar or advances a timer.
+ * one the surface reports. Both URL seams default to in-memory and the debounce
+ * to zero, so no test writes the real address bar or advances a timer.
  */
 function mount(
   options: {
@@ -180,6 +221,7 @@ function mount(
     mode?: GlossaryMode;
     debounceMs?: number;
     queryUrl?: QueryUrl;
+    termUrl?: TermUrl;
   } = {},
 ): {
   readonly mode: Accessor<GlossaryMode>;
@@ -189,6 +231,7 @@ function mount(
 } {
   const [mode, setMode] = createSignal<GlossaryMode>(options.mode ?? "browse");
   const queryUrl = options.queryUrl ?? memoryQueryUrl();
+  const termUrl = options.termUrl ?? memoryTermUrl();
   const modeAsks: GlossaryMode[] = [];
   render(() => (
     <GlossaryDictionary
@@ -200,6 +243,7 @@ function mount(
       }}
       debounceMs={options.debounceMs ?? 0}
       queryUrl={queryUrl}
+      termUrl={termUrl}
     />
   ));
   return { mode, showMode: (next) => setMode(next), modeAsks };
@@ -1405,7 +1449,7 @@ describe("GlossaryDictionary", () => {
     expect(surface.modeAsks).toEqual(["study"]);
   });
 
-  it("takes a mode arriving from outside as a list change of its own", async () => {
+  it("holds the peeked term when a mode arrives from outside", async () => {
     vi.stubGlobal(
       "fetch",
       routedFetch({
@@ -1435,12 +1479,15 @@ describe("GlossaryDictionary", () => {
 
     surface.showMode("study");
 
+    // Both listings hold the term the address names, so the peek is the same
+    // definition on either side of the change: the mode moved the list, not the
+    // term the reader was reading.
     await screen.findByRole("option", { name: /^One/ });
-    expect(screen.getByRole("option", { name: /^One/ })).toHaveAttribute(
+    expect(screen.getByRole("option", { name: /^Shared/ })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    expect(screen.getByRole("option", { name: /^Shared/ })).toHaveAttribute(
+    expect(screen.getByRole("option", { name: /^One/ })).toHaveAttribute(
       "aria-selected",
       "false",
     );
@@ -2030,5 +2077,262 @@ describe("GlossaryDictionary", () => {
       screen.getByRole("option", { name: /^Entropic loss/ }),
     ).toBeInTheDocument();
     expect(asked(fetch).filter((url) => url.includes("/api/glossary/due"))).toHaveLength(2);
+  });
+
+  it("opens the term the address names, marked in the list", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/glossary/terms": {
+          terms: [
+            term("notes/a.org::0", "Alpha"),
+            term("notes/b.org::0", "Beta"),
+          ],
+          total: 2,
+          has_more: false,
+        },
+        "/api/note/context": contextFor("notes/b.org::0", "Beta", "Beta body."),
+      }),
+    );
+
+    mount({ termUrl: memoryTermUrl("notes/b.org::0") });
+
+    const beta = await screen.findByRole("option", { name: "Beta" });
+    expect(beta).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("option", { name: "Alpha" })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
+    expect(screen.getByRole("combobox")).toHaveAttribute(
+      "aria-activedescendant",
+      "glossary-option-1",
+    );
+    expect(await screen.findByText("Beta body.")).toBeInTheDocument();
+  });
+
+  it("names the term the reader selects in the address", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/glossary/terms": {
+          terms: [
+            term("notes/a.org::0", "Alpha"),
+            term("notes/b.org::0", "Beta"),
+          ],
+          total: 2,
+          has_more: false,
+        },
+        "/api/note/context": contextFor("notes/b.org::0", "Beta", "Beta body."),
+      }),
+    );
+    const termUrl = memoryTermUrl();
+
+    mount({ termUrl });
+    await screen.findByRole("option", { name: "Beta" });
+
+    // The first row is peeked so the pane is never blank, which is a default
+    // rather than a choice: only a term the reader reached is worth an address.
+    expect(termUrl.writes).toEqual([]);
+
+    fireEvent.mouseEnter(screen.getByRole("option", { name: "Beta" }));
+
+    expect(termUrl.writes).toEqual(["notes/b.org::0"]);
+    expect(termUrl.read()).toBe("notes/b.org::0");
+  });
+
+  it("names the row the peek falls back to when the list drops the addressed one", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/glossary/terms": {
+          terms: [
+            term("notes/a.org::0", "Alpha"),
+            term("notes/b.org::0", "Beta"),
+          ],
+          total: 2,
+          has_more: false,
+        },
+        "/api/glossary/search": {
+          terms: [term("notes/g.org::0", "Gamma")],
+          total: 1,
+          has_more: false,
+        },
+        "/api/note/context": contextFor("notes/g.org::0", "Gamma", "Gamma body."),
+      }),
+    );
+    const termUrl = memoryTermUrl();
+
+    mount({ termUrl });
+    await screen.findByRole("option", { name: "Beta" });
+
+    fireEvent.mouseEnter(screen.getByRole("option", { name: "Beta" }));
+    expect(termUrl.read()).toBe("notes/b.org::0");
+
+    fireEvent.input(screen.getByRole("combobox"), { target: { value: "gamma" } });
+    const gamma = await screen.findByRole("option", { name: "Gamma" });
+
+    // The search took the addressed row away and the first row stood in for it.
+    // An address left naming the row that went is read as naming the definition
+    // beside it, which is a term the reader never asked for.
+    expect(gamma).toHaveAttribute("aria-selected", "true");
+    expect(termUrl.read()).toBe("notes/g.org::0");
+    expect(termUrl.writes).toEqual(["notes/b.org::0", "notes/g.org::0"]);
+  });
+
+  it("states an address naming no term and leaves the list usable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      pagedFetch((url) => {
+        if (url.pathname === "/api/glossary/term") {
+          return new Response(
+            JSON.stringify({
+              error: {
+                kind: "not-found",
+                message: "no glossary term found for the given key",
+              },
+            }),
+            { status: 404, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url.pathname === "/api/glossary/terms") {
+          return {
+            terms: [
+              term("notes/a.org::0", "Alpha"),
+              term("notes/b.org::0", "Beta"),
+            ],
+            total: 2,
+            has_more: false,
+          };
+        }
+        return contextFor("notes/a.org::0", "Alpha", "Alpha body.");
+      }),
+    );
+
+    mount({ termUrl: memoryTermUrl("notes/gone.org::0") });
+    await screen.findByRole("option", { name: "Alpha" });
+
+    expect(
+      await screen.findByText("No glossary term is named notes/gone.org::0."),
+    ).toBeInTheDocument();
+    // No row stands in for the term the address named: a first term shown under
+    // someone else's address is a definition the reader would take for that one.
+    expect(screen.getByRole("option", { name: "Alpha" })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
+    expect(
+      screen.getByText("Select a term to read its definition."),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("option", { name: "Alpha" }));
+
+    expect(await screen.findByText("Alpha body.")).toBeInTheDocument();
+    expect(
+      screen.queryByText("No glossary term is named notes/gone.org::0."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("distinguishes an address naming a term the pages read do not hold", async () => {
+    vi.stubGlobal(
+      "fetch",
+      pagedFetch((url) => {
+        if (url.pathname === "/api/glossary/term") {
+          return { term: term("notes/z.org::0", "Zeta") };
+        }
+        if (url.pathname === "/api/glossary/terms") {
+          return {
+            terms: [
+              term("notes/a.org::0", "Alpha"),
+              term("notes/b.org::0", "Beta"),
+            ],
+            total: 3,
+            has_more: false,
+          };
+        }
+        return contextFor("notes/z.org::0", "Zeta", "Zeta body.");
+      }),
+    );
+
+    mount({ termUrl: memoryTermUrl("notes/z.org::0") });
+    await screen.findByRole("option", { name: "Alpha" });
+
+    // The index holds the term, so it is read and peeked; what the list says is
+    // why the reader cannot see it among the rows, which is a different fact
+    // from the term not existing.
+    expect(
+      await screen.findByText("Zeta is not among the terms read so far."),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Zeta", level: 2 }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Zeta body.")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/No glossary term is named/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("takes up the addressed term when a later page brings it in", async () => {
+    vi.stubGlobal(
+      "fetch",
+      pagedFetch((url) =>
+        url.pathname === "/api/glossary/term"
+          ? { term: term("notes/d.org::0", "Delta") }
+          : twoPageWorld(url),
+      ),
+    );
+
+    mount({ termUrl: memoryTermUrl("notes/d.org::0") });
+    await screen.findByText("Delta is not among the terms read so far.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Read more terms" }));
+
+    const delta = await screen.findByRole("option", { name: "Delta" });
+    expect(delta).toHaveAttribute("aria-selected", "true");
+    expect(
+      screen.queryByText(/is not among the terms read so far\./),
+    ).not.toBeInTheDocument();
+  });
+
+  it("leaves the addressed term where it is when the mode changes", async () => {
+    vi.stubGlobal("fetch", pagedFetch(twoListWorld));
+    const termUrl = memoryTermUrl("notes/b.org::0");
+
+    const surface = mount({ termUrl });
+    await screen.findByRole("option", { name: "Beta" });
+
+    surface.showMode("study");
+    await screen.findByRole("option", { name: /^One/ });
+
+    // A mode change pushes a history entry, and the surface reports the mode
+    // before the entry is pushed: clearing the term here strips it from the
+    // entry being left, so the way back lands on a glossary naming nothing.
+    expect(termUrl.read()).toBe("notes/b.org::0");
+    expect(termUrl.writes).toEqual([]);
+    // The due listing does not hold it, which is a fact about the listing rather
+    // than grounds for standing another term under its address.
+    expect(
+      await screen.findByText("Beta is not among the terms read so far."),
+    ).toBeInTheDocument();
+  });
+
+  it("re-seeds the peek from the address when the mode comes back", async () => {
+    vi.stubGlobal("fetch", pagedFetch(twoListWorld));
+    const termUrl = memoryTermUrl("notes/b.org::0");
+
+    const surface = mount({ termUrl });
+    await screen.findByRole("option", { name: "Beta" });
+
+    surface.showMode("study");
+    await screen.findByRole("option", { name: /^One/ });
+    surface.showMode("browse");
+
+    // The address is where the open term lives, so the listing that comes back
+    // reads it again rather than starting from its first row.
+    const beta = await screen.findByRole("option", { name: "Beta" });
+    expect(beta).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("option", { name: "Alpha" })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
   });
 });

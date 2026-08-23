@@ -2,7 +2,8 @@
  * The glossary dictionary: an `aria-activedescendant` term list beside a peek of
  * the highlighted term, in either of two modes, browse (every term, or a search's
  * matches) or study (the terms due today). Mode arrives as a prop and a change is
- * reported up to the frame that mirrors it to `?view=`; the term goes to `?q=`.
+ * reported up to the frame that mirrors it to `?view=`; the search goes to `?q=`
+ * and the open term to `?term=`, so a definition on screen has an address.
  *
  * One field serves both listings and is named for the one it is over: in browse
  * mode a query is a search of the glossary index, in study mode it narrows the due
@@ -32,6 +33,7 @@ import { browserQueryUrl, type QueryUrl } from "./query-url.js";
 import { MIN_TERM_CHARACTERS, createSearchController } from "./search.js";
 import { markedIndex, moveSelection } from "./selection.js";
 import { dueStanding } from "./study-facts.js";
+import { browserTermUrl, type TermUrl } from "./term-url.js";
 import "./glossary.css";
 
 /** How many terms one page of a listing or search holds. */
@@ -190,6 +192,8 @@ export const GlossaryDictionary: Component<{
   debounceMs?: number;
   /** URL seam for the `?q=` term; defaults to the real address bar. */
   queryUrl?: QueryUrl;
+  /** URL seam for the `?term=` open term; defaults to the real address bar. */
+  termUrl?: TermUrl;
 }> = (props) => {
   const queryUrl = props.queryUrl ?? browserQueryUrl();
   const search = createSearchController(
@@ -199,19 +203,37 @@ export const GlossaryDictionary: Component<{
   );
   onCleanup(() => search.cancel());
 
+  const termUrl = props.termUrl ?? browserTermUrl();
+
   const mode = (): GlossaryMode => props.mode;
   // The peek selection marks a term by key, not by row number; `active` resolves it
-  // against the terms on screen (see `markedIndex`).
-  const [marked, setMarked] = createSignal<string | null>(null);
+  // against the terms on screen (see `markedIndex`). A restored address is a
+  // selection like any other, so it seeds the same signal.
+  const [marked, setMarked] = createSignal<string | null>(termUrl.read());
+  /**
+   * The key the address arrived with, until a list holds it or the reader picks
+   * another row. A marked term no list holds is ordinarily a term a search or a
+   * re-read moved out of view, which the first row stands in for; one the reader
+   * asked for by name is not, and has to be answered for rather than replaced.
+   */
+  const [fromAddress, setFromAddress] = createSignal<string | null>(
+    termUrl.read(),
+  );
 
   // Keyed on the mode rather than set from the control's own handler, because the
-  // mode also changes from a reload or the back button. The two lists share no
-  // rows, so the peek starts again from the first row of the list that arrives.
+  // mode also changes from a reload or the back button. The address is where the
+  // open term lives, so the list that arrives is read against it again: the term
+  // is not cleared here, since a mode change pushes a history entry and the mode
+  // is reported before the push, which would strip the term from the entry being
+  // left instead of the one being pushed. The term goes off the URL a surface with
+  // no listing is pushed at, which is that surface's own encoding.
   createEffect(
     on(
       mode,
       () => {
-        setMarked(null);
+        const named = termUrl.read();
+        setMarked(named);
+        setFromAddress(named);
       },
       { defer: true },
     ),
@@ -340,6 +362,34 @@ export const GlossaryDictionary: Component<{
   /** Whether terms are due and the filter is what left none of them showing. */
   const filterHidDue = (): boolean =>
     mode() === "study" && dueShown().length === 0 && held().length > 0;
+
+  // A page arriving with the addressed term in it settles the question, and the
+  // row takes over from here.
+  createEffect(() => {
+    const key = fromAddress();
+    if (key !== null && held().some((row) => row.node_key === key)) {
+      setFromAddress(null);
+    }
+  });
+
+  /**
+   * The addressed key while the pages read hold no row for it, which is what asks
+   * the index about it. Gated on the listing having answered: before that every
+   * key is unheld, and a term about to arrive in the first page needs no lookup.
+   */
+  const addressUnheld = (): string | false => {
+    const key = fromAddress();
+    if (key === null || page() === undefined) {
+      return false;
+    }
+    return held().some((row) => row.node_key === key) ? false : key;
+  };
+
+  // Either the term exists and is peeked from off the list, or the route refuses
+  // the key and the surface says so; both beat standing another term in its place.
+  const addressed = createReadingResource(addressUnheld, (key) =>
+    client.glossaryTerm(key),
+  );
 
   /**
    * Whether this listing pages at all. Browse and due walk a stored order, so a
@@ -476,23 +526,73 @@ export const GlossaryDictionary: Component<{
   const optionId = (index: number): string => `${OPTION_ID}-${index}`;
 
   // A list that no longer holds the marked term falls back to its first, so the peek
-  // is never blank beside a non-empty list.
+  // is never blank beside a non-empty list. Not for a term the address named: that
+  // one is reported on instead, since a definition under someone else's address is
+  // read as the answer to it.
   const active = createMemo<number | null>(() => {
     const resolved = markedIndex(marked(), terms(), (term) => term.node_key);
     if (resolved !== null) {
       return resolved;
+    }
+    if (fromAddress() !== null) {
+      return null;
     }
     return terms().length > 0 ? 0 : null;
   });
 
   /** Move the peek to a row of the current list, or off the list entirely. */
   const markRow = (index: number | null): void => {
-    setMarked(index === null ? null : (terms()[index]?.node_key ?? null));
+    const key = index === null ? null : (terms()[index]?.node_key ?? null);
+    setMarked(key);
+    setFromAddress(null);
+    termUrl.replace(key);
   };
+
+  // The fallback above stands the first row in for a marked term the list dropped,
+  // which leaves the address naming one definition beside another on screen. The
+  // address follows the peek it moved: it is a replacement like every other
+  // selection, since no page was walked to. An address naming nothing claims
+  // nothing, so a listing read with no term named is left alone.
+  createEffect(() => {
+    const named = marked();
+    const index = active();
+    if (named === null || index === null) {
+      return;
+    }
+    const shown = terms()[index]?.node_key ?? null;
+    if (shown !== null && shown !== named) {
+      setMarked(shown);
+      termUrl.replace(shown);
+    }
+  });
+
+  /** The addressed term read from the index, while no row on screen is it. */
+  const offList = (): NodeRecord | undefined =>
+    active() === null ? (addressed.ready()?.term ?? undefined) : undefined;
 
   const selected = (): NodeRecord | undefined => {
     const index = active();
-    return index === null ? undefined : terms()[index];
+    return index === null ? offList() : terms()[index];
+  };
+
+  /** Why a peeked term is nowhere in the list beside it. */
+  const offListStatement = (): string | null => {
+    const off = offList();
+    return off === undefined
+      ? null
+      : `${off.title} is not among the terms read so far.`;
+  };
+
+  /**
+   * The addressed key the index refuses. A key is one of a note's names rather
+   * than a term's headword, so the reader is owed the name that failed: it is what
+   * a stale bookmark, a renamed file, and an unmarked note look like from here.
+   */
+  const unknownAddress = (): string | null => {
+    const key = addressUnheld();
+    return key !== false && addressed.error() !== undefined
+      ? `No glossary term is named ${key}.`
+      : null;
   };
   const activeId = (): string | undefined => {
     const index = active();
@@ -684,6 +784,17 @@ export const GlossaryDictionary: Component<{
           </ul>
         </Show>
 
+        <Show when={unknownAddress()}>
+          {(statement) => (
+            <p class="glossary-status glossary-status--error">{statement()}</p>
+          )}
+        </Show>
+        <Show when={offListStatement()}>
+          {(statement) => (
+            <p class="glossary-status glossary-status--hint">{statement()}</p>
+          )}
+        </Show>
+
         {/* Below the scrollport rather than inside it: a control the list scrolls
             away is one a reader has to find, and a listing whose rows a filter
             hid still has a cut to state. */}
@@ -715,8 +826,9 @@ export const GlossaryDictionary: Component<{
           fallback={
             // Neither message is shown while the list is still being read, since a
             // read that resolves into terms would flash an explanation of their
-            // absence first.
-            <Show when={!loading() && !failure()}>
+            // absence first. A term the address named is being read for the same
+            // reason: it may yet fill this pane.
+            <Show when={!loading() && !failure() && !addressed.loading()}>
               <Show
                 when={terms().length > 0}
                 fallback={

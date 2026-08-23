@@ -389,6 +389,21 @@ export async function mountApi(page: Page, world: FixtureWorld): Promise<void> {
       case "/api/glossary/terms":
         return json(route, glossaryPage(world.notes.filter(isTerm), params));
 
+      // One term by key, however far down the listing it sits. An unmarked note
+      // is no term, and the route answers for it the way it answers for a key
+      // naming nothing at all.
+      case "/api/glossary/term": {
+        const note = byKey.get(params.get("key") ?? "");
+        return note && isTerm(note)
+          ? json(route, { term: nodeRecord(note) })
+          : apiError(
+              route,
+              404,
+              "not-found",
+              "no glossary term found for the given key",
+            );
+      }
+
       // Ranked rather than ordered by a stored key, so this page carries its cut
       // and its total without a position to continue from.
       case "/api/glossary/search": {
