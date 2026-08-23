@@ -3,7 +3,7 @@
  * offsets), which jsdom does not compute.
  */
 
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 
 import { mountApi, tallBody, type FixtureWorld } from "./fixtures.js";
 
@@ -270,6 +270,39 @@ test.describe("reading spine", () => {
     // A sliver is about 40px wide, so 400 separates an open column from one
     // still held at its sliver.
     expect(shown).toBeGreaterThan(400);
+  });
+
+  /*
+   * Focus follows the reveal. Only a real engine reaches the obscured state the
+   * deferral exists for, and only a real engine paints an outline: jsdom computes
+   * none and collapses every column to `resting`.
+   */
+  test("hands focus to a revealed column, unpainted, sliver ring intact", async ({
+    page,
+  }) => {
+    await page.goto(
+      "/?note=file:one.org&stacked=file:two.org&stacked=file:three.org&stacked=file:four.org",
+    );
+    await expect(page.getByRole("heading", { name: "The Frontmost Note" })).toBeVisible();
+
+    // The trail opens on its frontmost note, which starts out obscured at scroll
+    // offset zero: focus waits for the reveal scroll rather than settling on a
+    // column nothing can focus.
+    const frontmost = page.getByRole("article", { name: "The Frontmost Note" });
+    await expect(frontmost).toBeFocused();
+    const outlineOf = (target: Locator): Promise<string> =>
+      target.evaluate((node) => getComputedStyle(node).outlineStyle);
+    expect(await outlineOf(frontmost)).toBe("none");
+
+    // A sliver is a stop the reader walks to, so it keeps the platform's ring.
+    const sliver = page.locator("button.reading-note--obscured").first();
+    await sliver.focus();
+    expect(await outlineOf(sliver)).not.toBe("none");
+
+    await sliver.click();
+    const revealed = page.getByRole("article", { name: "Note One" });
+    await expect(revealed).toBeFocused();
+    expect(await outlineOf(revealed)).toBe("none");
   });
 
   test("a trail deeper than the pinned ladder still has a readable column", async ({

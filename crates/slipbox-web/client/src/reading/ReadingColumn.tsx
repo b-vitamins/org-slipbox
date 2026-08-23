@@ -96,9 +96,14 @@ export const ReadingColumn: Component<{
     <>
       {/* `hidden` rather than unmounting: it removes the note from layout and
           from the accessibility tree while keeping the reader's state inside it.
-          Every state carries `headingId` on whatever element heads it. */}
+          Every state carries `headingId` on whatever element heads it.
+
+          The negative index is for the spine to focus a column it opens (see
+          `Spine.tsx`), which is why it is this element: it carries the note's
+          heading as its name, so focus lands somewhere that says what opened. */}
       <article
         class="reading-note"
+        tabindex="-1"
         hidden={obscured()}
         aria-labelledby={headingId}
       >

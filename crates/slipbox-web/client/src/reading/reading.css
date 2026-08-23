@@ -88,6 +88,13 @@
   padding: var(--note-padding);
 }
 
+/* The spine focuses a column when it opens one, which is its own doing rather
+ * than a stop the reader walked to, so it draws no ring around a whole note. The
+ * sliver button shares the class and is a real stop, hence the element name. */
+article.reading-note:focus {
+  outline: none;
+}
+
 /* The sliver is a button with native chrome reset. Its width is
  * `--column-sliver`, the strip left visible at the column's left edge, so clicks
  * stay off the remainder the next column is painted over. */

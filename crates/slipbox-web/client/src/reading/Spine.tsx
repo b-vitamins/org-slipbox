@@ -93,6 +93,11 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
   // Handle of the reveal frame in flight, so a rapid re-pin supersedes it rather
   // than two chains fighting over the scroll offset.
   let revealFrame: number | null = null;
+  // The column a reveal still owes focus to, or null when none is owed. Deferred
+  // rather than focused with the scroll: an obscured column is `hidden`, which
+  // nothing can focus, so a sliver's reveal has to wait for the state its own
+  // scroll settles into.
+  const [focusWanted, setFocusWanted] = createSignal<number | null>(null);
   const cancelReveal = (): void => {
     if (revealFrame !== null) {
       cancelAnimationFrame(revealFrame);
@@ -168,6 +173,7 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
   const revealColumn = (index: number): void => {
     cancelReveal();
     setActiveIndex(index);
+    setFocusWanted(index);
     const behavior = scrollBehavior();
     revealFrame = requestAnimationFrame(() => {
       revealFrame = null;
@@ -236,6 +242,26 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
   const states = createMemo<ColumnState[]>(() =>
     columnStates(props.stack.keys().length, scrollLeft(), metrics(), narrow()),
   );
+
+  // Hand focus to the column a reveal owes it to, once that column is one a
+  // reader can read. Only a reveal asks, and the ask is spent when it is met, so
+  // the re-runs a scroll or a re-measure causes move nothing.
+  createEffect(() => {
+    const index = focusWanted();
+    if (index === null || (states()[index] ?? "resting") === "obscured") {
+      return;
+    }
+    setFocusWanted(null);
+    // By class, not by child position: the spine also holds a snap mark per
+    // column, so a column's index is not its index among the children.
+    const note = container
+      .querySelectorAll(".spine-column")
+      .item(index)
+      ?.querySelector<HTMLElement>("article.reading-note");
+    // The reveal has already scrolled to where this column belongs; the scroll a
+    // focus does by default would slide it back out of that place.
+    note?.focus({ preventScroll: true });
+  });
 
   return (
     <main ref={container} class="spine">

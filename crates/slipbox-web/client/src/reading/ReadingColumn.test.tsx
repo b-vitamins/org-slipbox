@@ -296,6 +296,26 @@ describe("ReadingColumn document semantics", () => {
     ).toContainElement(heading);
   });
 
+  it("takes focus on request without standing in the tab order", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(noteContextResponse("Gradient descent", "All of it.")),
+      ),
+    );
+
+    mount("notes/gradient.org");
+
+    expect(await screen.findByText("All of it.")).toBeInTheDocument();
+    const column = screen.getByRole("article", { name: "Gradient descent" });
+    // The spine focuses a column when it opens one. A negative index is what
+    // makes that possible without adding the whole note to the tab order, where
+    // it would stand between the header and the first link.
+    expect(column).toHaveAttribute("tabindex", "-1");
+    column.focus();
+    expect(column).toHaveFocus();
+  });
+
   it("heads a recovery column with the failure and names it for that", async () => {
     vi.stubGlobal(
       "fetch",
