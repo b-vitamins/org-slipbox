@@ -15,10 +15,23 @@ import type { GlanceRequest } from "../org/navigation.jsx";
 import { referenceOf } from "../org/navigation.jsx";
 import { RenderPreview } from "../org/RenderPreview.jsx";
 import { fetchNoteContext, PREVIEW_MAX_LINES } from "./fetch-note.js";
-import { placeGlance, type GlancePlacement } from "./glance-position.js";
+import { placeGlance, type GlancePlacement, type Span } from "./glance-position.js";
 
 /** Characters of body text a preview shows before eliding. */
 const EXCERPT_CHARS = 220;
+
+/** Measure the complete reading band so a preview never occupies another column. */
+function readingBand(origin: HTMLElement, viewport: number): Span {
+  let left = Number.POSITIVE_INFINITY;
+  let right = Number.NEGATIVE_INFINITY;
+  for (const column of origin.closest(".spine")?.querySelectorAll(".spine-column") ??
+    []) {
+    const box = column.getBoundingClientRect();
+    left = Math.min(left, box.left);
+    right = Math.max(right, box.right);
+  }
+  return Number.isFinite(left) ? { left, right } : { left: 0, right: viewport };
+}
 
 /**
  * The one line a card shows in place of a peek it could not read.
@@ -35,6 +48,7 @@ function describeError(error: unknown): string {
 export const GlancePreview: Component<{ request: GlanceRequest }> = (props) => {
   let card!: HTMLDivElement;
   const [placement, setPlacement] = createSignal<GlancePlacement | null>(null);
+  let preferredWidth: number | null = null;
 
   const commits = (): boolean => props.request.gesture === "touch";
 
@@ -56,11 +70,13 @@ export const GlancePreview: Component<{ request: GlanceRequest }> = (props) => {
     void excerpt();
     void context.error();
     const anchor = props.request.origin.getBoundingClientRect();
+    preferredWidth ??= card.offsetWidth;
     setPlacement(
       placeGlance(
         anchor,
-        { width: card.offsetWidth, height: card.offsetHeight },
+        { width: preferredWidth, height: card.offsetHeight },
         { width: window.innerWidth, height: window.innerHeight },
+        readingBand(props.request.origin, window.innerWidth),
       ),
     );
   });
@@ -77,6 +93,7 @@ export const GlancePreview: Component<{ request: GlanceRequest }> = (props) => {
       style={{
         left: `${placement()?.left ?? 0}px`,
         top: `${placement()?.top ?? 0}px`,
+        width: placement() === null ? undefined : `${placement()!.width}px`,
       }}
       aria-hidden={commits() ? undefined : "true"}
     >
