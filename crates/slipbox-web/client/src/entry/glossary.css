@@ -84,6 +84,14 @@
   border-color: var(--link);
 }
 
+/* The ring `.entry-search__field` draws, for the reason it draws it: a pixel of
+   border hue is the weakest indicator on either surface, and this field is the
+   one tab stop into the term list. */
+.glossary-search:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
 .glossary-status {
   margin: 0;
   padding: 16px;
