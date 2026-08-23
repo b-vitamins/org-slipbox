@@ -2,13 +2,14 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use slipbox_core::{
-    BacklinksParams, BacklinksResult, ForwardLinksParams, ForwardLinksResult, GlossaryDueParams,
-    GlossaryDueResult, GlossaryTermParams, GlossaryTermResult, ListGlossaryTermsParams,
-    ListGlossaryTermsResult, NodeFromIdParams, NodeFromKeyParams, NodeFromTitleOrAliasParams,
-    NodeRecord, NoteContextParams, NoteContextResult, PingInfo, RandomNodeResult, ReflinksParams,
-    ReflinksResult, SearchGlossaryParams, SearchGlossaryResult, SearchNodeContentParams,
-    SearchNodeContentResult, SearchNodesParams, SearchNodesResult, StatusInfo,
-    UnlinkedReferencesParams, UnlinkedReferencesResult,
+    BacklinksParams, BacklinksResult, ExploreParams, ExploreResult, ForwardLinksParams,
+    ForwardLinksResult, GlossaryDueParams, GlossaryDueResult, GlossaryTermParams,
+    GlossaryTermResult, ListGlossaryTermsParams, ListGlossaryTermsResult, NodeFromIdParams,
+    NodeFromKeyParams, NodeFromTitleOrAliasParams, NodeRecord, NoteContextParams,
+    NoteContextResult, PingInfo, RandomNodeResult, ReflinksParams, ReflinksResult,
+    SearchGlossaryParams, SearchGlossaryResult, SearchNodeContentParams, SearchNodeContentResult,
+    SearchNodesParams, SearchNodesResult, StatusInfo, UnlinkedReferencesParams,
+    UnlinkedReferencesResult,
 };
 use slipbox_daemon_client::{DaemonClient, DaemonClientError, DaemonServeConfig};
 
@@ -191,6 +192,12 @@ impl ReadingBridge {
         params: &UnlinkedReferencesParams,
     ) -> Result<UnlinkedReferencesResult, ReadingBridgeError> {
         self.with_client(|client| client.unlinked_references(params))
+    }
+
+    /// Explore an indexed note through one lens, which decides which sections
+    /// the answer carries.
+    pub fn explore(&self, params: &ExploreParams) -> Result<ExploreResult, ReadingBridgeError> {
+        self.with_client(|client| client.explore(params))
     }
 
     /// List indexed glossary terms.

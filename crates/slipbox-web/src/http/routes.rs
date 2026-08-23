@@ -1,10 +1,11 @@
 use serde::Serialize;
 use serde_json::{Value, json};
 use slipbox_core::{
-    BacklinksParams, ForwardLinksParams, GlossaryDueParams, GlossaryTermParams,
-    ListGlossaryTermsParams, MIN_SEARCH_TERM_CHARACTERS, NodeFromIdParams, NodeFromKeyParams,
-    NodeFromTitleOrAliasParams, NoteContextParams, ReflinksParams, SearchGlossaryParams,
-    SearchNodeContentParams, SearchNodesParams, SearchNodesSort, UnlinkedReferencesParams,
+    BacklinksParams, ExplorationLens, ExploreParams, ForwardLinksParams, GlossaryDueParams,
+    GlossaryTermParams, ListGlossaryTermsParams, MIN_SEARCH_TERM_CHARACTERS, NodeFromIdParams,
+    NodeFromKeyParams, NodeFromTitleOrAliasParams, NoteContextParams, ReflinksParams,
+    SearchGlossaryParams, SearchNodeContentParams, SearchNodesParams, SearchNodesSort,
+    UnlinkedReferencesParams,
 };
 
 use crate::ReadingBridge;
@@ -46,6 +47,7 @@ pub(crate) fn dispatch(
         "/api/forward-links" => forward_links(bridge, &query),
         "/api/reflinks" => reflinks(bridge, &query),
         "/api/unlinked-references" => unlinked_references(bridge, &query),
+        "/api/explore" => explore(bridge, &query),
         "/api/glossary/terms" => glossary_terms(bridge, &query),
         "/api/glossary/search" => glossary_search(bridge, &query),
         "/api/glossary/term" => glossary_term(bridge, &query),
@@ -166,6 +168,19 @@ fn unlinked_references(bridge: &ReadingBridge, query: &Query) -> Result<ApiRespo
     ApiResponse::json(&bridge.unlinked_references(&params)?)
 }
 
+/// One note read through one exploration lens, which decides the sections the
+/// answer carries. A section the lens defines is served empty, not omitted.
+fn explore(bridge: &ReadingBridge, query: &Query) -> Result<ApiResponse, ApiError> {
+    let params = ExploreParams {
+        node_key: query.require("key")?,
+        lens: require_lens(query)?,
+        limit: query.bounded("limit", DEFAULT_RELATION_LIMIT, 1, MAX_RELATION_LIMIT)?,
+        // Defined for the structure lens alone, and unused here.
+        unique: false,
+    };
+    ApiResponse::json(&bridge.explore(&params)?)
+}
+
 /// The glossary as a dictionary listing.
 fn glossary_terms(bridge: &ReadingBridge, query: &Query) -> Result<ApiResponse, ApiError> {
     let params = ListGlossaryTermsParams {
@@ -243,6 +258,41 @@ fn parse_sort(query: &Query) -> Result<Option<SearchNodesSort>, ApiError> {
         .map_err(|_| ApiError::bad_request(format!("unknown sort `{raw}`")))
 }
 
+/// Map the required `lens` parameter the same way. An unknown one is refused with
+/// the accepted set rather than read as a default.
+fn require_lens(query: &Query) -> Result<ExplorationLens, ApiError> {
+    let raw = query.require("lens")?;
+    serde_json::from_value::<ExplorationLens>(Value::String(raw.clone())).map_err(|_| {
+        ApiError::bad_request(format!(
+            "query parameter `lens` must be one of {}, got `{raw}`",
+            accepted_lenses()
+        ))
+    })
+}
+
+/// The spellings a refusal lists, drawn from serde rather than restated.
+fn accepted_lenses() -> String {
+    [
+        ExplorationLens::Structure,
+        ExplorationLens::Refs,
+        ExplorationLens::Time,
+        ExplorationLens::Tasks,
+        ExplorationLens::Bridges,
+        ExplorationLens::Dormant,
+        ExplorationLens::Unresolved,
+    ]
+    .iter()
+    .map(|lens| {
+        serde_json::to_value(lens)
+            .expect("a fieldless enum serializes")
+            .as_str()
+            .expect("a kebab-case variant serializes to a string")
+            .to_owned()
+    })
+    .collect::<Vec<_>>()
+    .join(", ")
+}
+
 // The RPC layer's own clamps are crate-private to `slipbox-core`, so the HTTP
 // contract states its bounds here and refuses a request outside them.
 
@@ -264,9 +314,12 @@ const MAX_CONTEXT_LINES: u32 = 200;
 
 #[cfg(test)]
 mod tests {
-    use slipbox_core::SearchNodesSort;
+    use slipbox_core::{ExplorationLens, SearchNodesSort};
 
-    use super::{MIN_SEARCH_TERM_CHARACTERS, parse_sort, search_term};
+    use super::{
+        MAX_RELATION_LIMIT, MIN_SEARCH_TERM_CHARACTERS, accepted_lenses, parse_sort, require_lens,
+        search_term,
+    };
     use crate::http::query::Query;
 
     fn term(raw: &str) -> Result<String, u16> {
@@ -275,6 +328,11 @@ mod tests {
 
     fn sort(raw: &str) -> Result<Option<SearchNodesSort>, u16> {
         parse_sort(&Query::parse(raw).expect("the raw query parses")).map_err(|error| error.status)
+    }
+
+    fn lens(raw: &str) -> Result<ExplorationLens, u16> {
+        require_lens(&Query::parse(raw).expect("the raw query parses"))
+            .map_err(|error| error.status)
     }
 
     #[test]
@@ -345,5 +403,61 @@ mod tests {
         assert_eq!(sort(""), Ok(None));
         assert_eq!(sort("sort=sideways"), Err(400));
         assert_eq!(sort("sort=Title"), Err(400));
+    }
+
+    #[test]
+    fn every_lens_is_spelled_the_way_the_rpc_layer_spells_it() {
+        for (raw, expected) in [
+            ("lens=structure", ExplorationLens::Structure),
+            ("lens=refs", ExplorationLens::Refs),
+            ("lens=time", ExplorationLens::Time),
+            ("lens=tasks", ExplorationLens::Tasks),
+            ("lens=bridges", ExplorationLens::Bridges),
+            ("lens=dormant", ExplorationLens::Dormant),
+            ("lens=unresolved", ExplorationLens::Unresolved),
+        ] {
+            assert_eq!(lens(raw), Ok(expected), "{raw}");
+        }
+    }
+
+    #[test]
+    fn an_absent_or_unknown_lens_is_refused_rather_than_defaulted() {
+        for raw in ["", "lens=", "lens=sideways", "lens=Structure"] {
+            assert_eq!(lens(raw), Err(400), "`{raw}` should not reach the index");
+        }
+    }
+
+    #[test]
+    fn the_lens_refusal_names_every_spelling_it_would_have_taken() {
+        let refusal = require_lens(&Query::parse("lens=sideways").expect("the raw query parses"))
+            .expect_err("an unknown lens is refused");
+        assert_eq!(refusal.status, 400);
+        let body = refusal.body();
+        for spelling in [
+            "structure",
+            "refs",
+            "time",
+            "tasks",
+            "bridges",
+            "dormant",
+            "unresolved",
+        ] {
+            assert!(body.contains(spelling), "{spelling} missing from {body}");
+        }
+    }
+
+    #[test]
+    fn the_accepted_lenses_are_read_off_serde_not_restated() {
+        // A renamed variant changes the message with it.
+        assert_eq!(
+            accepted_lenses(),
+            "structure, refs, time, tasks, bridges, dormant, unresolved"
+        );
+    }
+
+    #[test]
+    fn the_explore_limit_admits_the_whole_range_the_operation_accepts() {
+        // `ExploreParams::normalized_limit` clamps to `1..=1_000`.
+        assert_eq!(MAX_RELATION_LIMIT, 1_000);
     }
 }

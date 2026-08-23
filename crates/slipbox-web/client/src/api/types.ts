@@ -3,7 +3,7 @@
  * serves. Field names match serde's snake_case output and enum spellings match
  * their `rename_all` attributes. Hand-maintained, not generated: keep in
  * lockstep with slipbox-core (`nodes.rs`, `source.rs`, `relations.rs`,
- * `glossary.rs`, `diagnostics.rs`).
+ * `exploration.rs`, `glossary.rs`, `diagnostics.rs`).
  */
 
 export type NodeKind = "file" | "heading";
@@ -226,6 +226,66 @@ export interface ReflinksResult {
 
 export interface UnlinkedReferencesResult {
   unlinked_references: UnlinkedReferenceRecord[];
+}
+
+/**
+ * Which question an exploration asks of a note. The lens decides which sections
+ * the answer carries. Mirrors `ExplorationLens` (kebab-case).
+ */
+export type ExplorationLens =
+  | "structure"
+  | "refs"
+  | "time"
+  | "tasks"
+  | "bridges"
+  | "dormant"
+  | "unresolved";
+
+/** What one section of an exploration lists. Mirrors `ExplorationSectionKind`. */
+export type ExplorationSectionKind =
+  | "backlinks"
+  | "forward-links"
+  | "reflinks"
+  | "unlinked-references"
+  | "time-neighbors"
+  | "task-neighbors"
+  | "bridge-candidates"
+  | "dormant-notes"
+  | "unresolved-tasks"
+  | "weakly-integrated-notes";
+
+/** A note an exploration reached, and why. Mirrors `AnchorExplorationRecord`. */
+export interface AnchorExplorationRecord {
+  anchor: AnchorRecord;
+  explanation: ExplorationExplanation;
+}
+
+/**
+ * One entry of an exploration section. Serde tags this union on a `kind` field
+ * and flattens the record behind it, so a record's own fields sit beside the tag
+ * rather than under a property of their own. Mirrors `ExplorationEntry`.
+ */
+export type ExplorationEntry =
+  | ({ kind: "backlink" } & BacklinkRecord)
+  | ({ kind: "forward-link" } & ForwardLinkRecord)
+  | ({ kind: "reflink" } & ReflinkRecord)
+  | ({ kind: "unlinked-reference" } & UnlinkedReferenceRecord)
+  | ({ kind: "anchor" } & AnchorExplorationRecord);
+
+/**
+ * One section of an exploration. A section the lens defines is always present,
+ * with an empty `entries` when it found nothing, so an absent section means the
+ * lens does not ask that question at all. Mirrors `ExplorationSection`.
+ */
+export interface ExplorationSection {
+  kind: ExplorationSectionKind;
+  entries: ExplorationEntry[];
+}
+
+/** One note read through one lens. Mirrors `ExploreResult`. */
+export interface ExploreResult {
+  lens: ExplorationLens;
+  sections: ExplorationSection[];
 }
 
 /** Every glossary read returns the same list shape. Mirrors the `*Result { terms }` structs. */
