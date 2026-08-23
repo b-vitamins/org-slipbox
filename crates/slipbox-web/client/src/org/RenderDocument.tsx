@@ -1,11 +1,7 @@
 /*
  * Render a parsed Org document to DOM, one semantic element per block.
  *
- * Body headings start at the level below the one the surface heads the document
- * with, `h2` by default: the note's title is the `h1` the reading column
- * supplies, so a first-level Org heading is a section within the note, not its
- * peer. A surface that heads the document deeper - the glossary peek, where the
- * headword is itself an `h2` - passes its own base.
+ * Body headings start below the surface heading, at `h2` by default.
  */
 
 import { For, Show, type Component } from "solid-js";
@@ -18,10 +14,8 @@ import type { Block, ListBlock, ListItem, OrgDocument } from "./types.js";
 
 type HeadingTag = "h2" | "h3" | "h4" | "h5" | "h6";
 
-/** Where a first-level Org heading lands when the surface names no base. */
 const DEFAULT_BASE_LEVEL = 2;
 
-/** Place an Org heading level under `base`, clamped to the deepest tag there is. */
 function headingTag(level: number, base: number): HeadingTag {
   const clamped = Math.min(Math.max(level + base - 1, base), 6);
   return `h${clamped}` as HeadingTag;
@@ -141,7 +135,6 @@ const RenderBlock: Component<{ block: Block; base: number }> = (props) => {
 
 export const RenderDocument: Component<{
   document: OrgDocument;
-  /** The level a first-level Org heading takes. Defaults to `h2`. */
   baseLevel?: number;
 }> = (props) => (
   <div class="org-document">
