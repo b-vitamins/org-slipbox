@@ -288,6 +288,10 @@ export const GlossaryDictionary: Component<{
   return (
     <main class="glossary">
       <div class="glossary-list">
+        {/* The top of the outline, above every conditional block below it: the
+            peek's headword is an `h2` and a definition's headings nest under
+            that, so the surface reads as one document in every state. */}
+        <h1 class="glossary-title">Glossary</h1>
         <div
           class="glossary-modes"
           role="tablist"

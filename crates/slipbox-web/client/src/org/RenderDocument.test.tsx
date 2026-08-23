@@ -17,6 +17,36 @@ describe("RenderDocument", () => {
     expect(screen.getByText("bold").tagName).toBe("STRONG");
   });
 
+  // Asserted rather than left to the default: the reading column supplies the
+  // `h1`, so a first-level Org heading is a section within the note.
+  it("starts body headings at the level below a column's own title", () => {
+    const doc = parseOrg("* Section\n\n** Nested\n");
+    render(() => <RenderDocument document={doc} />);
+
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Section" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 3, name: "Nested" }),
+    ).toBeInTheDocument();
+  });
+
+  it("nests body headings under a surface that heads the document deeper", () => {
+    const doc = parseOrg("* Section\n\n** Nested\n\n***** Deepest\n");
+    render(() => <RenderDocument document={doc} baseLevel={3} />);
+
+    expect(
+      screen.getByRole("heading", { level: 3, name: "Section" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 4, name: "Nested" }),
+    ).toBeInTheDocument();
+    // Past `h6` there is no deeper element to reach for.
+    expect(
+      screen.getByRole("heading", { level: 6, name: "Deepest" }),
+    ).toBeInTheDocument();
+  });
+
   it("renders inline math through KaTeX", () => {
     const doc = parseOrg("mass \\\\(E = mc^2\\\\) done");
     const { container } = render(() => <RenderDocument document={doc} />);

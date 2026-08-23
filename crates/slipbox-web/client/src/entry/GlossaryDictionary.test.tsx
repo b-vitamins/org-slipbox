@@ -184,6 +184,80 @@ describe("GlossaryDictionary", () => {
     ).toBeInTheDocument();
   });
 
+  it("heads the surface with one top-level heading above the headword", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/glossary/terms": {
+          terms: [term("notes/entropy.org::0", "Entropy")],
+        },
+        "/api/note/context": contextFor(
+          "notes/entropy.org::0",
+          "Entropy",
+          "* Facets\n\nProse.\n\n** Deeper\n\nMore prose.",
+        ),
+      }),
+    );
+
+    mount();
+    await screen.findByText("Prose.");
+
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Glossary" }),
+    ).toBeInTheDocument();
+    // The headword outranks the definition's own headings, and the two Org
+    // levels below it skip nothing on the way down.
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Entropy" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 3, name: "Facets" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 4, name: "Deeper" }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the surface heading when the glossary holds no terms", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({ "/api/glossary/terms": { terms: [] } }),
+    );
+
+    mount();
+    await screen.findByText("The glossary has no terms yet.");
+
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Glossary" }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the surface heading when the glossary cannot be read", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              error: { kind: "unavailable", message: "daemon is down" },
+            }),
+            { status: 503, headers: { "content-type": "application/json" } },
+          ),
+        ),
+      ),
+    );
+
+    mount();
+    await screen.findByText("unavailable: daemon is down");
+
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Glossary" }),
+    ).toBeInTheDocument();
+  });
+
   it("searches the glossary as the reader types", async () => {
     vi.stubGlobal(
       "fetch",

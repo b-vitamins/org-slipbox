@@ -1,8 +1,11 @@
 /*
  * Render a parsed Org document to DOM, one semantic element per block.
  *
- * Body headings start at `h2`: the note's title is the `h1` the column supplies,
- * so a first-level Org heading is a section within the note, not its peer.
+ * Body headings start at the level below the one the surface heads the document
+ * with, `h2` by default: the note's title is the `h1` the reading column
+ * supplies, so a first-level Org heading is a section within the note, not its
+ * peer. A surface that heads the document deeper - the glossary peek, where the
+ * headword is itself an `h2` - passes its own base.
  */
 
 import { For, Show, type Component } from "solid-js";
@@ -13,41 +16,55 @@ import { RenderInline } from "./RenderInline.jsx";
 import { SourceBlock } from "./SourceBlock.jsx";
 import type { Block, ListBlock, ListItem, OrgDocument } from "./types.js";
 
-/** Clamp an Org heading level to the `h2` to `h6` range used within a note. */
-function headingTag(level: number): "h2" | "h3" | "h4" | "h5" | "h6" {
-  const clamped = Math.min(Math.max(level + 1, 2), 6);
-  return `h${clamped}` as "h2" | "h3" | "h4" | "h5" | "h6";
+type HeadingTag = "h2" | "h3" | "h4" | "h5" | "h6";
+
+/** Where a first-level Org heading lands when the surface names no base. */
+const DEFAULT_BASE_LEVEL = 2;
+
+/** Place an Org heading level under `base`, clamped to the deepest tag there is. */
+function headingTag(level: number, base: number): HeadingTag {
+  const clamped = Math.min(Math.max(level + base - 1, base), 6);
+  return `h${clamped}` as HeadingTag;
 }
 
-const RenderItem: Component<{ item: ListItem }> = (props) => (
+const RenderItem: Component<{ item: ListItem; base: number }> = (props) => (
   <li>
     <RenderInline nodes={props.item.children} />
-    <For each={props.item.blocks}>{(block) => <RenderBlock block={block} />}</For>
+    <For each={props.item.blocks}>
+      {(block) => <RenderBlock block={block} base={props.base} />}
+    </For>
   </li>
 );
 
 /** An ordered list carries `start`, so an interrupted Org list keeps counting. */
-const RenderList: Component<{ list: ListBlock }> = (props) => (
+const RenderList: Component<{ list: ListBlock; base: number }> = (props) => (
   <Show
     when={props.list.ordered}
     fallback={
       <ul class="org-list">
-        <For each={props.list.items}>{(item) => <RenderItem item={item} />}</For>
+        <For each={props.list.items}>
+          {(item) => <RenderItem item={item} base={props.base} />}
+        </For>
       </ul>
     }
   >
     <ol class="org-list" start={props.list.start}>
-      <For each={props.list.items}>{(item) => <RenderItem item={item} />}</For>
+      <For each={props.list.items}>
+        {(item) => <RenderItem item={item} base={props.base} />}
+      </For>
     </ol>
   </Show>
 );
 
-const RenderBlock: Component<{ block: Block }> = (props) => {
+const RenderBlock: Component<{ block: Block; base: number }> = (props) => {
   const block = props.block;
   switch (block.type) {
     case "heading":
       return (
-        <Dynamic component={headingTag(block.level)} class="org-heading">
+        <Dynamic
+          component={headingTag(block.level, props.base)}
+          class="org-heading"
+        >
           <RenderInline nodes={block.children} />
         </Dynamic>
       );
@@ -58,7 +75,7 @@ const RenderBlock: Component<{ block: Block }> = (props) => {
         </p>
       );
     case "list":
-      return <RenderList list={block} />;
+      return <RenderList list={block} base={props.base} />;
     case "src":
       return <SourceBlock lang={block.lang} code={block.code} />;
     case "example":
@@ -70,7 +87,9 @@ const RenderBlock: Component<{ block: Block }> = (props) => {
     case "quote":
       return (
         <blockquote class="org-quote">
-          <For each={block.blocks}>{(nested) => <RenderBlock block={nested} />}</For>
+          <For each={block.blocks}>
+            {(nested) => <RenderBlock block={nested} base={props.base} />}
+          </For>
         </blockquote>
       );
     case "math":
@@ -120,8 +139,16 @@ const RenderBlock: Component<{ block: Block }> = (props) => {
   }
 };
 
-export const RenderDocument: Component<{ document: OrgDocument }> = (props) => (
+export const RenderDocument: Component<{
+  document: OrgDocument;
+  /** The level a first-level Org heading takes. Defaults to `h2`. */
+  baseLevel?: number;
+}> = (props) => (
   <div class="org-document">
-    <For each={props.document.blocks}>{(block) => <RenderBlock block={block} />}</For>
+    <For each={props.document.blocks}>
+      {(block) => (
+        <RenderBlock block={block} base={props.baseLevel ?? DEFAULT_BASE_LEVEL} />
+      )}
+    </For>
   </div>
 );
