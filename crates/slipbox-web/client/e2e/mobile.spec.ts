@@ -484,8 +484,8 @@ test.describe("the touch grammar", () => {
 
     await page.getByRole("button", { name: "Glossary" }).tap();
     for (const control of [
-      page.getByRole("tab", { name: "All terms" }),
-      page.getByRole("tab", { name: "Due for review" }),
+      page.getByRole("button", { name: "All terms" }),
+      page.getByRole("button", { name: "Due for review" }),
       page.getByRole("combobox", { name: "Search the glossary" }),
     ]) {
       expect(await heightOf(control)).toBeGreaterThanOrEqual(TOUCH_TARGET);

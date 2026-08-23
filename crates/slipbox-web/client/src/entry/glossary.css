@@ -59,7 +59,9 @@
   color: var(--ink);
 }
 
-.glossary-mode--active {
+/* The segmented look reads off the pressed state itself, so the appearance and
+   the announcement cannot drift apart. */
+.glossary-mode[aria-pressed="true"] {
   color: var(--ink);
   border-color: var(--muted-2);
   font-weight: 500;
