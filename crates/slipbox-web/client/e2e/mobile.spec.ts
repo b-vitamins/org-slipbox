@@ -78,6 +78,13 @@ function noteGeometry(page: Page) {
   });
 }
 
+/**
+ * The measure a relation preview keeps, in `ch`, which the stylesheet states as
+ * its floor: about 45 characters of prose, and the point below which a clipped
+ * line stops distinguishing the notes it belongs to.
+ */
+const PREVIEW_MEASURE = 30;
+
 /** Rows a deferred group is given: more than it shows, so it holds some back. */
 const GROUP_ROWS = 12;
 
@@ -108,6 +115,14 @@ const WORLD: FixtureWorld = {
           title: "A deliberately long relation title, wider than a phone column",
           preview:
             "The linking line is long too, so title and preview cannot sit side by side.",
+        },
+        // A middling title, which leaves the preview room for a fragment but not
+        // for a measure: the case the preview's own floor answers.
+        {
+          key: "file:middling.org",
+          id: "middling-uuid",
+          title: "Middling Note",
+          preview: "The linking line is long enough to be clipped at any width.",
         },
       ],
       // Well over either deferred group's head, so an opened group carries both
@@ -264,6 +279,64 @@ test.describe("mobile layout", () => {
     expect(geometry.column).toBe(geometry.run);
     expect(geometry.note).toBe(geometry.run);
     expect(geometry.paragraph).toBe(geometry.note - geometry.padding);
+  });
+
+  test("a preview keeps a legible measure or takes a line of its own", async ({
+    page,
+  }) => {
+    await page.goto("/?note=file:origin.org");
+    await expect(page.getByRole("heading", { name: "Origin Note" })).toBeVisible();
+
+    const rows = await page.evaluate(() => {
+      const list = document.querySelector(".relations__list") as HTMLElement;
+      // `ch` is the preview's own unit, so it is read off the preview's font
+      // rather than assumed from a size. The ruler carries the class for that
+      // font and drops the floor stated in it, which is what it is measuring.
+      const ruler = document.createElement("span");
+      ruler.className = "relations__preview";
+      ruler.style.cssText =
+        "position:absolute;visibility:hidden;width:1ch;min-width:0";
+      list.append(ruler);
+      const ch = ruler.getBoundingClientRect().width;
+      ruler.remove();
+
+      const listed = list.getBoundingClientRect();
+      return [...document.querySelectorAll(".relations__row")]
+        .map((row) => ({
+          link: row.querySelector(".relations__link") as HTMLElement,
+          preview: row.querySelector(".relations__preview") as HTMLElement | null,
+        }))
+        .filter((row) => row.preview !== null)
+        .map((row) => {
+          const preview = row.preview as HTMLElement;
+          const line = parseFloat(getComputedStyle(preview).lineHeight);
+          const title = row.link.getBoundingClientRect();
+          const box = preview.getBoundingClientRect();
+          return {
+            measure: box.width / ch,
+            lines: box.height / line,
+            shares: Math.abs(box.y - title.y) < line,
+            width: box.width,
+            // What the row's own line leaves the preview from where it starts.
+            room: listed.x + listed.width - box.x,
+          };
+        });
+    });
+
+    expect(rows.length).toBeGreaterThan(1);
+    for (const row of rows) {
+      // A fragment shorter than this cannot tell one linking line from another,
+      // so the preview holds the measure whichever line it ends up on.
+      expect(row.measure).toBeGreaterThanOrEqual(PREVIEW_MEASURE);
+      // Still one clipped line, never a wrapped paragraph.
+      expect(row.lines).toBeLessThanOrEqual(1);
+      // Still inside a column that scrolls vertically only.
+      expect(row.width).toBeLessThanOrEqual(row.room);
+      // A preview the title left no measure for takes the whole line instead.
+      if (!row.shares) {
+        expect(row.width).toBeGreaterThanOrEqual(row.room - 1);
+      }
+    }
   });
 
   test("an empty glossary explains itself inside the phone's width", async ({
