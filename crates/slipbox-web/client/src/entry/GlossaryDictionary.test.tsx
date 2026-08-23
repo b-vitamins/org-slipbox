@@ -295,7 +295,7 @@ describe("GlossaryDictionary", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("switches to the due list in study mode and hides the search box", async () => {
+  it("switches to the due list in study mode and renames the field to it", async () => {
     vi.stubGlobal(
       "fetch",
       routedFetch({
@@ -318,15 +318,158 @@ describe("GlossaryDictionary", () => {
 
     mount();
     await screen.findByRole("option", { name: "Alpha" });
+    expect(
+      screen.getByRole("combobox", { name: "Search the glossary" }),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Due for review" }));
 
     expect(
       await screen.findByRole("option", { name: /Due term/ }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    // The box stays, named for the set it acts on: one field, two stated jobs.
+    expect(
+      screen.getByRole("combobox", { name: "Filter the terms due for review" }),
+    ).toBeInTheDocument();
     expect(await screen.findByLabelText("Review schedule")).toBeInTheDocument();
     expect(screen.getByText("2026-07-20")).toBeInTheDocument();
+  });
+
+  it("narrows the due list without reaching past what is due", async () => {
+    const fetch = routedFetch({
+      "/api/glossary/terms": { terms: [term("notes/a.org::0", "Alpha")] },
+      "/api/glossary/due": {
+        terms: [
+          term("notes/entropy.org::0", "Entropy"),
+          term("notes/prior.org::0", "Prior", { aliases: ["Entropic belief"] }),
+          term("notes/loss.org::0", "Loss"),
+        ],
+      },
+      // A term the index would answer with and the due list does not hold. The
+      // due listing carries no search, so reaching for this route at all would
+      // put a term that is not due into the review list.
+      "/api/glossary/search": { terms: [term("notes/other.org::0", "Entropy pool")] },
+      "/api/note/context": contextFor("notes/entropy.org::0", "Entropy", "Body."),
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    mount({ mode: "study" });
+    await screen.findByRole("option", { name: "Entropy" });
+
+    fireEvent.input(
+      screen.getByRole("combobox", { name: "Filter the terms due for review" }),
+      { target: { value: "entrop" } },
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByRole("option", { name: "Loss" })).not.toBeInTheDocument(),
+    );
+    // The headword matches outright and the synonym matches for its own term.
+    expect(screen.getByRole("option", { name: "Entropy" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Prior" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "Entropy pool" }),
+    ).not.toBeInTheDocument();
+    const searched = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+      ([url]) => String(url).includes("/api/glossary/search"),
+    );
+    expect(searched).toBe(false);
+  });
+
+  it("says which set a fruitless filter was over, and what it does not reach", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/glossary/terms": { terms: [term("notes/a.org::0", "Alpha")] },
+        "/api/glossary/due": { terms: [term("notes/due.org::0", "Due term")] },
+        "/api/note/context": contextFor("notes/due.org::0", "Due term", "Body."),
+      }),
+    );
+
+    mount({ mode: "study" });
+    await screen.findByRole("option", { name: "Due term" });
+
+    fireEvent.input(
+      screen.getByRole("combobox", { name: "Filter the terms due for review" }),
+      { target: { value: "zzz" } },
+    );
+
+    expect(
+      await screen.findByText("No terms due for review match that filter."),
+    ).toBeInTheDocument();
+    // Terms are due, so the standing explanation of how they come due would be
+    // answering a question the reader did not ask.
+    expect(
+      screen.getByRole("heading", { name: "Nothing due matches that filter" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "How terms come due" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps saying nothing is due when a filter is held over an empty due list", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/glossary/terms": { terms: [term("notes/a.org::0", "Alpha")] },
+        "/api/glossary/due": { terms: [] },
+        "/api/glossary/search": { terms: [term("notes/a.org::0", "Alpha")] },
+      }),
+    );
+
+    mount({ mode: "study" });
+    await screen.findByText("Nothing is due for review.");
+
+    fireEvent.input(
+      screen.getByRole("combobox", { name: "Filter the terms due for review" }),
+      { target: { value: "alpha" } },
+    );
+
+    // Nothing was hidden, so the filter has nothing to answer for.
+    expect(screen.getByText("Nothing is due for review.")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "How terms come due" }),
+    ).toBeInTheDocument();
+  });
+
+  it("carries the query into whichever list the mode names", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/glossary/terms": { terms: [term("notes/a.org::0", "Alpha")] },
+        "/api/glossary/search": {
+          terms: [term("notes/entropy.org::0", "Entropy")],
+        },
+        "/api/glossary/due": {
+          terms: [
+            term("notes/entropy.org::0", "Entropy"),
+            term("notes/loss.org::0", "Loss"),
+          ],
+        },
+        "/api/note/context": contextFor("notes/entropy.org::0", "Entropy", "Body."),
+      }),
+    );
+
+    const surface = mount();
+    await screen.findByRole("option", { name: "Alpha" });
+
+    const field = screen.getByRole("combobox", { name: "Search the glossary" });
+    fireEvent.input(field, { target: { value: "entrop" } });
+    await screen.findByRole("option", { name: "Entropy" });
+
+    surface.showMode("study");
+
+    // The query is held rather than dropped, and applies to the list that
+    // arrives: the same words, the narrower set.
+    expect(
+      await screen.findByRole("option", { name: "Entropy" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "Loss" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: "Filter the terms due for review" }),
+    ).toHaveValue("entrop");
   });
 
   it("reports an empty due list", async () => {
@@ -553,7 +696,7 @@ describe("GlossaryDictionary", () => {
     expect(document.querySelector(".glossary-status--hint")).toBeNull();
   });
 
-  it("navigates the due list by keyboard when the search box is gone", async () => {
+  it("navigates the due list from the same field the browse list is walked from", async () => {
     const onOpen = vi.fn();
     vi.stubGlobal(
       "fetch",
@@ -575,10 +718,16 @@ describe("GlossaryDictionary", () => {
     fireEvent.click(screen.getByRole("button", { name: "Due for review" }));
     await screen.findByRole("option", { name: "One" });
 
+    // One focusable widget in both modes: the field owns the cursor and the list
+    // is its popup, so the list takes no tab stop of its own.
     const listbox = screen.getByRole("listbox");
-    expect(listbox).toHaveAttribute("tabindex", "0");
-    fireEvent.keyDown(listbox, { key: "ArrowDown" });
-    fireEvent.keyDown(listbox, { key: "Enter" });
+    expect(listbox).not.toHaveAttribute("tabindex");
+    expect(listbox).not.toHaveAttribute("aria-activedescendant");
+
+    const field = screen.getByRole("combobox");
+    fireEvent.keyDown(field, { key: "ArrowDown" });
+    expect(field).toHaveAttribute("aria-activedescendant", "glossary-option-1");
+    fireEvent.keyDown(field, { key: "Enter" });
 
     expect(onOpen).toHaveBeenCalledWith("notes/two.org::0");
   });
@@ -695,6 +844,36 @@ describe("GlossaryDictionary", () => {
     ).toBeInTheDocument();
     expect(study).toHaveAttribute("aria-pressed", "true");
     expect(browse).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("names the list from the field only while there is a list to name", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/glossary/terms": { terms: [term("notes/a.org::0", "Alpha")] },
+        "/api/glossary/search": { terms: [] },
+        "/api/note/context": contextFor("notes/a.org::0", "Alpha", "Body."),
+      }),
+    );
+
+    mount();
+    await screen.findByRole("option", { name: "Alpha" });
+
+    const field = screen.getByRole("combobox");
+    expect(field).toHaveAttribute(
+      "aria-controls",
+      screen.getByRole("listbox").id,
+    );
+    expect(field).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.input(field, { target: { value: "nothing" } });
+    await screen.findByText("No terms match that search.");
+
+    // The popup is gone, so the idref would resolve to nothing: a combobox
+    // naming a listbox that is not rendered announces a relationship the
+    // surface is not holding, which is what the mode controls beside it guard.
+    expect(field).not.toHaveAttribute("aria-controls");
+    expect(field).toHaveAttribute("aria-expanded", "false");
   });
 
   it("leaves the arrow keys to the term list the controls sit above", async () => {
@@ -1012,7 +1191,9 @@ describe("GlossaryDictionary", () => {
     expect(
       screen.getByRole("button", { name: "Due for review" }),
     ).toHaveAttribute("aria-pressed", "true");
-    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: "Filter the terms due for review" }),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("option", { name: "Alpha" }),
     ).not.toBeInTheDocument();
@@ -1131,7 +1312,7 @@ describe("GlossaryDictionary", () => {
     expect(study.tabIndex).toBe(0);
   });
 
-  it("leaves focus where it is when the mode moves and the controls are not holding it", async () => {
+  it("keeps focus in the field when the mode moves under it", async () => {
     vi.stubGlobal(
       "fetch",
       routedFetch({
@@ -1150,14 +1331,15 @@ describe("GlossaryDictionary", () => {
     surface.showMode("study");
     await screen.findByRole("option", { name: /Due term/ });
 
-    // Removing the focused search box drops focus to the body, not to a control.
-    expect(document.activeElement).toBe(document.body);
+    // The field is one element across both modes, so a mode change neither
+    // removes it nor drops the focus it was holding.
+    expect(document.activeElement).toBe(field);
     expect(study).toHaveAttribute("aria-pressed", "true");
 
     surface.showMode("browse");
     await screen.findByRole("option", { name: "Alpha" });
 
-    expect(document.activeElement).toBe(document.body);
+    expect(document.activeElement).toBe(field);
   });
 
   it("seeds its search from a restored ?q= and mirrors later terms back", async () => {

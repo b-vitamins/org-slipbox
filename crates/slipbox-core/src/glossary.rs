@@ -252,7 +252,6 @@ fn civil_from_days(serial: i64) -> (i64, i64, i64) {
 pub struct ListGlossaryTermsParams {
     #[serde(default = "default_search_limit")]
     pub limit: usize,
-    /// Opaque position handed back by an earlier page; the first page when absent.
     #[serde(default)]
     pub after: Option<String>,
 }
@@ -263,7 +262,6 @@ impl ListGlossaryTermsParams {
         self.limit.clamp(1, 200)
     }
 
-    /// The position this page continues from, if any.
     #[must_use]
     pub fn normalized_after(&self) -> Option<&str> {
         normalized_position(self.after.as_deref())
@@ -274,11 +272,8 @@ impl ListGlossaryTermsParams {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListGlossaryTermsResult {
     pub terms: Vec<NodeRecord>,
-    /// Terms the whole listing holds, not just this page.
     pub total: usize,
-    /// Whether terms follow this page.
     pub has_more: bool,
-    /// Position to pass as `after` for the next page; absent at the listing's end.
     pub next_position: Option<String>,
 }
 
@@ -297,16 +292,11 @@ impl SearchGlossaryParams {
     }
 }
 
-/// Result of searching glossary terms.
-///
-/// Search ranks by relevance rather than by a stored key, so it serves one page
-/// and states the cut instead of handing out a position.
+/// One relevance-ranked glossary search page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchGlossaryResult {
     pub terms: Vec<NodeRecord>,
-    /// Terms matching the query, not just the ones this page holds.
     pub total: usize,
-    /// Whether the match set continues past this page.
     pub has_more: bool,
 }
 
@@ -328,9 +318,11 @@ pub struct GlossaryDueParams {
     /// ISO `YYYY-MM-DD` reference date; the server's date when omitted.
     #[serde(default)]
     pub today: Option<String>,
+    /// Optional headword and synonym query.
+    #[serde(default)]
+    pub query: Option<String>,
     #[serde(default = "default_search_limit")]
     pub limit: usize,
-    /// Opaque position handed back by an earlier page; the first page when absent.
     #[serde(default)]
     pub after: Option<String>,
 }
@@ -341,10 +333,17 @@ impl GlossaryDueParams {
         self.limit.clamp(1, 200)
     }
 
-    /// The position this page continues from, if any.
     #[must_use]
     pub fn normalized_after(&self) -> Option<&str> {
         normalized_position(self.after.as_deref())
+    }
+
+    #[must_use]
+    pub fn normalized_query(&self) -> Option<&str> {
+        self.query
+            .as_deref()
+            .map(str::trim)
+            .filter(|query| !query.is_empty())
     }
 }
 
@@ -352,19 +351,12 @@ impl GlossaryDueParams {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GlossaryDueResult {
     pub terms: Vec<NodeRecord>,
-    /// Terms the whole listing holds, not just this page.
     pub total: usize,
-    /// Whether terms follow this page.
     pub has_more: bool,
-    /// Position to pass as `after` for the next page; absent at the listing's end.
     pub next_position: Option<String>,
 }
 
-/// Read a listing position, trimming the request's own padding.
-///
-/// A given token stays given even when nothing is left of it: the index mints no
-/// blank position, so the listing refuses it rather than answering the first page
-/// under a token it cannot read.
+/// Trim a supplied cursor without turning it into an absent cursor.
 fn normalized_position(after: Option<&str>) -> Option<&str> {
     after.map(str::trim)
 }
@@ -627,6 +619,7 @@ mod tests {
             let listed = ListGlossaryTermsParams { limit, after: None };
             let due = GlossaryDueParams {
                 today: None,
+                query: None,
                 limit,
                 after: None,
             };
@@ -644,14 +637,12 @@ mod tests {
         assert_eq!(listed.normalized_after(), None);
         let due = GlossaryDueParams {
             today: None,
+            query: None,
             limit: 50,
             after: None,
         };
         assert_eq!(due.normalized_after(), None);
 
-        // A given position stays a position however little of it there is: a
-        // blank token reaches the index, which mints none, so it is refused
-        // rather than answered with the first page.
         for after in [String::new(), "  ".to_owned(), "\t\n".to_owned()] {
             let listed = ListGlossaryTermsParams {
                 limit: 50,
@@ -660,6 +651,7 @@ mod tests {
             assert_eq!(listed.normalized_after(), Some(""), "{after:?}");
             let due = GlossaryDueParams {
                 today: None,
+                query: None,
                 limit: 50,
                 after: Some(after.clone()),
             };
@@ -669,8 +661,6 @@ mod tests {
 
     #[test]
     fn a_position_reaches_the_index_as_the_page_spelled_it() {
-        // The token is the index's own spelling, so normalization trims the
-        // request's own padding and changes nothing else.
         let listed = ListGlossaryTermsParams {
             limit: 50,
             after: Some(" 7409".to_owned()),
@@ -678,6 +668,7 @@ mod tests {
         assert_eq!(listed.normalized_after(), Some("7409"));
         let due = GlossaryDueParams {
             today: None,
+            query: None,
             limit: 50,
             after: Some("7409".to_owned()),
         };
@@ -692,6 +683,18 @@ mod tests {
         assert_eq!(listed.limit, default_search_limit());
         let due: GlossaryDueParams = serde_json::from_str("{}").expect("params default entirely");
         assert_eq!(due.after, None);
+        assert_eq!(due.normalized_query(), None);
+    }
+
+    #[test]
+    fn due_query_ignores_only_surrounding_space() {
+        let due = GlossaryDueParams {
+            today: None,
+            query: Some("  entropy production  ".to_owned()),
+            limit: 50,
+            after: None,
+        };
+        assert_eq!(due.normalized_query(), Some("entropy production"));
     }
 
     #[test]

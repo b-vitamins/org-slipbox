@@ -247,12 +247,14 @@ fn reading_bridge_serves_the_read_only_note_and_glossary_surface() -> Result<()>
     // The fixture term's `SR_DUE` is 2026-08-01, so these two dates straddle it.
     let not_yet = bridge.glossary_due(&GlossaryDueParams {
         today: Some("2026-07-26".to_owned()),
+        query: None,
         limit: 50,
         after: None,
     })?;
     assert!(not_yet.terms.is_empty());
     let due = bridge.glossary_due(&GlossaryDueParams {
         today: Some("2026-08-02".to_owned()),
+        query: None,
         limit: 50,
         after: None,
     })?;

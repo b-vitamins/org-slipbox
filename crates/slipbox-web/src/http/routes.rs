@@ -168,22 +168,18 @@ fn unlinked_references(bridge: &ReadingBridge, query: &Query) -> Result<ApiRespo
     ApiResponse::json(&bridge.unlinked_references(&params)?)
 }
 
-/// One note read through one exploration lens, which decides the sections the
-/// answer carries. A section the lens defines is served empty, not omitted.
+/// Read one note through a required exploration lens.
 fn explore(bridge: &ReadingBridge, query: &Query) -> Result<ApiResponse, ApiError> {
     let params = ExploreParams {
         node_key: query.require("key")?,
         lens: require_lens(query)?,
         limit: query.bounded("limit", DEFAULT_RELATION_LIMIT, 1, MAX_RELATION_LIMIT)?,
-        // Defined for the structure lens alone, and unused here.
         unique: false,
     };
     ApiResponse::json(&bridge.explore(&params)?)
 }
 
-/// The glossary as a dictionary listing, `limit` terms at a time. `after` is the
-/// `next_position` an earlier page answered with, and continues the listing there;
-/// it is opaque, and one the index did not mint is refused.
+/// Return one glossary page.
 fn glossary_terms(bridge: &ReadingBridge, query: &Query) -> Result<ApiResponse, ApiError> {
     let params = ListGlossaryTermsParams {
         limit: query.bounded("limit", DEFAULT_LIMIT, 1, MAX_LIMIT)?,
@@ -192,8 +188,7 @@ fn glossary_terms(bridge: &ReadingBridge, query: &Query) -> Result<ApiResponse, 
     ApiResponse::json(&bridge.list_glossary_terms(&params)?)
 }
 
-/// Search over glossary terms. Ranking is by relevance rather than by a stored
-/// key, so this route serves one page and states the cut instead of paging.
+/// Return one relevance-ranked glossary search page.
 fn glossary_search(bridge: &ReadingBridge, query: &Query) -> Result<ApiResponse, ApiError> {
     let params = SearchGlossaryParams {
         query: search_term(query)?,
@@ -216,15 +211,11 @@ fn glossary_term(bridge: &ReadingBridge, query: &Query) -> Result<ApiResponse, A
     ApiResponse::json(&result)
 }
 
-/// Glossary terms due for review as of a reference day, `limit` at a time.
-/// `after` continues the listing from an earlier page's `next_position`, on this
-/// listing's own key rather than the dictionary listing's.
+/// Return one due-order glossary page.
 fn glossary_due(bridge: &ReadingBridge, query: &Query) -> Result<ApiResponse, ApiError> {
     let params = GlossaryDueParams {
-        // The due predicate compares ISO date strings, so a value that is not a
-        // calendar date would not fail downstream: it would answer with the
-        // wrong set of terms.
         today: query.optional_date("today")?,
+        query: optional_search_term(query)?,
         limit: query.bounded("limit", DEFAULT_LIMIT, 1, MAX_LIMIT)?,
         after: query.optional("after")?,
     };
@@ -238,7 +229,14 @@ fn glossary_due(bridge: &ReadingBridge, query: &Query) -> Result<ApiResponse, Ap
 /// surrounding punctuation. A query with none yields no expression, and the store
 /// then answers with an unranked listing of whatever notes the filter admits.
 fn search_term(query: &Query) -> Result<String, ApiError> {
-    let raw = query.require("q")?;
+    validate_search_term(query.require("q")?)
+}
+
+fn optional_search_term(query: &Query) -> Result<Option<String>, ApiError> {
+    query.optional("q")?.map(validate_search_term).transpose()
+}
+
+fn validate_search_term(raw: String) -> Result<String, ApiError> {
     let matchable = raw.split_whitespace().any(|word| {
         word.trim_matches(|character: char| !character.is_alphanumeric())
             .chars()
@@ -265,8 +263,6 @@ fn parse_sort(query: &Query) -> Result<Option<SearchNodesSort>, ApiError> {
         .map_err(|_| ApiError::bad_request(format!("unknown sort `{raw}`")))
 }
 
-/// Map the required `lens` parameter the same way. An unknown one is refused with
-/// the accepted set rather than read as a default.
 fn require_lens(query: &Query) -> Result<ExplorationLens, ApiError> {
     let raw = query.require("lens")?;
     serde_json::from_value::<ExplorationLens>(Value::String(raw.clone())).map_err(|_| {
@@ -277,7 +273,6 @@ fn require_lens(query: &Query) -> Result<ExplorationLens, ApiError> {
     })
 }
 
-/// The spellings a refusal lists, drawn from serde rather than restated.
 fn accepted_lenses() -> String {
     [
         ExplorationLens::Structure,
@@ -324,8 +319,8 @@ mod tests {
     use slipbox_core::{ExplorationLens, SearchNodesSort};
 
     use super::{
-        MAX_RELATION_LIMIT, MIN_SEARCH_TERM_CHARACTERS, accepted_lenses, parse_sort, require_lens,
-        search_term,
+        MAX_RELATION_LIMIT, MIN_SEARCH_TERM_CHARACTERS, accepted_lenses, optional_search_term,
+        parse_sort, require_lens, search_term,
     };
     use crate::http::query::Query;
 
@@ -360,6 +355,26 @@ mod tests {
         for raw in ["q=a", "q=%2D", "q=%2D%2D", "q=a+I+%2C"] {
             assert_eq!(term(raw), Err(400), "`{raw}` should not reach the index");
         }
+    }
+
+    #[test]
+    fn an_optional_due_query_is_absent_or_validated_like_search() {
+        assert_eq!(
+            optional_search_term(&Query::parse("").expect("query parses"))
+                .expect("an absent query is valid"),
+            None
+        );
+        assert_eq!(
+            optional_search_term(&Query::parse("q=entropy").expect("query parses"))
+                .expect("a searchable query is valid"),
+            Some("entropy".to_owned())
+        );
+        assert_eq!(
+            optional_search_term(&Query::parse("q=a").expect("query parses"))
+                .expect_err("an unsearchable query is refused")
+                .status,
+            400
+        );
     }
 
     #[test]
@@ -455,7 +470,6 @@ mod tests {
 
     #[test]
     fn the_accepted_lenses_are_read_off_serde_not_restated() {
-        // A renamed variant changes the message with it.
         assert_eq!(
             accepted_lenses(),
             "structure, refs, time, tasks, bridges, dormant, unresolved"
@@ -464,7 +478,6 @@ mod tests {
 
     #[test]
     fn the_explore_limit_admits_the_whole_range_the_operation_accepts() {
-        // `ExploreParams::normalized_limit` clamps to `1..=1_000`.
         assert_eq!(MAX_RELATION_LIMIT, 1_000);
     }
 }
