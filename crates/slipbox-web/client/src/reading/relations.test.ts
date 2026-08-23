@@ -1,12 +1,36 @@
 import { describe, expect, it } from "vitest";
 
-import { relationRows, shownInDirection } from "./relations.js";
+import {
+  RELATION_PREVIEW_CHARS,
+  relationRows,
+  shownInDirection,
+} from "./relations.js";
+import type { Inline } from "../org/types.js";
 import type {
   BacklinkRecord,
   ForwardLinkRecord,
   NodeRecord,
   NoteContext,
 } from "../api/types.js";
+
+/** The characters a preview's text nodes carry, which is what is read aloud. */
+function characters(prose: readonly Inline[]): string {
+  return prose
+    .map((node) => {
+      switch (node.type) {
+        case "text":
+          return node.value;
+        case "bold":
+        case "italic":
+          return characters(node.children);
+        case "verbatim":
+          return node.value;
+        default:
+          return "";
+      }
+    })
+    .join("");
+}
 
 function node(
   key: string,
@@ -193,6 +217,30 @@ describe("relationRows", () => {
 
     expect(rows).toHaveLength(1);
     expect(rows[0]!.preview).toEqual([{ type: "text", value: "first" }]);
+  });
+
+  // The CSS clip is paint only: an unbounded text node carries every character
+  // of the source note's paragraph into the accessible tree.
+  it("bounds a preview by characters, not by the clip that paints it", () => {
+    const paragraph = "quantum ".repeat(RELATION_PREVIEW_CHARS);
+    const rows = relationRows(
+      context([], [backward(node("notes/x.org::0", "Ex"), paragraph)]),
+    );
+
+    const text = characters(rows[0]!.preview);
+    expect(text.length).toBeLessThanOrEqual(RELATION_PREVIEW_CHARS + 1);
+    // The same elision mark a glance card's bounded excerpt ends on.
+    expect(text.endsWith("…")).toBe(true);
+  });
+
+  it("leaves a preview inside the bound whole and unmarked", () => {
+    const rows = relationRows(
+      context([], [backward(node("notes/x.org::0", "Ex"), "cites Self once")]),
+    );
+
+    expect(rows[0]!.preview).toEqual([
+      { type: "text", value: "cites Self once" },
+    ]);
   });
 
   it("prefers an id target when the note carries an explicit id", () => {

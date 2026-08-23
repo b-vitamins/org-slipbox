@@ -29,8 +29,18 @@ export interface RelationRow {
   readonly preview: readonly Inline[];
 }
 
+/**
+ * Characters of the other note's line a row carries.
+ *
+ * The CSS clip is paint only, so without a bound here the whole paragraph the
+ * index holds reaches the accessible tree and is read out in full. Roughly twice
+ * what a row paints at the reading column's width, which leaves the clip as the
+ * guard for a preview that still does not fit at a narrower one.
+ */
+export const RELATION_PREVIEW_CHARS = 120;
+
 function previewProse(raw: string): readonly Inline[] {
-  return inlinePreview(parseInline(raw));
+  return inlinePreview(parseInline(raw), RELATION_PREVIEW_CHARS);
 }
 
 /** One row per related note, direction marked, first appearance winning. */

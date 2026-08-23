@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { visibleText } from "../test/visible-text.js";
 import { RelationsFooter } from "./RelationsFooter.jsx";
+import { RELATION_PREVIEW_CHARS } from "./relations.js";
 import { NavigationProvider, type Navigation } from "../org/navigation.jsx";
 import type {
   BacklinkRecord,
@@ -219,6 +220,31 @@ describe("RelationsFooter", () => {
     // KaTeX keeps the TeX in its MathML annotation, which is how the math
     // reaches assistive tech; what the reader sees is the typeset glyphs.
     expect(visibleText(preview)).toBe("bounded by ∑n​xn​ throughout");
+  });
+
+  // What the row paints is one clipped line, but the text node behind it is
+  // what a screen reader reads out in full.
+  it("renders a preview no longer than the character bound", () => {
+    const { container } = render(() => (
+      <NavigationProvider navigation={inertNav}>
+        <RelationsFooter
+          context={context(
+            [],
+            [
+              backward(
+                node("notes/x.org::0", "Ex"),
+                "quantum ".repeat(RELATION_PREVIEW_CHARS),
+              ),
+            ],
+          )}
+        />
+      </NavigationProvider>
+    ));
+
+    const preview = container.querySelector(".relations__preview");
+    expect(preview?.textContent?.length).toBeLessThanOrEqual(
+      RELATION_PREVIEW_CHARS + 1,
+    );
   });
 
   it("pins the related note when its row is clicked, via an id target", () => {

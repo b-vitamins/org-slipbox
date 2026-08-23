@@ -170,6 +170,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
   column. A note now caps at the measure a column gives it and centers in what is
   left over, while the column, its border, and the seam under it keep the full
   width. Below the cap the note still fills the frame less its padding.
+- Bound a relation preview to the line it shows. The row clipped its preview to
+  one line in paint alone, so the text node still carried the whole paragraph the
+  index holds and a screen reader read out 300 characters where a sighted reader
+  saw one. The projection now elides at 120 characters, through the helper the
+  glance excerpt already uses, and the clip stays as the guard for a width where
+  the bounded preview still does not fit.
 - State a cut glossary listing on the command line. `glossary list`, `search`,
   and `due` printed the page's own length as the count, so a listing cut at
   `--limit` read as the whole glossary. Each now counts the page against the
