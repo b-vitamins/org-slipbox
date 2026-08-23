@@ -8,6 +8,8 @@
 
 import type { Page, Route } from "@playwright/test";
 
+import type { NodeRecord, NoteContext, NotePlace } from "../src/api/types.js";
+
 export interface FixtureNote {
   /** The slipbox key, `file:<path>` or `heading:<path>::<line>`. */
   key: string;
@@ -70,7 +72,7 @@ interface StatusInfo {
 }
 
 /** A complete `NodeRecord`, every field the client parses filled in. */
-function nodeRecord(note: FixtureNote): Record<string, unknown> {
+function nodeRecord(note: FixtureNote): NodeRecord {
   return {
     node_key: note.key,
     explicit_id: note.id ?? null,
@@ -101,7 +103,7 @@ function nodeRecord(note: FixtureNote): Record<string, unknown> {
 }
 
 /** A relation endpoint's record. Its body is empty: only the link names it. */
-function linkNode(link: FixtureEndpoint): Record<string, unknown> {
+function linkNode(link: FixtureEndpoint): NodeRecord {
   return nodeRecord({ key: link.key, id: link.id, title: link.title, body: "" });
 }
 
@@ -144,10 +146,33 @@ function fileOf(key: string): string {
 }
 
 /**
- * The `NoteContext` envelope. Every note is served whole and untruncated from
- * line 1, so `line_count` equals `total_lines`.
+ * The filing order the store counts in: every note the index holds, by file path
+ * and then by line. A fixture note starts at line 1, and `sort` is stable, so a
+ * world's own order settles two notes sharing a file.
  */
-function noteContext(note: FixtureNote): Record<string, unknown> {
+function filingOrder(world: FixtureWorld): FixtureNote[] {
+  return [...world.notes].sort((left, right) => {
+    const a = fileOf(left.key);
+    const b = fileOf(right.key);
+    return a < b ? -1 : a > b ? 1 : 0;
+  });
+}
+
+/** Where a note stands in that order, counted from 1 as the store counts it. */
+function notePlace(note: FixtureNote, world: FixtureWorld): NotePlace {
+  const filed = filingOrder(world);
+  return {
+    ordinal: filed.findIndex((other) => other.key === note.key) + 1,
+    total: filed.length,
+  };
+}
+
+/**
+ * The `NoteContext` envelope. Every note is served whole and untruncated from
+ * line 1, so `line_count` equals `total_lines`. Typed as the client's own mirror
+ * of the wire, so a field the daemon grows cannot be missed here.
+ */
+function noteContext(note: FixtureNote, world: FixtureWorld): NoteContext {
   const lines = note.body.split("\n").length;
   return {
     note: nodeRecord(note),
@@ -162,6 +187,7 @@ function noteContext(note: FixtureNote): Record<string, unknown> {
     },
     node_start_line: 1,
     node_line_count: lines,
+    place: notePlace(note, world),
     backlinks: (note.backlinks ?? []).map((link) => ({
       source_note: linkNode(link),
       source_anchor: null,
@@ -330,7 +356,7 @@ export async function mountApi(page: Page, world: FixtureWorld): Promise<void> {
       case "/api/note/context": {
         const note = byKey.get(params.get("key") ?? "");
         return note
-          ? json(route, noteContext(note))
+          ? json(route, noteContext(note, world))
           : apiError(route, 404, "not-found", "no note for the given key");
       }
 

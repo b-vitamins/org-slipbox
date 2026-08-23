@@ -2,17 +2,24 @@ import { render, screen } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { NotePlace } from "../api/types.js";
 import { __resetRefocusForTests } from "../data/refetch-on-focus.js";
 import { ReadingColumn } from "./ReadingColumn.jsx";
 import type { ColumnState } from "./spine-geometry.js";
 
-function noteContextResponse(title: string, content = ""): Response {
+/** `place` omitted stands for a daemon that answers without the field. */
+function noteContextResponse(
+  title: string,
+  content = "",
+  place?: NotePlace,
+): Response {
   return new Response(
     JSON.stringify({
       note: { title, node_key: "notes/gradient.org" },
       source: { content },
       node_start_line: 1,
       node_line_count: 1,
+      ...(place === undefined ? {} : { place }),
       backlinks: [],
       forward_links: [],
     }),
@@ -188,6 +195,90 @@ describe("ReadingColumn truncated body", () => {
 
     expect(await screen.findByText("daemon is down")).toBeInTheDocument();
     expect(document.querySelector(".reading-note__truncated")).toBeNull();
+  });
+});
+
+describe("ReadingColumn filing place", () => {
+  beforeEach(() => {
+    __resetRefocusForTests();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("states the position and the size of the collection it counts", async () => {
+    const read = vi.fn(() =>
+      Promise.resolve(
+        noteContextResponse("Gradient descent", "All of it.", {
+          ordinal: 812,
+          total: 1193,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", read);
+
+    mount("notes/gradient.org");
+
+    const line = await screen.findByText("Filed 812 of 1193");
+    expect(line).toHaveClass("reading-note__place");
+    const title = screen.getByRole("heading", {
+      level: 1,
+      name: "Gradient descent",
+    });
+    expect(
+      title.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      line.compareDocumentPosition(screen.getByText("All of it.")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // The position rode in on the read the note made anyway.
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the column's name the title alone, and offers nothing to press", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          noteContextResponse("Gradient descent", "All of it.", {
+            ordinal: 3,
+            total: 9,
+          }),
+        ),
+      ),
+    );
+
+    mount("notes/gradient.org");
+
+    const line = await screen.findByText("Filed 3 of 9");
+    // Named for the note, not the note and its position: the line is inside the
+    // column that the heading alone names.
+    expect(
+      screen.getByRole("article", { name: "Gradient descent" }),
+    ).toContainElement(line);
+    expect(line.matches("a, button, [role], [tabindex]")).toBe(false);
+    expect(line.closest("a, button")).toBeNull();
+  });
+
+  it("states nothing where the payload states no position", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          noteContextResponse("Gradient descent", "All of it."),
+        ),
+      ),
+    );
+
+    mount("notes/gradient.org");
+
+    expect(await screen.findByText("All of it.")).toBeInTheDocument();
+    // No line at all, rather than a line counting from nothing.
+    expect(document.querySelector(".reading-note__place")).toBeNull();
+    expect(screen.queryByText(/^Filed /)).not.toBeInTheDocument();
   });
 });
 

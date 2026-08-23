@@ -79,6 +79,13 @@ The format follows Keep a Changelog, and this project follows SemVer.
   raised it, read out after the link and cleared with the card. A cursor-raised one
   stays decorative, since it says what the cursor is already over, and no card
   takes focus: the reader stays on the link.
+- State a note's place in the filing order under its title. A column said nothing
+  of where its note stands among the notes the slipbox holds, so the collection was
+  invisible from inside it. One line reads `Filed 812 of 1193`, off the position the
+  context read already carries, so it costs no request; "filed" names the order it
+  counts and claims no date. The line is a sibling of the heading, so the column is
+  still announced by its title alone, and it takes exactly its own line box from the
+  prose.
 
 ### Changed
 - Draw the `dormant` lens's candidates from link topology rather than from shared

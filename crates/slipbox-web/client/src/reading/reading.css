@@ -182,12 +182,31 @@ article.reading-note:focus {
   font-size: 15px;
 }
 
-.reading-note__title {
+/* The title and the line under it are one head, so the space down to the prose
+ * is the header's rather than the title's: the line then displaces the prose by
+ * its own line box and nothing else. */
+.reading-note__header {
   margin: 0 0 24px;
+}
+
+.reading-note__title {
+  margin: 0;
   font-size: var(--h1-size);
   line-height: var(--h1-line);
   font-weight: 600;
   letter-spacing: -0.01em;
+}
+
+/* Set in the footer's label register, which is what the surface uses for a line
+ * that says where something stands rather than what it says. No rule, no box,
+ * and no mark: it is one statement, and subordinate to both the title above it
+ * and the prose below. */
+.reading-note__place {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
 }
 
 .reading-note__truncated {
