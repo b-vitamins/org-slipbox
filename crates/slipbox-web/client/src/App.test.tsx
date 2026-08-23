@@ -67,6 +67,14 @@ function noteContext(title: string): unknown {
   };
 }
 
+/** One content-search hit for `title`, excerpt and all. */
+function contentHit(title: string): unknown {
+  return {
+    node: glossaryTerm(title),
+    snippet: { segments: [{ text: `A note about ${title}.`, matched: false }] },
+  };
+}
+
 function routedFetch(routes: Record<string, unknown>): typeof fetch {
   return vi.fn((input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
@@ -313,9 +321,146 @@ describe("App shell", () => {
 
     fireEvent.click(home);
 
+    // A note reached by its own address has no search behind it, so the way out
+    // arrives at a surface holding nothing.
     expect(
       await screen.findByRole("combobox", { name: "Search notes" }),
-    ).toBeInTheDocument();
+    ).toHaveValue("");
+    expect(window.location.search).toBe("");
+  });
+
+  it("carries the query back to the entry surface, and back again after that", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/status": status,
+        "/api/search/content": {
+          hits: [contentHit("Alpha"), contentHit("Beta")],
+        },
+        "/api/note/context": noteContext("Beta"),
+      }),
+    );
+
+    render(() => <App />);
+
+    fireEvent.input(
+      await screen.findByRole("combobox", { name: "Search notes" }),
+      { target: { value: "entropy" } },
+    );
+    await waitFor(() => expect(window.location.search).toBe("?q=entropy"));
+
+    fireEvent.click(await screen.findByRole("option", { name: /Beta/ }));
+    await screen.findByRole("heading", { level: 1, name: "Beta" });
+    // A note's address is written from scratch, so the term is gone from the URL
+    // the moment the result is opened.
+    expect(window.location.search).not.toContain("q=");
+
+    fireEvent.click(screen.getByRole("button", { name: "slipbox" }));
+
+    expect(
+      await screen.findByRole("combobox", { name: "Search notes" }),
+    ).toHaveValue("entropy");
+    expect(window.location.search).toBe("?q=entropy");
+    // The row the reader left from is marked again, as it is after a Back.
+    const restored = await screen.findByRole("option", { name: /Beta/ });
+    await waitFor(() =>
+      expect(restored).toHaveAttribute("aria-selected", "true"),
+    );
+
+    // Out and back a second time: what the surface holds now was restored to it
+    // rather than typed into it.
+    fireEvent.click(restored);
+    await screen.findByRole("heading", { level: 1, name: "Beta" });
+    fireEvent.click(screen.getByRole("button", { name: "slipbox" }));
+
+    expect(
+      await screen.findByRole("combobox", { name: "Search notes" }),
+    ).toHaveValue("entropy");
+    expect(window.location.search).toBe("?q=entropy");
+  });
+
+  it("keeps the way back to the query across a reload of the note", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/status": status,
+        "/api/search/content": { hits: [contentHit("Beta")] },
+        "/api/note/context": noteContext("Beta"),
+      }),
+    );
+
+    const opened = render(() => <App />);
+
+    fireEvent.input(
+      await screen.findByRole("combobox", { name: "Search notes" }),
+      { target: { value: "entropy" } },
+    );
+    await waitFor(() => expect(window.location.search).toBe("?q=entropy"));
+    fireEvent.click(await screen.findByRole("option", { name: /Beta/ }));
+    await screen.findByRole("heading", { level: 1, name: "Beta" });
+
+    // A reload: the same address, a fresh surface, and nothing left of what the
+    // last one held in memory. The query is not in the address, so the way back
+    // has to be recorded where a reload finds it.
+    opened.unmount();
+    render(() => <App />);
+    await screen.findByRole("heading", { level: 1, name: "Beta" });
+
+    fireEvent.click(screen.getByRole("button", { name: "slipbox" }));
+
+    expect(
+      await screen.findByRole("combobox", { name: "Search notes" }),
+    ).toHaveValue("entropy");
+    expect(window.location.search).toBe("?q=entropy");
+  });
+
+  it("takes the way back from the note the browser walked to", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/status": status,
+        "/api/search/content": { hits: [contentHit("Beta")] },
+        "/api/note/context": noteContext("Beta"),
+      }),
+    );
+
+    render(() => <App />);
+
+    const search = async (term: string): Promise<void> => {
+      fireEvent.input(
+        await screen.findByRole("combobox", { name: "Search notes" }),
+        { target: { value: term } },
+      );
+      await waitFor(() => expect(window.location.search).toBe(`?q=${term}`));
+    };
+    const open = async (): Promise<void> => {
+      fireEvent.click(await screen.findByRole("option", { name: /Beta/ }));
+      await screen.findByRole("heading", { level: 1, name: "Beta" });
+    };
+
+    // The same note opened from two searches, and left by the header in between:
+    // two reading entries whose ways back differ.
+    await search("entropy");
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "slipbox" }));
+    await search("alpha");
+    await open();
+
+    // Back over the second search to the first reading of the note. The reader
+    // walked there, so nothing the surface did says where they now are.
+    window.history.back();
+    expect(
+      await screen.findByRole("combobox", { name: "Search notes" }),
+    ).toHaveValue("alpha");
+    window.history.back();
+    await screen.findByRole("heading", { level: 1, name: "Beta" });
+
+    fireEvent.click(screen.getByRole("button", { name: "slipbox" }));
+
+    expect(
+      await screen.findByRole("combobox", { name: "Search notes" }),
+    ).toHaveValue("entropy");
+    expect(window.location.search).toBe("?q=entropy");
   });
 
   it("cycles the color scheme from the header and keeps the control across the frame", async () => {
