@@ -92,6 +92,35 @@ const DEEP_TRAIL = `/?note=${DEEP_WORLD.notes[0]!.key}${DEEP_WORLD.notes
   .map((note) => `&stacked=${note.key}`)
   .join("")}`;
 
+/**
+ * Where each column comes to rest: its layout offset less the offset it pins at,
+ * clamped to the reachable range. A rest there leaves the columns before it as a
+ * ladder of slivers and this one open against that ladder. Read off the live
+ * boxes and the pin the client wrote, rather than restating the geometry math.
+ */
+const restingOffsets = (page: import("@playwright/test").Page) =>
+  page.evaluate(() => {
+    const spine = document.querySelector(".spine") as HTMLElement;
+    const reach = spine.scrollWidth - spine.clientWidth;
+    const columns = Array.from(
+      document.querySelectorAll(".spine-column"),
+    ) as HTMLElement[];
+    const width = columns[0]!.getBoundingClientRect().width;
+    return columns.map((column, index) =>
+      Math.round(
+        Math.min(
+          Math.max(index * width - Number.parseFloat(column.style.left || "0"), 0),
+          reach,
+        ),
+      ),
+    );
+  });
+
+const spineScrollLeft = (page: import("@playwright/test").Page) =>
+  page.evaluate(() =>
+    Math.round((document.querySelector(".spine") as HTMLElement).scrollLeft),
+  );
+
 test.describe("reading spine", () => {
   test.beforeEach(async ({ page }) => {
     await mountApi(page, WORLD);
@@ -123,7 +152,8 @@ test.describe("reading spine", () => {
     await expect(page.getByRole("heading", { name: "The Frontmost Note" })).toBeVisible();
 
     // Centering an overflowing row would push its first column off the
-    // scrollable edge, where no scroll offset can reach it.
+    // scrollable edge, where no scroll offset can reach it. Zero is the root's
+    // own resting offset, so the snap leaves this write where it is put.
     const rootLeft = await page.evaluate(() => {
       const spine = document.querySelector(".spine") as HTMLElement;
       spine.scrollLeft = 0;
@@ -252,24 +282,34 @@ test.describe("reading spine", () => {
     await expect(columns).toHaveCount(DEEP_WORLD.notes.length);
     await expect(page.getByRole("heading", { name: "Deep Note 31" })).toBeVisible();
 
-    // Sample 21 offsets across the whole reachable scroll range.
-    const bodiesAcrossTheRange = await page.evaluate(() => {
+    // Sample 21 offsets across the whole reachable scroll range. Each write is
+    // snapped, so what is sampled is where the spine settles: every settled
+    // offset is a resting one, and each still leaves a column readable.
+    const resting = await restingOffsets(page);
+    const samples = await page.evaluate(async () => {
       const spine = document.querySelector(".spine") as HTMLElement;
+      const settle = (): Promise<void> =>
+        new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        );
       const reach = spine.scrollWidth - spine.clientWidth;
+      const offsets: number[] = [];
       const counts: number[] = [];
       for (let step = 0; step <= 20; step += 1) {
         spine.scrollLeft = (reach * step) / 20;
-        // A synchronous read forces the scroll to settle before the states are
-        // recomputed off it.
-        void spine.scrollLeft;
+        // A frame rather than a synchronous read: the states are recomputed from
+        // the scroll event the write fires, which the snap has settled by then.
+        await settle();
+        offsets.push(Math.round(spine.scrollLeft));
         counts.push(
           document.querySelectorAll(".spine-column:not(.spine-column--obscured)")
             .length,
         );
       }
-      return counts;
+      return { offsets, counts };
     });
-    expect(Math.min(...bodiesAcrossTheRange)).toBeGreaterThan(0);
+    expect(Math.min(...samples.counts)).toBeGreaterThan(0);
+    expect(samples.offsets.filter((offset) => !resting.includes(offset))).toEqual([]);
   });
 });
 
@@ -357,5 +397,156 @@ test.describe("reading spine (wide viewport, full motion)", () => {
     }
 
     expect(await page.locator(".spine-column").count()).toBe(4);
+  });
+});
+
+/*
+ * Scroll snapping: where a free scroll comes to rest. Only a real compositor
+ * snaps a scroll, and the snap positions are measured off per-column scroll
+ * margins that only a real cascade resolves.
+ */
+test.describe("spine snapping", () => {
+  const TRAIL =
+    "/?note=file:one.org&stacked=file:two.org&stacked=file:three.org&stacked=file:four.org";
+
+  test.beforeEach(async ({ page }) => {
+    await mountApi(page, WORLD);
+  });
+
+  test("the spine snaps by proximity, one mark per column pin", async ({ page }) => {
+    await page.goto(TRAIL);
+    await expect(page.getByRole("heading", { name: "The Frontmost Note" })).toBeVisible();
+
+    const declared = await page.evaluate(() => {
+      const columns = Array.from(
+        document.querySelectorAll(".spine-column"),
+      ) as HTMLElement[];
+      const marks = Array.from(document.querySelectorAll(".spine-snap")) as HTMLElement[];
+      return {
+        // The initial strictness is dropped from the computed value, so a
+        // mandatory spine would read here as "x mandatory".
+        type: getComputedStyle(document.querySelector(".spine") as HTMLElement)
+          .scrollSnapType,
+        marks: marks.map((mark) => ({
+          align: getComputedStyle(mark).scrollSnapAlign,
+          margin: getComputedStyle(mark).scrollMarginLeft,
+          width: mark.getBoundingClientRect().width,
+        })),
+        columnAlign: columns.map((column) => getComputedStyle(column).scrollSnapAlign),
+        pins: columns.map((column) => column.style.left),
+      };
+    });
+
+    expect(declared.type).toBe("x");
+    // A mark per column, in flow order, each taking no width of the row.
+    expect(declared.marks.map((mark) => mark.align)).toEqual([
+      "start",
+      "start",
+      "start",
+      "start",
+    ]);
+    expect(declared.marks.map((mark) => mark.width)).toEqual([0, 0, 0, 0]);
+    // The margin is what moves the snap position off the mark's own place in the
+    // flow and onto the offset the column pins at; a mismatch would snap the
+    // column under the slivers.
+    expect(declared.marks.map((mark) => mark.margin)).toEqual(declared.pins);
+    // The columns are left out of it: a pinned one carries its snap position with
+    // it, which would make the offset it snaps to the offset it starts from.
+    expect(declared.columnAlign).toEqual(["none", "none", "none", "none"]);
+  });
+
+  test("a free scroll settles with a column at its resting offset", async ({ page }) => {
+    await page.goto(TRAIL);
+    await expect(page.getByRole("heading", { name: "The Frontmost Note" })).toBeVisible();
+
+    const resting = await restingOffsets(page);
+    await page.evaluate(() => {
+      (document.querySelector(".spine") as HTMLElement).scrollLeft = 0;
+    });
+
+    // A wheel short of a column's width: unsnapped it would rest part-way
+    // across one, cutting it at the edge.
+    await page.mouse.move(600, 500);
+    await page.mouse.wheel(300, 0);
+    await expect
+      .poll(async () => {
+        const left = await spineScrollLeft(page);
+        return left > 0 && resting.includes(left);
+      })
+      .toBe(true);
+  });
+
+  test("a programmatic reveal lands on the target column's own resting offset", async ({
+    page,
+  }) => {
+    await mountApi(page, DEEP_WORLD);
+    await page.goto(DEEP_TRAIL);
+    await expect(page.getByRole("heading", { name: "Deep Note 31" })).toBeVisible();
+
+    // The reveal aims at a centered inset, which sits a little left of where the
+    // column rests; the column's own resting offset is still the nearest snap
+    // position, so the aim and the snap agree.
+    const resting = await restingOffsets(page);
+    await page.locator("button.reading-note--obscured").nth(5).click();
+    await expect.poll(() => spineScrollLeft(page)).toBe(resting[5]);
+
+    await expect(page.getByRole("heading", { name: "Deep Note 5" })).toBeVisible();
+    const revealed = await page.evaluate(() => {
+      const spine = document.querySelector(".spine") as HTMLElement;
+      const column = document.querySelectorAll(".spine-column")[5] as HTMLElement;
+      return {
+        left: Math.round(
+          column.getBoundingClientRect().left - spine.getBoundingClientRect().left,
+        ),
+        pin: Math.round(Number.parseFloat(column.style.left || "0")),
+      };
+    });
+    expect(revealed.left).toBe(revealed.pin);
+  });
+});
+
+/*
+ * The narrow layout, where the run scrolls vertically and the marks stand at the
+ * seams between stacked notes, so a scroll settling near one settles on it.
+ */
+test.describe("spine snapping in the narrow layout", () => {
+  test.use({ viewport: { width: 375, height: 720 } });
+
+  test.beforeEach(async ({ page }) => {
+    await mountApi(page, WORLD);
+  });
+
+  test("a scroll settling near a seam settles on it", async ({ page }) => {
+    await page.goto("/?note=file:one.org&stacked=file:two.org");
+    await expect(page.getByRole("heading", { name: "Note Two" })).toBeVisible();
+
+    // The seam is the second note's top edge in the run's own scroll
+    // coordinates, which the reveal on arrival has already scrolled to.
+    const run = await page.evaluate(() => {
+      const spine = document.querySelector(".spine") as HTMLElement;
+      const second = document.querySelectorAll(".spine-column")[1] as HTMLElement;
+      return {
+        seam: Math.round(
+          second.getBoundingClientRect().top -
+            spine.getBoundingClientRect().top +
+            spine.scrollTop,
+        ),
+        height: spine.clientHeight,
+      };
+    });
+
+    // A fifth of a reader short of the seam: unsnapped it would rest with the
+    // last of one note above the first of the next.
+    await page.evaluate((top) => {
+      (document.querySelector(".spine") as HTMLElement).scrollTop = top;
+    }, run.seam - Math.round(run.height * 0.2));
+
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Math.round((document.querySelector(".spine") as HTMLElement).scrollTop),
+        ),
+      )
+      .toBe(run.seam);
   });
 });

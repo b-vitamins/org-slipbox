@@ -25,8 +25,25 @@
   /* A swipe carried past either end stays in the spine instead of reaching the
    * browser as a history gesture, which would leave the page mid-read. */
   overscroll-behavior-x: contain;
+  /* A free scroll settles with a column at the offset it pins at rather than
+   * part-cut at an edge. By proximity, not mandatory, so a reader deliberately
+   * holding two half columns is not fought. */
+  scroll-snap-type: x proximity;
   height: calc(100vh - var(--header-min-height));
   height: calc(100dvh - var(--header-min-height));
+}
+
+/* Where each column comes to rest: a zero-size box at the column's own place in
+ * the flow, with `Spine.tsx` writing the pin as its scroll margin, so the snap
+ * position and the pin are the same offset. The column cannot carry the mark
+ * itself: a `sticky` box's snap area is taken from where it is pinned, which
+ * makes its snap position follow the scroll offset it is there to decide, and a
+ * short scroll then has nowhere to go but back. In the narrow layout the same
+ * marks stand at the seams between stacked notes, one per note. */
+.spine-snap {
+  flex: 0 0 0;
+  align-self: stretch;
+  scroll-snap-align: start;
 }
 
 .spine-column {
@@ -534,6 +551,10 @@
      * axes: the pull that reaches an end is a vertical one, and a sideways
      * gesture has no range to spend on this axis at all. */
     overscroll-behavior: contain;
+    /* Per note, on the axis the run scrolls: the marks stand at the seams here,
+     * so a scroll that leaves one part-way up the reader settles with the note
+     * under it against the top edge. */
+    scroll-snap-type: y proximity;
     /* Unpinned from the viewport: the stacked run is the scroller here. */
     height: auto;
   }

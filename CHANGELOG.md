@@ -33,6 +33,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
   Each listing pages on its own key, so a token the other minted is refused
   rather than resumed at the wrong place. `/api/glossary/search` ranks by
   relevance, which is no stable key, so it serves one page and states the cut.
+- Rest the reading spine at a snap position, so a free scroll settles with a
+  column against the offset it pins at rather than part-cut at an edge. Snapping
+  is by proximity, leaving a reader who deliberately holds two half columns
+  alone, and the narrow run snaps per note on the axis it scrolls.
 
 ### Changed
 - Draw the `dormant` lens's candidates from link topology rather than from shared

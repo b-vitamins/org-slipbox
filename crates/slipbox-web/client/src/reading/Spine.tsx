@@ -136,7 +136,7 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
       revealFrame = null;
       const snapshot = measure();
       if (narrow()) {
-        const column = container.children.item(index);
+        const column = container.querySelectorAll(".spine-column").item(index);
         if (column instanceof HTMLElement) {
           container.scrollTo({
             top: verticalRevealTop(
@@ -180,6 +180,11 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
     onCleanup(() => container.removeEventListener("scroll", onScroll, true));
   });
 
+  // The offset a column pins at, written twice: as the column's own `sticky`
+  // offset, and as the scroll margin of the snap mark standing in for it. CSS
+  // cannot compute a per-index offset, so both are written here.
+  const pin = (index: number): string => `${columnOffset(index, metrics())}px`;
+
   const states = createMemo<ColumnState[]>(() =>
     columnStates(props.stack.keys().length, scrollLeft(), metrics(), narrow()),
   );
@@ -188,30 +193,41 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
     <div ref={container} class="spine">
       <For each={props.stack.keys()}>
         {(reference, index) => (
-          <section
-            class="spine-column"
-            classList={{
-              "spine-column--resting": (states()[index()] ?? "resting") === "resting",
-              "spine-column--overlay": states()[index()] === "overlay",
-              "spine-column--obscured": states()[index()] === "obscured",
-            }}
-            style={{ left: `${columnOffset(index(), metrics())}px` }}
-          >
-            {/* The boundary must sit outside the column, not inside it: a Solid
-                boundary cannot catch a throw from the scope it is rendered in.
-                The fallback is handed the boundary's own reset, since a caught
-                error latches and nothing the column fetches later clears it. */}
-            <ErrorBoundary
-              fallback={(_error, reset) => <UnreadableColumn retry={reset} />}
+          <>
+            {/* Where this column comes to rest, marked for the scrollport at the
+                column's own place in the flow. The column cannot carry the mark
+                itself: it is `sticky`, and a pinned box takes its snap position
+                with it (see reading.css). */}
+            <div
+              class="spine-snap"
+              aria-hidden="true"
+              style={{ "scroll-margin-left": pin(index()) }}
+            />
+            <section
+              class="spine-column"
+              classList={{
+                "spine-column--resting": (states()[index()] ?? "resting") === "resting",
+                "spine-column--overlay": states()[index()] === "overlay",
+                "spine-column--obscured": states()[index()] === "obscured",
+              }}
+              style={{ left: pin(index()) }}
             >
-              <ReadingColumn
-                reference={reference}
-                state={states()[index()] ?? "resting"}
-                navigation={spineNavigation(props.stack, glances, index, revealColumn)}
-                onReveal={() => revealColumn(index())}
-              />
-            </ErrorBoundary>
-          </section>
+              {/* The boundary must sit outside the column, not inside it: a Solid
+                  boundary cannot catch a throw from the scope it is rendered in.
+                  The fallback is handed the boundary's own reset, since a caught
+                  error latches and nothing the column fetches later clears it. */}
+              <ErrorBoundary
+                fallback={(_error, reset) => <UnreadableColumn retry={reset} />}
+              >
+                <ReadingColumn
+                  reference={reference}
+                  state={states()[index()] ?? "resting"}
+                  navigation={spineNavigation(props.stack, glances, index, revealColumn)}
+                  onReveal={() => revealColumn(index())}
+                />
+              </ErrorBoundary>
+            </section>
+          </>
         )}
       </For>
       <Show when={glances.request()}>
