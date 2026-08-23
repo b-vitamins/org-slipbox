@@ -214,12 +214,20 @@ export class ReadingClient {
     );
   }
 
-  glossaryTerms(options: { limit?: number } = {}): Promise<GlossaryTermsResult> {
+  /**
+   * One page of the glossary. `after` is a `next_position` handed out by an
+   * earlier page, opaque here and minted per listing: composing one, or carrying
+   * one across listings, is a request the server refuses.
+   */
+  glossaryTerms(
+    options: { limit?: number; after?: string } = {},
+  ): Promise<GlossaryTermsResult> {
     return this.get<GlossaryTermsResult>(
-      `/api/glossary/terms${buildQuery({ limit: options.limit })}`,
+      `/api/glossary/terms${buildQuery({ limit: options.limit, after: options.after })}`,
     );
   }
 
+  /** Ranked, so the route mints no position and takes none: one page per query. */
   searchGlossary(
     query: string,
     options: { limit?: number } = {},
@@ -236,13 +244,14 @@ export class ReadingClient {
   }
 
   glossaryDue(
-    options: { today?: string; query?: string; limit?: number } = {},
+    options: { today?: string; query?: string; limit?: number; after?: string } = {},
   ): Promise<GlossaryTermsResult> {
     return this.get<GlossaryTermsResult>(
       `/api/glossary/due${buildQuery({
         today: options.today,
         q: options.query,
         limit: options.limit,
+        after: options.after,
       })}`,
     );
   }

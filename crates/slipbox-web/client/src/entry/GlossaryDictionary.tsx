@@ -22,7 +22,7 @@ import {
 } from "solid-js";
 
 import { ApiError, client } from "../api/client.js";
-import type { NodeRecord } from "../api/types.js";
+import type { GlossaryTermsResult, NodeRecord } from "../api/types.js";
 import { createReadingResource } from "../data/create-reading-resource.js";
 import { WINDOW_SCHEDULER } from "../data/scheduler.js";
 import { useDocumentTitle } from "../dom/document-title.js";
@@ -34,10 +34,12 @@ import { markedIndex, moveSelection } from "./selection.js";
 import { dueStanding } from "./study-facts.js";
 import "./glossary.css";
 
-/** How many terms a listing or search shows. */
+/** How many terms one page of a listing or search holds. */
 const TERM_LIMIT = 200;
 /** Stable id root for listbox options, so `aria-activedescendant` can target them. */
 const OPTION_ID = "glossary-option";
+/** How near the end of the list, in px, asks for the page after it. */
+const CONTINUE_WITHIN = 48;
 
 /** The two list modes: browse the whole glossary, or study what's due. */
 export type GlossaryMode = "browse" | "study";
@@ -61,6 +63,30 @@ function narrowToFilter(
       text.toLocaleLowerCase().includes(needle),
     ),
   );
+}
+
+/**
+ * `rows` with the first appearance of each key kept. A page read after the first
+ * page was re-read can repeat a term the surface already holds, and two rows
+ * resolving to one peek is a list a reader cannot walk.
+ */
+function firstOfEachKey(rows: NodeRecord[]): NodeRecord[] {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    if (seen.has(row.node_key)) {
+      return false;
+    }
+    seen.add(row.node_key);
+    return true;
+  });
+}
+
+/** What a first page answered with, and the listing it answered for. */
+interface KeptPage {
+  readonly listing: string;
+  readonly rows: NodeRecord[];
+  /** The position it handed out, which the pages after it were read from. */
+  readonly boundary: string | null;
 }
 
 function describeError(error: unknown): string {
@@ -205,13 +231,106 @@ export const GlossaryDictionary: Component<{
     () => client.glossaryDue({ limit: TERM_LIMIT }),
   );
 
+  /** The first page of whichever listing the mode names. */
+  const page = (): GlossaryTermsResult | undefined =>
+    mode() === "study" ? due.ready() : browsed.ready();
+
+  // The pages read past the first. A reading resource holds one value per key, so
+  // a page read through it replaces the page before it instead of extending it;
+  // the pages the reader has walked to accumulate here.
+  const [appended, setAppended] = createSignal<NodeRecord[]>([]);
+  /**
+   * Where the next page continues from: null once the listing is spent, and
+   * undefined while none has been continued yet, when the first page's own
+   * position is the one to echo.
+   */
+  const [position, setPosition] = createSignal<string | null | undefined>(
+    undefined,
+  );
+  /**
+   * The listing a page is in flight for, or null when none is. Keyed, because one
+   * listing's flight says nothing about the listing that replaced it: read
+   * globally it would report the new list as mid-continuation and refuse to
+   * continue it.
+   */
+  const [continuingListing, setContinuingListing] = createSignal<string | null>(
+    null,
+  );
+  const [pageFailure, setPageFailure] = createSignal<unknown>(undefined);
+  /**
+   * The position a continuation failed at. The scrollport asks for the page after
+   * the rows on every gesture at its end, so a page that failed would go out
+   * again on each one; the offer below the list is the way to ask again.
+   */
+  const [failedPosition, setFailedPosition] = createSignal<string | null>(null);
+
+  /**
+   * Which listing is on screen. A change of it starts the pages over, since a
+   * position is minted per listing and rows read from one belong to no other. The
+   * due filter is not part of it: the field narrows rows already held, and a
+   * keystroke that threw those rows away would re-read the listing to narrow it.
+   */
+  const listingKey = createMemo(() =>
+    mode() === "study" ? "due" : `browse:${search.term() ?? ""}`,
+  );
+
+  /** Forget every page read past the first, whose order no longer holds. */
+  const startPagesOver = (): void => {
+    setAppended([]);
+    setPosition(undefined);
+    setPageFailure(undefined);
+    setFailedPosition(null);
+  };
+
+  createEffect(on(listingKey, startPagesOver, { defer: true }));
+
+  /**
+   * What the first page last answered with. A listing on screen is not owed to the
+   * request that refreshed it, so these rows stand in for a re-read that failed;
+   * tagged with the listing, so rows of one never stand in another.
+   */
+  const [keptPage, setKeptPage] = createSignal<KeptPage | null>(null);
+
+  // A first page answering with another boundary is a listing that moved under the
+  // pages read past the old one: those rows belong to an order it no longer has,
+  // and holding them would show a list no request ever answered with. `on` runs
+  // its callback untracked, so the record it compares against is also its own.
+  createEffect(
+    on(page, (answered) => {
+      if (answered === undefined) {
+        return;
+      }
+      const listing = listingKey();
+      const boundary = answered.next_position ?? null;
+      const kept = keptPage();
+      if (kept !== null && kept.listing === listing && kept.boundary !== boundary) {
+        startPagesOver();
+      }
+      setKeptPage({ listing, rows: answered.terms, boundary });
+    }),
+  );
+
+  /** The first page's rows: the live page, or the ones kept over a failed re-read. */
+  const firstRows = (): NodeRecord[] => {
+    const answered = page();
+    if (answered !== undefined) {
+      return answered.terms;
+    }
+    const kept = keptPage();
+    return kept !== null && kept.listing === listingKey() ? kept.rows : [];
+  };
+
+  /** Every row read for the listing on screen, in the order its pages arrived. */
+  const held = createMemo<NodeRecord[]>(() =>
+    firstOfEachKey([...firstRows(), ...appended()]),
+  );
+
   // The due listing takes no query, so the field narrows the rows it answered with
   // rather than asking for a narrower listing.
-  const dueListed = (): NodeRecord[] => due.ready()?.terms ?? [];
-  const dueShown = createMemo(() => narrowToFilter(dueListed(), search.term()));
+  const dueShown = createMemo(() => narrowToFilter(held(), search.term()));
 
   const terms = createMemo<NodeRecord[]>(() =>
-    mode() === "study" ? dueShown() : (browsed.ready()?.terms ?? []),
+    mode() === "study" ? dueShown() : held(),
   );
   const loading = (): boolean =>
     mode() === "study" ? due.loading() : browsed.loading();
@@ -220,7 +339,97 @@ export const GlossaryDictionary: Component<{
 
   /** Whether terms are due and the filter is what left none of them showing. */
   const filterHidDue = (): boolean =>
-    mode() === "study" && dueShown().length === 0 && dueListed().length > 0;
+    mode() === "study" && dueShown().length === 0 && held().length > 0;
+
+  /**
+   * Whether this listing pages at all. Browse and due walk a stored order, so a
+   * position in it means the same thing on the next request; a search is ranked by
+   * relevance, which no stored key can pick up from, so the index mints no
+   * position for one and the whole answer is the one page.
+   */
+  const continuable = (): boolean =>
+    mode() === "study" || search.term() === null;
+
+  /** The token asking for the page after the ones held, or null when none does. */
+  const nextPosition = (): string | null => {
+    const advanced = position();
+    if (advanced !== undefined) {
+      return advanced;
+    }
+    const first = page();
+    return first?.has_more ? (first.next_position ?? null) : null;
+  };
+
+  /** Whether the listing holds terms the surface has not read. */
+  const moreFollow = (): boolean =>
+    continuable() ? nextPosition() !== null : (page()?.has_more ?? false);
+
+  /** Whether there is a page to ask for, which only a paged listing has. */
+  const canContinue = (): boolean => continuable() && moreFollow();
+
+  /** Whether the listing on screen has a page of its own in flight. */
+  const continuing = (): boolean => continuingListing() === listingKey();
+
+  /**
+   * How much of the listing the surface is holding, said only while it holds less
+   * than all of it. A search says as much and names the remedy it has instead of a
+   * continuation, rather than leaving a reader to work out which lists go on.
+   */
+  const cutStatement = (): string | null => {
+    const total = page()?.total;
+    if (typeof total !== "number" || !moreFollow()) {
+      return null;
+    }
+    return continuable()
+      ? `${held().length} of ${total} terms read.`
+      : `${held().length} of ${total} matches shown; a narrower search reaches the rest.`;
+  };
+
+  /**
+   * Read the page after the ones held and keep it beside them. The position is the
+   * one the listing handed out, echoed rather than composed: it is the index's to
+   * mint and its to refuse.
+   */
+  const continueListing = async (): Promise<void> => {
+    const after = nextPosition();
+    if (after === null || continuing() || !continuable()) {
+      return;
+    }
+    const listing = listingKey();
+    setContinuingListing(listing);
+    setPageFailure(undefined);
+    try {
+      const next =
+        mode() === "study"
+          ? await client.glossaryDue({ limit: TERM_LIMIT, after })
+          : await client.glossaryTerms({ limit: TERM_LIMIT, after });
+      // A listing the reader left while the page was in flight keeps its own
+      // pages: these rows are of a list no longer on screen.
+      if (listingKey() === listing) {
+        setAppended((rows) => [...rows, ...next.terms]);
+        setPosition(next.has_more ? (next.next_position ?? null) : null);
+        setFailedPosition(null);
+      }
+    } catch (error) {
+      if (listingKey() === listing) {
+        setPageFailure(error);
+        setFailedPosition(after);
+      }
+    } finally {
+      setContinuingListing((current) => (current === listing ? null : current));
+    }
+  };
+
+  /**
+   * Continue at the end of the scrollport, unless the page there is the one that
+   * failed: a gesture is not a fresh instruction, and a failing page asked for on
+   * every one of them is a request storm the reader never made.
+   */
+  const continueOnScroll = (): void => {
+    if (nextPosition() !== failedPosition()) {
+      void continueListing();
+    }
+  };
 
   // `search.term()` is null exactly when the field holds no searchable word, which
   // is the "no search yet" case.
@@ -401,67 +610,102 @@ export const GlossaryDictionary: Component<{
           )}
         </Show>
 
+        {/* Above the rows rather than in place of them: a re-read that failed
+            takes nothing away, and a listing the reader is holding is not owed
+            to the request that refreshed it. */}
+        <Show when={failure()}>
+          <p class="glossary-status glossary-status--error">
+            {describeError(failure())}
+          </p>
+        </Show>
+
         <Show
-          when={!failure()}
+          when={terms().length > 0}
           fallback={
-            <p class="glossary-status glossary-status--error">
-              {describeError(failure())}
-            </p>
-          }
-        >
-          <Show
-            when={terms().length > 0}
-            fallback={
+            <Show when={!failure()}>
               <Show
                 when={!loading()}
                 fallback={<p class="glossary-status">Reading the glossary…</p>}
               >
                 <p class="glossary-status">{emptyMessage()}</p>
               </Show>
-            }
+            </Show>
+          }
+        >
+          {/* The field is the tab stop in both modes and carries the cursor, so
+              the popup it controls takes neither and needs no key handler of its
+              own. */}
+          <ul
+            id={listboxId}
+            role="listbox"
+            aria-label="Glossary terms"
+            class="glossary-terms"
+            // The list scrolls its own box, so its end is where the reader
+            // reaches the end of what has been read, and what asks for more.
+            onScroll={(event) => {
+              const box = event.currentTarget;
+              const past = box.scrollHeight - box.scrollTop - box.clientHeight;
+              if (past <= CONTINUE_WITHIN) {
+                continueOnScroll();
+              }
+            }}
           >
-            {/* The field is the tab stop in both modes and carries the cursor, so
-                the popup it controls takes neither and needs no key handler of its
-                own. */}
-            <ul
-              id={listboxId}
-              role="listbox"
-              aria-label="Glossary terms"
-              class="glossary-terms"
-            >
-              <For each={terms()}>
-                {(term, index) => (
-                  <li
-                    id={optionId(index())}
-                    role="option"
-                    aria-selected={active() === index()}
-                    class="glossary-term"
-                    classList={{
-                      "glossary-term--active": active() === index(),
-                    }}
-                    // A pointer only selects the row to peek it; opening is the
-                    // peek's own control or Enter. Click as well as hover, since a
-                    // touch pointer has no hover to select with.
-                    onMouseEnter={() => markRow(index())}
-                    onClick={() => markRow(index())}
-                  >
-                    <span class="glossary-term__title">{term.title}</span>
-                    {/* Only where the reader is reading the schedule: in browse
-                        mode a standing would be a fact about a listing that is not
-                        the one on screen. */}
-                    <Show when={mode() === "study" && dueStanding(term)}>
-                      {(standing) => (
-                        <span class="glossary-term__standing">{standing()}</span>
-                      )}
-                    </Show>
-                    <Show when={term.glossary_status === "stub"}>
-                      <span class="glossary-term__stub">stub</span>
-                    </Show>
-                  </li>
-                )}
-              </For>
-            </ul>
-          </Show>
+            <For each={terms()}>
+              {(term, index) => (
+                <li
+                  id={optionId(index())}
+                  role="option"
+                  aria-selected={active() === index()}
+                  class="glossary-term"
+                  classList={{
+                    "glossary-term--active": active() === index(),
+                  }}
+                  // A pointer only selects the row to peek it; opening is the
+                  // peek's own control or Enter. Click as well as hover, since a
+                  // touch pointer has no hover to select with.
+                  onMouseEnter={() => markRow(index())}
+                  onClick={() => markRow(index())}
+                >
+                  <span class="glossary-term__title">{term.title}</span>
+                  {/* Only where the reader is reading the schedule: in browse
+                      mode a standing would be a fact about a listing that is not
+                      the one on screen. */}
+                  <Show when={mode() === "study" && dueStanding(term)}>
+                    {(standing) => (
+                      <span class="glossary-term__standing">{standing()}</span>
+                    )}
+                  </Show>
+                  <Show when={term.glossary_status === "stub"}>
+                    <span class="glossary-term__stub">stub</span>
+                  </Show>
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
+
+        {/* Below the scrollport rather than inside it: a control the list scrolls
+            away is one a reader has to find, and a listing whose rows a filter
+            hid still has a cut to state. */}
+        <Show when={cutStatement()}>
+          {(statement) => (
+            <p class="glossary-status glossary-status--hint">{statement()}</p>
+          )}
+        </Show>
+        <Show when={pageFailure()}>
+          <p class="glossary-status glossary-status--error">
+            More terms could not be read: {describeError(pageFailure())}
+          </p>
+        </Show>
+        <Show when={canContinue()}>
+          <button
+            type="button"
+            class="glossary-more"
+            disabled={continuing()}
+            onClick={() => void continueListing()}
+          >
+            {continuing() ? "Reading more terms…" : "Read more terms"}
+          </button>
         </Show>
       </div>
 

@@ -102,6 +102,58 @@ function routedFetch(routes: Record<string, unknown>): typeof fetch {
   }) as unknown as typeof fetch;
 }
 
+/**
+ * A double routing on the whole request rather than on its path, since the pages
+ * of one listing differ only by their query. `answer` returns a body to serve as a
+ * 200, or a `Response` of its own for a failing page.
+ */
+function pagedFetch(answer: (url: URL) => unknown): typeof fetch {
+  return vi.fn((input: RequestInfo | URL) => {
+    const answered = answer(new URL(String(input), "http://slipbox.test"));
+    return Promise.resolve(
+      answered instanceof Response ? answered : ok(answered),
+    );
+  }) as unknown as typeof fetch;
+}
+
+/**
+ * A browse listing of four terms served two at a time, plus a definition for
+ * whichever term is peeked. `past-beta` is the position the first page hands out,
+ * which the second page is served for and for nothing else.
+ */
+function twoPageWorld(url: URL): unknown {
+  if (url.pathname === "/api/glossary/terms") {
+    return url.searchParams.get("after") === "past-beta"
+      ? {
+          terms: [
+            term("notes/c.org::0", "Gamma"),
+            term("notes/d.org::0", "Delta"),
+          ],
+          total: 4,
+          has_more: false,
+          next_position: null,
+        }
+      : {
+          terms: [
+            term("notes/a.org::0", "Alpha"),
+            term("notes/b.org::0", "Beta"),
+          ],
+          total: 4,
+          has_more: true,
+          next_position: "past-beta",
+        };
+  }
+  const key = url.searchParams.get("key") ?? "";
+  return contextFor(key, key, "Body.");
+}
+
+/** The URLs a `pagedFetch` or `routedFetch` double was asked for, in order. */
+function asked(stub: typeof fetch): string[] {
+  return (stub as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([url]) =>
+    String(url),
+  );
+}
+
 function memoryQueryUrl(initial: string | null = null): QueryUrl & {
   readonly writes: (string | null)[];
 } {
@@ -1508,5 +1560,475 @@ describe("GlossaryDictionary", () => {
       await screen.findByRole("option", { name: "Entropy" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("combobox")).toHaveValue("entropy");
+  });
+
+  it("reads the page after the first, holding each term exactly once", async () => {
+    vi.stubGlobal("fetch", pagedFetch(twoPageWorld));
+
+    mount();
+    await screen.findByRole("option", { name: "Beta" });
+
+    // The cut is stated before it is continued: a list ending at Beta with no
+    // word about the rest is a list a reader takes for the whole glossary.
+    expect(screen.getByText("2 of 4 terms read.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Read more terms" }));
+
+    await screen.findByRole("option", { name: "Delta" });
+    expect(screen.getAllByRole("option").map((row) => row.textContent)).toEqual([
+      "Alpha",
+      "Beta",
+      "Gamma",
+      "Delta",
+    ]);
+    // Nothing follows the last page, so nothing is claimed and nothing offered.
+    expect(screen.queryByText(/terms read\./)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Read more terms" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("continues the list when its own scrollport reaches the end", async () => {
+    vi.stubGlobal("fetch", pagedFetch(twoPageWorld));
+
+    mount();
+    await screen.findByRole("option", { name: "Beta" });
+
+    // jsdom lays nothing out, so the list measures zero high and is at its end
+    // by the same arithmetic a browser scrolled to the bottom satisfies.
+    fireEvent.scroll(screen.getByRole("listbox"));
+
+    expect(
+      await screen.findByRole("option", { name: "Gamma" }),
+    ).toBeInTheDocument();
+  });
+
+  it("holds the peeked term and the cursor across a continuation", async () => {
+    vi.stubGlobal("fetch", pagedFetch(twoPageWorld));
+
+    mount();
+    await screen.findByRole("option", { name: "Beta" });
+
+    const field = screen.getByRole("combobox");
+    fireEvent.keyDown(field, { key: "ArrowDown" });
+    expect(field).toHaveAttribute("aria-activedescendant", "glossary-option-1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Read more terms" }));
+    await screen.findByRole("option", { name: "Delta" });
+
+    // Rows arrive after the ones held, and the peek is keyed by term rather than
+    // by row, so neither the cursor nor the definition beside it moves.
+    expect(field).toHaveAttribute("aria-activedescendant", "glossary-option-1");
+    expect(screen.getByRole("option", { name: "Beta" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("keeps the terms already read when a continuation fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      pagedFetch((url) =>
+        url.pathname === "/api/glossary/terms" && url.searchParams.get("after")
+          ? new Response(
+              JSON.stringify({
+                error: { kind: "unavailable", message: "daemon is down" },
+              }),
+              { status: 503, headers: { "content-type": "application/json" } },
+            )
+          : twoPageWorld(url),
+      ),
+    );
+
+    mount();
+    await screen.findByRole("option", { name: "Beta" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Read more terms" }));
+
+    expect(
+      await screen.findByText(
+        "More terms could not be read: unavailable: daemon is down",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("option")).toHaveLength(2);
+    // The page it failed on is still the page it would ask for, so the offer
+    // stands as the way to try again.
+    expect(
+      screen.getByRole("button", { name: "Read more terms" }),
+    ).toBeInTheDocument();
+  });
+
+  it("stops asking for a page that failed until the reader asks again", async () => {
+    const fetch = pagedFetch((url) =>
+      url.pathname === "/api/glossary/terms" && url.searchParams.get("after")
+        ? new Response(
+            JSON.stringify({
+              error: { kind: "unavailable", message: "daemon is down" },
+            }),
+            { status: 503, headers: { "content-type": "application/json" } },
+          )
+        : twoPageWorld(url),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const attempts = (): string[] =>
+      asked(fetch).filter((url) => url.includes("after=past-beta"));
+
+    mount();
+    await screen.findByRole("option", { name: "Beta" });
+
+    const list = screen.getByRole("listbox");
+    fireEvent.scroll(list);
+    await screen.findByText(
+      "More terms could not be read: unavailable: daemon is down",
+    );
+    expect(attempts()).toHaveLength(1);
+
+    fireEvent.scroll(list);
+    fireEvent.scroll(list);
+
+    // jsdom lays nothing out, so every gesture reads as the end of the box the
+    // way a scrolled list does. The request goes out from the handler itself, so
+    // a re-issued page is already recorded here.
+    expect(attempts()).toHaveLength(1);
+
+    // The offer is the way to try it again, and asking through it asks once.
+    fireEvent.click(screen.getByRole("button", { name: "Read more terms" }));
+    await waitFor(() => expect(attempts()).toHaveLength(2));
+  });
+
+  it("drops the pages read past a boundary the first page no longer names", async () => {
+    let firstPageReads = 0;
+    vi.stubGlobal(
+      "fetch",
+      pagedFetch((url) => {
+        if (url.pathname !== "/api/glossary/terms") {
+          const key = url.searchParams.get("key") ?? "";
+          return contextFor(key, key, "Body.");
+        }
+        if (url.searchParams.get("after") === "past-beta") {
+          return {
+            terms: [
+              term("notes/c.org::0", "Gamma"),
+              term("notes/d.org::0", "Delta"),
+            ],
+            total: 4,
+            has_more: false,
+            next_position: null,
+          };
+        }
+        firstPageReads += 1;
+        // A term filed ahead of Alpha between the two reads, so the first page
+        // ends one term earlier and hands out a boundary of its own.
+        return firstPageReads === 1
+          ? {
+              terms: [
+                term("notes/a.org::0", "Alpha"),
+                term("notes/b.org::0", "Beta"),
+              ],
+              total: 4,
+              has_more: true,
+              next_position: "past-beta",
+            }
+          : {
+              terms: [
+                term("notes/aa.org::0", "Aardvark"),
+                term("notes/a.org::0", "Alpha"),
+              ],
+              total: 5,
+              has_more: true,
+              next_position: "past-alpha",
+            };
+      }),
+    );
+
+    mount();
+    await screen.findByRole("option", { name: "Beta" });
+    fireEvent.click(screen.getByRole("button", { name: "Read more terms" }));
+    await screen.findByRole("option", { name: "Delta" });
+
+    fireEvent(window, new Event("focus"));
+    await screen.findByRole("option", { name: "Aardvark" });
+
+    // Gamma and Delta were read from a boundary this first page does not hand
+    // out, so they are rows of an order that no longer holds; keeping them would
+    // show a listing no request ever answered with.
+    await waitFor(() =>
+      expect(screen.getAllByRole("option").map((row) => row.textContent)).toEqual(
+        ["Aardvark", "Alpha"],
+      ),
+    );
+    expect(screen.getByText("2 of 5 terms read.")).toBeInTheDocument();
+  });
+
+  it("keeps the terms read when a re-read of the first page fails", async () => {
+    let reads = 0;
+    vi.stubGlobal(
+      "fetch",
+      pagedFetch((url) => {
+        if (url.pathname !== "/api/glossary/terms") {
+          const key = url.searchParams.get("key") ?? "";
+          return contextFor(key, key, "Body.");
+        }
+        reads += 1;
+        return reads === 1
+          ? {
+              terms: [
+                term("notes/a.org::0", "Alpha"),
+                term("notes/b.org::0", "Beta"),
+              ],
+              total: 2,
+              has_more: false,
+              next_position: null,
+            }
+          : new Response(
+              JSON.stringify({
+                error: { kind: "unavailable", message: "daemon is down" },
+              }),
+              { status: 503, headers: { "content-type": "application/json" } },
+            );
+      }),
+    );
+
+    mount();
+    await screen.findByRole("option", { name: "Beta" });
+
+    fireEvent(window, new Event("focus"));
+    await screen.findByText("unavailable: daemon is down");
+
+    // A listing on screen is not owed to the request that refreshed it: the
+    // failure is stated beside the terms already read rather than in place of
+    // them, which would take the whole list away for the duration of an outage.
+    expect(screen.getAllByRole("option").map((row) => row.textContent)).toEqual([
+      "Alpha",
+      "Beta",
+    ]);
+  });
+
+  it("holds no continuation over the listing the mode switched to", async () => {
+    let releaseSecondPage = (): void => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = new URL(String(input), "http://slipbox.test");
+        if (url.pathname === "/api/glossary/due") {
+          return Promise.resolve(
+            ok({
+              terms: [
+                term("notes/one.org::0", "One", { sr_due: "2026-01-01" }),
+              ],
+              total: 2,
+              has_more: true,
+              next_position: "past-one",
+            }),
+          );
+        }
+        if (url.pathname === "/api/glossary/terms") {
+          if (url.searchParams.get("after") === "past-beta") {
+            // Left in flight, so the request outlives the listing that asked.
+            return new Promise<Response>((resolve) => {
+              releaseSecondPage = () =>
+                resolve(
+                  ok({
+                    terms: [term("notes/c.org::0", "Gamma")],
+                    total: 3,
+                    has_more: false,
+                    next_position: null,
+                  }),
+                );
+            });
+          }
+          return Promise.resolve(
+            ok({
+              terms: [
+                term("notes/a.org::0", "Alpha"),
+                term("notes/b.org::0", "Beta"),
+              ],
+              total: 3,
+              has_more: true,
+              next_position: "past-beta",
+            }),
+          );
+        }
+        const key = url.searchParams.get("key") ?? "";
+        return Promise.resolve(ok(contextFor(key, key, "Body.")));
+      }) as unknown as typeof fetch,
+    );
+
+    const surface = mount();
+    await screen.findByRole("option", { name: "Beta" });
+    fireEvent.click(screen.getByRole("button", { name: "Read more terms" }));
+    expect(
+      screen.getByRole("button", { name: /Reading more terms/ }),
+    ).toBeDisabled();
+
+    surface.showMode("study");
+    await screen.findByRole("option", { name: /^One/ });
+
+    // The flight belongs to the listing it was started for, so the listing that
+    // replaced it is not reported as mid-continuation and its own way onward is
+    // one the reader can take.
+    expect(screen.getByRole("button", { name: "Read more terms" })).toBeEnabled();
+
+    releaseSecondPage();
+  });
+
+  it("states a search cut without offering a continuation it cannot honour", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/glossary/terms": {
+          terms: [term("notes/a.org::0", "Alpha")],
+          total: 1,
+          has_more: false,
+        },
+        // Ranked, so the page carries a total and a cut but no position: two of
+        // nine matches, with no token to ask for the seven behind them.
+        "/api/glossary/search": {
+          terms: [
+            term("notes/e.org::0", "Entropy"),
+            term("notes/f.org::0", "Entropy pool"),
+          ],
+          total: 9,
+          has_more: true,
+        },
+        "/api/note/context": contextFor("notes/e.org::0", "Entropy", "Body."),
+      }),
+    );
+
+    mount();
+    await screen.findByRole("option", { name: "Alpha" });
+
+    fireEvent.input(screen.getByRole("combobox"), {
+      target: { value: "entrop" },
+    });
+    await screen.findByRole("option", { name: "Entropy pool" });
+
+    expect(
+      screen.getByText(
+        "2 of 9 matches shown; a narrower search reaches the rest.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Read more terms" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("starts the pages over when the mode takes the listing away", async () => {
+    vi.stubGlobal(
+      "fetch",
+      pagedFetch((url) =>
+        url.pathname === "/api/glossary/due"
+          ? {
+              terms: [term("notes/one.org::0", "One")],
+              total: 1,
+              has_more: false,
+              next_position: null,
+            }
+          : twoPageWorld(url),
+      ),
+    );
+
+    const surface = mount();
+    await screen.findByRole("option", { name: "Beta" });
+    fireEvent.click(screen.getByRole("button", { name: "Read more terms" }));
+    await screen.findByRole("option", { name: "Delta" });
+
+    surface.showMode("study");
+    await screen.findByRole("option", { name: /^One/ });
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+
+    surface.showMode("browse");
+    await screen.findByRole("option", { name: "Beta" });
+
+    // The pages belong to the listing they were read from, so coming back reads
+    // it from its first page rather than restoring rows read under the other.
+    expect(screen.getAllByRole("option")).toHaveLength(2);
+  });
+
+  it("continues the due list from the position that listing handed out", async () => {
+    const fetch = pagedFetch((url) => {
+      if (url.pathname === "/api/glossary/due") {
+        return url.searchParams.get("after") === "past-two"
+          ? {
+              terms: [term("notes/three.org::0", "Three")],
+              total: 3,
+              has_more: false,
+              next_position: null,
+            }
+          : {
+              terms: [
+                term("notes/one.org::0", "One"),
+                term("notes/two.org::0", "Two"),
+              ],
+              total: 3,
+              has_more: true,
+              next_position: "past-two",
+            };
+      }
+      const key = url.searchParams.get("key") ?? "";
+      return contextFor(key, key, "Body.");
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    mount({ mode: "study" });
+    await screen.findByRole("option", { name: /^Two/ });
+
+    fireEvent.click(screen.getByRole("button", { name: "Read more terms" }));
+
+    expect(
+      await screen.findByRole("option", { name: /^Three/ }),
+    ).toBeInTheDocument();
+    // The token is echoed rather than composed: the listing that minted it is
+    // the only one that can read it back.
+    expect(asked(fetch)).toContain("/api/glossary/due?limit=200&after=past-two");
+  });
+
+  it("keeps the pages read when a filter narrows the due list", async () => {
+    const fetch = pagedFetch((url) => {
+      if (url.pathname === "/api/glossary/due") {
+        return url.searchParams.get("after") === "past-prior"
+          ? {
+              terms: [term("notes/loss.org::0", "Entropic loss")],
+              total: 3,
+              has_more: false,
+              next_position: null,
+            }
+          : {
+              terms: [
+                term("notes/entropy.org::0", "Entropy"),
+                term("notes/prior.org::0", "Prior"),
+              ],
+              total: 3,
+              has_more: true,
+              next_position: "past-prior",
+            };
+      }
+      const key = url.searchParams.get("key") ?? "";
+      return contextFor(key, key, "Body.");
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    mount({ mode: "study" });
+    await screen.findByRole("option", { name: /^Prior/ });
+    fireEvent.click(screen.getByRole("button", { name: "Read more terms" }));
+    await screen.findByRole("option", { name: /^Entropic loss/ });
+
+    fireEvent.input(
+      screen.getByRole("combobox", { name: "Filter the terms due for review" }),
+      { target: { value: "entrop" } },
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("option", { name: /^Prior/ }),
+      ).not.toBeInTheDocument(),
+    );
+    // The filter is over the rows the surface holds, second page included, and
+    // asks the index for nothing: narrowing is not a re-read.
+    expect(
+      screen.getByRole("option", { name: /^Entropic loss/ }),
+    ).toBeInTheDocument();
+    expect(asked(fetch).filter((url) => url.includes("/api/glossary/due"))).toHaveLength(2);
   });
 });
