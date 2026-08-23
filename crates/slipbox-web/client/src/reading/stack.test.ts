@@ -17,6 +17,9 @@ function memoryHistory(initial = ""): StackHistory {
     push: (next) => {
       url = next;
     },
+    replace: (next) => {
+      url = next;
+    },
   };
 }
 
@@ -44,6 +47,23 @@ describe("stack URL codec", () => {
     expect(decodeStack("")).toEqual([]);
     expect(decodeStack("?other=1")).toEqual([]);
     expect(encodeStack([])).toBe("");
+  });
+
+  it("collapses a reference an address repeats to its first position", () => {
+    expect(decodeStack("?note=root&stacked=a&stacked=root&stacked=b")).toEqual([
+      "root",
+      "a",
+      "b",
+    ]);
+    expect(decodeStack("?note=root&stacked=a&stacked=a")).toEqual(["root", "a"]);
+  });
+
+  it("leaves an address of distinct references in the order it names them", () => {
+    expect(decodeStack("?note=root&stacked=a&stacked=b")).toEqual([
+      "root",
+      "a",
+      "b",
+    ]);
   });
 
   it("encodes the root as `note` and the rest as repeated `stacked`", () => {
@@ -117,6 +137,56 @@ describe("createReadingStack", () => {
   it("initializes from the current URL", () => {
     const stack = createReadingStack(memoryHistory("?note=root&stacked=a"));
     expect(stack.keys()).toEqual(["root", "a"]);
+  });
+
+  // The first load pushes no entry of its own, so the collapse has to correct the
+  // entry it arrived on: a push here would leave a repeating address behind Back.
+  it("opens a repeating first address once and rewrites it in place", () => {
+    const pushed: string[] = [];
+    const replaced: string[] = [];
+    let url = "?note=root&stacked=a&stacked=root";
+    const stack = createReadingStack({
+      read: () => url,
+      push: (next) => {
+        pushed.push(next);
+        url = next;
+      },
+      replace: (next) => {
+        replaced.push(next);
+        url = next;
+      },
+    });
+
+    expect(stack.keys()).toEqual(["root", "a"]);
+    expect(replaced).toEqual([encodeStack(["root", "a"])]);
+    expect(pushed).toEqual([]);
+  });
+
+  it("writes nothing to the history for an address of distinct references", () => {
+    const written: string[] = [];
+    const stack = createReadingStack({
+      read: () => "?note=root&stacked=a",
+      push: (url) => {
+        written.push(url);
+      },
+      replace: (url) => {
+        written.push(url);
+      },
+    });
+
+    expect(stack.keys()).toEqual(["root", "a"]);
+    expect(written).toEqual([]);
+  });
+
+  it("collapses a repeating address arrived at through history", () => {
+    const history = memoryHistory("?note=root");
+    const stack = createReadingStack(history);
+
+    history.push("?note=other&stacked=z&stacked=other");
+    stack.sync();
+
+    expect(stack.keys()).toEqual(["other", "z"]);
+    expect(history.read()).toBe(encodeStack(["other", "z"]));
   });
 
   it("commits a follow to both the signal and the history", () => {

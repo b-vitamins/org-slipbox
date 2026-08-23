@@ -137,6 +137,13 @@ The format follows Keep a Changelog, and this project follows SemVer.
   stored `backlink_count` sums, and a group states "Showing 14 of 16." only when
   the rows it drew fall short of that total - so a note linked to twice from one
   place no longer reads as cut.
+- Open a stacked note once. An address naming one reference twice drew a column
+  per naming, so a note reached again from further down the stack stood twice with
+  both copies scrolling as one. A repeated reference now collapses to the first
+  position holding it, and the address is rewritten in place to the stack that is
+  drawn, adding no history entry to press Back through. Repeats compare
+  spellings, so two different references naming one note stand apart until a
+  fetch resolves both.
 
 ## [0.17.0] - 2026-07-25
 
