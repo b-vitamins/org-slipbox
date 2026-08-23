@@ -1,9 +1,3 @@
-/*
- * Recognizing two spellings of one note (a `file:` key from a URL, an
- * `id:<uuid>` from a body link) depends on the identity the client learns while
- * resolving each note over the API, so it needs a live client and live
- * responses rather than jsdom.
- */
 
 import { expect, test } from "@playwright/test";
 
@@ -98,6 +92,24 @@ test.describe("distinct columns", () => {
     await expect(page.getByRole("heading", { name: "Change of variables" })).toHaveCount(
       0,
     );
+  });
+
+  test("an address repeating a note opens one column, where it first stands", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await expect(page.getByRole("combobox", { name: "Search notes" })).toBeVisible();
+    const collapsed = `/?note=${encodeURIComponent("file:flows.org")}&stacked=${encodeURIComponent("file:change.org")}`;
+    await page.goto(`${collapsed}&stacked=${encodeURIComponent("file:flows.org")}`);
+
+    await expect(page.locator(".reading-note__title")).toHaveText([
+      "Normalizing flows",
+      "Change of variables",
+    ]);
+    await expect(page).toHaveURL(collapsed);
+
+    await page.goBack();
+    await expect(page.getByRole("combobox", { name: "Search notes" })).toBeVisible();
   });
 
   test("a relation row to an open note reveals it too", async ({ page }) => {

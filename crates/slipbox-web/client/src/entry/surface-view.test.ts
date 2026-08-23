@@ -15,6 +15,9 @@ function memoryHistory(initial = ""): StackHistory {
     push: (next) => {
       url = next;
     },
+    replace: (next) => {
+      url = next;
+    },
   };
 }
 
@@ -75,6 +78,7 @@ describe("createSurfaceView", () => {
         pushed.push(url);
         history.push(url);
       },
+      replace: history.replace,
     });
 
     view.show("glossary");
@@ -123,7 +127,11 @@ describe("createSurfaceView", () => {
 
   it("re-reads the mode from the URL on sync", () => {
     let url = "?view=glossary";
-    const view = createSurfaceView({ read: () => url, push: () => {} });
+    const view = createSurfaceView({
+      read: () => url,
+      push: () => {},
+      replace: () => {},
+    });
     expect(view.mode()).toBe("glossary");
 
     url = "?view=review";

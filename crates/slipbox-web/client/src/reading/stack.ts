@@ -12,10 +12,12 @@ import { noteIdentities, type NoteIdentities } from "./note-identity.js";
 const NOTE_PARAM = "note";
 const STACKED_PARAM = "stacked";
 
-/** The persistence seam: read the current URL and push a new one. */
+/** The persistence seam: read the current URL, push a new one, rewrite this one. */
 export interface StackHistory {
   readonly read: () => string;
   readonly push: (url: string) => void;
+  /** Rewrite the current entry, for a correction that is not a navigation. */
+  readonly replace: (url: string) => void;
 }
 
 export interface FollowOutcome {
@@ -41,7 +43,8 @@ export interface ReadingStack {
   readonly sync: () => void;
 }
 
-export function decodeStack(url: string): string[] {
+/** The references an address names, in the order it names them. */
+function parseStack(url: string): string[] {
   const query = url.includes("?") ? url.slice(url.indexOf("?") + 1) : "";
   const params = new URLSearchParams(query);
   const root = params.get(NOTE_PARAM);
@@ -50,6 +53,14 @@ export function decodeStack(url: string): string[] {
   }
   const stacked = params.getAll(STACKED_PARAM).filter((key) => key !== "");
   return [root, ...stacked];
+}
+
+/**
+ * The stack an address opens: a reference it repeats collapses to the first
+ * position holding it. Repeats compare by spelling; a decode has resolved nothing.
+ */
+export function decodeStack(url: string): string[] {
+  return [...new Set(parseStack(url))];
 }
 
 /** Returns the empty string, not `"?"`, for an empty stack. */
@@ -87,9 +98,19 @@ export function createReadingStack(
   history: StackHistory,
   identities: NoteIdentities = noteIdentities,
 ): ReadingStack {
-  const [keys, setKeys] = createSignal<readonly string[]>(
-    decodeStack(history.read()),
-  );
+  // The stack the address opens, and the address corrected to it. Both ways in run
+  // through this - the initial read and a `popstate` - so the correction rewrites
+  // the entry it arrived on rather than pushing a step Back would have to undo.
+  const adopt = (): readonly string[] => {
+    const address = history.read();
+    const open = decodeStack(address);
+    if (open.length !== parseStack(address).length) {
+      history.replace(encodeStack(open));
+    }
+    return open;
+  };
+
+  const [keys, setKeys] = createSignal<readonly string[]>(adopt());
 
   const commit = (next: readonly string[]): void => {
     setKeys(next);
@@ -111,7 +132,7 @@ export function createReadingStack(
       commit([rootKey]);
     },
     sync: () => {
-      setKeys(decodeStack(history.read()));
+      setKeys(adopt());
     },
   };
 }

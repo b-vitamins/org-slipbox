@@ -66,6 +66,7 @@ describe("Spine", () => {
     const stack = createReadingStack({
       read: () => "?note=notes/one.org",
       push: () => {},
+      replace: () => {},
     });
     const { container } = render(() => <Spine stack={stack} />);
 
@@ -106,6 +107,7 @@ describe("Spine", () => {
     const stack = createReadingStack({
       read: () => "?note=notes/one.org&stacked=notes/two.org",
       push: () => {},
+      replace: () => {},
     });
     const { container } = render(() => <Spine stack={stack} />);
 
@@ -143,6 +145,7 @@ describe("Spine", () => {
     const stack = createReadingStack({
       read: () => "?note=notes/two.org",
       push: () => {},
+      replace: () => {},
     });
     render(() => <Spine stack={stack} />);
 
@@ -209,6 +212,7 @@ describe("Spine", () => {
     const stack = createReadingStack({
       read: () => "?note=notes/one.org",
       push: () => {},
+      replace: () => {},
     });
     const { container } = render(() => <Spine stack={stack} />);
 

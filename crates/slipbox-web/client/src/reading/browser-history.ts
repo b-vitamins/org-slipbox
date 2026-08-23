@@ -7,12 +7,21 @@
 
 import type { StackHistory } from "./stack.js";
 
+/** An empty query addresses the bare path, not a trailing `?`. */
+function destination(url: string): string {
+  return url === "" ? window.location.pathname : url;
+}
+
 export function browserHistory(): StackHistory {
   return {
     read: () => window.location.search,
     push: (url) => {
-      const next = url === "" ? window.location.pathname : url;
-      window.history.pushState(null, "", next);
+      window.history.pushState(null, "", destination(url));
+    },
+    // The entry's own state goes back in: `replaceState` rewrites an entry whole,
+    // and the search cursor (`cursor-history.ts`) rides on it.
+    replace: (url) => {
+      window.history.replaceState(window.history.state, "", destination(url));
     },
   };
 }
