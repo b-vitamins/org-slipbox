@@ -254,6 +254,14 @@ The format follows Keep a Changelog, and this project follows SemVer.
   tint, the weakest indicator on the surface. Each draws a 2px ring in the link
   color as well, offset clear of the box so nothing moves, at `:focus-visible` so
   the platform decides when focus is worth painting.
+- Announce what a search found rather than the masthead above it. `aria-live` sat
+  on the whole entry surface, so every keystroke re-announced the masthead and the
+  corpus line and never the one fact a searcher is waiting for. A status line holds
+  the count alone, placed before there is anything to say, with the result list,
+  the hero, and the random control outside it. The capped-list line drops the count
+  it restated and keeps the advice, and the surface-level `aria-busy` goes with the
+  region it described: a search in flight is reported in words instead, which a
+  busy flag would have suppressed.
 
 ## [0.17.0] - 2026-07-25
 

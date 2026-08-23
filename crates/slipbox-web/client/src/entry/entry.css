@@ -109,6 +109,13 @@
   color: var(--ink);
 }
 
+/* The live region stands in the DOM before it has anything to say, so its resting
+   box is collapsed rather than hidden: `display: none` would take it out of the
+   accessibility tree and it would announce nothing on the way back in. */
+.entry-status--summary:empty {
+  margin: 0;
+}
+
 .entry-status--hint {
   margin-top: 8px;
   font-size: 13px;
