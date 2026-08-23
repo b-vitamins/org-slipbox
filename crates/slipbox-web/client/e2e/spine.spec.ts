@@ -56,6 +56,23 @@ const LINKED_WORLD: FixtureWorld = {
   ],
 };
 
+const GLANCE_WORLD: FixtureWorld = {
+  notes: [
+    {
+      key: "file:one.org",
+      id: "id-one",
+      title: "Note One",
+      body: "Continue to [[id:id-two][Note Two]].",
+    },
+    {
+      key: "file:two.org",
+      id: "id-two",
+      title: "Note Two",
+      body: "The second note.",
+    },
+  ],
+};
+
 /**
  * 32 columns is deeper than the pinned ladder can hold: at the config's 1200px
  * an unbounded ladder leaves every column past roughly the twenty-ninth a
@@ -69,10 +86,6 @@ const DEEP_WORLD: FixtureWorld = {
   })),
 };
 
-/**
- * The shell's boxes against the viewport a reader can actually see, plus the
- * page's own scroll extent. Evaluated in the page, so it closes over nothing.
- */
 const appGeometry = () => {
   const box = (selector: string): DOMRect =>
     (document.querySelector(selector) as HTMLElement).getBoundingClientRect();
@@ -92,12 +105,6 @@ const DEEP_TRAIL = `/?note=${DEEP_WORLD.notes[0]!.key}${DEEP_WORLD.notes
   .map((note) => `&stacked=${note.key}`)
   .join("")}`;
 
-/**
- * Where each column comes to rest: its layout offset less the offset it pins at,
- * clamped to the reachable range. A rest there leaves the columns before it as a
- * ladder of slivers and this one open against that ladder. Read off the live
- * boxes and the pin the client wrote, rather than restating the geometry math.
- */
 const restingOffsets = (page: import("@playwright/test").Page) =>
   page.evaluate(() => {
     const spine = document.querySelector(".spine") as HTMLElement;
@@ -145,15 +152,75 @@ test.describe("reading spine", () => {
     expect(Math.abs(gaps.left - gaps.right)).toBeLessThanOrEqual(1);
   });
 
+  test("keeps the revealed note when the layout crosses its breakpoint", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 801, height: 900 });
+    await page.goto(
+      "/?note=file:one.org&stacked=file:two.org&stacked=file:three.org",
+    );
+    await expect(page).toHaveTitle("Note Three — slipbox");
+
+    const offsets = await restingOffsets(page);
+    await page.locator(".spine").evaluate((element, left) => {
+      element.scrollLeft = left;
+    }, offsets[1]!);
+    await expect(page).toHaveTitle("Note Two — slipbox");
+
+    await page.setViewportSize({ width: 800, height: 900 });
+    await expect
+      .poll(() =>
+        page.locator(".spine").evaluate((element) => getComputedStyle(element).flexDirection),
+      )
+      .toBe("column");
+    await expect(
+      page.locator('.spine-position__count[aria-current="step"]'),
+    ).toHaveText("Note 2 of 3");
+    await expect(page).toHaveTitle("Note Two — slipbox");
+
+    await page.setViewportSize({ width: 801, height: 900 });
+    await expect
+      .poll(() =>
+        page.locator(".spine").evaluate((element) => getComputedStyle(element).flexDirection),
+      )
+      .toBe("row");
+    await expect(page).toHaveTitle("Note Two — slipbox");
+    await expect(page.getByRole("heading", { name: "Note Two" })).toBeInViewport();
+  });
+
+  test("shrinks a glance into the gutter at 1280px", async ({ page }) => {
+    await mountApi(page, GLANCE_WORLD);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/?note=file:one.org");
+
+    await page.getByRole("link", { name: "Note Two", exact: true }).hover();
+    await expect(page.locator(".glance-card--placed")).toBeVisible();
+    const geometry = await page.evaluate(() => {
+      const column = document
+        .querySelector(".spine-column")!
+        .getBoundingClientRect();
+      const card = document.querySelector(".glance-card")!.getBoundingClientRect();
+      return {
+        columnRight: column.right,
+        cardLeft: card.left,
+        cardRight: card.right,
+        cardWidth: card.width,
+        viewport: window.innerWidth,
+      };
+    });
+
+    expect(geometry.cardLeft).toBeGreaterThanOrEqual(geometry.columnRight);
+    expect(geometry.cardRight).toBeLessThanOrEqual(geometry.viewport - 12);
+    expect(geometry.cardWidth).toBeGreaterThanOrEqual(280);
+    expect(geometry.cardWidth).toBeLessThan(340);
+  });
+
   test("a path wider than the screen starts at its first column", async ({ page }) => {
     await page.goto(
       "/?note=file:one.org&stacked=file:two.org&stacked=file:three.org&stacked=file:four.org",
     );
     await expect(page.getByRole("heading", { name: "The Frontmost Note" })).toBeVisible();
 
-    // Centering an overflowing row would push its first column off the
-    // scrollable edge, where no scroll offset can reach it. Zero is the root's
-    // own resting offset, so the snap leaves this write where it is put.
     const rootLeft = await page.evaluate(() => {
       const spine = document.querySelector(".spine") as HTMLElement;
       spine.scrollLeft = 0;
@@ -200,20 +267,12 @@ test.describe("reading spine", () => {
     await page.goto("/?note=file:one.org");
     await expect(page.getByRole("heading", { name: "Note One" })).toBeVisible();
 
-    // `dvh` and `vh` resolve alike in a frame whose toolbar never retracts, so
-    // what a headless engine can hold is the invariant a retracting one breaks:
-    // the app is exactly the visible viewport, and the header and the spine
-    // partition it.
     const authored = await page.evaluate(appGeometry);
     expect(authored.appHeight).toBe(authored.visibleViewport);
     expect(authored.headerHeight + authored.spineHeight).toBe(authored.appHeight);
     expect(authored.spineBottom).toBe(authored.visibleViewport);
     expect(authored.pageScrollHeight).toBeLessThanOrEqual(authored.visibleViewport);
 
-    // A bar taller than `--header-min-height` is the case the spine's
-    // `calc(viewport - token)` cannot account for on its own. Font metrics decide
-    // whether the authored bar already exceeds the token, so the case is forced
-    // rather than assumed.
     await page.evaluate(() => {
       const header = document.querySelector(".app-header") as HTMLElement;
       header.style.minHeight = "120px";
@@ -272,11 +331,6 @@ test.describe("reading spine", () => {
     expect(shown).toBeGreaterThan(400);
   });
 
-  /*
-   * Focus follows the reveal. Only a real engine reaches the obscured state the
-   * deferral exists for, and only a real engine paints an outline: jsdom computes
-   * none and collapses every column to `resting`.
-   */
   test("hands focus to a revealed column, unpainted, sliver ring intact", async ({
     page,
   }) => {
@@ -285,16 +339,12 @@ test.describe("reading spine", () => {
     );
     await expect(page.getByRole("heading", { name: "The Frontmost Note" })).toBeVisible();
 
-    // The trail opens on its frontmost note, which starts out obscured at scroll
-    // offset zero: focus waits for the reveal scroll rather than settling on a
-    // column nothing can focus.
     const frontmost = page.getByRole("article", { name: "The Frontmost Note" });
     await expect(frontmost).toBeFocused();
     const outlineOf = (target: Locator): Promise<string> =>
       target.evaluate((node) => getComputedStyle(node).outlineStyle);
     expect(await outlineOf(frontmost)).toBe("none");
 
-    // A sliver is a stop the reader walks to, so it keeps the platform's ring.
     const sliver = page.locator("button.reading-note--obscured").first();
     await sliver.focus();
     expect(await outlineOf(sliver)).not.toBe("none");
@@ -315,9 +365,6 @@ test.describe("reading spine", () => {
     await expect(columns).toHaveCount(DEEP_WORLD.notes.length);
     await expect(page.getByRole("heading", { name: "Deep Note 31" })).toBeVisible();
 
-    // Sample 21 offsets across the whole reachable scroll range. Each write is
-    // snapped, so what is sampled is where the spine settles: every settled
-    // offset is a resting one, and each still leaves a column readable.
     const resting = await restingOffsets(page);
     const samples = await page.evaluate(async () => {
       const spine = document.querySelector(".spine") as HTMLElement;
@@ -330,8 +377,6 @@ test.describe("reading spine", () => {
       const counts: number[] = [];
       for (let step = 0; step <= 20; step += 1) {
         spine.scrollLeft = (reach * step) / 20;
-        // A frame rather than a synchronous read: the states are recomputed from
-        // the scroll event the write fires, which the snap has settled by then.
         await settle();
         offsets.push(Math.round(spine.scrollLeft));
         counts.push(
@@ -433,11 +478,6 @@ test.describe("reading spine (wide viewport, full motion)", () => {
   });
 });
 
-/*
- * Scroll snapping: where a free scroll comes to rest. Only a real compositor
- * snaps a scroll, and the snap positions are measured off per-column scroll
- * margins that only a real cascade resolves.
- */
 test.describe("spine snapping", () => {
   const TRAIL =
     "/?note=file:one.org&stacked=file:two.org&stacked=file:three.org&stacked=file:four.org";
@@ -456,8 +496,6 @@ test.describe("spine snapping", () => {
       ) as HTMLElement[];
       const marks = Array.from(document.querySelectorAll(".spine-snap")) as HTMLElement[];
       return {
-        // The initial strictness is dropped from the computed value, so a
-        // mandatory spine would read here as "x mandatory".
         type: getComputedStyle(document.querySelector(".spine") as HTMLElement)
           .scrollSnapType,
         marks: marks.map((mark) => ({
@@ -471,7 +509,6 @@ test.describe("spine snapping", () => {
     });
 
     expect(declared.type).toBe("x");
-    // A mark per column, in flow order, each taking no width of the row.
     expect(declared.marks.map((mark) => mark.align)).toEqual([
       "start",
       "start",
@@ -479,12 +516,7 @@ test.describe("spine snapping", () => {
       "start",
     ]);
     expect(declared.marks.map((mark) => mark.width)).toEqual([0, 0, 0, 0]);
-    // The margin is what moves the snap position off the mark's own place in the
-    // flow and onto the offset the column pins at; a mismatch would snap the
-    // column under the slivers.
     expect(declared.marks.map((mark) => mark.margin)).toEqual(declared.pins);
-    // The columns are left out of it: a pinned one carries its snap position with
-    // it, which would make the offset it snaps to the offset it starts from.
     expect(declared.columnAlign).toEqual(["none", "none", "none", "none"]);
   });
 
@@ -497,8 +529,6 @@ test.describe("spine snapping", () => {
       (document.querySelector(".spine") as HTMLElement).scrollLeft = 0;
     });
 
-    // A wheel short of a column's width: unsnapped it would rest part-way
-    // across one, cutting it at the edge.
     await page.mouse.move(600, 500);
     await page.mouse.wheel(300, 0);
     await expect
@@ -516,9 +546,6 @@ test.describe("spine snapping", () => {
     await page.goto(DEEP_TRAIL);
     await expect(page.getByRole("heading", { name: "Deep Note 31" })).toBeVisible();
 
-    // The reveal aims at a centered inset, which sits a little left of where the
-    // column rests; the column's own resting offset is still the nearest snap
-    // position, so the aim and the snap agree.
     const resting = await restingOffsets(page);
     await page.locator("button.reading-note--obscured").nth(5).click();
     await expect.poll(() => spineScrollLeft(page)).toBe(resting[5]);
@@ -538,10 +565,6 @@ test.describe("spine snapping", () => {
   });
 });
 
-/*
- * The narrow layout, where the run scrolls vertically and the marks stand at the
- * seams between stacked notes, so a scroll settling near one settles on it.
- */
 test.describe("spine snapping in the narrow layout", () => {
   test.use({ viewport: { width: 375, height: 720 } });
 
@@ -553,8 +576,6 @@ test.describe("spine snapping in the narrow layout", () => {
     await page.goto("/?note=file:one.org&stacked=file:two.org");
     await expect(page.getByRole("heading", { name: "Note Two" })).toBeVisible();
 
-    // The seam is the second note's top edge in the run's own scroll
-    // coordinates, which the reveal on arrival has already scrolled to.
     const run = await page.evaluate(() => {
       const spine = document.querySelector(".spine") as HTMLElement;
       const second = document.querySelectorAll(".spine-column")[1] as HTMLElement;
@@ -568,8 +589,6 @@ test.describe("spine snapping in the narrow layout", () => {
       };
     });
 
-    // A fifth of a reader short of the seam: unsnapped it would rest with the
-    // last of one note above the first of the next.
     await page.evaluate((top) => {
       (document.querySelector(".spine") as HTMLElement).scrollTop = top;
     }, run.seam - Math.round(run.height * 0.2));

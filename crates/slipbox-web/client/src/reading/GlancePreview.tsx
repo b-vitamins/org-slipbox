@@ -1,11 +1,7 @@
 /*
  * The glance preview card: a floating peek at a link's target, placed in
- * viewport coordinates by `placeGlance` and remeasured after mount. A
- * cursor-raised card is decorative chrome and `aria-hidden`, since it says what
- * the cursor is already over. A focus-raised one is reached by nothing but the
- * link, so it is that link's description; a touch-raised one carries the only
- * commit gesture available. Neither is hidden, and neither takes focus: the
- * reader stays on the link and the card is read from there.
+ * viewport coordinates by `placeGlance` and remeasured after mount. Hover cards
+ * are decorative; keyboard cards describe their link; touch cards expose actions.
  */
 
 import {
@@ -66,11 +62,7 @@ export const GlancePreview: Component<{ request: GlanceRequest }> = (props) => {
   const decorative = (): boolean => props.request.gesture === "hover";
   const describes = (): boolean => props.request.gesture === "focus";
 
-  // Named as the focused link's description rather than announced on its own, so
-  // the card is read out where the reader is standing and in the order they got
-  // there: the link, then what it leads to. A touch-raised card needs no such
-  // relation, since its own controls are what the reader moves on to. Cleared
-  // with the card, whose id it names.
+  // Keep keyboard focus on the link and attach the preview as its description.
   createEffect(() => {
     if (!describes()) {
       return;

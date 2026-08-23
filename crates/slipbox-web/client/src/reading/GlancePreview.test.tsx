@@ -34,6 +34,7 @@ function requestFor(
     pin: () => {},
     go: () => {},
     dismiss: () => {},
+    dropped: () => {},
     ...verbs,
   };
 }
@@ -77,8 +78,6 @@ describe("GlancePreview", () => {
         Promise.resolve(noteContextResponse("Duality gap", "The gap closes.")),
       ),
     );
-    // The link the reader is standing on, in the document so the relation between
-    // the two elements is the one an assistive technology would resolve.
     const link = document.createElement("a");
     document.body.append(link);
 
@@ -92,13 +91,11 @@ describe("GlancePreview", () => {
     expect(card.id).not.toBe("");
     expect(link).toHaveAttribute("aria-describedby", card.id);
     expect(card).not.toHaveAttribute("aria-hidden");
-    // Read from the link rather than stepped into: the card is no tab stop.
     expect(card).not.toHaveAttribute("tabindex");
 
     expect(await screen.findByText("Duality gap")).toBeInTheDocument();
     expect(link).toHaveAttribute("aria-describedby", card.id);
 
-    // The description names an element that leaves with the card.
     unmount();
     expect(link).not.toHaveAttribute("aria-describedby");
     link.remove();

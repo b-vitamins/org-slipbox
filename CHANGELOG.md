@@ -310,6 +310,11 @@ The format follows Keep a Changelog, and this project follows SemVer.
   level with the link so it reads as a note in the margin, and falls back to the
   old placement where neither side holds it. The space is measured against every
   column, not the link's own: room the next column stands in is not free.
+- Dismiss a glance preview with Escape. The card's only dismissal was the pointer
+  leaving the link, so a reader on the keyboard could get rid of it by leaving the
+  link and no other way. Escape on the link clears it, since a keydown arrives
+  where the reader is standing and this key is a dismissal only there; nothing is
+  remembered, so the same link raises the card again without focus having to move.
 
 ## [0.17.0] - 2026-07-25
 

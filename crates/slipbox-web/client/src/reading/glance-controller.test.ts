@@ -29,7 +29,11 @@ function manualScheduler(): Scheduler & { flush: () => void; pending: () => numb
 }
 
 /** A glance request carrying a distinguishable id, without a real DOM node. */
-function requestFor(id: string, gesture: GlanceGesture = "hover"): GlanceRequest {
+function requestFor(
+  id: string,
+  gesture: GlanceGesture = "hover",
+  dropped: () => void = () => {},
+): GlanceRequest {
   return {
     target: { id, target: `id:${id}` },
     origin: {} as HTMLElement,
@@ -37,6 +41,7 @@ function requestFor(id: string, gesture: GlanceGesture = "hover"): GlanceRequest
     pin: () => {},
     go: () => {},
     dismiss: () => {},
+    dropped,
   };
 }
 
@@ -96,6 +101,38 @@ describe("createGlanceController", () => {
       controller.glance(requestFor("a", "touch"));
       expect(controller.request()?.target.id).toBe("a");
       expect(scheduler.pending()).toBe(0);
+      dispose();
+    });
+  });
+
+  it("reports a drop to the glance dropped, not to the one replacing it", () => {
+    createRoot((dispose) => {
+      const scheduler = manualScheduler();
+      const controller = createGlanceController(120, scheduler);
+      const drops: string[] = [];
+
+      controller.glance(requestFor("a", "hover", () => drops.push("a")));
+      scheduler.flush();
+      controller.glance(requestFor("b", "hover", () => drops.push("b")));
+      expect(drops).toEqual(["a"]);
+
+      controller.glance(null);
+      expect(drops).toEqual(["a", "b"]);
+      dispose();
+    });
+  });
+
+  it("reports a drop inside the intent window, where nothing was shown", () => {
+    createRoot((dispose) => {
+      const scheduler = manualScheduler();
+      const controller = createGlanceController(120, scheduler);
+      const drops: string[] = [];
+
+      controller.glance(requestFor("a", "hover", () => drops.push("a")));
+      expect(controller.request()).toBeNull();
+
+      controller.glance(null);
+      expect(drops).toEqual(["a"]);
       dispose();
     });
   });

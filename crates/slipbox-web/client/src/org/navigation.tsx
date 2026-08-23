@@ -39,6 +39,14 @@ export interface GlanceRequest {
   readonly go: () => void;
   /** Close the preview, committing to nothing. */
   readonly dismiss: () => void;
+  /**
+   * The card this request raised is down, dropped by something other than the
+   * link that raised it: a scroll carrying the link out from under it, a commit
+   * made from the card, another link's card taking its place. A report only, so
+   * the raise stops answering for a card that is gone - the drop has happened,
+   * and by then another card may already be standing in its place.
+   */
+  readonly dropped: () => void;
 }
 
 export interface Navigation {
