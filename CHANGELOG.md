@@ -52,6 +52,13 @@ The format follows Keep a Changelog, and this project follows SemVer.
   where the head's cut is counted in notes, and the matched run is marked inside
   the line it stands in. `slipbox explore` heads a mention with the note it sits
   in, naming the anchor beside it where that is a heading of its own.
+- State what makes a glossary term due. The due listing drew bare headwords in an
+  order with no visible principle, since a corpus awaiting its first review carries
+  no due dates to sort on. The listing now states its own total and names the order
+  it holds the page in, and each row carries its standing: never reviewed, or the
+  date it came due. An empty review drawer is a fact rather than a blank pane, so
+  the peek says a term has never been reviewed instead of rendering nothing, while
+  a drawer holding part of a schedule still shows only the part it holds.
 
 ### Changed
 - Draw the `dormant` lens's candidates from link topology rather than from shared

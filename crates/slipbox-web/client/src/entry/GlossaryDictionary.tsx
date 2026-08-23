@@ -31,6 +31,7 @@ import { GlossaryPeek } from "./GlossaryPeek.jsx";
 import { browserQueryUrl, type QueryUrl } from "./query-url.js";
 import { MIN_TERM_CHARACTERS, createSearchController } from "./search.js";
 import { markedIndex, moveSelection } from "./selection.js";
+import { dueStanding } from "./study-facts.js";
 import "./glossary.css";
 
 /** How many terms a listing or search shows. */
@@ -234,6 +235,23 @@ export const GlossaryDictionary: Component<{
       : "No terms match that search.";
   };
 
+  /**
+   * The size and the order of the due listing, in one line. The count is the
+   * listing's own total rather than the rows on the surface, which is a smaller
+   * number the reader would read as the answer. The order is named rather than
+   * re-sorted here: the surface holds one page of a listing it did not sort, and a
+   * corpus no review has touched carries no dates for an order to be read off.
+   */
+  const dueSummary = (): string | null => {
+    const listing = due.ready();
+    if (mode() !== "study" || !listing || !(listing.total > 0)) {
+      return null;
+    }
+    const counted =
+      listing.total === 1 ? "1 term is" : `${listing.total} terms are`;
+    return `${counted} due, in schedule order: never reviewed first, then by due date, then by file path.`;
+  };
+
   /** What the field is over, which is what it does: the box says both. */
   const fieldLabel = (): string =>
     mode() === "study"
@@ -377,6 +395,12 @@ export const GlossaryDictionary: Component<{
           </p>
         </Show>
 
+        <Show when={dueSummary()}>
+          {(summary) => (
+            <p class="glossary-status glossary-status--hint">{summary()}</p>
+          )}
+        </Show>
+
         <Show
           when={!failure()}
           fallback={
@@ -422,6 +446,14 @@ export const GlossaryDictionary: Component<{
                     onClick={() => markRow(index())}
                   >
                     <span class="glossary-term__title">{term.title}</span>
+                    {/* Only where the reader is reading the schedule: in browse
+                        mode a standing would be a fact about a listing that is not
+                        the one on screen. */}
+                    <Show when={mode() === "study" && dueStanding(term)}>
+                      {(standing) => (
+                        <span class="glossary-term__standing">{standing()}</span>
+                      )}
+                    </Show>
                     <Show when={term.glossary_status === "stub"}>
                       <span class="glossary-term__stub">stub</span>
                     </Show>

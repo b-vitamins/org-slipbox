@@ -131,6 +131,15 @@
   line-height: 21px;
 }
 
+/* Why a row is in the due listing, at the trailing edge where the row's own badge
+   sits. Set as an aside to the headword, which stays the row's subject. */
+.glossary-term__standing {
+  flex: 0 0 auto;
+  color: var(--muted-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .glossary-term__stub {
   flex: 0 0 auto;
   color: var(--muted-2);
