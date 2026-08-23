@@ -1,12 +1,19 @@
-import { fireEvent, render, screen } from "@solidjs/testing-library";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { visibleText } from "../test/visible-text.js";
-import { RelationsFooter } from "./RelationsFooter.jsx";
+import {
+  RelationsFooter,
+  RELATED_LENS_LIMIT,
+  RELATED_SHOWN,
+} from "./RelationsFooter.jsx";
 import { RELATION_PREVIEW_CHARS } from "./relations.js";
+import { __resetRefocusForTests } from "../data/refetch-on-focus.js";
 import { NavigationProvider, type Navigation } from "../org/navigation.jsx";
 import type {
   BacklinkRecord,
+  BridgeEvidenceRecord,
+  ExplorationEntry,
   ForwardLinkRecord,
   NodeRecord,
   NoteContext,
@@ -115,23 +122,42 @@ function context(
 
 const inertNav: Navigation = { glance: () => {}, pin: () => {}, go: () => {} };
 
-describe("RelationsFooter", () => {
-  it("lists every related note once, in one group", () => {
-    const { container } = render(() => (
-      <NavigationProvider navigation={inertNav}>
-        <RelationsFooter
-          context={context(
-            [forward(node("notes/a.org::0", "Alpha"), "cites Alpha")],
-            [
-              backward(node("notes/a.org::0", "Alpha"), "cites Self"),
-              backward(node("notes/x.org::0", "Ex"), "also cites Self"),
-            ],
-          )}
-        />
-      </NavigationProvider>
-    ));
+/** The deferred group, which stands beside the directed inventory. */
+function relatedGroup(container: HTMLElement): Element {
+  return container.querySelectorAll(".relations__group")[1] as Element;
+}
 
-    expect(container.querySelectorAll(".relations__group")).toHaveLength(1);
+function mount(context: NoteContext): HTMLElement {
+  return render(() => (
+    <NavigationProvider navigation={inertNav}>
+      <RelationsFooter context={context} />
+    </NavigationProvider>
+  )).container;
+}
+
+describe("RelationsFooter", () => {
+  beforeEach(() => {
+    __resetRefocusForTests();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("lists every related note once, in one directed group", () => {
+    const container = mount(
+      context(
+        [forward(node("notes/a.org::0", "Alpha"), "cites Alpha")],
+        [
+          backward(node("notes/a.org::0", "Alpha"), "cites Self"),
+          backward(node("notes/x.org::0", "Ex"), "also cites Self"),
+        ],
+      ),
+    );
+
+    // Both directions in one listing, with the deferred group closed beside it.
+    expect(container.querySelectorAll(".relations__list")).toHaveLength(1);
     expect(container.querySelectorAll(".relations__row")).toHaveLength(2);
     expect(screen.getByRole("link", { name: "Alpha" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ex" })).toBeInTheDocument();
@@ -142,13 +168,9 @@ describe("RelationsFooter", () => {
   // with them. Neither engine under test is one of those, so what is asserted is
   // the declaration itself.
   it("declares the directed inventory a list", () => {
-    const { container } = render(() => (
-      <NavigationProvider navigation={inertNav}>
-        <RelationsFooter
-          context={context([], [backward(node("notes/x.org::0", "Ex"), "cites Self")])}
-        />
-      </NavigationProvider>
-    ));
+    const container = mount(
+      context([], [backward(node("notes/x.org::0", "Ex"), "cites Self")]),
+    );
 
     expect(container.querySelector(".relations__list")?.getAttribute("role")).toBe(
       "list",
@@ -314,17 +336,13 @@ describe("RelationsFooter", () => {
   // nothing to compare the rows against, so the group states no cut rather than
   // reading the absence as a total of zero.
   it("says nothing about a direction the payload totals not at all", () => {
-    const { container } = render(() => (
-      <NavigationProvider navigation={inertNav}>
-        <RelationsFooter
-          context={context(
-            [forward(node("notes/a.org::0", "Alpha"))],
-            [backward(node("notes/x.org::0", "Ex"))],
-            { forwardTotal: null, backwardTotal: null },
-          )}
-        />
-      </NavigationProvider>
-    ));
+    const container = mount(
+      context(
+        [forward(node("notes/a.org::0", "Alpha"))],
+        [backward(node("notes/x.org::0", "Ex"))],
+        { forwardTotal: null, backwardTotal: null },
+      ),
+    );
 
     expect(container.querySelectorAll(".relations__row")).toHaveLength(2);
     expect(container.querySelector(".relations__shortfall")).toBeNull();
@@ -392,7 +410,9 @@ describe("RelationsFooter", () => {
   });
 
   // The footer is a hairline rule plus whatever it lists. A note nothing links
-  // to and that links to nothing must not end in a rule with nothing under it.
+  // to and that links to nothing must not end in a rule with nothing under it,
+  // and the bridges lens walks link topology, so it answers such a note with
+  // nothing either.
   it("draws nothing at all for a note with no relations", () => {
     const { container } = render(() => (
       <NavigationProvider navigation={inertNav}>
@@ -401,5 +421,253 @@ describe("RelationsFooter", () => {
     ));
 
     expect(container.querySelector(".relations")).toBeNull();
+  });
+});
+
+function via(key: string, title: string): BridgeEvidenceRecord {
+  return { node_key: key, explicit_id: null, title };
+}
+
+function bridge(
+  candidate: NodeRecord,
+  viaNotes: BridgeEvidenceRecord[],
+): ExplorationEntry {
+  return {
+    kind: "anchor",
+    anchor: candidate,
+    explanation: { kind: "bridge-candidate", references: [], via_notes: viaNotes },
+  };
+}
+
+/** `count` candidates, each reached through one shared connector. */
+function ranking(count: number): ExplorationEntry[] {
+  return Array.from({ length: count }, (_, i) =>
+    bridge(node(`notes/b${i}.org::0`, `Bridged ${i + 1}`), [
+      via("notes/c1.org::0", "Measure"),
+    ]),
+  );
+}
+
+/**
+ * A fetch double answering `/api/explore` with `entries`, or with an error
+ * envelope at any other status. Every URL asked for is recorded, which is what
+ * a deferred group's cost is read off.
+ */
+function stubExplore(entries: ExplorationEntry[], status = 200): string[] {
+  const urls: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL) => {
+      urls.push(String(input));
+      const body =
+        status === 200
+          ? { lens: "bridges", sections: [{ kind: "bridge-candidates", entries }] }
+          : { error: { kind: "internal", message: "the index is locked" } };
+      return Promise.resolve(
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    }),
+  );
+  return urls;
+}
+
+function explored(urls: string[]): URL[] {
+  return urls
+    .map((url) => new URL(url, "http://slipbox.test"))
+    .filter((url) => url.pathname === "/api/explore");
+}
+
+const RELATED = "Related notes";
+
+/** A note with one link, so the footer renders and the group stands beside it. */
+function linkedNote(): NoteContext {
+  return context([forward(node("notes/a.org::0", "Alpha"))], []);
+}
+
+describe("RelationsFooter related notes", () => {
+  beforeEach(() => {
+    __resetRefocusForTests();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  // A column costs one request while the footer is only read; the lens is asked
+  // its question only when a reader asks for it.
+  it("requests nothing for the group until it is opened", async () => {
+    const urls = stubExplore(ranking(1));
+    mount(linkedNote());
+
+    expect(explored(urls)).toHaveLength(0);
+    expect(
+      screen.getByRole("button", { name: RELATED, expanded: false }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: RELATED }));
+    expect(await screen.findByRole("link", { name: "Bridged 1" })).toBeInTheDocument();
+
+    const asked = explored(urls);
+    expect(asked).toHaveLength(1);
+    expect(asked[0]!.searchParams.get("key")).toBe("notes/self.org::0");
+    expect(asked[0]!.searchParams.get("lens")).toBe("bridges");
+    expect(asked[0]!.searchParams.get("limit")).toBe(String(RELATED_LENS_LIMIT));
+  });
+
+  // The reason the directed inventory declares its role, on the listing beside it.
+  it("declares the ranked group's listing a list", async () => {
+    stubExplore(ranking(1));
+    const container = mount(linkedNote());
+
+    fireEvent.click(screen.getByRole("button", { name: RELATED }));
+    expect(
+      await screen.findByRole("link", { name: "Bridged 1" }),
+    ).toBeInTheDocument();
+
+    expect(
+      relatedGroup(container)
+        .querySelector(".relations__list")
+        ?.getAttribute("role"),
+    ).toBe("list");
+  });
+
+  it("names a connector once over the rows it reached", async () => {
+    const container = mount(linkedNote());
+    stubExplore([
+      bridge(node("notes/b1.org::0", "First"), [via("notes/c1.org::0", "Measure")]),
+      bridge(node("notes/b2.org::0", "Second"), [via("notes/c1.org::0", "Measure")]),
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: RELATED }));
+    expect(await screen.findByRole("link", { name: "First" })).toBeInTheDocument();
+
+    const connectors = relatedGroup(container).querySelectorAll(
+      ".relations__connector",
+    );
+    expect([...connectors].map((label) => label.textContent)).toEqual([
+      "via Measure",
+    ]);
+    expect(screen.getByRole("link", { name: "Second" })).toBeInTheDocument();
+  });
+
+  // The ranking is the lens's, and how far a row stands from the connector above
+  // it is what put it where it is.
+  it("states how many notes reached a row, above one", async () => {
+    stubExplore([
+      bridge(node("notes/b1.org::0", "Wide"), [
+        via("notes/c1.org::0", "Measure"),
+        via("notes/c2.org::0", "Entropy"),
+        via("notes/c3.org::0", "Prior"),
+      ]),
+      bridge(node("notes/b2.org::0", "Narrow"), [via("notes/c1.org::0", "Measure")]),
+    ]);
+    mount(linkedNote());
+
+    fireEvent.click(screen.getByRole("button", { name: RELATED }));
+    expect(await screen.findByRole("link", { name: "Wide" })).toBeInTheDocument();
+
+    expect(screen.getByText("through 3 notes")).toBeInTheDocument();
+    expect(screen.queryByText("through 1 notes")).not.toBeInTheDocument();
+  });
+
+  it("shows a bounded head and offers the rest by count", async () => {
+    const container = mount(linkedNote());
+    stubExplore(ranking(RELATED_SHOWN + 2));
+
+    fireEvent.click(screen.getByRole("button", { name: RELATED }));
+    expect(await screen.findByRole("link", { name: "Bridged 1" })).toBeInTheDocument();
+    expect(relatedGroup(container).querySelectorAll(".relations__row")).toHaveLength(
+      RELATED_SHOWN,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Show 2 more" }));
+    expect(relatedGroup(container).querySelectorAll(".relations__row")).toHaveLength(
+      RELATED_SHOWN + 2,
+    );
+    expect(screen.queryByRole("button", { name: /^Show \d+ more$/ })).toBeNull();
+  });
+
+  // Two bounds cut the answer, and the rows on screen are evidence of neither:
+  // the head says what it holds, and the lens's own limit is a separate sentence.
+  it("distinguishes the head's cut from the lens's own bound", async () => {
+    stubExplore(ranking(RELATED_LENS_LIMIT));
+    mount(linkedNote());
+
+    fireEvent.click(screen.getByRole("button", { name: RELATED }));
+    expect(await screen.findByRole("link", { name: "Bridged 1" })).toBeInTheDocument();
+
+    expect(
+      screen.getByRole("button", {
+        name: `Show ${RELATED_LENS_LIMIT - RELATED_SHOWN} more`,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        `The lens ranks at most ${RELATED_LENS_LIMIT} notes, so the slipbox may hold more.`,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("says nothing of a bound the lens did not reach", async () => {
+    stubExplore(ranking(2));
+    mount(linkedNote());
+
+    fireEvent.click(screen.getByRole("button", { name: RELATED }));
+    expect(await screen.findByRole("link", { name: "Bridged 1" })).toBeInTheDocument();
+
+    expect(screen.queryByText(/The lens ranks at most/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Show \d+ more$/ })).toBeNull();
+  });
+
+  it("says there are none rather than opening an empty group", async () => {
+    const container = mount(linkedNote());
+    stubExplore([]);
+
+    fireEvent.click(screen.getByRole("button", { name: RELATED }));
+    expect(
+      await screen.findByText("No note stands beside this one unlinked."),
+    ).toBeInTheDocument();
+    expect(relatedGroup(container).querySelector(".relations__connector")).toBeNull();
+  });
+
+  // The lens excludes the note's own neighbors, but a row printed twice is the
+  // footer's own doing, so the rows it holds are what the exclusion is read off.
+  it("keeps a note the directed inventory lists out of the group", async () => {
+    const container = mount(linkedNote());
+    stubExplore([
+      bridge(node("notes/a.org::0", "Alpha"), [via("notes/c1.org::0", "Measure")]),
+      bridge(node("notes/b1.org::0", "Bridged 1"), [via("notes/c1.org::0", "Measure")]),
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: RELATED }));
+    expect(await screen.findByRole("link", { name: "Bridged 1" })).toBeInTheDocument();
+
+    const titles = [
+      ...relatedGroup(container).querySelectorAll(".relations__link"),
+    ].map((link) => link.textContent);
+    expect(titles).toEqual(["Bridged 1"]);
+  });
+
+  // A failure states itself where the control that asked stands, and asking
+  // again is that control, so the group goes back to being closed.
+  it("leaves the group closed and states a failed read", async () => {
+    const container = mount(linkedNote());
+    stubExplore([], 500);
+
+    fireEvent.click(screen.getByRole("button", { name: RELATED }));
+
+    expect(await screen.findByText("the index is locked")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: RELATED, expanded: false }),
+      ).toBeInTheDocument();
+    });
+    expect(relatedGroup(container).querySelector(".relations__list")).toBeNull();
+    // The rest of the footer is unaffected by a group that could not be read.
+    expect(screen.getByRole("link", { name: "Alpha" })).toBeInTheDocument();
   });
 });
