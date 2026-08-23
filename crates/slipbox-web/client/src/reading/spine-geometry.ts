@@ -48,7 +48,8 @@ function columnLeft(
   return Math.max(index * metrics.columnWidth - scrollLeft, columnOffset(index, metrics));
 }
 
-function isPinned(
+/** Whether a column has reached its sticky offset. */
+export function isPinned(
   index: number,
   scrollLeft: number,
   metrics: SpineMetrics,
@@ -120,6 +121,24 @@ export function verticalRevealTop(
   columnTop: number,
 ): number {
   return Math.max(0, scrollport.scrollTop + (columnTop - scrollport.top));
+}
+
+/** The stacked column at the scrollport's leading edge. */
+export function verticalRevealedColumn(
+  scrollportTop: number,
+  columnTops: readonly number[],
+): number | undefined {
+  if (columnTops.length === 0) {
+    return undefined;
+  }
+  let revealed = 0;
+  for (let index = 1; index < columnTops.length; index += 1) {
+    if (columnTops[index]! > scrollportTop + 1) {
+      break;
+    }
+    revealed = index;
+  }
+  return revealed;
 }
 
 /**

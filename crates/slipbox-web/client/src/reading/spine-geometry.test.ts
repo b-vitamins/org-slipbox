@@ -6,6 +6,7 @@ import {
   columnStates,
   gutterDepth,
   scrollTargetFor,
+  verticalRevealedColumn,
   verticalRevealTop,
   type SpineMetrics,
 } from "./spine-geometry.js";
@@ -132,6 +133,22 @@ describe("verticalRevealTop", () => {
   it("never asks for a negative offset", () => {
     expect(verticalRevealTop({ top: 46, scrollTop: 0 }, 46)).toBe(0);
     expect(verticalRevealTop({ top: 46, scrollTop: 100 }, -900)).toBe(0);
+  });
+});
+
+describe("verticalRevealedColumn", () => {
+  it("names the stacked column at the reader's top edge", () => {
+    expect(verticalRevealedColumn(46, [46, 746, 1446])).toBe(0);
+    expect(verticalRevealedColumn(46, [-654, 46, 746])).toBe(1);
+    expect(verticalRevealedColumn(46, [-1354, -654, 46])).toBe(2);
+  });
+
+  it("keeps the current column until the next reaches the edge", () => {
+    expect(verticalRevealedColumn(46, [-500, 200, 900])).toBe(0);
+  });
+
+  it("has no reading position for an empty stack", () => {
+    expect(verticalRevealedColumn(46, [])).toBeUndefined();
   });
 });
 
