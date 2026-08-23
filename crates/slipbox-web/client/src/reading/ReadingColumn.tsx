@@ -14,7 +14,7 @@ import {
 } from "solid-js";
 
 import { ApiError } from "../api/client.js";
-import type { NoteContext } from "../api/types.js";
+import type { NoteContext, NotePlace } from "../api/types.js";
 import { createReadingResource } from "../data/create-reading-resource.js";
 import { encodeQuery } from "../entry/query-url.js";
 import { NavigationProvider, type Navigation } from "../org/navigation.jsx";
@@ -69,6 +69,20 @@ function shortfall(context: NoteContext): string | null {
   const shown = context.source.line_count;
   const noteLines = context.node_line_count;
   return `Showing ${shown} of this note's ${noteLines} lines.`;
+}
+
+/**
+ * Where the note stands among the notes the slipbox holds, or `null` for a
+ * payload that does not say. The count is of one order, the filing order, and
+ * "filed" is what names it: nothing here is a date, and a note's position in the
+ * cabinet is not the day it was written.
+ *
+ * The payload declares the field optional, since a daemon older than it answers
+ * without one, and a position counted out of `undefined` would read as a fault
+ * rather than as an omission.
+ */
+function filedAt(place: NotePlace | undefined): string | null {
+  return place === undefined ? null : `Filed ${place.ordinal} of ${place.total}`;
 }
 
 export const ReadingColumn: Component<{
@@ -187,6 +201,12 @@ export const ReadingColumn: Component<{
                 <h1 id={headingId} class="reading-note__title">
                   {ready().note.title}
                 </h1>
+                {/* Beside the title, not part of it: `aria-labelledby` names the
+                    column by the heading alone, so a count is not read out
+                    every time the column is announced. */}
+                <Show when={filedAt(ready().place)}>
+                  {(line) => <p class="reading-note__place">{line()}</p>}
+                </Show>
               </header>
               <Show when={document()}>
                 {(parsed) => <RenderDocument document={parsed()} />}
