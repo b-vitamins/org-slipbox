@@ -277,6 +277,13 @@ The format follows Keep a Changelog, and this project follows SemVer.
   column, deferred until that column leaves the obscured state, which is hidden and
   so unfocusable. The focus is the spine's own work rather than a tab stop, so the
   article paints no ring and its scroll stands.
+- Keep the query when the header returns to the entry surface. The way home pushed
+  the bare path with a null state, so a reader who searched, opened a result and
+  took it landed on an empty field with no cursor, while browser Back restored both.
+  The shell holds the address the entry surface was left at and pushes that one, and
+  a stack push carries forward the history state it used to discard, which is where
+  the result cursor rides. That address holds no reading position, so the way home
+  still clears the spine.
 
 ## [0.17.0] - 2026-07-25
 

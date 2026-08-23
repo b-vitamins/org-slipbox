@@ -11,7 +11,12 @@ import { createColorScheme, SCHEME_LABELS } from "./dom/color-scheme.js";
 import { EntrySurface } from "./entry/EntrySurface.jsx";
 import { GlossaryDictionary } from "./entry/GlossaryDictionary.jsx";
 import { createSurfaceView } from "./entry/surface-view.js";
-import { browserHistory, onPopState } from "./reading/browser-history.js";
+import {
+  browserHistory,
+  onPopState,
+  readEntryAddress,
+  writeEntryAddress,
+} from "./reading/browser-history.js";
 import { Spine } from "./reading/Spine.jsx";
 import { createReadingStack } from "./reading/stack.js";
 import "./styles/tokens.css";
@@ -22,22 +27,47 @@ export const App: Component = () => {
   const stack = createReadingStack(history);
   const view = createSurfaceView(history);
   const colorScheme = createColorScheme();
-  onCleanup(
-    onPopState(() => {
-      stack.sync();
-      view.sync();
-    }),
-  );
 
   const atEntry = (): boolean => stack.keys().length === 0;
   // Two of the three modes are the glossary.
   const atGlossary = (): boolean =>
     view.mode() === "glossary" || view.mode() === "review";
 
-  // Pushing the empty URL and re-reading both stores from it makes Home a normal
-  // history entry the back button can undo.
+  // The address the entry surface was left at, which carries its term and its mode
+  // and never a reading position. A note's address is written from scratch
+  // (`encodeStack`), so the term is gone from the URL the moment a result is
+  // opened: nothing but the entry the reader stands on can say what it held.
+  //
+  // Read off that entry rather than remembered across the surface's whole life: a
+  // reader who walks back to a note, or reloads one, arrives on an entry this
+  // surface never opened, and memory of another one would send them somewhere they
+  // have not been.
+  const wayBack = (): string =>
+    atEntry() ? history.read() : readEntryAddress();
+  let leftAt = wayBack();
+
+  onCleanup(
+    onPopState(() => {
+      stack.sync();
+      view.sync();
+      leftAt = wayBack();
+    }),
+  );
+
+  const openNote = (key: string): void => {
+    leftAt = history.read();
+    // Onto the entry being left, which the push carries forward, so the reading
+    // entry it opens holds the way back as well.
+    writeEntryAddress(leftAt);
+    stack.open(key);
+  };
+
+  // Pushing that address and re-reading both stores from it makes Home a normal
+  // history entry the back button can undo, and clears the reading position the
+  // address does not hold. The result cursor rides in the entry's state, which a
+  // push carries forward (`browser-history.ts`).
   const goHome = (): void => {
-    history.push("");
+    history.push(leftAt);
     stack.sync();
     view.sync();
   };
@@ -87,9 +117,9 @@ export const App: Component = () => {
         </button>
       </header>
       <Show when={atEntry()} fallback={<Spine stack={stack} />}>
-        <Show when={atGlossary()} fallback={<EntrySurface onOpen={stack.open} />}>
+        <Show when={atGlossary()} fallback={<EntrySurface onOpen={openNote} />}>
           <GlossaryDictionary
-            onOpen={stack.open}
+            onOpen={openNote}
             mode={view.mode() === "review" ? "study" : "browse"}
             onMode={(next) => view.show(next === "study" ? "review" : "glossary")}
           />
