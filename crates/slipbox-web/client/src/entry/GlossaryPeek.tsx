@@ -116,7 +116,11 @@ export const GlossaryPeek: Component<{
               fallback={<p class="glossary-peek__status-note">Reading…</p>}
             >
               <Show when={document()}>
-                {(parsed) => <RenderDocument document={parsed()} />}
+                {/* The headword above is an `h2`, so the definition's own
+                    headings begin one level under it. */}
+                {(parsed) => (
+                  <RenderDocument document={parsed()} baseLevel={3} />
+                )}
               </Show>
             </Show>
           }

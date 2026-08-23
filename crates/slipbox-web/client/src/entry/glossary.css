@@ -21,10 +21,23 @@
   overflow: hidden;
 }
 
+/* The surface's own heading. Sized as a column label rather than as a title
+   page: it names the surface for the outline, where the definition beside it
+   carries the reading. */
+.glossary-title {
+  margin: 0;
+  padding: 16px 16px 0;
+  font-size: 15px;
+  line-height: 21px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
 .glossary-modes {
   display: flex;
   gap: 4px;
-  padding: 16px 16px 8px;
+  padding: 8px 16px;
 }
 
 .glossary-mode {

@@ -208,6 +208,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
   both the flex basis and the preview's floor, so a title that leaves less than
   that sends the preview to a line of its own at full column width. The floor caps
   at the column for a column narrower than the measure.
+- Head the reading surface's glossary with a top-level heading. The highest
+  heading it drew was the peek's `h2` headword, level with the definition's own
+  Org headings, so the outline had no top and no nesting. An `h1` names the
+  surface outside every conditional block, and a definition's headings now begin
+  one level under the headword: `RenderDocument` takes the heading base as a prop,
+  and the reading column keeps today's `h2`.
 
 ## [0.17.0] - 2026-07-25
 
