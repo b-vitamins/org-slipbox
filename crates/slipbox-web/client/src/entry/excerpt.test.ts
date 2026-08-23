@@ -227,4 +227,117 @@ describe("excerptRuns", () => {
       "one line and the next",
     );
   });
+
+  /*
+   * The length bound. A row draws on two clamped lines of about 84 characters, so
+   * these excerpts are measured in that unit rather than in words. The mark a cut
+   * leaves is the same ellipsis the server writes for its own elision, so a mark
+   * is never read here as proof of which side cut.
+   */
+
+  /** `words` copies of a 35-character clause, as leading context. */
+  const context = (words: number): string =>
+    "an opening clause of ample length. ".repeat(words);
+
+  it("trims leading context so a late match draws inside the clamp", () => {
+    const segments = [plain(context(6)), match("posterior"), plain(" collapse")];
+    const drawn = flat(segments);
+
+    expect(drawn.startsWith("…")).toBe(true);
+    expect(drawn.indexOf("posterior")).toBeLessThanOrEqual(85);
+    expect(drawn.endsWith("posterior collapse")).toBe(true);
+    expect(highlighted(segments)).toEqual(["posterior"]);
+  });
+
+  it("marks a length-driven head cut once, and takes it between words", () => {
+    const drawn = flat([plain(context(6)), match("posterior")]);
+
+    expect(drawn.match(/…/g)).toEqual(["…"]);
+    // What the kept lead resumes at stood after a space in the excerpt.
+    expect(context(6)).toContain(` ${drawn.slice(1, 40)}`);
+  });
+
+  it("keeps a match at the end of a long excerpt", () => {
+    const segments = [plain(context(9)), match("marginal likelihood")];
+    const drawn = flat(segments);
+
+    expect(drawn.endsWith("marginal likelihood")).toBe(true);
+    expect(drawn.indexOf("marginal likelihood")).toBeLessThanOrEqual(85);
+    expect(highlighted(segments)).toEqual(["marginal likelihood"]);
+  });
+
+  it("leaves an excerpt the two lines already hold, mark and all", () => {
+    // Over a line of context, under two: the clamp shows all of it.
+    const segments = [plain(context(3)), match("posterior"), plain(" collapse")];
+
+    expect(flat(segments)).toBe(`${context(3)}posterior collapse`);
+    expect(flat(segments)).not.toContain("…");
+  });
+
+  it("adds no mark of its own to an excerpt the server elided", () => {
+    const segments = [plain(`…${context(2)}`), match("posterior")];
+
+    expect(flat(segments)).toBe(`…${context(2)}posterior`);
+  });
+
+  /** A formula long enough for the bound's cut to land inside it. */
+  const formula = (terms: number): string => "\\alpha_i + \\beta_i + ".repeat(terms);
+
+  it("snaps a length cut back to the inline formula enclosing the match", () => {
+    const segments = [
+      plain(`${context(3)}bounded by \\(${formula(6)}`),
+      match("\\gamma_i"),
+      plain("\\) above"),
+    ];
+    const math = excerptRuns(segments)
+      .flatMap((run) => run.prose)
+      .find((node) => node.type === "math");
+
+    expect(math).toEqual({ type: "math", tex: `${formula(6)}\\gamma_i` });
+    expect(flat(segments).match(/…/g)).toEqual(["…"]);
+  });
+
+  it("snaps a length cut back to the display formula enclosing the match", () => {
+    const segments = [
+      plain(`${context(3)}as derived \\[${formula(6)}`),
+      match("\\gamma_i"),
+      plain("\\] and then some"),
+    ];
+    const math = excerptRuns(segments)
+      .flatMap((run) => run.prose)
+      .find((node) => node.type === "math");
+
+    expect(math).toEqual({ type: "math", tex: `${formula(6)}\\gamma_i` });
+    expect(flat(segments).endsWith("and then some")).toBe(true);
+  });
+
+  it("measures the bound over what the repairs leave, not the debris they drop", () => {
+    // The elision left a long broken link at the head. What the head repair leaves
+    // of it draws inside the clamp, so the bound has nothing to trim.
+    const segments = [
+      plain(`…${"0ada3238-a90d-4f8b-".repeat(12)}][the label]] and then `),
+      match("posterior"),
+    ];
+
+    expect(flat(segments)).toBe("…the label and then posterior");
+  });
+
+  it("keeps whole a link its own length cut would fall inside", () => {
+    // Snapped back to the link's opener, so the excerpt opens on a construct that
+    // parses rather than on the debris of one.
+    const segments = [
+      plain(
+        `${context(4)}[[id:0ada3238-a90d][expectation maximisation]] ` +
+          "beside the observed data. ".repeat(2),
+      ),
+      match("posterior"),
+    ];
+    const drawn = flat(segments);
+
+    expect(drawn.match(/…/g)).toEqual(["…"]);
+    expect(drawn).toContain("maximisation");
+    expect(drawn).not.toContain("]]");
+    expect(drawn).not.toContain("0ada3238");
+    expect(drawn.endsWith("posterior")).toBe(true);
+  });
 });

@@ -262,6 +262,14 @@ The format follows Keep a Changelog, and this project follows SemVer.
   it restated and keeps the advice, and the surface-level `aria-busy` goes with the
   region it described: a search in flight is reported in words instead, which a
   busy flag would have suppressed.
+- Keep a search match inside the excerpt that claims it. The excerpt projection had
+  no length bound, so a match far into a snippet drew past the two-line clamp and
+  the row asserted a match it never showed. A pass now trims the leading context
+  until the first matched run draws inside what the clamp holds, marking the cut
+  with the same ellipsis the construct repairs use. It runs after those repairs, so
+  it measures prose that will be drawn rather than debris a repair is about to drop,
+  and keeps its own cut clear of every construct; an excerpt already inside the
+  clamp is untouched.
 
 ## [0.17.0] - 2026-07-25
 
