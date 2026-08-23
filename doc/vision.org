@@ -53,8 +53,8 @@ The Emacs package, CLI, and daemon JSON-RPC surface should share one model:
 Each surface may present the model differently, but semantic ownership should
 stay the same. The dedicated Emacs buffer is the richest interactive cockpit.
 The CLI is the task-shaped headless surface. A read-only web reader is a third
-front-end over Notes and Glossary; it reads through the same daemon and adds no
-public bucket of its own.
+front-end over Notes, Glossary, and the exploration lenses; it reads through the
+same daemon and adds no public bucket of its own.
 
 * Architecture
 

@@ -426,13 +426,13 @@ slipbox review remediation preview review/dangling/current audit/dangling/source
 
 ## Web Reading Surface
 
-The reading surface is a read-only web front-end over Notes and Glossary, a
-third surface beside Emacs and the CLI. A `slipbox web` command bridges HTTP to
-a spawned `slipbox serve --read-only`, over the same daemon-client boundary
-Emacs and the CLI use, and serves a small SolidJS reading client beneath a
-bounded JSON API. It adds no capability of its own: every HTTP path resolves to
-a read-only daemon operation, so no request can create, edit, or reschedule a
-note.
+The reading surface is a read-only web front-end over Notes, Glossary, and the
+exploration lenses, a third surface beside Emacs and the CLI. A `slipbox web`
+command bridges HTTP to a spawned `slipbox serve --read-only`, over the same
+daemon-client boundary Emacs and the CLI use, and serves a small SolidJS reading
+client beneath a bounded JSON API. It adds no capability of its own: every HTTP
+path resolves to a read-only daemon operation, so no request can create, edit,
+or reschedule a note.
 
 The client is a reading view, not an editor. It presents an Org reading column
 with a near/far spine, glance/pin/go navigation, a search-first entry surface,
@@ -498,8 +498,10 @@ The reading surface is deliberately bounded:
   front-ends, with no second database and no separate sync mechanism
 - no push: there is no SSE or websocket channel; the client reads over plain
   HTTP request and response
-- Explorations, Reviews, and Assets get no web surface, and spaced-repetition
-  grade writeback and any global or force-directed graph remain deferred
+- Reviews and Assets get no web surface, and Explorations are read through the
+  seven lenses alone: saved artifacts, comparisons, and trails are not served
+- spaced-repetition grade writeback and any global or force-directed graph
+  remain deferred
 
 ## Workbench Data
 

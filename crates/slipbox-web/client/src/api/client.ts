@@ -9,6 +9,8 @@
 
 import type {
   ApiErrorBody,
+  ExplorationLens,
+  ExploreResult,
   GlossaryTermResult,
   GlossaryTermsResult,
   BacklinksResult,
@@ -198,6 +200,17 @@ export class ReadingClient {
         limit: options.limit,
         unique: options.unique,
       })}`,
+    );
+  }
+
+  /** Read one note through one exploration lens. The lens is required. */
+  explore(
+    key: string,
+    lens: ExplorationLens,
+    options: { limit?: number } = {},
+  ): Promise<ExploreResult> {
+    return this.get<ExploreResult>(
+      `/api/explore${buildQuery({ key, lens, limit: options.limit })}`,
     );
   }
 

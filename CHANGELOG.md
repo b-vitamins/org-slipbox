@@ -14,6 +14,14 @@ The format follows Keep a Changelog, and this project follows SemVer.
   strip. `/favicon.ico` stays a not-found: a declared icon is what stops the
   probe, and answering a missing image with the app shell would render as a broken
   icon rather than a missing one.
+- Read the exploration lenses over the reading API. `/api/explore` takes a note
+  key, a lens, and an optional limit, and answers with the sections that lens
+  defines: structural links, shared references and unlinked mentions, planning and
+  task neighbors, bridge candidates, dormant material, unresolved tasks and weakly
+  integrated notes. The lens is a parameter rather than a route per lens, an
+  unknown one is refused with the accepted set rather than read as a default, and a
+  section the lens defines is served empty rather than omitted. The reading client
+  gains the matching types and an `explore` call; no surface asks for a lens yet.
 
 ### Changed
 - Draw the `dormant` lens's candidates from link topology rather than from shared

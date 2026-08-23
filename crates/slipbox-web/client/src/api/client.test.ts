@@ -1,6 +1,38 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ApiError, ReadingClient } from "./client.js";
+import type { ExploreResult, NodeRecord } from "./types.js";
+
+/** A node record with only the fields a test names given a value. */
+function node(key: string, title: string): NodeRecord {
+  return {
+    node_key: key,
+    explicit_id: null,
+    file_path: "notes/n.org",
+    title,
+    outline_path: title,
+    aliases: [],
+    tags: [],
+    refs: [],
+    todo_keyword: null,
+    scheduled_for: null,
+    deadline_for: null,
+    closed_at: null,
+    glossary: false,
+    glossary_status: null,
+    sr_due: null,
+    sr_ease: null,
+    sr_interval: null,
+    sr_reps: null,
+    sr_last: null,
+    level: 0,
+    line: 1,
+    kind: "file",
+    file_mtime_ns: 0,
+    backlink_count: 0,
+    forward_link_count: 0,
+  };
+}
 
 /** A fetch double recording the URL it was called with, answering `body`. */
 function stubFetch(
@@ -67,6 +99,138 @@ describe("ReadingClient URL construction", () => {
     await client.healthz();
 
     expect(calls[0]).toBe("http://127.0.0.1:8080/api/healthz");
+  });
+});
+
+describe("ReadingClient exploration reads", () => {
+  it("carries the lens on the query string beside the key", async () => {
+    const { fetch, calls } = stubFetch(200, { lens: "time", sections: [] });
+    const client = new ReadingClient("", fetch);
+
+    await client.explore("file:alpha.org", "time", { limit: 20 });
+
+    expect(calls[0]).toBe("/api/explore?key=file%3Aalpha.org&lens=time&limit=20");
+  });
+
+  it("leaves the limit to the route when none is given", async () => {
+    const { fetch, calls } = stubFetch(200, { lens: "structure", sections: [] });
+    const client = new ReadingClient("", fetch);
+
+    await client.explore("file:alpha.org", "structure");
+
+    expect(calls[0]).toBe("/api/explore?key=file%3Aalpha.org&lens=structure");
+  });
+
+  it("tells one lens's two sections apart, empty section and all", async () => {
+    const body: ExploreResult = {
+      lens: "unresolved",
+      sections: [
+        {
+          kind: "unresolved-tasks",
+          entries: [
+            {
+              kind: "anchor",
+              anchor: node("heading:notes/a.org:4", "Prove the bound"),
+              explanation: {
+                kind: "unresolved-shared-reference",
+                references: ["cite:shared2024"],
+                todo_keyword: "TODO",
+              },
+            },
+          ],
+        },
+        { kind: "weakly-integrated-notes", entries: [] },
+      ],
+    };
+    const { fetch } = stubFetch(200, body);
+    const client = new ReadingClient("", fetch);
+
+    const result = await client.explore("file:alpha.org", "unresolved");
+
+    expect(result.lens).toBe("unresolved");
+    expect(result.sections.map((section) => section.kind)).toEqual([
+      "unresolved-tasks",
+      "weakly-integrated-notes",
+    ]);
+    // A section that found nothing arrives empty, not missing.
+    expect(result.sections[1]!.entries).toEqual([]);
+  });
+
+  it("reads an anchor entry's record beside its tag rather than under it", async () => {
+    const body: ExploreResult = {
+      lens: "bridges",
+      sections: [
+        {
+          kind: "bridge-candidates",
+          entries: [
+            {
+              kind: "anchor",
+              anchor: node("file:beta.org", "Beta"),
+              explanation: {
+                kind: "bridge-candidate",
+                references: ["cite:shared2024"],
+                via_notes: [
+                  { node_key: "file:weak.org", explicit_id: null, title: "Weak" },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const { fetch } = stubFetch(200, body);
+    const client = new ReadingClient("", fetch);
+
+    const result = await client.explore("file:alpha.org", "bridges");
+
+    // Serde flattens the record into the tagged object.
+    const [entry] = result.sections[0]!.entries;
+    if (entry?.kind !== "anchor") {
+      throw new Error(`expected an anchor entry, got \`${entry?.kind}\``);
+    }
+    expect(entry.anchor.title).toBe("Beta");
+    if (entry.explanation.kind !== "bridge-candidate") {
+      throw new Error(`expected a bridge candidate, got \`${entry.explanation.kind}\``);
+    }
+    expect(entry.explanation.via_notes.map((via) => via.title)).toEqual(["Weak"]);
+  });
+
+  it("decodes an explanation written before it carried its evidence notes", async () => {
+    // `via_notes` is defaulted in slipbox-core, so a payload predating it decodes.
+    const body = {
+      lens: "dormant",
+      sections: [
+        {
+          kind: "dormant-notes",
+          entries: [
+            {
+              kind: "anchor",
+              anchor: node("file:old.org", "Old"),
+              explanation: {
+                kind: "dormant-shared-reference",
+                references: ["cite:shared2024"],
+                modified_at_ns: 1,
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const { fetch } = stubFetch(200, body);
+    const client = new ReadingClient("", fetch);
+
+    const result = await client.explore("file:alpha.org", "dormant");
+
+    const [entry] = result.sections[0]!.entries;
+    if (entry?.kind !== "anchor") {
+      throw new Error(`expected an anchor entry, got \`${entry?.kind}\``);
+    }
+    if (entry.explanation.kind !== "dormant-shared-reference") {
+      throw new Error(`expected a dormant note, got \`${entry.explanation.kind}\``);
+    }
+    expect(entry.explanation.references).toEqual(["cite:shared2024"]);
+    expect(entry.explanation.modified_at_ns).toBe(1);
+    expect(entry.anchor.title).toBe("Old");
   });
 });
 

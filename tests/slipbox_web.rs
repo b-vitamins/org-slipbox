@@ -1,7 +1,9 @@
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
-use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::Arc;
 use std::thread;
@@ -10,10 +12,10 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::Value;
 use slipbox_core::{
-    BacklinksParams, ForwardLinksParams, GlossaryDueParams, GlossaryTermParams,
-    ListGlossaryTermsParams, NodeFromIdParams, NodeFromKeyParams, NodeFromTitleOrAliasParams,
-    NoteContextParams, ReflinksParams, SearchGlossaryParams, SearchNodesParams,
-    UnlinkedReferencesParams,
+    BacklinksParams, ExplorationEntry, ExplorationLens, ExploreParams, ForwardLinksParams,
+    GlossaryDueParams, GlossaryTermParams, ListGlossaryTermsParams, NodeFromIdParams,
+    NodeFromKeyParams, NodeFromTitleOrAliasParams, NoteContextParams, ReflinksParams,
+    SearchGlossaryParams, SearchNodesParams, UnlinkedReferencesParams,
 };
 use slipbox_daemon_client::DaemonServeConfig;
 use slipbox_index::scan_root;
@@ -194,6 +196,21 @@ fn reading_bridge_serves_the_read_only_note_and_glossary_surface() -> Result<()>
             .iter()
             .any(|record| record.source_anchor.title == "Weak")
     );
+
+    // The lens is a parameter of one method, so one call clears the whole set
+    // through the read-only dispatch guard.
+    let explored = bridge.explore(&ExploreParams {
+        node_key: alpha.node_key.clone(),
+        lens: ExplorationLens::Unresolved,
+        limit: 10,
+        unique: false,
+    })?;
+    assert_eq!(explored.lens, ExplorationLens::Unresolved);
+    assert_eq!(explored.sections.len(), 2);
+    assert!(matches!(
+        explored.sections[1].entries.first(),
+        Some(ExplorationEntry::Anchor { record }) if record.anchor.title == "Weak"
+    ));
 
     let terms = bridge.list_glossary_terms(&ListGlossaryTermsParams { limit: 50 })?;
     assert_eq!(terms.terms.len(), 1);
@@ -518,6 +535,143 @@ fn reading_server_serves_the_note_and_glossary_surface_over_http() -> Result<()>
     Ok(())
 }
 
+#[test]
+fn reading_server_reads_a_note_through_every_exploration_lens() -> Result<()> {
+    let (_workspace, root, db) = build_reading_fixture()?;
+    let server = start_reading_server(&root, &db)?;
+    let addr = server.local_addr();
+
+    // Each lens defines its own sections, in order.
+    for (lens, expected) in [
+        ("structure", &["backlinks", "forward-links"][..]),
+        ("refs", &["reflinks", "unlinked-references"][..]),
+        ("time", &["time-neighbors"][..]),
+        ("tasks", &["task-neighbors"][..]),
+        ("bridges", &["bridge-candidates"][..]),
+        ("dormant", &["dormant-notes"][..]),
+        (
+            "unresolved",
+            &["unresolved-tasks", "weakly-integrated-notes"][..],
+        ),
+    ] {
+        let read = http_get(
+            addr,
+            &format!("/api/explore?key=file:alpha.org&lens={lens}"),
+        )?;
+        assert_eq!(read.status, 200, "{lens}: {}", read.body);
+        let body = read.json()?;
+        assert_eq!(body["lens"], lens);
+        let kinds = body["sections"]
+            .as_array()
+            .context("an exploration answers with sections")?
+            .iter()
+            .map(|section| section["kind"].as_str().unwrap_or_default().to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(kinds, expected, "{lens}");
+    }
+
+    // Nothing links to Alpha, so backlinks is an empty list, not a missing one.
+    let structure = http_get(addr, "/api/explore?key=file:alpha.org&lens=structure")?.json()?;
+    assert_eq!(structure["sections"][0]["entries"], Value::Array(vec![]));
+    assert_eq!(
+        structure["sections"][1]["entries"][0]["destination_note"]["title"],
+        "Beta"
+    );
+
+    // Weak shares a reference with Alpha and names it unlinked in prose, so it
+    // reaches both refs sections.
+    let refs = http_get(addr, "/api/explore?key=file:alpha.org&lens=refs")?.json()?;
+    for section in [0, 1] {
+        assert!(
+            refs["sections"][section]["entries"]
+                .as_array()
+                .context("a refs section carries entries")?
+                .iter()
+                .any(|entry| entry["source_anchor"]["title"] == "Weak"),
+            "{refs}"
+        );
+    }
+
+    let unresolved = http_get(addr, "/api/explore?key=file:alpha.org&lens=unresolved")?.json()?;
+    assert_eq!(unresolved["sections"][0]["entries"], Value::Array(vec![]));
+    let weak = unresolved["sections"][1]["entries"][0].clone();
+    // Serde flattens an entry's record beside the tag, not under a field.
+    assert_eq!(weak["kind"], "anchor");
+    assert_eq!(weak["anchor"]["title"], "Weak");
+    assert_eq!(
+        weak["explanation"]["kind"],
+        "weakly-integrated-shared-reference"
+    );
+
+    // The operation clamps to `1..=1_000`; the route admits that range and
+    // refuses either side of it rather than pulling a value in.
+    assert_eq!(
+        http_get(addr, "/api/explore?key=file:alpha.org&lens=refs&limit=1000")?.status,
+        200
+    );
+    for target in [
+        "/api/explore?key=file:alpha.org&lens=refs&limit=0",
+        "/api/explore?key=file:alpha.org&lens=refs&limit=1001",
+    ] {
+        let refused = http_get(addr, target)?;
+        assert_eq!(refused.status, 400, "{target}");
+        assert!(
+            refused.json()?["error"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("`limit`")),
+            "{}",
+            refused.body
+        );
+    }
+
+    for (target, faulty) in [
+        ("/api/explore?lens=structure", "`key`"),
+        ("/api/explore?key=file:alpha.org", "`lens`"),
+        ("/api/explore?key=file:alpha.org&lens=sideways", "`lens`"),
+        ("/api/explore?key=file:alpha.org&lens=Structure", "`lens`"),
+    ] {
+        let refused = http_get(addr, target)?;
+        assert_eq!(refused.status, 400, "{target}");
+        assert!(
+            refused.json()?["error"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains(faulty)),
+            "{target}: {}",
+            refused.body
+        );
+    }
+
+    // The refusal lists what it would have taken.
+    let unknown = http_get(addr, "/api/explore?key=file:alpha.org&lens=sideways")?;
+    let message = unknown.json()?["error"]["message"]
+        .as_str()
+        .context("a refusal carries a message")?
+        .to_owned();
+    for spelling in [
+        "structure",
+        "refs",
+        "time",
+        "tasks",
+        "bridges",
+        "dormant",
+        "unresolved",
+    ] {
+        assert!(message.contains(spelling), "{spelling} missing: {message}");
+    }
+
+    // A key that resolves to no note is a 404, as on every other relation route.
+    let missing = http_get(addr, "/api/explore?key=file:missing.org&lens=structure")?;
+    assert_eq!(missing.status, 404, "{}", missing.body);
+    assert_eq!(missing.json()?["error"]["kind"], "not-found");
+    // The anchor-aware lenses resolve the key separately, so check one of those too.
+    let missing_anchor = http_get(addr, "/api/explore?key=file:missing.org&lens=refs")?;
+    assert_eq!(missing_anchor.status, 404, "{}", missing_anchor.body);
+
+    server.shutdown()?;
+    Ok(())
+}
+
+// Kills the serving daemon through a signal, so it holds only on unix.
 #[cfg(unix)]
 #[test]
 fn reading_server_recovers_from_a_daemon_that_died_under_it() -> Result<()> {
