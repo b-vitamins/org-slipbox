@@ -13,7 +13,6 @@ import type {
   NoteContext,
 } from "../api/types.js";
 
-/** The characters a preview's text nodes carry, which is what is read aloud. */
 function characters(prose: readonly Inline[]): string {
   return prose
     .map((node) => {
@@ -107,7 +106,6 @@ function context(
     place: { ordinal: 1, total: 1 },
     backlinks,
     forward_links,
-    // The projection reads no total; the footer above it does.
     backlink_note_total: backlinks.length,
     forward_link_note_total: forward_links.length,
   };
@@ -129,8 +127,6 @@ describe("relationRows", () => {
     expect(rows.map((row) => row.direction)).toEqual(["out", "out"]);
   });
 
-  // The forward record's preview is the line of the note being read, a few
-  // centimetres above the footer, so it is not quoted back at the reader.
   it("carries no preview on a forward-only row", () => {
     const rows = relationRows(
       context([forward(node("notes/a.org::0", "Alpha"), "see Alpha")], []),
@@ -186,7 +182,6 @@ describe("relationRows", () => {
 
     expect(rows.map((row) => row.title)).toEqual(["Alpha", "Beta"]);
     expect(rows.map((row) => row.direction)).toEqual(["both", "out"]);
-    // The other note's line, not the line of the note being read.
     expect(rows[0]!.preview).toEqual([{ type: "text", value: "cites Self back" }]);
   });
 
@@ -219,8 +214,6 @@ describe("relationRows", () => {
     expect(rows[0]!.preview).toEqual([{ type: "text", value: "first" }]);
   });
 
-  // The CSS clip is paint only: an unbounded text node carries every character
-  // of the source note's paragraph into the accessible tree.
   it("bounds a preview by characters, not by the clip that paints it", () => {
     const paragraph = "quantum ".repeat(RELATION_PREVIEW_CHARS);
     const rows = relationRows(
@@ -229,7 +222,6 @@ describe("relationRows", () => {
 
     const text = characters(rows[0]!.preview);
     expect(text.length).toBeLessThanOrEqual(RELATION_PREVIEW_CHARS + 1);
-    // The same elision mark a glance card's bounded excerpt ends on.
     expect(text.endsWith("…")).toBe(true);
   });
 
@@ -260,7 +252,6 @@ describe("relationRows", () => {
 });
 
 describe("shownInDirection", () => {
-  // A reciprocal note is one row, and it stands against both payload totals.
   it("counts a both-ways row in each direction", () => {
     const rows = relationRows(
       context(

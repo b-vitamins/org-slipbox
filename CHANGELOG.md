@@ -110,6 +110,13 @@ The format follows Keep a Changelog, and this project follows SemVer.
   related note, in first-appearance order with forward links first, and a preview
   comes from the backlink alone. Each direction states its own cut against its
   own total.
+- Set the reading footer at an index's scale rather than the prose's. Three
+  groups at the reading scale cost a screenful of a narrow viewport, a page of
+  chrome under every note: a footer for a note with six related notes measured
+  345px and now measures 243px. Row pitch, group spacing, and the space above the
+  rule come down, and the three group labels share one register instead of a
+  letterspaced uppercase run. The rule stays, and under a coarse pointer a row's
+  height is still the touch-target token's floor.
 
 ### Removed
 - Retire the reading surface's hop-bounded neighborhood: the `/api/neighborhood`
