@@ -6,8 +6,8 @@ import type { NotePlace } from "../api/types.js";
 import { __resetRefocusForTests } from "../data/refetch-on-focus.js";
 import { ReadingColumn } from "./ReadingColumn.jsx";
 import type { ColumnState } from "./spine-geometry.js";
+import type { FilingMove } from "./spine-navigation.js";
 
-/** `place` omitted stands for a daemon that answers without the field. */
 function noteContextResponse(
   title: string,
   content = "",
@@ -59,12 +59,18 @@ function errorResponse(status: number, kind: string, message: string): Response 
   });
 }
 
+const INERT_READ_ON: FilingMove = {
+  address: (target) => `?note=${target}`,
+  open: () => {},
+};
+
 function mount(reference: string) {
   return render(() => (
     <ReadingColumn
       reference={reference}
       state="resting"
       navigation={{ glance: () => {}, pin: () => {}, go: () => {} }}
+      readOn={INERT_READ_ON}
       onReveal={() => {}}
     />
   ));
@@ -92,6 +98,7 @@ describe("ReadingColumn obscured sliver", () => {
         reference="notes/gradient.org"
         state="obscured"
         navigation={{ glance: () => {}, pin: () => {}, go: () => {} }}
+        readOn={INERT_READ_ON}
         onReveal={onReveal}
       />
     ));
@@ -117,6 +124,7 @@ describe("ReadingColumn obscured sliver", () => {
         reference="notes/gradient.org"
         state={state()}
         navigation={{ glance: () => {}, pin: () => {}, go: () => {} }}
+        readOn={INERT_READ_ON}
         onReveal={() => {}}
       />
     ));
@@ -124,8 +132,6 @@ describe("ReadingColumn obscured sliver", () => {
     expect(await screen.findByText("All of it.")).toBeInTheDocument();
     expect(read).toHaveBeenCalledTimes(1);
 
-    // A hidden column is out of the accessibility tree, which is what a role
-    // query walks, so the note reads as gone while its subtree stays mounted.
     setState("obscured");
     expect(
       screen.queryByRole("heading", { level: 1, name: "Gradient descent" }),
@@ -135,8 +141,6 @@ describe("ReadingColumn obscured sliver", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: "Gradient descent" }),
     ).toBeInTheDocument();
-    // Still the one read: the column was hidden and shown again, not discarded
-    // and fetched a second time.
     expect(read).toHaveBeenCalledTimes(1);
   });
 });
@@ -234,7 +238,6 @@ describe("ReadingColumn filing place", () => {
       line.compareDocumentPosition(screen.getByText("All of it.")) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    // The position rode in on the read the note made anyway.
     expect(read).toHaveBeenCalledTimes(1);
   });
 
@@ -254,8 +257,6 @@ describe("ReadingColumn filing place", () => {
     mount("notes/gradient.org");
 
     const line = await screen.findByText("Filed 3 of 9");
-    // Named for the note, not the note and its position: the line is inside the
-    // column that the heading alone names.
     expect(
       screen.getByRole("article", { name: "Gradient descent" }),
     ).toContainElement(line);
@@ -276,7 +277,6 @@ describe("ReadingColumn filing place", () => {
     mount("notes/gradient.org");
 
     expect(await screen.findByText("All of it.")).toBeInTheDocument();
-    // No line at all, rather than a line counting from nothing.
     expect(document.querySelector(".reading-note__place")).toBeNull();
     expect(screen.queryByText(/^Filed /)).not.toBeInTheDocument();
   });
@@ -399,9 +399,6 @@ describe("ReadingColumn document semantics", () => {
 
     expect(await screen.findByText("All of it.")).toBeInTheDocument();
     const column = screen.getByRole("article", { name: "Gradient descent" });
-    // The spine focuses a column when it opens one. A negative index is what
-    // makes that possible without adding the whole note to the tab order, where
-    // it would stand between the header and the first link.
     expect(column).toHaveAttribute("tabindex", "-1");
     column.focus();
     expect(column).toHaveFocus();

@@ -86,6 +86,14 @@ The format follows Keep a Changelog, and this project follows SemVer.
   counts and claims no date. The line is a sibling of the heading, so the column is
   still announced by its title alone, and it takes exactly its own line box from the
   prose.
+- Read on to a note's neighbors in the filing order. The order could be counted but
+  not walked: reaching the note filed beside this one meant guessing which link led
+  there. A pair of links above the relations inventory names each side and the note
+  it reaches, off the same context read. Reading on replaces the column being read
+  and leaves the trail to it standing, which is the follow rule one column earlier,
+  so the link grammar keeps its three verbs; a neighbor already in the trail is
+  revealed rather than opened again. Each link carries a real address, so a new tab
+  reaches the same reading path.
 
 ### Changed
 - Draw the `dormant` lens's candidates from link topology rather than from shared

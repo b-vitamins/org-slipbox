@@ -18,7 +18,7 @@ import {
 } from "./navigation.jsx";
 
 /** True for a click the browser should keep (new tab, non-primary button). */
-function isBrowserGesture(event: MouseEvent): boolean {
+export function isBrowserGesture(event: MouseEvent): boolean {
   return (
     event.defaultPrevented ||
     event.metaKey ||
