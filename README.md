@@ -436,11 +436,15 @@ or reschedule a note.
 
 The client is a reading view, not an editor. It presents an Org reading column
 with a near/far spine, glance/pin/go navigation, a search-first entry surface,
-and a glossary dictionary with definition peek.
-Entry search is the ranked content path, so it matches a phrase from the middle
-of a note and shows the excerpt each hit was found in. The reading trail, the
-surface that is up, the search term, and the open glossary term all live in the
-URL, so a reading position is a plain link and a reload lands back on it.
+and a glossary dictionary with definition peek. A column states the note's place
+in the filing order, offers the notes filed on either side of it, and closes
+with a relations inventory: the links the note holds, notes the `bridges` lens
+ranks two hops out that it does not link to, and notes that write its title in
+their prose without linking to it. Entry search is the ranked content path, so
+it matches a phrase from the middle of a note and shows the excerpt each hit was
+found in. The reading trail, the surface that is up, the search term, and the
+open glossary term all live in the URL, so a reading position is a plain link
+and a reload lands back on it.
 
 The palette follows the operating system's light or dark preference. A header
 control cycles Auto, Light, and Dark for a reader who wants the opposite of what
