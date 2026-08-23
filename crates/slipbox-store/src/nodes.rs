@@ -289,8 +289,7 @@ impl Database {
             .context("failed to fetch anchor by key")
     }
 
-    /// Where a note sits in `(file_path, line)` order: its ordinal from 1, the
-    /// number of notes the index holds, and the note filed on each side.
+    /// Return a note's 1-based place and immediate filing neighbors.
     pub fn note_place(&self, node_key: &str) -> Result<Option<NotePlaceResult>> {
         let sql = format!(
             "SELECT n.file_path, n.line
@@ -402,7 +401,7 @@ impl Database {
         Ok(note_for_anchor_in_file(&anchors, &anchor.node_key))
     }
 
-    /// One page of the glossary, ordered by title and continuing after `after`.
+    /// Return one title-ordered glossary page.
     pub fn list_glossary_terms(
         &self,
         limit: usize,
@@ -412,7 +411,6 @@ impl Database {
         let filter = glossary_where("n");
         let total = self.count_glossary(&format!("nodes AS n WHERE {filter}"), [])?;
 
-        // One row past the page is what proves the listing continues.
         let mut arguments: Vec<rusqlite::types::Value> = vec![(limit as i64 + 1).into()];
         let seek = match after {
             None => String::new(),
@@ -420,9 +418,7 @@ impl Database {
                 arguments.push(position.leading.clone().unwrap_or_default().into());
                 arguments.push(position.file_path.clone().into());
                 arguments.push(i64::from(position.line).into());
-                // `COLLATE NOCASE` is repeated on the bound title. Without it the
-                // seek compares under BINARY and lands part-way through a run of
-                // titles that differ only by case, skipping or repeating rows.
+                // The seek and ORDER BY must use the same collation.
                 "AND (n.title > ?2 COLLATE NOCASE
                       OR (n.title = ?2 COLLATE NOCASE
                           AND (n.file_path > ?3
@@ -452,8 +448,7 @@ impl Database {
         ))
     }
 
-    /// Glossary search, bounded to one page: the match branch ranks by `bm25`,
-    /// which is neither stored nor a stable key, so there is no position to serve.
+    /// Return one relevance-ranked glossary search page.
     pub fn search_glossary(&self, query: &str, limit: usize) -> Result<GlossaryPage> {
         let limit = limit.clamp(1, 200) as i64;
         let filter = glossary_where("n");
@@ -580,62 +575,83 @@ impl Database {
             .context("failed to read note content search results")
     }
 
-    /// One page of the terms due on `today`, continuing after `after`.
+    /// Return one due-order glossary page, optionally filtered by headword or alias.
     pub fn glossary_due_terms(
         &self,
         today: &str,
+        query: Option<&str>,
         limit: usize,
         after: Option<&GlossaryPosition>,
     ) -> Result<GlossaryPage> {
         let limit = limit.clamp(1, 200);
-        // A term is due when it has never been reviewed (`reps` unset or zero) or
-        // its stored due date is at or before `today`. Scheduling values are
-        // mirrored verbatim as text, so `CAST` matches the core scheduler, which
-        // parses a missing or malformed `reps` back to zero.
+        let fts_query = query
+            .and_then(build_fts_query)
+            .map(|query| format!("{{title alias_text}} : ({query})"));
+        let from = if fts_query.is_some() {
+            "node_fts JOIN nodes AS n ON n.id = node_fts.rowid"
+        } else {
+            "nodes AS n"
+        };
+        let search_filter = if fts_query.is_some() {
+            "AND node_fts MATCH ?2"
+        } else {
+            ""
+        };
         let filter = format!(
             "{} AND (COALESCE(CAST(n.sr_reps AS INTEGER), 0) = 0
                      OR n.sr_due IS NULL
-                     OR n.sr_due <= ?1)",
+                     OR n.sr_due <= ?1)
+                {search_filter}",
             glossary_where("n"),
         );
-        let total = self.count_glossary(&format!("nodes AS n WHERE {filter}"), params![today])?;
+        let mut arguments: Vec<rusqlite::types::Value> = vec![today.to_owned().into()];
+        arguments.extend(fts_query.map(Into::into));
+        let total = self.count_glossary(
+            &format!("{from} WHERE {filter}"),
+            params_from_iter(arguments.clone()),
+        )?;
 
-        let mut arguments: Vec<rusqlite::types::Value> =
-            vec![today.to_owned().into(), (limit as i64 + 1).into()];
+        let limit_parameter = arguments.len() + 1;
+        arguments.push((limit as i64 + 1).into());
         let seek = match after {
             None => String::new(),
             Some(position) => match &position.leading {
-                // `sr_due` sorts NULLs first, so a boundary inside the unreviewed
-                // block continues through the rest of it and then every dated term.
                 None => {
+                    let path_parameter = arguments.len() + 1;
                     arguments.push(position.file_path.clone().into());
+                    let line_parameter = arguments.len() + 1;
                     arguments.push(i64::from(position.line).into());
-                    "AND (n.sr_due IS NOT NULL
-                          OR n.file_path > ?3
-                          OR (n.file_path = ?3 AND n.line > ?4))"
-                        .to_owned()
+                    format!(
+                        "AND (n.sr_due IS NOT NULL
+                              OR n.file_path > ?{path_parameter}
+                              OR (n.file_path = ?{path_parameter}
+                                  AND n.line > ?{line_parameter}))"
+                    )
                 }
-                // A NULL `sr_due` answers neither comparison, which is what keeps
-                // the unreviewed block from repeating once a page has passed it.
                 Some(due) => {
+                    let due_parameter = arguments.len() + 1;
                     arguments.push(due.clone().into());
+                    let path_parameter = arguments.len() + 1;
                     arguments.push(position.file_path.clone().into());
+                    let line_parameter = arguments.len() + 1;
                     arguments.push(i64::from(position.line).into());
-                    "AND (n.sr_due > ?3
-                          OR (n.sr_due = ?3
-                              AND (n.file_path > ?4
-                                   OR (n.file_path = ?4 AND n.line > ?5))))"
-                        .to_owned()
+                    format!(
+                        "AND (n.sr_due > ?{due_parameter}
+                              OR (n.sr_due = ?{due_parameter}
+                                  AND (n.file_path > ?{path_parameter}
+                                       OR (n.file_path = ?{path_parameter}
+                                           AND n.line > ?{line_parameter}))))"
+                    )
                 }
             },
         };
         let sql = format!(
             "SELECT {}
-               FROM nodes AS n
+               FROM {from}
               WHERE {filter}
                 {seek}
               ORDER BY n.sr_due, n.file_path, n.line
-              LIMIT ?2",
+              LIMIT ?{limit_parameter}",
             anchor_select_columns("n"),
         );
         let mut statement = self.connection.prepare(&sql)?;
@@ -651,8 +667,6 @@ impl Database {
         ))
     }
 
-    /// Rows a glossary listing holds in total, for the `FROM`/`WHERE` tail its page
-    /// query shares. This is the count a surface states without holding the rows.
     fn count_glossary<P: rusqlite::Params>(&self, from_where: &str, arguments: P) -> Result<usize> {
         let total: i64 = self
             .connection
@@ -666,21 +680,14 @@ impl Database {
     }
 }
 
-/// One page of a glossary listing, with the size of the listing behind it.
 pub struct GlossaryPage {
     pub terms: Vec<NodeRecord>,
-    /// Terms the whole listing holds, not just this page.
     pub total: usize,
-    /// Whether terms follow this page.
     pub has_more: bool,
-    /// Token that continues the listing after this page. A listing that cannot
-    /// page never mints one.
     pub next_position: Option<String>,
 }
 
 impl GlossaryPage {
-    /// Cut a read of `limit + 1` rows down to the page: the extra row is what says
-    /// the listing continues, and the last row kept is where the next page resumes.
     fn paged(
         mut rows: Vec<NodeRecord>,
         total: usize,
@@ -702,8 +709,6 @@ impl GlossaryPage {
         }
     }
 
-    /// One page of a listing with no position to hand out. A single page has no
-    /// offset behind it, so the count alone states whether the cut left anything.
     fn unpaged(rows: Vec<NodeRecord>, total: usize) -> Self {
         Self {
             has_more: total > rows.len(),
@@ -714,46 +719,31 @@ impl GlossaryPage {
     }
 }
 
-/// The boundary a glossary page ended on, in that listing's own order.
-///
-/// A caller echoes the token it was handed rather than composing one: this module
-/// is the only place that reads the tuple inside it. `tag` names the listing the
-/// token was minted for, so a term position cannot resume the due listing, which
-/// orders by a different key.
+/// Opaque, listing-specific glossary cursor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GlossaryPosition {
     tag: &'static str,
-    /// The listing's leading ordering column: a title, or a due date, which is
-    /// unset for a term that has never been reviewed.
     leading: Option<String>,
     file_path: String,
     line: u32,
 }
 
-/// Tag of a position in the term listing.
 const TERM_POSITION_TAG: &str = "term";
-/// Tag of a position in the due listing.
 const DUE_POSITION_TAG: &str = "due";
-/// Field separator inside a token. Each field is hex, so this is a byte no field
-/// can spell, whatever a title or a path carries.
 const POSITION_SEPARATOR: char = '.';
 
 impl GlossaryPosition {
-    /// Read a token that continues the term listing, or `None` if it is not one.
     #[must_use]
     pub fn parse_term(token: &str) -> Option<Self> {
         let position = Self::parse(token, TERM_POSITION_TAG)?;
-        // The term key leads with `title`, which is never NULL.
         position.leading.is_some().then_some(position)
     }
 
-    /// Read a token that continues the due listing, or `None` if it is not one.
     #[must_use]
     pub fn parse_due(token: &str) -> Option<Self> {
         Self::parse(token, DUE_POSITION_TAG)
     }
 
-    /// The boundary a term-listing page ended on.
     fn after_term(record: &NodeRecord) -> Self {
         Self {
             tag: TERM_POSITION_TAG,
@@ -763,7 +753,6 @@ impl GlossaryPosition {
         }
     }
 
-    /// The boundary a due-listing page ended on.
     fn after_due(record: &NodeRecord) -> Self {
         Self {
             tag: DUE_POSITION_TAG,
@@ -773,11 +762,8 @@ impl GlossaryPosition {
         }
     }
 
-    /// This position as the hex token a caller carries between pages.
     fn token(&self) -> String {
-        // Every field is hex-encoded on its own, so the boundary between two of
-        // them cannot occur inside either. The leading column is written last so
-        // that its absence is one field shorter rather than an empty one.
+        // Per-field hex encoding makes the separator unambiguous.
         let mut token = format!(
             "{}{POSITION_SEPARATOR}{}{POSITION_SEPARATOR}{}",
             encode_field(self.tag),
@@ -802,7 +788,6 @@ impl GlossaryPosition {
             Some(field) => Some(decode_field(field)?),
             None => None,
         };
-        // A fifth field is nothing this codec mints.
         if fields.next().is_some() {
             return None;
         }
@@ -815,12 +800,10 @@ impl GlossaryPosition {
     }
 }
 
-/// Encode one field as hex text, which holds no separator of its own.
 fn encode_field(field: &str) -> String {
     field.bytes().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// Decode one field of a position token, or `None` when it is not hex text.
 fn decode_field(field: &str) -> Option<String> {
     let digits = field.as_bytes();
     if digits.len() % 2 != 0 {
@@ -879,15 +862,12 @@ fn glossary_where(alias: &str) -> String {
     format!("{alias}.glossary = 1 AND {}", note_where(alias))
 }
 
-/// Which way a filing-order neighbor seek walks from the note.
 #[derive(Debug, Clone, Copy)]
 enum FilingSide {
     Earlier,
     Later,
 }
 
-/// Counts the notes filed before `(?1, ?2)`. The row-value bound is what keeps
-/// the count an ordered walk of `idx_nodes_file_path_line_level`.
 fn notes_filed_before_sql() -> String {
     format!(
         "SELECT COUNT(*)
@@ -898,8 +878,6 @@ fn notes_filed_before_sql() -> String {
     )
 }
 
-/// One ordered seek for the nearest note on `side`; the index supplies the
-/// order, so `LIMIT 1` stops at the first row the note predicate admits.
 fn filing_neighbor_sql(side: FilingSide) -> String {
     let (bound, direction) = match side {
         FilingSide::Earlier => ("<", "DESC"),
@@ -1055,12 +1033,7 @@ fn note_for_anchor_in_file(anchors: &[AnchorRecord], anchor_key: &str) -> Option
     note_owners_by_anchor_key(anchors).remove(anchor_key)
 }
 
-/// The note owning each anchor of one file, keyed on the anchor's own key.
-///
-/// Ownership follows the outline: a note owns itself, and a heading carrying no
-/// id belongs to the nearest note enclosing it rather than to whichever node
-/// stands just above. `anchors` are one file's nodes in line order, as
-/// [`Database::anchors_in_file`] reads them.
+/// Map each anchor to its nearest enclosing canonical note.
 pub fn note_owners_by_anchor_key(anchors: &[AnchorRecord]) -> HashMap<String, NodeRecord> {
     let anchor_lookup = anchors
         .iter()
@@ -1286,7 +1259,6 @@ mod tests {
 
         let page = database.list_glossary_terms(2, None)?;
         assert_eq!(page_titles(&page), vec!["Alpha", "Beta"]);
-        // The page is short of the listing, and says so with the listing's size.
         assert_eq!(page.total, 3);
         assert!(page.has_more);
         Ok(())
@@ -1376,7 +1348,7 @@ mod tests {
             ),
         ])?;
 
-        let due = database.glossary_due_terms("2026-07-21", 50, None)?;
+        let due = database.glossary_due_terms("2026-07-21", None, 50, None)?;
         assert_eq!(due.total, 3);
         let mut due_titles = page_titles(&due);
         due_titles.sort();
@@ -1401,10 +1373,52 @@ mod tests {
             ),
         ])?;
 
-        let due = database.glossary_due_terms("2026-07-21", 2, None)?;
+        let due = database.glossary_due_terms("2026-07-21", None, 2, None)?;
         assert_eq!(page_titles(&due), vec!["A", "B"]);
         assert_eq!(due.total, 3);
         assert!(due.has_more);
+        Ok(())
+    }
+
+    #[test]
+    fn due_search_filters_before_counting_and_paging() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            (
+                "a.org",
+                &term("Alpha", "", "Needle appears only in the definition."),
+            ),
+            (
+                "b.org",
+                &term("Beta", ":ROAM_ALIASES: Needle\n", "Alias match."),
+            ),
+            ("z.org", &term("Needle headword", "", "Headword match.")),
+            (
+                "future.org",
+                &term(
+                    "Needle later",
+                    ":SR_DUE:  2026-08-01\n:SR_REPS: 1\n",
+                    "Not due yet.",
+                ),
+            ),
+        ])?;
+
+        let first = database.glossary_due_terms("2026-07-21", Some("needle"), 1, None)?;
+        assert_eq!(page_titles(&first), vec!["Beta"]);
+        assert_eq!(first.total, 2);
+        assert!(first.has_more);
+
+        let position = read_position(
+            first
+                .next_position
+                .as_deref()
+                .expect("the match set continues"),
+            GlossaryPosition::parse_due,
+        );
+        let second =
+            database.glossary_due_terms("2026-07-21", Some("needle"), 1, Some(&position))?;
+        assert_eq!(page_titles(&second), vec!["Needle headword"]);
+        assert_eq!(second.total, 2);
+        assert!(!second.has_more);
         Ok(())
     }
 
@@ -1456,9 +1470,7 @@ mod tests {
             ("z.org", &term("Zeta", "", "Last by title.")),
         ])?;
 
-        // Under BINARY these four titles sort in a different order from the one
-        // the listing serves, so a seek that dropped NOCASE would skip or repeat
-        // part of the run.
+        // This fixture distinguishes NOCASE order from binary order.
         let whole = titles(&database.list_glossary_terms(50, None)?.terms);
         let mut binary_order = whole.clone();
         binary_order.sort();
@@ -1498,13 +1510,15 @@ mod tests {
             ),
         ])?;
 
-        let whole = titles(&database.glossary_due_terms("2026-07-21", 50, None)?.terms);
+        let whole = titles(
+            &database
+                .glossary_due_terms("2026-07-21", None, 50, None)?
+                .terms,
+        );
         assert_eq!(
             whole,
             vec!["New A", "New B", "New C", "Dated A", "Dated B", "Dated C"]
         );
-        // The limits below cut inside the unreviewed block, exactly at its end,
-        // and inside a run of terms sharing one due date.
         for limit in 1..=5 {
             assert_eq!(
                 paged_due_titles(&database, "2026-07-21", limit)?,
@@ -1530,7 +1544,7 @@ mod tests {
         assert!(GlossaryPosition::parse_due(&term_token).is_none());
 
         let due_token = database
-            .glossary_due_terms("2026-07-21", 1, None)?
+            .glossary_due_terms("2026-07-21", None, 1, None)?
             .next_position
             .expect("a page short of the listing continues");
         assert!(GlossaryPosition::parse_due(&due_token).is_some());
@@ -1540,8 +1554,6 @@ mod tests {
 
     #[test]
     fn a_position_round_trips_a_field_holding_the_separator() {
-        // A path carries any byte the filesystem accepts, and a title any byte
-        // Org accepts, so no field can be assumed free of the field boundary.
         let term = GlossaryPosition {
             tag: TERM_POSITION_TAG,
             leading: Some("Alpha\u{1f}Beta".to_owned()),
@@ -1561,15 +1573,12 @@ mod tests {
 
     #[test]
     fn a_token_no_listing_minted_is_not_a_position() {
-        // The last is hex that decodes cleanly but names no listing.
         for token in ["", "z", "zz", "abc", "6e6f7065"] {
             assert!(GlossaryPosition::parse_term(token).is_none(), "{token}");
             assert!(GlossaryPosition::parse_due(token).is_none(), "{token}");
         }
     }
 
-    /// Every title the dictionary listing serves, read `limit` at a time the way a
-    /// caller pages: echo the token the last page handed back and nothing else.
     fn paged_titles(database: &Database, limit: usize) -> Result<Vec<String>> {
         let mut page = database.list_glossary_terms(limit, None)?;
         let mut seen = titles(&page.terms);
@@ -1582,13 +1591,12 @@ mod tests {
         Ok(seen)
     }
 
-    /// The same walk over the due listing.
     fn paged_due_titles(database: &Database, today: &str, limit: usize) -> Result<Vec<String>> {
-        let mut page = database.glossary_due_terms(today, limit, None)?;
+        let mut page = database.glossary_due_terms(today, None, limit, None)?;
         let mut seen = titles(&page.terms);
         while let Some(token) = page.next_position.clone() {
             let position = read_position(&token, GlossaryPosition::parse_due);
-            page = database.glossary_due_terms(today, limit, Some(&position))?;
+            page = database.glossary_due_terms(today, None, limit, Some(&position))?;
             assert!(!page.terms.is_empty(), "a continued page holds a term");
             seen.extend(titles(&page.terms));
         }
@@ -2133,8 +2141,6 @@ mod tests {
         ]
     }
 
-    /// Every note in filing order, which the no-term note listing already reports
-    /// as `(file_path, line)`.
     fn filed_notes(database: &crate::Database) -> Result<Vec<slipbox_core::NodeRecord>> {
         database.search_nodes("", 200, None)
     }
@@ -2213,7 +2219,6 @@ mod tests {
             later.earlier.map(|neighbor| neighbor.title),
             Some("Beta".to_owned())
         );
-        // The last note of one file neighbors the first note of the next.
         assert_eq!(
             later.later.map(|neighbor| neighbor.title),
             Some("Gamma".to_owned())
@@ -2257,7 +2262,6 @@ mod tests {
             .expect("the fixture heading is indexed as an anchor");
 
         assert!(database.note_place(&ordinary.node_key)?.is_none());
-        // It also sits between two notes of the same file without displacing them.
         let place = place(&database, &filed[1])?;
         assert_eq!(place.total, 4);
         assert_eq!(

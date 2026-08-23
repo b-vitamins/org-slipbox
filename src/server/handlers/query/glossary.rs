@@ -51,7 +51,12 @@ pub(crate) fn glossary_due(
     let after = position(params.normalized_after(), GlossaryPosition::parse_due)?;
     let page = state
         .database
-        .glossary_due_terms(&today, params.normalized_limit(), after.as_ref())
+        .glossary_due_terms(
+            &today,
+            params.normalized_query(),
+            params.normalized_limit(),
+            after.as_ref(),
+        )
         .map_err(|error| internal_error(error.context("failed to list due glossary terms")))?;
     to_value(GlossaryDueResult {
         terms: page.terms,

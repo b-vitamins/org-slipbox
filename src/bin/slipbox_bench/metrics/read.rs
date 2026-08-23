@@ -408,14 +408,14 @@ pub(crate) fn benchmark_glossary_due(
     profile: &BenchmarkProfile,
 ) -> Result<TimingReport> {
     let sample = database
-        .glossary_due_terms(GLOSSARY_TODAY, profile.iterations.search_limit, None)
+        .glossary_due_terms(GLOSSARY_TODAY, None, profile.iterations.search_limit, None)
         .context("failed to fetch glossary due sample")?;
     if sample.terms.is_empty() {
         bail!("benchmark glossary due query returned no terms");
     }
     measure_iterations(profile.iterations.glossary_due, |_| {
         let page = database
-            .glossary_due_terms(GLOSSARY_TODAY, profile.iterations.search_limit, None)
+            .glossary_due_terms(GLOSSARY_TODAY, None, profile.iterations.search_limit, None)
             .context("failed to query due glossary terms")?;
         if page.terms.is_empty() {
             bail!("benchmark glossary due query returned no terms");

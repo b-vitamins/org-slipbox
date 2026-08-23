@@ -3,6 +3,10 @@
  * the highlighted term, in either of two modes, browse (every term, or a search's
  * matches) or study (the terms due today). Mode arrives as a prop and a change is
  * reported up to the frame that mirrors it to `?view=`; the term goes to `?q=`.
+ *
+ * One field serves both listings and is named for the one it is over: in browse
+ * mode a query is a search of the glossary index, in study mode it narrows the due
+ * terms the surface already holds.
  */
 
 import {
@@ -37,6 +41,27 @@ const OPTION_ID = "glossary-option";
 /** The two list modes: browse the whole glossary, or study what's due. */
 export type GlossaryMode = "browse" | "study";
 
+/**
+ * The rows of `listed` a filter leaves standing, matched as one case-folded
+ * substring of a headword or one of its synonyms. That is the text a listing
+ * carries: a definition's body is the index's to search, and the index answers no
+ * search behind a due filter, so a term it returned could well not be due.
+ */
+function narrowToFilter(
+  listed: NodeRecord[],
+  filter: string | null,
+): NodeRecord[] {
+  if (filter === null) {
+    return listed;
+  }
+  const needle = filter.toLocaleLowerCase();
+  return listed.filter((row) =>
+    [row.title, ...row.aliases].some((text) =>
+      text.toLocaleLowerCase().includes(needle),
+    ),
+  );
+}
+
 function describeError(error: unknown): string {
   if (error instanceof ApiError) {
     return `${error.kind}: ${error.message}`;
@@ -52,9 +77,12 @@ function describeError(error: unknown): string {
  * Marking and grading both write to a note and this surface is read-only, so it
  * names the tools that write rather than offering a control.
  */
-const EmptyGlossary: Component<{ mode: GlossaryMode; searched: boolean }> = (
-  props,
-) => (
+const EmptyGlossary: Component<{
+  mode: GlossaryMode;
+  searched: boolean;
+  /** Whether terms are due and the filter in the box is what emptied the list. */
+  filtered: boolean;
+}> = (props) => (
   <section class="glossary-empty">
     <Show
       when={props.mode === "study"}
@@ -84,17 +112,39 @@ const EmptyGlossary: Component<{ mode: GlossaryMode; searched: boolean }> = (
         </>
       }
     >
-      <h2 class="glossary-empty__title">How terms come due</h2>
-      <p class="glossary-empty__prose">
-        Each term carries its own review schedule in its property drawer — a due
-        date, an interval, and an SM-2 ease that grading moves. Terms collect here
-        as their due dates come round.
-      </p>
-      <p class="glossary-empty__prose">
-        Grading rewrites that drawer, so it too happens where notes are written:{" "}
-        <code>slipbox glossary grade</code>, or the review session in Emacs. This
-        surface reads the schedule and shows it beside the definition.
-      </p>
+      {/* Terms being due and none matching are different states, so the standing
+          explanation of how terms come due gives way to the filter's own account
+          rather than answering a question the reader did not ask. */}
+      <Show
+        when={props.filtered}
+        fallback={
+          <>
+            <h2 class="glossary-empty__title">How terms come due</h2>
+            <p class="glossary-empty__prose">
+              Each term carries its own review schedule in its property drawer — a
+              due date, an interval, and an SM-2 ease that grading moves. Terms
+              collect here as their due dates come round.
+            </p>
+            <p class="glossary-empty__prose">
+              Grading rewrites that drawer, so it too happens where notes are
+              written: <code>slipbox glossary grade</code>, or the review session in
+              Emacs. This surface reads the schedule and shows it beside the
+              definition.
+            </p>
+          </>
+        }
+      >
+        <h2 class="glossary-empty__title">Nothing due matches that filter</h2>
+        <p class="glossary-empty__prose">
+          Terms are due; the words in the box are over their headwords and synonyms
+          and match none of them. Clearing the box brings the rest of what is due
+          back.
+        </p>
+        <p class="glossary-empty__prose">
+          Reaching a term that is not due is the other listing's job: All terms
+          searches every marked note, definitions included.
+        </p>
+      </Show>
     </Show>
   </section>
 );
@@ -154,25 +204,41 @@ export const GlossaryDictionary: Component<{
     () => client.glossaryDue({ limit: TERM_LIMIT }),
   );
 
-  const terms = createMemo<NodeRecord[]>(() => {
-    const result = mode() === "study" ? due.ready() : browsed.ready();
-    return result?.terms ?? [];
-  });
+  // The due listing takes no query, so the field narrows the rows it answered with
+  // rather than asking for a narrower listing.
+  const dueListed = (): NodeRecord[] => due.ready()?.terms ?? [];
+  const dueShown = createMemo(() => narrowToFilter(dueListed(), search.term()));
+
+  const terms = createMemo<NodeRecord[]>(() =>
+    mode() === "study" ? dueShown() : (browsed.ready()?.terms ?? []),
+  );
   const loading = (): boolean =>
     mode() === "study" ? due.loading() : browsed.loading();
   const failure = (): unknown =>
     mode() === "study" ? due.error() : browsed.error();
 
+  /** Whether terms are due and the filter is what left none of them showing. */
+  const filterHidDue = (): boolean =>
+    mode() === "study" && dueShown().length === 0 && dueListed().length > 0;
+
   // `search.term()` is null exactly when the field holds no searchable word, which
   // is the "no search yet" case.
   const emptyMessage = (): string => {
     if (mode() === "study") {
-      return "Nothing is due for review.";
+      return filterHidDue()
+        ? "No terms due for review match that filter."
+        : "Nothing is due for review.";
     }
     return search.term() === null
       ? "The glossary has no terms yet."
       : "No terms match that search.";
   };
+
+  /** What the field is over, which is what it does: the box says both. */
+  const fieldLabel = (): string =>
+    mode() === "study"
+      ? "Filter the terms due for review"
+      : "Search the glossary";
 
   // Named per mode, so two open modes stay distinguishable in the tab strip.
   useDocumentTitle(() =>
@@ -211,10 +277,6 @@ export const GlossaryDictionary: Component<{
   createEffect(() => {
     revealOption(activeId());
   });
-
-  // Study mode has no search box, so the listbox itself is the focusable widget
-  // carrying the arrow-key cursor; in browse mode the combobox owns focus.
-  const listboxOwnsFocus = (): boolean => mode() === "study";
 
   // Two filters over one list, not two panels: each is a toggle whose pressed state
   // says which filter holds, and both are ordinary tab stops. That leaves every
@@ -288,26 +350,30 @@ export const GlossaryDictionary: Component<{
           </For>
         </div>
 
-        <Show when={mode() === "browse"}>
-          <input
-            type="search"
-            class="glossary-search"
-            placeholder="Search the glossary"
-            autocomplete="off"
-            aria-label="Search the glossary"
-            role="combobox"
-            aria-expanded={terms().length > 0}
-            aria-controls={listboxId}
-            aria-activedescendant={activeId()}
-            value={search.query()}
-            onInput={(event) => search.input(event.currentTarget.value)}
-            onKeyDown={onKeyDown}
-          />
-        </Show>
+        {/* One element across both modes, so a mode change neither takes the field
+            away nor drops the focus and text it was holding. */}
+        <input
+          type="search"
+          class="glossary-search"
+          placeholder={fieldLabel()}
+          autocomplete="off"
+          aria-label={fieldLabel()}
+          role="combobox"
+          aria-expanded={terms().length > 0}
+          // Named only while the popup is rendered, as the mode controls above
+          // are: an idref resolving to nothing announces a relationship the
+          // surface is not holding.
+          aria-controls={terms().length > 0 ? listboxId : undefined}
+          aria-activedescendant={activeId()}
+          value={search.query()}
+          onInput={(event) => search.input(event.currentTarget.value)}
+          onKeyDown={onKeyDown}
+        />
 
         <Show when={search.awaitingWord()}>
           <p class="glossary-status glossary-status--hint">
-            Searching needs a word of at least {MIN_TERM_CHARACTERS} characters.
+            {mode() === "study" ? "Filtering" : "Searching"} needs a word of at
+            least {MIN_TERM_CHARACTERS} characters.
           </p>
         </Show>
 
@@ -330,16 +396,14 @@ export const GlossaryDictionary: Component<{
               </Show>
             }
           >
+            {/* The field is the tab stop in both modes and carries the cursor, so
+                the popup it controls takes neither and needs no key handler of its
+                own. */}
             <ul
               id={listboxId}
               role="listbox"
               aria-label="Glossary terms"
               class="glossary-terms"
-              tabindex={listboxOwnsFocus() ? 0 : undefined}
-              aria-activedescendant={
-                listboxOwnsFocus() ? activeId() : undefined
-              }
-              onKeyDown={onKeyDown}
             >
               <For each={terms()}>
                 {(term, index) => (
@@ -383,6 +447,7 @@ export const GlossaryDictionary: Component<{
                   <EmptyGlossary
                     mode={mode()}
                     searched={search.term() !== null}
+                    filtered={filterHidDue()}
                   />
                 }
               >

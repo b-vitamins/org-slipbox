@@ -221,6 +221,14 @@ The format follows Keep a Changelog, and this project follows SemVer.
   when its filter holds and each naming the listbox it filters, so both are
   ordinary tab stops and every arrow key stays with the list. The segmented look
   reads off the pressed state itself.
+- Keep the glossary's search field in the due listing. It rendered in browse mode
+  only, so a page of due terms could be reached by eye alone. The field stands in
+  both modes now, named for the set it is over, and in study mode narrows the due
+  rows the surface already holds by headword and synonym: the index answers no
+  search behind a due filter, so asking it would list terms that are not due. A
+  filter that hides every due term says so instead of explaining how terms come
+  due, and the field is the one tab stop into the list in both modes, which drops
+  the listbox's own.
 
 ## [0.17.0] - 2026-07-25
 

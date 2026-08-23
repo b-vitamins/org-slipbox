@@ -96,6 +96,15 @@ describe("ReadingClient URL construction", () => {
     expect(calls[0]).toBe("/api/search/content?q=gradient+descent&limit=10");
   });
 
+  it("carries a due-term query to the server", async () => {
+    const { fetch, calls } = stubFetch(200, { terms: [] });
+    const client = new ReadingClient("", fetch);
+
+    await client.glossaryDue({ query: "entropy", limit: 20 });
+
+    expect(calls[0]).toBe("/api/glossary/due?q=entropy&limit=20");
+  });
+
   it("joins paths against a non-empty base without a doubled slash", async () => {
     const { fetch, calls } = stubFetch(200, { status: "ok" });
     const client = new ReadingClient("http://127.0.0.1:8080/", fetch);

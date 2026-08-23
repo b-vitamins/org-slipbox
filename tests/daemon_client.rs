@@ -758,6 +758,7 @@ A definite integral defined as the limit of Riemann sums.
     // On 2026-07-26 the confirmed term is not yet due (SR_DUE 2026-08-01).
     let not_yet = client.glossary_due(&GlossaryDueParams {
         today: Some("2026-07-26".to_owned()),
+        query: None,
         limit: 50,
         after: None,
     })?;
@@ -766,6 +767,7 @@ A definite integral defined as the limit of Riemann sums.
     // Once its schedule elapses it surfaces in the due queue.
     let due = client.glossary_due(&GlossaryDueParams {
         today: Some("2026-08-02".to_owned()),
+        query: None,
         limit: 50,
         after: None,
     })?;

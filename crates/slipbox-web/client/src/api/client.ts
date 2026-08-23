@@ -236,10 +236,14 @@ export class ReadingClient {
   }
 
   glossaryDue(
-    options: { today?: string; limit?: number } = {},
+    options: { today?: string; query?: string; limit?: number } = {},
   ): Promise<GlossaryTermsResult> {
     return this.get<GlossaryTermsResult>(
-      `/api/glossary/due${buildQuery({ today: options.today, limit: options.limit })}`,
+      `/api/glossary/due${buildQuery({
+        today: options.today,
+        q: options.query,
+        limit: options.limit,
+      })}`,
     );
   }
 }
