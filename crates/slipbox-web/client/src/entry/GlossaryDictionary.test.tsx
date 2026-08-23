@@ -335,6 +335,111 @@ describe("GlossaryDictionary", () => {
     expect(screen.getByText("2026-07-20")).toBeInTheDocument();
   });
 
+  it("states the size of the due set from the listing's own total", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/glossary/terms": { terms: [term("notes/a.org::0", "Alpha")] },
+        // Three rows of a listing of twelve: the count answers for the listing,
+        // not for the page the surface is holding.
+        "/api/glossary/due": {
+          terms: [
+            term("notes/one.org::0", "One"),
+            term("notes/two.org::0", "Two"),
+            term("notes/three.org::0", "Three"),
+          ],
+          total: 12,
+          has_more: true,
+          next_position: "cursor-1",
+        },
+        "/api/note/context": contextFor("notes/one.org::0", "One", "Body."),
+      }),
+    );
+
+    mount({ mode: "study" });
+    await screen.findByRole("option", { name: /One/ });
+
+    // The order is named rather than reordered: the surface holds one page of a
+    // listing it did not sort.
+    expect(
+      screen.getByText(
+        "12 terms are due, in schedule order: never reviewed first, then by due date, then by file path.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("counts one due term in the singular", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/glossary/terms": { terms: [term("notes/a.org::0", "Alpha")] },
+        "/api/glossary/due": {
+          terms: [term("notes/one.org::0", "One")],
+          total: 1,
+          has_more: false,
+          next_position: null,
+        },
+        "/api/note/context": contextFor("notes/one.org::0", "One", "Body."),
+      }),
+    );
+
+    mount({ mode: "study" });
+    await screen.findByRole("option", { name: /One/ });
+
+    expect(screen.getByText(/^1 term is due,/)).toBeInTheDocument();
+  });
+
+  it("gives each due row its standing, and the browse list none", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/glossary/terms": {
+          terms: [term("notes/one.org::0", "One")],
+          total: 1,
+          has_more: false,
+        },
+        "/api/glossary/due": {
+          terms: [
+            term("notes/one.org::0", "One"),
+            term("notes/two.org::0", "Two", {
+              sr_due: "2026-07-20",
+              sr_interval: "6",
+              sr_reps: "3",
+              sr_ease: "2.5",
+              sr_last: "2026-07-14",
+            }),
+            term("notes/three.org::0", "Three", { sr_reps: "3" }),
+          ],
+          total: 3,
+          has_more: false,
+        },
+        "/api/note/context": contextFor("notes/one.org::0", "One", "Body."),
+      }),
+    );
+
+    const surface = mount({ mode: "study" });
+    const rows = await screen.findAllByRole("option");
+
+    // A corpus no review has touched carries no dates, so the row says which of
+    // the two reasons for being due it is standing on.
+    expect(rows[0]!).toHaveTextContent("never reviewed");
+    expect(rows[1]!).toHaveTextContent("due 2026-07-20");
+    // A drawer a grading part-wrote is the third case, and it says which fact it
+    // is missing rather than leaving the aside off the row.
+    expect(rows[2]!).toHaveTextContent("no due date recorded");
+
+    // The peek says the same of the term it is showing.
+    expect(await screen.findByLabelText("Review schedule")).toHaveTextContent(
+      "Never reviewed",
+    );
+
+    // Browse lists every term, due or not, so a standing there would be a fact
+    // about a schedule the reader is not reading.
+    surface.showMode("browse");
+    const browsed = await screen.findAllByRole("option");
+    expect(browsed[0]!).not.toHaveTextContent("never reviewed");
+  });
+
   it("narrows the due list without reaching past what is due", async () => {
     const fetch = routedFetch({
       "/api/glossary/terms": { terms: [term("notes/a.org::0", "Alpha")] },
@@ -354,7 +459,9 @@ describe("GlossaryDictionary", () => {
     vi.stubGlobal("fetch", fetch);
 
     mount({ mode: "study" });
-    await screen.findByRole("option", { name: "Entropy" });
+    // A due row is named by its headword and the standing beside it, so the
+    // lookups here match the headword the row leads with.
+    await screen.findByRole("option", { name: /^Entropy/ });
 
     fireEvent.input(
       screen.getByRole("combobox", { name: "Filter the terms due for review" }),
@@ -362,13 +469,13 @@ describe("GlossaryDictionary", () => {
     );
 
     await waitFor(() =>
-      expect(screen.queryByRole("option", { name: "Loss" })).not.toBeInTheDocument(),
+      expect(screen.queryByRole("option", { name: /^Loss/ })).not.toBeInTheDocument(),
     );
     // The headword matches outright and the synonym matches for its own term.
-    expect(screen.getByRole("option", { name: "Entropy" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Prior" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^Entropy/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^Prior/ })).toBeInTheDocument();
     expect(
-      screen.queryByRole("option", { name: "Entropy pool" }),
+      screen.queryByRole("option", { name: /^Entropy pool/ }),
     ).not.toBeInTheDocument();
     const searched = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
       ([url]) => String(url).includes("/api/glossary/search"),
@@ -387,7 +494,7 @@ describe("GlossaryDictionary", () => {
     );
 
     mount({ mode: "study" });
-    await screen.findByRole("option", { name: "Due term" });
+    await screen.findByRole("option", { name: /^Due term/ });
 
     fireEvent.input(
       screen.getByRole("combobox", { name: "Filter the terms due for review" }),
@@ -462,10 +569,10 @@ describe("GlossaryDictionary", () => {
     // The query is held rather than dropped, and applies to the list that
     // arrives: the same words, the narrower set.
     expect(
-      await screen.findByRole("option", { name: "Entropy" }),
+      await screen.findByRole("option", { name: /^Entropy/ }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("option", { name: "Loss" }),
+      screen.queryByRole("option", { name: /^Loss/ }),
     ).not.toBeInTheDocument();
     expect(
       screen.getByRole("combobox", { name: "Filter the terms due for review" }),
@@ -716,7 +823,7 @@ describe("GlossaryDictionary", () => {
     await screen.findByRole("option", { name: "Alpha" });
 
     fireEvent.click(screen.getByRole("button", { name: "Due for review" }));
-    await screen.findByRole("option", { name: "One" });
+    await screen.findByRole("option", { name: /^One/ });
 
     // One focusable widget in both modes: the field owns the cursor and the list
     // is its popup, so the list takes no tab stop of its own.
@@ -1276,12 +1383,12 @@ describe("GlossaryDictionary", () => {
 
     surface.showMode("study");
 
-    await screen.findByRole("option", { name: "One" });
-    expect(screen.getByRole("option", { name: "One" })).toHaveAttribute(
+    await screen.findByRole("option", { name: /^One/ });
+    expect(screen.getByRole("option", { name: /^One/ })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    expect(screen.getByRole("option", { name: "Shared" })).toHaveAttribute(
+    expect(screen.getByRole("option", { name: /^Shared/ })).toHaveAttribute(
       "aria-selected",
       "false",
     );

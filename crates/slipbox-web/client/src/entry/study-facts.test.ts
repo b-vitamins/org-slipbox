@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { studyFacts } from "./study-facts.js";
+import { dueStanding, studyFacts } from "./study-facts.js";
 import type { NodeRecord } from "../api/types.js";
 
 /** A node record with only the SM-2 drawer fields that matter here set. */
@@ -36,8 +36,10 @@ function term(sr: Partial<NodeRecord>): NodeRecord {
 }
 
 describe("studyFacts", () => {
-  it("has no facts for a never-reviewed term", () => {
-    expect(studyFacts(term({}))).toEqual([]);
+  it("says a term has never been reviewed rather than saying nothing", () => {
+    expect(studyFacts(term({}))).toEqual([
+      { label: "Schedule", value: "Never reviewed" },
+    ]);
   });
 
   it("lists the review schedule in display order", () => {
@@ -69,5 +71,23 @@ describe("studyFacts", () => {
     expect(studyFacts(term({ sr_reps: "2" }))).toEqual([
       { label: "Reviews", value: "2" },
     ]);
+  });
+});
+
+describe("dueStanding", () => {
+  it("names an empty drawer as a term never reviewed", () => {
+    expect(dueStanding(term({}))).toBe("never reviewed");
+  });
+
+  it("dates a term the schedule has already brought round", () => {
+    expect(
+      dueStanding(term({ sr_due: "2026-07-20", sr_reps: "3", sr_interval: "6" })),
+    ).toBe("due 2026-07-20");
+  });
+
+  // Every other row in the listing states a standing, so a row left with none
+  // reads as a fact the surface knows and is withholding.
+  it("says a graded term carries no due date rather than saying nothing", () => {
+    expect(dueStanding(term({ sr_reps: "3" }))).toBe("no due date recorded");
   });
 });
