@@ -1,8 +1,9 @@
 /*
  * An anchor routing gestures through the navigation grammar: hover or focus
- * glances, a click pins, an Alt-click goes, and a tap glances where the pointer
- * cannot hover. A browser gesture (new tab, non-primary button) is left to the
- * browser, whose destination is this target's `encodeStack` URL.
+ * glances, Escape dismisses that glance, a click pins, an Alt-click goes, and a
+ * tap glances where the pointer cannot hover. A browser gesture (new tab,
+ * non-primary button) is left to the browser, whose destination is this target's
+ * `encodeStack` URL.
  */
 
 import { type Component, type JSX } from "solid-js";
@@ -59,8 +60,19 @@ export const GrammarLink: Component<{
     pointerType = event.pointerType || null;
   };
 
-  const commit = (element: HTMLElement, alt: boolean): void => {
+  // Whether a card this link raised is standing, so a dismissal answers for a
+  // card rather than for nothing. Not reactive: nothing renders from it. The card
+  // is also dropped by things that are not gestures on this link - a scroll
+  // carries the link out from under it - which is why the raise says how it is to
+  // be told, rather than counting on its own request alone.
+  let raised = false;
+  const clear = (): void => {
+    raised = false;
     navigation.glance(null);
+  };
+
+  const commit = (element: HTMLElement, alt: boolean): void => {
+    clear();
     if (alt) {
       navigation.go(props.target);
     } else {
@@ -77,8 +89,16 @@ export const GrammarLink: Component<{
       gesture,
       pin: () => navigation.pin(props.target),
       go: () => navigation.go(props.target),
-      dismiss: () => navigation.glance(null),
+      dismiss: clear,
+      dropped: () => {
+        raised = false;
+      },
     });
+    // Recorded after the handover, not before it: a card this link already had up
+    // is dropped by the arrival of this one, and the drop is reported from inside
+    // the call - so a raise that claimed the card first would be cleared by the
+    // request it replaced.
+    raised = true;
   };
 
   const onClick = (event: MouseEvent): void => {
@@ -110,12 +130,31 @@ export const GrammarLink: Component<{
     }
   };
 
-  // Gated on hover capability: a mobile browser synthesizes hover and focus
+  // The way out of a card raised by focus, where there is no pointer to move
+  // away. It belongs to the link and not the document: this key is only a
+  // dismissal while the reader is standing on the link the card came from, and
+  // the link is where a keydown arrives. Nothing is remembered beyond the card
+  // itself, so focus staying put is enough for the next hover or focus to raise it
+  // again.
+  //
+  // Answered only where there is a card to answer for, and then consumed: Escape
+  // is the conventional way out of anything transient, so a link that took it with
+  // nothing up would eat the gesture a reader aimed past it, and one that let it
+  // through after closing a card would spend it twice.
+  const onKeyDown = (event: KeyboardEvent): void => {
+    if (event.key !== "Escape" || !raised) {
+      return;
+    }
+    clear();
+    event.preventDefault();
+  };
+
+  // Gated on hover capability: a hoverless pointer synthesizes hover and focus
   // around a tap, and dismissing on their departure would close the preview the
   // tap raised, on the way to its own controls.
   const dismiss = (): void => {
     if (gestureCanHover(pointerType)) {
-      navigation.glance(null);
+      clear();
     }
   };
 
@@ -133,6 +172,7 @@ export const GrammarLink: Component<{
       onMouseLeave={dismiss}
       onFocus={onFocus}
       onBlur={dismiss}
+      onKeyDown={onKeyDown}
     >
       {props.children}
     </a>

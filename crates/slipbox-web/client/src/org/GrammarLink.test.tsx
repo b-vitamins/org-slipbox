@@ -31,7 +31,15 @@ function spyNavigation(): {
   const goes: LinkTarget[] = [];
   return {
     navigation: {
-      glance: (request) => glances.push(request),
+      // The controller drops the glance it was holding as the next one arrives,
+      // and reports that drop from inside this call, so the spy does too.
+      glance: (request) => {
+        const dropped = glances.at(-1);
+        glances.push(request);
+        if (dropped && dropped !== request) {
+          dropped.dropped();
+        }
+      },
       pin: (target) => pins.push(target),
       go: (target) => goes.push(target),
     },
@@ -121,6 +129,87 @@ describe("GrammarLink gestures", () => {
       link.dispatchEvent(new FocusEvent("blur"));
       link.dispatchEvent(new MouseEvent("mouseenter"));
       expect(spy.glances.at(-1)?.gesture).toBe("hover");
+    });
+
+    it("dismisses the card on Escape, without refusing to raise it again", () => {
+      stubPointer(false);
+      const spy = spyNavigation();
+      const link = renderLink(spy.navigation);
+
+      link.dispatchEvent(new FocusEvent("focus"));
+      expect(spy.glances.at(-1)?.gesture).toBe("focus");
+
+      link.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+      expect(spy.glances.at(-1)).toBeNull();
+
+      // Focus has not moved, so the reader can ask for the card again from where
+      // they are: the dismissal remembers nothing.
+      link.dispatchEvent(new MouseEvent("mouseenter"));
+      expect(spy.glances.at(-1)?.gesture).toBe("hover");
+    });
+
+    it("answers Escape for the card a second raise put up", () => {
+      stubPointer(false);
+      const spy = spyNavigation();
+      const link = renderLink(spy.navigation);
+
+      // A pointer coming to rest on a link the keyboard already reached raises a
+      // second card, and the first is dropped as it goes up. That drop is reported
+      // to this link, for a card another of its own raises has replaced.
+      link.dispatchEvent(new FocusEvent("focus"));
+      link.dispatchEvent(new MouseEvent("mouseenter"));
+      expect(spy.glances.at(-1)?.gesture).toBe("hover");
+
+      link.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+      expect(spy.glances.at(-1)).toBeNull();
+    });
+
+    it("leaves Escape to the surface where it has no card to dismiss", () => {
+      stubPointer(false);
+      const spy = spyNavigation();
+      const link = renderLink(spy.navigation);
+
+      const escape = (): boolean =>
+        link.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+
+      // Nothing was raised from this link, so the key is not its own: it dismisses
+      // nothing and is left for whatever else the surface makes of Escape.
+      expect(escape()).toBe(true);
+      expect(spy.glances).toHaveLength(0);
+
+      // With a card up the key is this link's, and answering it is the whole of
+      // its effect, so it is consumed rather than passed on as well.
+      link.dispatchEvent(new FocusEvent("focus"));
+      expect(escape()).toBe(false);
+      expect(spy.glances.at(-1)).toBeNull();
+
+      // Spent with the card it closed.
+      expect(escape()).toBe(true);
+      expect(spy.glances).toHaveLength(2);
+    });
+
+    it("leaves every other key to the browser and the reader", () => {
+      stubPointer(false);
+      const spy = spyNavigation();
+      const link = renderLink(spy.navigation);
+
+      link.dispatchEvent(new FocusEvent("focus"));
+      const raised = spy.glances.length;
+
+      for (const key of ["Tab", "Enter", "ArrowDown", "Esc"]) {
+        link.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+      }
+      expect(spy.glances).toHaveLength(raised);
     });
 
     it("escalates to go on an alt-press", () => {

@@ -192,6 +192,38 @@ describe("Spine", () => {
     expect(container.querySelector(".glance-card")).toBeNull();
   });
 
+  it("leaves Escape to the surface once a scroll has dropped the card", async () => {
+    const stack = createReadingStack({
+      read: () => "?note=notes/one.org",
+      push: () => {},
+      replace: () => {},
+    });
+    const { container } = render(() => <Spine stack={stack} />);
+
+    const link = await screen.findByRole("link", { name: "the other note" });
+    link.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    link.dispatchEvent(new MouseEvent("mouseenter"));
+    await vi.waitFor(() =>
+      expect(container.querySelector(".glance-card")).not.toBeNull(),
+    );
+
+    container.querySelector(".spine-column")!.dispatchEvent(new Event("scroll"));
+    expect(container.querySelector(".glance-card")).toBeNull();
+
+    // The spine dropped the card, not the link that raised it, so a link left
+    // counting on it would answer for a card that is gone - and Escape is the way
+    // out of anything transient, so the one thing it must not do is take a key
+    // aimed past it.
+    const escape = link.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    expect(escape).toBe(true);
+  });
+
   it("reports a note it cannot render instead of reading it forever", async () => {
     vi.stubGlobal(
       "fetch",
