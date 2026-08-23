@@ -69,6 +69,23 @@ const DEEP_WORLD: FixtureWorld = {
   })),
 };
 
+/**
+ * The shell's boxes against the viewport a reader can actually see, plus the
+ * page's own scroll extent. Evaluated in the page, so it closes over nothing.
+ */
+const appGeometry = () => {
+  const box = (selector: string): DOMRect =>
+    (document.querySelector(selector) as HTMLElement).getBoundingClientRect();
+  return {
+    visibleViewport: Math.round(window.visualViewport?.height ?? 0),
+    appHeight: Math.round(box(".app").height),
+    headerHeight: Math.round(box(".app-header").height),
+    spineHeight: Math.round(box(".spine").height),
+    spineBottom: Math.round(box(".spine").bottom),
+    pageScrollHeight: document.documentElement.scrollHeight,
+  };
+};
+
 /** The URL restoring the whole deep trail, frontmost last. */
 const DEEP_TRAIL = `/?note=${DEEP_WORLD.notes[0]!.key}${DEEP_WORLD.notes
   .slice(1)
@@ -145,6 +162,37 @@ test.describe("reading spine", () => {
     expect(layout.columnScrolls).toBe(true);
     expect(layout.columnScrollTop).toBeGreaterThan(0);
     expect(layout.windowScrollY).toBe(0);
+  });
+
+  test("the app fits the visible viewport, header overshoot and all", async ({
+    page,
+  }) => {
+    await page.goto("/?note=file:one.org");
+    await expect(page.getByRole("heading", { name: "Note One" })).toBeVisible();
+
+    // `dvh` and `vh` resolve alike in a frame whose toolbar never retracts, so
+    // what a headless engine can hold is the invariant a retracting one breaks:
+    // the app is exactly the visible viewport, and the header and the spine
+    // partition it.
+    const authored = await page.evaluate(appGeometry);
+    expect(authored.appHeight).toBe(authored.visibleViewport);
+    expect(authored.headerHeight + authored.spineHeight).toBe(authored.appHeight);
+    expect(authored.spineBottom).toBe(authored.visibleViewport);
+    expect(authored.pageScrollHeight).toBeLessThanOrEqual(authored.visibleViewport);
+
+    // A bar taller than `--header-min-height` is the case the spine's
+    // `calc(viewport - token)` cannot account for on its own. Font metrics decide
+    // whether the authored bar already exceeds the token, so the case is forced
+    // rather than assumed.
+    await page.evaluate(() => {
+      const header = document.querySelector(".app-header") as HTMLElement;
+      header.style.minHeight = "120px";
+    });
+    const grown = await page.evaluate(appGeometry);
+    expect(grown.headerHeight).toBe(120);
+    expect(grown.appHeight).toBe(grown.visibleViewport);
+    expect(grown.spineBottom).toBe(grown.visibleViewport);
+    expect(grown.pageScrollHeight).toBeLessThanOrEqual(grown.visibleViewport);
   });
 
   test("a restored four-note trail reveals its frontmost note", async ({ page }) => {
