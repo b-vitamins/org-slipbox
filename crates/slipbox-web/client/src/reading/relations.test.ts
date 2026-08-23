@@ -80,6 +80,7 @@ function context(
     },
     node_start_line: 1,
     node_line_count: 1,
+    place: { ordinal: 1, total: 1 },
     backlinks,
     forward_links,
   };

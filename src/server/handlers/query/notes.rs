@@ -237,11 +237,22 @@ pub(crate) fn note_context(
         .database
         .forward_links(&note.node_key, relation_limit, true)
         .map_err(|error| internal_error(error.context("failed to query context forward links")))?;
+    let place = state
+        .database
+        .note_place(&note.node_key)
+        .map_err(|error| internal_error(error.context("failed to query context place")))?
+        .ok_or_else(|| {
+            internal_error(anyhow::anyhow!(
+                "context note {} takes no place in the filing order",
+                note.node_key
+            ))
+        })?;
     to_value(NoteContextResult {
         note,
         source: source.source,
         node_start_line: source.node_start_line,
         node_line_count: source.node_line_count,
+        place,
         backlinks,
         forward_links,
     })
