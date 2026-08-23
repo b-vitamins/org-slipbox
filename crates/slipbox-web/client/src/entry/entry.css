@@ -59,6 +59,15 @@
   border-color: var(--link);
 }
 
+/* The border tint is one pixel of hue, the weakest indicator on the surface, so a
+   focused field also draws a ring. Offset clear of the box, which is drawn over
+   the canvas and moves nothing. Whether a click counts as visible focus on a
+   field is the platform's rule; `:focus-visible` is how this defers to it. */
+.entry-search__field:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
 .entry-search__field::placeholder {
   color: var(--muted-2);
 }

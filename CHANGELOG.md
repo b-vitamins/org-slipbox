@@ -249,6 +249,11 @@ The format follows Keep a Changelog, and this project follows SemVer.
   filter that hides every due term says so instead of explaining how terms come
   due, and the field is the one tab stop into the list in both modes, which drops
   the listbox's own.
+- Show where focus rests in either search field. The entry surface's field and the
+  glossary's each suppressed the platform ring and reported focus with a 1px border
+  tint, the weakest indicator on the surface. Each draws a 2px ring in the link
+  color as well, offset clear of the box so nothing moves, at `:focus-visible` so
+  the platform decides when focus is worth painting.
 
 ## [0.17.0] - 2026-07-25
 
