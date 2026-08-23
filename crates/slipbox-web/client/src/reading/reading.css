@@ -364,6 +364,27 @@ article.reading-note:focus {
   background-attachment: local, local, scroll, scroll;
 }
 
+/* A link inside prose, marked by something a reader who does not separate the two
+ * tones can see. `--link` measures 2.51:1 against `--ink` in light and 1.81:1 in
+ * dark, under the 3:1 WCAG 1.4.1 asks of a distinction carried by color alone, and
+ * the tones are left as they are: it is the resting state that gains an underline,
+ * where the `a:hover` rule in tokens.css only paints one once the pointer has
+ * already found the word. Neither `a` rule changes, since they also reach the rows
+ * and controls of the chrome, where a rule of underlines would read as a listing
+ * of links rather than as prose.
+ *
+ * A hairline at the reading size, offset clear of the descenders it crosses. A
+ * decoration paints inside the line box it belongs to, so no paragraph moves.
+ *
+ * The two variants below already carry a mark that is not color - a dotted
+ * underline, a trailing arrow - so they are exempt, stated in the selector rather
+ * than left to the order these rules happen to sit in. */
+.org-link:not(.org-link--inert, .org-link--external) {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+}
+
 .org-link--external::after {
   content: "↗";
   font-size: 0.75em;
