@@ -59,6 +59,14 @@ The format follows Keep a Changelog, and this project follows SemVer.
   date it came due. An empty review drawer is a fact rather than a blank pane, so
   the peek says a term has never been reviewed instead of rendering nothing, while
   a drawer holding part of a schedule still shows only the part it holds.
+- Browse the glossary past its first page. A reading resource holds one value per
+  key, so a second page read through it replaces the first rather than extending
+  it; the surface accumulates instead, keeping the first appearance of each node
+  key and dropping the lot when the listing changes. Each position is echoed back
+  as the listing handed it out, never composed. The term list is its own
+  scrollport, so reaching its end asks for the next page, and a control below it
+  does the same for a reader who has not scrolled. A search states its cut and its
+  total with no offer to continue: a ranking has no stored position to resume from.
 
 ### Changed
 - Draw the `dormant` lens's candidates from link topology rather than from shared

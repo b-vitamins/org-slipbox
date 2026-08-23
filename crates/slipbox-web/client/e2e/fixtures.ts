@@ -201,6 +201,38 @@ function matches(note: FixtureNote, query: string): boolean {
   );
 }
 
+/**
+ * Terms one glossary page holds. Far below the server's own ceiling, so a world of
+ * a few dozen terms still spans pages, and a requested `limit` is clamped to it the
+ * way the routes clamp theirs.
+ */
+const GLOSSARY_PAGE = 25;
+
+/**
+ * One page of `listed`, starting at the position `after` names. The position is an
+ * index into the listing, opaque to the client and minted per page as the routes
+ * mint theirs.
+ */
+function glossaryPage(
+  listed: FixtureNote[],
+  params: URLSearchParams,
+): Record<string, unknown> {
+  const from = Number(params.get("after") ?? 0);
+  const limit = Math.min(
+    Number(params.get("limit") ?? GLOSSARY_PAGE),
+    GLOSSARY_PAGE,
+  );
+  const served = listed.slice(from, from + limit);
+  const next = from + served.length;
+  const more = next < listed.length;
+  return {
+    terms: served.map(nodeRecord),
+    total: listed.length,
+    has_more: more,
+    next_position: more ? String(next) : null,
+  };
+}
+
 /** Characters of context an excerpt carries on either side of the match. */
 const EXCERPT_CONTEXT = 40;
 
@@ -355,20 +387,31 @@ export async function mountApi(page: Page, world: FixtureWorld): Promise<void> {
       // The glossary routes serve the marked subset of the same notes, so a
       // world with nothing marked answers each with an empty term list.
       case "/api/glossary/terms":
-        return json(route, { terms: world.notes.filter(isTerm).map(nodeRecord) });
+        return json(route, glossaryPage(world.notes.filter(isTerm), params));
 
+      // Ranked rather than ordered by a stored key, so this page carries its cut
+      // and its total without a position to continue from.
       case "/api/glossary/search": {
         const q = params.get("q") ?? "";
-        const terms = world.notes
-          .filter((note) => isTerm(note) && matches(note, q))
-          .map(nodeRecord);
-        return json(route, { terms });
+        const matched = world.notes.filter(
+          (note) => isTerm(note) && matches(note, q),
+        );
+        const served = matched.slice(0, GLOSSARY_PAGE);
+        return json(route, {
+          terms: served.map(nodeRecord),
+          total: matched.length,
+          has_more: served.length < matched.length,
+        });
       }
 
       case "/api/glossary/due":
-        return json(route, {
-          terms: world.notes.filter((note) => isTerm(note) && note.srDue).map(nodeRecord),
-        });
+        return json(
+          route,
+          glossaryPage(
+            world.notes.filter((note) => isTerm(note) && note.srDue),
+            params,
+          ),
+        );
 
       // Deterministic: always the first note in `world`, never a real choice.
       case "/api/random": {

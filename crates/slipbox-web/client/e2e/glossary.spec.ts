@@ -31,6 +31,17 @@ const WORLD: FixtureWorld = {
 /** The definition the sole marked term peeks on arrival. */
 const DEFINITION = "A measure of uncertainty, dual to";
 
+/** Terms the fixture serves per page, and a world holding more than one page. */
+const PAGE = 25;
+const LONG: FixtureWorld = {
+  notes: Array.from({ length: 30 }, (_, index) => ({
+    key: `file:term-${index + 1}.org`,
+    title: `Term ${index + 1}`,
+    body: `Definition ${index + 1}.`,
+    glossaryStatus: "confirmed" as const,
+  })),
+};
+
 /** The `min-height` the stylesheet gives a control under a coarse pointer. */
 const TOUCH_TARGET = 44;
 
@@ -89,6 +100,71 @@ test.describe("the glossary peek", () => {
 
     await page.goBack();
     await expect(page.getByText(DEFINITION)).toBeVisible();
+  });
+});
+
+test.describe("a glossary longer than one page", () => {
+  test.beforeEach(async ({ page }) => {
+    await mountApi(page, LONG);
+  });
+
+  test("browses to its last term past the cut it states", async ({ page }) => {
+    await page.goto("/?view=glossary");
+    await expect(page.getByRole("option", { name: "Term 25" })).toBeVisible();
+
+    await expect(
+      page.getByText(`${PAGE} of ${LONG.notes.length} terms read.`),
+    ).toBeVisible();
+    await expect(page.getByRole("option", { name: "Term 26" })).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Read more terms" }).click();
+
+    await expect(page.getByRole("option", { name: "Term 30" })).toBeVisible();
+    await expect(page.getByRole("option")).toHaveCount(30);
+    // The listing is whole, so it claims no remainder and offers no way onward.
+    await expect(page.getByText("terms read.")).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Read more terms" }),
+    ).toHaveCount(0);
+  });
+
+  test("continues the list from the end of the list's own scrollport", async ({
+    page,
+  }) => {
+    await page.goto("/?view=glossary");
+    await expect(page.getByRole("option", { name: "Term 25" })).toBeVisible();
+
+    // The rows overflow their box, which is the geometry this drives: the list
+    // scrolls, the page does not, so the page's end would never come.
+    const list = page.locator(".glossary-terms");
+    expect(
+      await list.evaluate((box) => box.scrollHeight - box.clientHeight),
+    ).toBeGreaterThan(0);
+
+    await list.evaluate((box) => box.scrollTo(0, box.scrollHeight));
+
+    await expect(page.getByRole("option", { name: "Term 30" })).toBeVisible();
+    await expect(page.getByRole("option")).toHaveCount(LONG.notes.length);
+  });
+
+  test("holds the peeked term across the page that follows it", async ({ page }) => {
+    await page.goto("/?view=glossary");
+    // A row in view: reaching one further down would scroll the list to its end
+    // and continue it, which is the other test's subject. Named exactly, since a
+    // role name matches on a substring and the page to come holds Term 30.
+    const marked = page.getByRole("option", { name: "Term 3", exact: true });
+    await marked.click();
+    await expect(marked).toHaveAttribute("aria-selected", "true");
+
+    await page.getByRole("button", { name: "Read more terms" }).click();
+    await expect(page.getByRole("option", { name: "Term 30" })).toBeVisible();
+
+    // Rows arrive after the ones held and the peek is keyed by term, so the
+    // definition beside the list is still the one the reader was reading.
+    await expect(marked).toHaveAttribute("aria-selected", "true");
+    await expect(
+      page.getByRole("heading", { name: "Term 3", level: 2, exact: true }),
+    ).toBeVisible();
   });
 });
 
