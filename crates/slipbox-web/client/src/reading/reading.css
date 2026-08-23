@@ -337,12 +337,26 @@ article.reading-note:focus {
   /* Lea Verou's scrolling shadows: the cover gradients
    * (background-attachment: local) sit against each edge and scroll away,
    * unmasking the shadow gradients (attachment: scroll), so an edge shadow shows
-   * only while there is more equation to reveal on that side. */
+   * only while there is more equation to reveal on that side.
+   *
+   * A cover is only a cover while it is painted in the tone behind the equation,
+   * and the same renderer sets an equation on more than one of them. The pair
+   * below is what a container standing on another tone restates - both halves or
+   * neither, since a cover fading out through the wrong hue is as visible as one
+   * starting from it. The default is the reading column's own surface. */
   background:
-    linear-gradient(to right, var(--surface) 30%, var(--surface-fade)) left
-      center,
-    linear-gradient(to left, var(--surface) 30%, var(--surface-fade)) right
-      center,
+    linear-gradient(
+        to right,
+        var(--math-surface, var(--surface)) 30%,
+        var(--math-surface-fade, var(--surface-fade))
+      )
+      left center,
+    linear-gradient(
+        to left,
+        var(--math-surface, var(--surface)) 30%,
+        var(--math-surface-fade, var(--surface-fade))
+      )
+      right center,
     radial-gradient(
         farthest-side at 0 50%,
         var(--edge-shadow),
