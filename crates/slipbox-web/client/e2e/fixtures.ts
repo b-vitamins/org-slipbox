@@ -20,6 +20,8 @@ export interface FixtureNote {
   backlinks?: FixtureLink[];
   /** What the `bridges` lens ranks for this note, in the order it ranks it. */
   bridges?: FixtureBridge[];
+  /** Lines in other notes naming this one, in the order the scan reports them. */
+  mentions?: FixtureMention[];
   /** Present only on a marked glossary term; absence keeps a note out of it. */
   glossaryStatus?: "stub" | "confirmed";
   /** `YYYY-MM-DD`; a term with one set is what `/api/glossary/due` returns. */
@@ -41,6 +43,15 @@ export interface FixtureLink extends FixtureEndpoint {
 /** One bridge candidate: a note two hops away, and the notes it was reached by. */
 export interface FixtureBridge extends FixtureEndpoint {
   via: FixtureEndpoint[];
+}
+
+/** One unlinked mention: the node whose line it is, that line, and the run matched. */
+export interface FixtureMention {
+  source: FixtureEndpoint;
+  /** The mentioning line, verbatim Org. */
+  line: string;
+  /** The run of `line` the scan matched, which it reports the column of. */
+  matched: string;
 }
 
 export interface FixtureWorld {
@@ -108,6 +119,21 @@ function bridgeEntry(bridge: FixtureBridge): Record<string, unknown> {
         title: note.title,
       })),
     },
+  };
+}
+
+/** One scanned mention, its column counted in characters from 1 as the scan does. */
+function mentionRecord(mention: FixtureMention): Record<string, unknown> {
+  return {
+    // A fixture mention stands in its note's own body, so the note the scan
+    // names and the node the line sits in are the one record.
+    source_note: linkNode(mention.source),
+    source_anchor: linkNode(mention.source),
+    row: 1,
+    col: mention.line.indexOf(mention.matched) + 1,
+    preview: mention.line,
+    matched_text: mention.matched,
+    explanation: { kind: "unlinked-reference", matched_text: mention.matched },
   };
 }
 
@@ -297,6 +323,15 @@ export async function mountApi(page: Page, world: FixtureWorld): Promise<void> {
             },
           ],
         });
+      }
+
+      case "/api/unlinked-references": {
+        const note = byKey.get(params.get("key") ?? "");
+        return note
+          ? json(route, {
+              unlinked_references: (note.mentions ?? []).map(mentionRecord),
+            })
+          : apiError(route, 404, "not-found", "no note for the given key");
       }
 
       case "/api/search/nodes": {

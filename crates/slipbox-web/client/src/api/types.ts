@@ -157,6 +157,16 @@ export interface ReflinkRecord {
 
 /** An unlinked mention candidate. Mirrors `UnlinkedReferenceRecord`. */
 export interface UnlinkedReferenceRecord {
+  /**
+   * The note the mentioning line belongs to, which is the identity a listing of
+   * notes is read against. Absent from a daemon older than the field, where the
+   * anchor is all that is known of where the line sits.
+   */
+  source_note?: NodeRecord;
+  /**
+   * The indexed node the line sits in, which is the note itself unless a heading
+   * carrying no id stands between them.
+   */
   source_anchor: AnchorRecord;
   row: number;
   col: number;

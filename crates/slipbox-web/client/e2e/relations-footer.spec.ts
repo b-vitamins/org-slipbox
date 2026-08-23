@@ -55,20 +55,35 @@ const WORLD: FixtureWorld = {
           via: [{ key: "file:in.org", id: "in-uuid", title: "Inbound" }],
         },
       ],
+      // The name stands late in a long line, so the row has to wind the line
+      // forward to it: at the head of that line the mark would be clipped away.
+      mentions: [
+        {
+          source: { key: "file:naming.org", id: "naming-uuid", title: "Naming Note" },
+          line: `${"padding words ".repeat(12)}Origin is named without a link`,
+          matched: "Origin",
+        },
+      ],
     },
   ],
 };
 
 /** Every `/api/explore` request the page made, in order. */
 let explored: string[] = [];
+/** Every `/api/unlinked-references` request the page made, in order. */
+let scanned: string[] = [];
 
 test.describe("the relations footer", () => {
   test.beforeEach(async ({ page }) => {
     explored = [];
+    scanned = [];
     page.on("request", (request) => {
       const url = new URL(request.url());
       if (url.pathname === "/api/explore") {
         explored.push(url.search);
+      }
+      if (url.pathname === "/api/unlinked-references") {
+        scanned.push(url.search);
       }
     });
     await mountApi(page, WORLD);
@@ -121,5 +136,28 @@ test.describe("the relations footer", () => {
       .boundingBox();
     expect(connector!.x).toBeLessThan(row!.x);
     expect(connector!.y).toBeLessThan(row!.y);
+  });
+
+  // A row paints one clipped line, so where the mark lands inside that line is
+  // the whole question, and only a real browser reports it.
+  test("keeps the scanned match inside the line the row paints", async ({ page }) => {
+    const group = page.getByRole("button", { name: "Unlinked mentions" });
+    await expect(group).toHaveAttribute("aria-expanded", "false");
+    expect(scanned).toHaveLength(0);
+
+    await group.click();
+    await expect(page.getByRole("link", { name: "Naming Note" })).toBeVisible();
+    expect(scanned).toHaveLength(1);
+
+    const mark = page.locator("mark.relations__match");
+    await expect(mark).toHaveText("Origin");
+    const preview = page.locator(".relations__preview", { has: mark });
+    // The line is wound forward to the match, and the cut is marked.
+    await expect(preview).toHaveText(/^…/);
+
+    const marked = await mark.boundingBox();
+    const line = await preview.boundingBox();
+    expect(marked!.x).toBeGreaterThanOrEqual(line!.x);
+    expect(marked!.x + marked!.width).toBeLessThanOrEqual(line!.x + line!.width);
   });
 });

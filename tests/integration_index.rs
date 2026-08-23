@@ -573,6 +573,46 @@ fn unlinked_references_query_preserves_short_alias_matches() -> Result<()> {
 }
 
 #[test]
+fn unlinked_references_query_names_the_note_a_mention_sits_in() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    fs::write(
+        root.join("current.org"),
+        "#+title: Atlas\n:PROPERTIES:\n:ID: atlas-id\n:END:\n\nBody.\n",
+    )?;
+    // The mention stands under a heading carrying no ID, which is a node of the
+    // index but not a note: the note holding it is the file around it.
+    fs::write(
+        root.join("other.org"),
+        "#+title: Other\n:PROPERTIES:\n:ID: other-id\n:END:\n\n* Plain heading\nAtlas should surface.\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let source = database
+        .node_from_id("atlas-id")?
+        .expect("expected the atlas note");
+
+    let source_anchor = AnchorRecord::from(source);
+    let unlinked_references = query_unlinked_references(&database, &root, &source_anchor, 10)?;
+    assert_eq!(unlinked_references.len(), 1);
+
+    let mention = &unlinked_references[0];
+    assert_eq!(mention.source_anchor.title, "Plain heading");
+    assert_eq!(mention.source_anchor.explicit_id, None);
+    assert_eq!(mention.source_note.title, "Other");
+    assert_eq!(mention.source_note.explicit_id.as_deref(), Some("other-id"));
+    assert_ne!(mention.source_note.node_key, mention.source_anchor.node_key);
+
+    Ok(())
+}
+
+#[test]
 fn occurrence_query_returns_structured_hits_and_honors_limits() -> Result<()> {
     let workspace = tempdir()?;
     let root = workspace.path().join("notes");

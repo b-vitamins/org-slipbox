@@ -1055,7 +1055,13 @@ fn note_for_anchor_in_file(anchors: &[AnchorRecord], anchor_key: &str) -> Option
     note_owners_by_anchor_key(anchors).remove(anchor_key)
 }
 
-pub(crate) fn note_owners_by_anchor_key(anchors: &[AnchorRecord]) -> HashMap<String, NodeRecord> {
+/// The note owning each anchor of one file, keyed on the anchor's own key.
+///
+/// Ownership follows the outline: a note owns itself, and a heading carrying no
+/// id belongs to the nearest note enclosing it rather than to whichever node
+/// stands just above. `anchors` are one file's nodes in line order, as
+/// [`Database::anchors_in_file`] reads them.
+pub fn note_owners_by_anchor_key(anchors: &[AnchorRecord]) -> HashMap<String, NodeRecord> {
     let anchor_lookup = anchors
         .iter()
         .map(|anchor| (anchor.node_key.as_str(), anchor))

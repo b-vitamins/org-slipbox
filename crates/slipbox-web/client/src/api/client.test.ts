@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ApiError, ReadingClient } from "./client.js";
-import type { ExploreResult, NodeRecord } from "./types.js";
+import type {
+  ExploreResult,
+  NodeRecord,
+  UnlinkedReferencesResult,
+} from "./types.js";
 
 /** A node record with only the fields a test names given a value. */
 function node(key: string, title: string): NodeRecord {
@@ -231,6 +235,45 @@ describe("ReadingClient exploration reads", () => {
     expect(entry.explanation.references).toEqual(["cite:shared2024"]);
     expect(entry.explanation.modified_at_ns).toBe(1);
     expect(entry.anchor.title).toBe("Old");
+  });
+});
+
+describe("ReadingClient unlinked-reference reads", () => {
+  it("carries the key and the scan bound on the query string", async () => {
+    const { fetch, calls } = stubFetch(200, { unlinked_references: [] });
+    const client = new ReadingClient("", fetch);
+
+    await client.unlinkedReferences("heading:notes/alpha.org::12", { limit: 200 });
+
+    expect(calls[0]).toBe(
+      "/api/unlinked-references?key=heading%3Anotes%2Falpha.org%3A%3A12&limit=200",
+    );
+  });
+
+  it("reads a mention's anchor, its position, and the text matched", async () => {
+    const body: UnlinkedReferencesResult = {
+      unlinked_references: [
+        {
+          source_anchor: node("heading:notes/beta.org::4", "Beta"),
+          row: 12,
+          col: 7,
+          preview: "where Alpha is named without a link",
+          matched_text: "Alpha",
+          explanation: { kind: "unlinked-reference", matched_text: "Alpha" },
+        },
+      ],
+    };
+    const { fetch } = stubFetch(200, body);
+    const client = new ReadingClient("", fetch);
+
+    const result = await client.unlinkedReferences("file:alpha.org");
+
+    const [record] = result.unlinked_references;
+    expect(record?.source_anchor.node_key).toBe("heading:notes/beta.org::4");
+    expect(record?.col).toBe(7);
+    // The column indexes the preview, counting characters from 1.
+    expect(record?.preview.slice(record.col - 1)).toMatch(/^Alpha/);
+    expect(record?.explanation.kind).toBe("unlinked-reference");
   });
 });
 

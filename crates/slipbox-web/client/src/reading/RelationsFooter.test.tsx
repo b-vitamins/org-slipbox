@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { visibleText } from "../test/visible-text.js";
 import {
   RelationsFooter,
+  MENTIONS_SCAN_LIMIT,
+  MENTIONS_SHOWN,
   RELATED_LENS_LIMIT,
   RELATED_SHOWN,
 } from "./RelationsFooter.jsx";
@@ -17,6 +19,7 @@ import type {
   ForwardLinkRecord,
   NodeRecord,
   NoteContext,
+  UnlinkedReferenceRecord,
 } from "../api/types.js";
 
 function node(
@@ -122,9 +125,15 @@ function context(
 
 const inertNav: Navigation = { glance: () => {}, pin: () => {}, go: () => {} };
 
-/** The deferred group, which stands beside the directed inventory. */
+/** The ranked group, which stands beside the directed inventory. */
 function relatedGroup(container: HTMLElement): Element {
   return container.querySelectorAll(".relations__group")[1] as Element;
+}
+
+/** The mention group, which stands last whether the others stand at all. */
+function mentionsGroup(container: HTMLElement): Element {
+  const groups = container.querySelectorAll(".relations__group");
+  return groups[groups.length - 1] as Element;
 }
 
 function mount(context: NoteContext): HTMLElement {
@@ -409,18 +418,21 @@ describe("RelationsFooter", () => {
     ).toBeInTheDocument();
   });
 
-  // The footer is a hairline rule plus whatever it lists. A note nothing links
-  // to and that links to nothing must not end in a rule with nothing under it,
-  // and the bridges lens walks link topology, so it answers such a note with
-  // nothing either.
-  it("draws nothing at all for a note with no relations", () => {
+  // A note nothing links to and that links to nothing has no inventory and no
+  // bridge candidate, both being link topology. What is left is the prose scan,
+  // which is the only relation that reaches such a note at all.
+  it("offers a note with no link the mention group alone", () => {
     const { container } = render(() => (
       <NavigationProvider navigation={inertNav}>
         <RelationsFooter context={context([], [])} />
       </NavigationProvider>
     ));
 
-    expect(container.querySelector(".relations")).toBeNull();
+    expect(container.querySelectorAll(".relations__group")).toHaveLength(1);
+    expect(screen.queryByText("Links")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Unlinked mentions" }),
+    ).toBeInTheDocument();
   });
 });
 
@@ -668,6 +680,253 @@ describe("RelationsFooter related notes", () => {
     });
     expect(relatedGroup(container).querySelector(".relations__list")).toBeNull();
     // The rest of the footer is unaffected by a group that could not be read.
+    expect(screen.getByRole("link", { name: "Alpha" })).toBeInTheDocument();
+  });
+});
+
+/**
+ * One occurrence, matched where the text first stands in the line. The line sits
+ * in `source` itself unless `under` names a node inside it.
+ */
+function mention(
+  source: NodeRecord,
+  preview: string,
+  matched = "Self",
+  under: NodeRecord = source,
+): UnlinkedReferenceRecord {
+  return {
+    source_note: source,
+    source_anchor: under,
+    row: 1,
+    col: preview.indexOf(matched) + 1,
+    preview,
+    matched_text: matched,
+    explanation: { kind: "unlinked-reference", matched_text: matched },
+  };
+}
+
+/** `count` mentions, each in a note of its own. */
+function scanned(count: number): UnlinkedReferenceRecord[] {
+  return Array.from({ length: count }, (_, i) =>
+    mention(node(`notes/m${i}.org::0`, `Naming ${i + 1}`), "Self is named here"),
+  );
+}
+
+/**
+ * A fetch double answering the mention scan with `records`, or with an error
+ * envelope at any other status. Every URL asked for is recorded.
+ */
+function stubMentions(
+  records: UnlinkedReferenceRecord[],
+  status = 200,
+): string[] {
+  const urls: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL) => {
+      urls.push(String(input));
+      const body =
+        status === 200
+          ? { unlinked_references: records }
+          : { error: { kind: "internal", message: "the index is locked" } };
+      return Promise.resolve(
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    }),
+  );
+  return urls;
+}
+
+function asked(urls: string[]): URL[] {
+  return urls
+    .map((url) => new URL(url, "http://slipbox.test"))
+    .filter((url) => url.pathname === "/api/unlinked-references");
+}
+
+const MENTIONS = "Unlinked mentions";
+
+describe("RelationsFooter unlinked mentions", () => {
+  beforeEach(() => {
+    __resetRefocusForTests();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  // The scan walks files on disk, which is the most expensive read the footer
+  // can make, so nothing is asked for until a reader asks.
+  it("requests nothing for the group until it is opened", async () => {
+    const urls = stubMentions(scanned(1));
+    mount(linkedNote());
+
+    expect(asked(urls)).toHaveLength(0);
+    expect(
+      screen.getByRole("button", { name: MENTIONS, expanded: false }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: MENTIONS }));
+    expect(await screen.findByRole("link", { name: "Naming 1" })).toBeInTheDocument();
+
+    const requests = asked(urls);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.searchParams.get("key")).toBe("notes/self.org::0");
+    expect(requests[0]!.searchParams.get("limit")).toBe(
+      String(MENTIONS_SCAN_LIMIT),
+    );
+  });
+
+  // The reason the listings above declare their role, on the last of them.
+  it("declares the mention group's listing a list", async () => {
+    stubMentions(scanned(1));
+    const container = mount(linkedNote());
+
+    fireEvent.click(screen.getByRole("button", { name: MENTIONS }));
+    expect(
+      await screen.findByRole("link", { name: "Naming 1" }),
+    ).toBeInTheDocument();
+
+    expect(
+      mentionsGroup(container)
+        .querySelector(".relations__list")
+        ?.getAttribute("role"),
+    ).toBe("list");
+  });
+
+  // The title says which note names this one; the mark says which words do.
+  it("marks the matched text inside the line rather than beside it", async () => {
+    const container = mount(linkedNote());
+    stubMentions([
+      mention(node("notes/m1.org::0", "Naming 1"), "compared with Self throughout"),
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: MENTIONS }));
+    expect(await screen.findByRole("link", { name: "Naming 1" })).toBeInTheDocument();
+
+    const preview = mentionsGroup(container).querySelector(".relations__preview");
+    expect(preview?.textContent).toBe("compared with Self throughout");
+    expect(preview?.querySelector("mark.relations__match")?.textContent).toBe("Self");
+  });
+
+  it("shows a bounded head and offers the rest by count", async () => {
+    const container = mount(linkedNote());
+    stubMentions(scanned(MENTIONS_SHOWN + 3));
+
+    fireEvent.click(screen.getByRole("button", { name: MENTIONS }));
+    expect(await screen.findByRole("link", { name: "Naming 1" })).toBeInTheDocument();
+    expect(mentionsGroup(container).querySelectorAll(".relations__row")).toHaveLength(
+      MENTIONS_SHOWN,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Show 3 more" }));
+    expect(mentionsGroup(container).querySelectorAll(".relations__row")).toHaveLength(
+      MENTIONS_SHOWN + 3,
+    );
+    expect(screen.queryByRole("button", { name: /^Show \d+ more$/ })).toBeNull();
+  });
+
+  // The head holds back notes and the scan's limit counts occurrences, so a row
+  // count is evidence of neither bound and each says what it cut.
+  it("distinguishes the head's cut from the scan's own bound", async () => {
+    stubMentions(scanned(MENTIONS_SCAN_LIMIT));
+    mount(linkedNote());
+
+    fireEvent.click(screen.getByRole("button", { name: MENTIONS }));
+    expect(await screen.findByRole("link", { name: "Naming 1" })).toBeInTheDocument();
+
+    expect(
+      screen.getByRole("button", {
+        name: `Show ${MENTIONS_SCAN_LIMIT - MENTIONS_SHOWN} more`,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        `The scan stops at ${MENTIONS_SCAN_LIMIT} mentions, so the slipbox may hold more.`,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("says nothing of a bound the scan did not reach", async () => {
+    stubMentions(scanned(2));
+    mount(linkedNote());
+
+    fireEvent.click(screen.getByRole("button", { name: MENTIONS }));
+    expect(await screen.findByRole("link", { name: "Naming 1" })).toBeInTheDocument();
+
+    expect(screen.queryByText(/The scan stops at/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Show \d+ more$/ })).toBeNull();
+  });
+
+  it("says there are none rather than opening an empty group", async () => {
+    const container = mount(linkedNote());
+    stubMentions([]);
+
+    fireEvent.click(screen.getByRole("button", { name: MENTIONS }));
+    expect(
+      await screen.findByText("No note names this one without linking to it."),
+    ).toBeInTheDocument();
+    expect(mentionsGroup(container).querySelector(".relations__list")).toBeNull();
+  });
+
+  // The scan excludes an occurrence a link already covers, one occurrence at a
+  // time, so a note that links here and names it elsewhere still arrives.
+  it("keeps a note the directed inventory lists out of the group", async () => {
+    const container = mount(linkedNote());
+    stubMentions([
+      mention(node("notes/a.org::0", "Alpha"), "Self is named here"),
+      mention(node("notes/m1.org::0", "Naming 1"), "Self is named here too"),
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: MENTIONS }));
+    expect(await screen.findByRole("link", { name: "Naming 1" })).toBeInTheDocument();
+
+    const titles = [
+      ...mentionsGroup(container).querySelectorAll(".relations__link"),
+    ].map((link) => link.textContent);
+    expect(titles).toEqual(["Naming 1"]);
+  });
+
+  // The scan reports the node the line sits in, down to a heading holding no id,
+  // while the inventory lists notes: a mention inside a note listed there is the
+  // same note twice over, whichever of its headings the line stands under.
+  it("keeps a listed note out though a heading in it holds the mention", async () => {
+    const container = mount(linkedNote());
+    stubMentions([
+      mention(
+        node("notes/a.org::0", "Alpha"),
+        "Self is named here",
+        "Self",
+        node("notes/a.org::6", "A section of Alpha"),
+      ),
+      mention(node("notes/m1.org::0", "Naming 1"), "Self is named here too"),
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: MENTIONS }));
+    expect(await screen.findByRole("link", { name: "Naming 1" })).toBeInTheDocument();
+
+    const titles = [
+      ...mentionsGroup(container).querySelectorAll(".relations__link"),
+    ].map((link) => link.textContent);
+    expect(titles).toEqual(["Naming 1"]);
+  });
+
+  it("leaves the group closed and states a failed read", async () => {
+    const container = mount(linkedNote());
+    stubMentions([], 500);
+
+    fireEvent.click(screen.getByRole("button", { name: MENTIONS }));
+
+    expect(await screen.findByText("the index is locked")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: MENTIONS, expanded: false }),
+      ).toBeInTheDocument();
+    });
+    expect(mentionsGroup(container).querySelector(".relations__list")).toBeNull();
     expect(screen.getByRole("link", { name: "Alpha" })).toBeInTheDocument();
   });
 });

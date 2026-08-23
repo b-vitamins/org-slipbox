@@ -44,6 +44,14 @@ The format follows Keep a Changelog, and this project follows SemVer.
   column against the offset it pins at rather than part-cut at an edge. Snapping
   is by proximity, leaving a reader who deliberately holds two half columns
   alone, and the narrow run snaps per note on the axis it scrolls.
+- Offer unlinked mentions in the reading footer: notes that write this note's
+  title in their prose without linking to it. The links inventory and the bridges
+  lens both read link topology, so a note no link touches is answered by neither,
+  and the footer now stands for such a note on the mention group alone. A note
+  collapses to its first occurrence, the scan's bound is counted in occurrences
+  where the head's cut is counted in notes, and the matched run is marked inside
+  the line it stands in. `slipbox explore` heads a mention with the note it sits
+  in, naming the anchor beside it where that is a heading of its own.
 
 ### Changed
 - Draw the `dormant` lens's candidates from link topology rather than from shared
@@ -111,10 +119,9 @@ The format follows Keep a Changelog, and this project follows SemVer.
   second request per note, a second ranking, a filter box over a list a reader
   had not asked for, and a second grammar for opening a note. A note's links and
   backlinks remain in the footer, where they come out of the reading context the
-  column already fetched, and now draw nothing at all for a note with no links
-  either way rather than a rule with nothing beneath it. What goes is the web
-  surface's own walk: the indexed link graph, the store queries over it, and the
-  `slipbox graph` DOT export are untouched, as is every other reading route.
+  column already fetched. What goes is the web surface's own walk: the indexed
+  link graph, the store queries over it, and the `slipbox graph` DOT export are
+  untouched, as is every other reading route.
 
 ### Fixed
 - Refuse a reading-surface request whose `Host` is not a loopback authority with
