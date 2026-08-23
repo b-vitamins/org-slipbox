@@ -121,6 +121,23 @@ pub struct NoteContextResult {
     pub forward_links: Vec<ForwardLinkRecord>,
 }
 
+/// A note's place in `(file_path, line)` order, counted from 1.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotePlaceResult {
+    pub ordinal: u64,
+    pub total: u64,
+    #[serde(default)]
+    pub earlier: Option<NotePlaceNeighbor>,
+    #[serde(default)]
+    pub later: Option<NotePlaceNeighbor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotePlaceNeighbor {
+    pub node_key: String,
+    pub title: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceSlice {
     pub file_path: String,

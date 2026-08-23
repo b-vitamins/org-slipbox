@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use slipbox_core::{
     AnchorRecord, ContentSegment, ContentSnippet, MIN_SEARCH_TERM_CHARACTERS, NodeContentHit,
-    NodeKind, NodeRecord, SearchNodesSort,
+    NodeKind, NodeRecord, NotePlaceNeighbor, NotePlaceResult, SearchNodesSort,
 };
 
 use crate::Database;
@@ -289,6 +289,64 @@ impl Database {
             .context("failed to fetch anchor by key")
     }
 
+    /// Where a note sits in `(file_path, line)` order: its ordinal from 1, the
+    /// number of notes the index holds, and the note filed on each side.
+    pub fn note_place(&self, node_key: &str) -> Result<Option<NotePlaceResult>> {
+        let sql = format!(
+            "SELECT n.file_path, n.line
+               FROM nodes AS n
+              WHERE n.node_key = ?1
+                AND {}",
+            note_where("n"),
+        );
+        let Some((file_path, line)) = self
+            .connection
+            .query_row(&sql, params![node_key], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, u32>(1)?))
+            })
+            .optional()
+            .context("failed to fetch the filed position of a note")?
+        else {
+            return Ok(None);
+        };
+
+        Ok(Some(NotePlaceResult {
+            ordinal: self.notes_filed_before(&file_path, line)? + 1,
+            total: self.notes_indexed()?,
+            earlier: self.filing_neighbor(&file_path, line, FilingSide::Earlier)?,
+            later: self.filing_neighbor(&file_path, line, FilingSide::Later)?,
+        }))
+    }
+
+    fn notes_filed_before(&self, file_path: &str, line: u32) -> Result<u64> {
+        self.connection
+            .query_row(&notes_filed_before_sql(), params![file_path, line], |row| {
+                row.get::<_, u64>(0)
+            })
+            .context("failed to count the notes filed before a note")
+    }
+
+    fn filing_neighbor(
+        &self,
+        file_path: &str,
+        line: u32,
+        side: FilingSide,
+    ) -> Result<Option<NotePlaceNeighbor>> {
+        self.connection
+            .query_row(
+                &filing_neighbor_sql(side),
+                params![file_path, line],
+                |row| {
+                    Ok(NotePlaceNeighbor {
+                        node_key: row.get(0)?,
+                        title: row.get(1)?,
+                    })
+                },
+            )
+            .optional()
+            .context("failed to fetch the note filed beside a note")
+    }
+
     pub fn anchors_in_file(&self, file_path: &str) -> Result<Vec<AnchorRecord>> {
         let sql = format!(
             "SELECT {}
@@ -537,6 +595,43 @@ fn glossary_where(alias: &str) -> String {
     // A glossary term is a marked note, so the row must both carry the marker and
     // hydrate through `row_to_note` as a canonical note.
     format!("{alias}.glossary = 1 AND {}", note_where(alias))
+}
+
+/// Which way a filing-order neighbor seek walks from the note.
+#[derive(Debug, Clone, Copy)]
+enum FilingSide {
+    Earlier,
+    Later,
+}
+
+/// Counts the notes filed before `(?1, ?2)`. The row-value bound is what keeps
+/// the count an ordered walk of `idx_nodes_file_path_line_level`.
+fn notes_filed_before_sql() -> String {
+    format!(
+        "SELECT COUNT(*)
+           FROM nodes AS n
+          WHERE (n.file_path, n.line) < (?1, ?2)
+            AND {}",
+        note_where("n"),
+    )
+}
+
+/// One ordered seek for the nearest note on `side`; the index supplies the
+/// order, so `LIMIT 1` stops at the first row the note predicate admits.
+fn filing_neighbor_sql(side: FilingSide) -> String {
+    let (bound, direction) = match side {
+        FilingSide::Earlier => ("<", "DESC"),
+        FilingSide::Later => (">", "ASC"),
+    };
+    format!(
+        "SELECT n.node_key, n.title
+           FROM nodes AS n
+          WHERE (n.file_path, n.line) {bound} (?1, ?2)
+            AND {}
+          ORDER BY n.file_path {direction}, n.line {direction}
+          LIMIT 1",
+        note_where("n"),
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1522,6 +1617,174 @@ mod tests {
         assert_eq!(after.sr_interval, before.sr_interval);
         assert_eq!(after.sr_reps, before.sr_reps);
         assert_eq!(after.sr_last, before.sr_last);
+        Ok(())
+    }
+
+    fn filing_fixture() -> [(&'static str, &'static str); 3] {
+        [
+            ("a.org", "#+title: Alpha\n\nFirst.\n"),
+            (
+                "b.org",
+                "#+title: Beta\n\nSecond.\n\n* Ordinary heading\n\nNo identifier.\n\n* Filed child\n:PROPERTIES:\n:ID: filed-child\n:END:\n\nA note inside Beta.\n",
+            ),
+            ("c.org", "#+title: Gamma\n\nThird.\n"),
+        ]
+    }
+
+    /// Every note in filing order, which the no-term note listing already reports
+    /// as `(file_path, line)`.
+    fn filed_notes(database: &crate::Database) -> Result<Vec<slipbox_core::NodeRecord>> {
+        database.search_nodes("", 200, None)
+    }
+
+    fn place(
+        database: &crate::Database,
+        note: &slipbox_core::NodeRecord,
+    ) -> Result<slipbox_core::NotePlaceResult> {
+        Ok(database
+            .note_place(&note.node_key)?
+            .expect("an indexed note has a place"))
+    }
+
+    fn query_plan(database: &crate::Database, sql: &str) -> Result<String> {
+        let mut statement = database
+            .connection
+            .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))?;
+        let rows = statement.query_map(rusqlite::params!["", 0], |row| row.get::<_, String>(3))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?.join("\n"))
+    }
+
+    #[test]
+    fn the_filing_ordinal_counts_from_one_over_every_note_the_index_holds() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&filing_fixture())?;
+        let filed = filed_notes(&database)?;
+        assert_eq!(
+            titles(&filed),
+            vec!["Alpha", "Beta", "Filed child", "Gamma"]
+        );
+
+        for (index, note) in filed.iter().enumerate() {
+            let place = place(&database, note)?;
+            assert_eq!(place.ordinal, index as u64 + 1);
+            assert_eq!(place.total, database.notes_indexed()?);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn the_first_note_reports_no_earlier_neighbor_and_the_last_no_later_one() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&filing_fixture())?;
+        let filed = filed_notes(&database)?;
+        let first = place(&database, &filed[0])?;
+        let last = place(&database, &filed[filed.len() - 1])?;
+
+        assert_eq!(first.ordinal, 1);
+        assert!(first.earlier.is_none());
+        assert_eq!(
+            first.later.map(|neighbor| neighbor.title),
+            Some("Beta".to_owned())
+        );
+        assert_eq!(last.ordinal, last.total);
+        assert!(last.later.is_none());
+        assert_eq!(
+            last.earlier.map(|neighbor| neighbor.title),
+            Some("Filed child".to_owned())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn two_notes_in_one_file_are_filed_by_line() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&filing_fixture())?;
+        let filed = filed_notes(&database)?;
+        assert_eq!(filed[1].file_path, filed[2].file_path);
+        assert!(filed[1].line < filed[2].line);
+
+        let earlier = place(&database, &filed[1])?;
+        let later = place(&database, &filed[2])?;
+        assert_eq!((earlier.ordinal, later.ordinal), (2, 3));
+        assert_eq!(
+            earlier.later.map(|neighbor| neighbor.title),
+            Some("Filed child".to_owned())
+        );
+        assert_eq!(
+            later.earlier.map(|neighbor| neighbor.title),
+            Some("Beta".to_owned())
+        );
+        // The last note of one file neighbors the first note of the next.
+        assert_eq!(
+            later.later.map(|neighbor| neighbor.title),
+            Some("Gamma".to_owned())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_filing_neighbor_carries_the_key_and_title_that_name_it() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&filing_fixture())?;
+        let filed = filed_notes(&database)?;
+        let place = place(&database, &filed[1])?;
+
+        let earlier = place
+            .earlier
+            .expect("a middle note has an earlier neighbor");
+        assert_eq!(earlier.node_key, filed[0].node_key);
+        assert_eq!(earlier.title, filed[0].title);
+        let later = place.later.expect("a middle note has a later neighbor");
+        assert_eq!(later.node_key, filed[2].node_key);
+        assert_eq!(later.title, filed[2].title);
+        Ok(())
+    }
+
+    #[test]
+    fn a_key_the_index_does_not_hold_has_no_place() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&filing_fixture())?;
+
+        assert!(database.note_place("heading:missing.org:9999")?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn an_ordinary_heading_takes_no_place_in_the_filing_order() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&filing_fixture())?;
+        let filed = filed_notes(&database)?;
+        let ordinary = database
+            .anchors_in_file(&filed[1].file_path)?
+            .into_iter()
+            .find(|anchor| anchor.title == "Ordinary heading")
+            .expect("the fixture heading is indexed as an anchor");
+
+        assert!(database.note_place(&ordinary.node_key)?.is_none());
+        // It also sits between two notes of the same file without displacing them.
+        let place = place(&database, &filed[1])?;
+        assert_eq!(place.total, 4);
+        assert_eq!(
+            place.later.map(|neighbor| neighbor.title),
+            Some("Filed child".to_owned())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn the_filing_seeks_walk_the_ordered_index_without_sorting() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&filing_fixture())?;
+
+        for sql in [
+            super::notes_filed_before_sql(),
+            super::filing_neighbor_sql(super::FilingSide::Earlier),
+            super::filing_neighbor_sql(super::FilingSide::Later),
+        ] {
+            let plan = query_plan(&database, &sql)?;
+            assert!(
+                plan.contains("SEARCH n USING INDEX idx_nodes_file_path_line_level"),
+                "the plan must seek the filing-order index: {plan}"
+            );
+            assert!(!plan.contains("SCAN"), "the plan must not scan: {plan}");
+            assert!(
+                !plan.contains("TEMP B-TREE"),
+                "the plan must not sort: {plan}"
+            );
+        }
         Ok(())
     }
 }
