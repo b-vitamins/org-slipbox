@@ -108,11 +108,20 @@ describe("ReadingClient URL construction", () => {
   });
 
   it("joins paths against a non-empty base without a doubled slash", async () => {
-    const { fetch, calls } = stubFetch(200, { status: "ok" });
+    const { fetch, calls } = stubFetch(200, {
+      status: "ok",
+      root: "/notes",
+      version: "0.18.0",
+    });
     const client = new ReadingClient("http://127.0.0.1:8080/", fetch);
 
-    await client.healthz();
-
+    // The liveness answer names the root it answered for, which is the fact a
+    // reader of two slipboxes needs from it.
+    expect(await client.healthz()).toEqual({
+      status: "ok",
+      root: "/notes",
+      version: "0.18.0",
+    });
     expect(calls[0]).toBe("http://127.0.0.1:8080/api/healthz");
   });
 });

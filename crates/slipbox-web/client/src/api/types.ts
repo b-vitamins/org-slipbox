@@ -40,11 +40,15 @@ export interface NodeRecord {
 /** A link endpoint. Structurally identical to `NodeRecord`. */
 export type AnchorRecord = NodeRecord;
 
-/** Liveness and served-root identity. Mirrors `PingInfo`. */
-export interface PingInfo {
-  version: string;
+/**
+ * Liveness: the daemon answered, and the root it answered for. `/api/healthz`
+ * composes this from the daemon's `PingInfo`, leaving out the database path a
+ * liveness check has no use for, so it is a shape of its own rather than a mirror.
+ */
+export interface HealthInfo {
+  status: string;
   root: string;
-  db: string;
+  version: string;
 }
 
 /** Served root, database path, and derived-index counts. Mirrors `StatusInfo`. */

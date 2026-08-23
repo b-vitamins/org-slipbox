@@ -15,9 +15,9 @@ import type {
   GlossaryTermsResult,
   BacklinksResult,
   ForwardLinksResult,
+  HealthInfo,
   NodeRecord,
   NoteContext,
-  PingInfo,
   RandomNodeResult,
   ReflinksResult,
   SearchNodeContentResult,
@@ -107,8 +107,8 @@ export class ReadingClient {
     return this.get<StatusInfo>("/api/status");
   }
 
-  healthz(): Promise<{ status: string }> {
-    return this.get<{ status: string }>("/api/healthz");
+  healthz(): Promise<HealthInfo> {
+    return this.get<HealthInfo>("/api/healthz");
   }
 
   nodeByKey(key: string): Promise<NodeRecord> {
