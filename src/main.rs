@@ -24,7 +24,7 @@ slipbox indexes and edits an Org directory through a Rust daemon. Org files rema
   Exploration: explore, compare, artifact
   Reviews:     audit, review
   Assets:      workflow, routine, pack
-  System:      serve, status, sync, file, diagnose
+  System:      serve, status, sync, file, diagnose, web
 
 Use --json on daemon-backed commands for stable machine output. Local inspection commands such as `workflow show --spec` and `pack validate` say so in their own help."
 )]

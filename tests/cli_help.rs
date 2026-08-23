@@ -33,7 +33,7 @@ fn top_level_help_maps_taxonomy_without_repeated_transport_phrase() -> Result<()
             "Exploration:",
             "Reviews:",
             "Assets:",
-            "System:",
+            "System:      serve, status, sync, file, diagnose, web",
             "Use --json on daemon-backed commands for stable machine output",
         ],
     );
