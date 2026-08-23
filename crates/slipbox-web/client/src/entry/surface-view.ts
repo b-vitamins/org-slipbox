@@ -7,6 +7,7 @@
 import { createSignal, type Accessor } from "solid-js";
 
 import { replaceParam } from "./query-url.js";
+import { encodeTerm } from "./term-url.js";
 import type { StackHistory } from "../reading/stack.js";
 
 const VIEW_PARAM = "view";
@@ -40,9 +41,15 @@ export function decodeView(url: string): SurfaceMode {
  * Set `mode` in `url`'s query, keeping every other parameter it carries: `?q=` is
  * owned from the other side and a whole-URL write would drop it. Search removes
  * the parameter, and an emptied query encodes as the bare path.
+ *
+ * The glossary's open term is the exception: it names a row of a term listing, so
+ * the surface that has no listing is not addressed with one. Dropped here, on the
+ * URL being pushed, rather than by the glossary as it goes: the entry the reader
+ * came from keeps naming the term it was showing, which is what the way back is.
  */
 export function encodeView(mode: SurfaceMode, url = ""): string {
-  return replaceParam(url, VIEW_PARAM, mode === "search" ? null : mode);
+  const named = replaceParam(url, VIEW_PARAM, mode === "search" ? null : mode);
+  return mode === "search" ? encodeTerm(null, named) : named;
 }
 
 /** Create a surface-view store bound to an injectable history. */

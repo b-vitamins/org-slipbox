@@ -67,6 +67,11 @@ The format follows Keep a Changelog, and this project follows SemVer.
   scrollport, so reaching its end asks for the next page, and a control below it
   does the same for a reader who has not scrolled. A search states its cut and its
   total with no offer to continue: a ranking has no stored position to resume from.
+- Name the open glossary term in the URL. `?term=` joins `?q=` and `?view=`, read
+  on mount to seed the selection and replaced on every later one, so a definition
+  on screen has an address a reload or a copy reopens. A key none of the pages read
+  holds is resolved through `/api/glossary/term` and peeked off the list, and a key
+  the index refuses is named rather than answered with the first row.
 
 ### Changed
 - Draw the `dormant` lens's candidates from link topology rather than from shared

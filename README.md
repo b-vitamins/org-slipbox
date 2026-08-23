@@ -439,8 +439,8 @@ with a near/far spine, glance/pin/go navigation, a search-first entry surface,
 and a glossary dictionary with definition peek.
 Entry search is the ranked content path, so it matches a phrase from the middle
 of a note and shows the excerpt each hit was found in. The reading trail, the
-surface that is up, and the search term all live in the URL, so a reading
-position is a plain link and a reload lands back on it.
+surface that is up, the search term, and the open glossary term all live in the
+URL, so a reading position is a plain link and a reload lands back on it.
 
 The palette follows the operating system's light or dark preference. A header
 control cycles Auto, Light, and Dark for a reader who wants the opposite of what

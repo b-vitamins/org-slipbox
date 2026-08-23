@@ -149,14 +149,20 @@ test.describe("a glossary longer than one page", () => {
 
   test("holds the peeked term across the page that follows it", async ({ page }) => {
     await page.goto("/?view=glossary");
-    // A row in view: reaching one further down would scroll the list to its end
-    // and continue it, which is the other test's subject. Named exactly, since a
-    // role name matches on a substring and the page to come holds Term 30.
+    // Marked from the keyboard and continued by scrolling the box, so the pointer
+    // never rests over the list: rows arriving move the ones under a resting
+    // pointer, and hovering one is a selection like any other. Named exactly,
+    // since a role name matches on a substring and the page to come holds Term 30.
     const marked = page.getByRole("option", { name: "Term 3", exact: true });
-    await marked.click();
+    // The first row is peeked on arrival, so two rows down is the third.
+    const field = page.getByRole("combobox");
+    await field.press("ArrowDown");
+    await field.press("ArrowDown");
     await expect(marked).toHaveAttribute("aria-selected", "true");
 
-    await page.getByRole("button", { name: "Read more terms" }).click();
+    await page
+      .locator(".glossary-terms")
+      .evaluate((box) => box.scrollTo(0, box.scrollHeight));
     await expect(page.getByRole("option", { name: "Term 30" })).toBeVisible();
 
     // Rows arrive after the ones held and the peek is keyed by term, so the
@@ -165,6 +171,116 @@ test.describe("a glossary longer than one page", () => {
     await expect(
       page.getByRole("heading", { name: "Term 3", level: 2, exact: true }),
     ).toBeVisible();
+  });
+});
+
+test.describe("the glossary term in the address", () => {
+  test.beforeEach(async ({ page }) => {
+    await mountApi(page, LONG);
+  });
+
+  test("a copied address reopens the definition it names", async ({ page }) => {
+    await page.goto("/?view=glossary&term=file%3Aterm-3.org");
+
+    // Named exactly: a role name matches on a substring, and this list holds a
+    // Term 30 the pattern would otherwise reach too.
+    const marked = page.getByRole("option", { name: "Term 3", exact: true });
+    await expect(marked).toHaveAttribute("aria-selected", "true");
+    await expect(
+      page.getByRole("heading", { name: "Term 3", level: 2, exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText("Definition 3.")).toBeVisible();
+  });
+
+  test("a reload holds the open term, which cost no history entry", async ({
+    page,
+  }) => {
+    await page.goto("/?view=glossary");
+    const marked = page.getByRole("option", { name: "Term 3", exact: true });
+    const entries = await page.evaluate(() => history.length);
+
+    await marked.click();
+    await expect(page.getByText("Definition 3.")).toBeVisible();
+
+    // The address carries the term beside the surface's own parameter rather
+    // than in place of it, and replaces the entry rather than adding one: the
+    // way back out of the glossary is the way in, not a walk back through every
+    // term peeked along the way.
+    expect(new URL(page.url()).search).toBe(
+      "?view=glossary&term=file%3Aterm-3.org",
+    );
+    expect(await page.evaluate(() => history.length)).toBe(entries);
+
+    await page.reload();
+
+    await expect(marked).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByText("Definition 3.")).toBeVisible();
+  });
+
+  test("leaves the term on the entry it came from when the surface changes", async ({
+    page,
+  }) => {
+    await page.goto("/?view=glossary");
+    const marked = page.getByRole("option", { name: "Term 3", exact: true });
+    await marked.click();
+    await expect(page.getByText("Definition 3.")).toBeVisible();
+
+    await page.getByRole("button", { name: "Notes" }).click();
+
+    // The term names a row of a term listing, so it goes off the address of a
+    // surface that has none. Off the entry being pushed, not the one being left:
+    // the way back is a glossary still showing the definition it was showing.
+    await expect(page.getByRole("combobox", { name: "Search notes" })).toBeVisible();
+    expect(new URL(page.url()).search).toBe("");
+
+    await page.goBack();
+
+    await expect(marked).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByText("Definition 3.")).toBeVisible();
+  });
+
+  test("an address naming a term past the page read reads it anyway", async ({
+    page,
+  }) => {
+    await page.goto("/?view=glossary&term=file%3Aterm-28.org");
+
+    // Off the first page, so the list cannot mark it: the term is read on its
+    // own and the list says why the row is nowhere to be found.
+    await expect(page.getByText("Definition 28.")).toBeVisible();
+    await expect(
+      page.getByText("Term 28 is not among the terms read so far."),
+    ).toBeVisible();
+
+    // Scrolled rather than clicked, keeping the pointer off the list: the rows the
+    // page brings move the ones a resting pointer is over, and hovering a row is
+    // a selection, which would be this test marking a term of its own.
+    await page
+      .locator(".glossary-terms")
+      .evaluate((box) => box.scrollTo(0, box.scrollHeight));
+
+    const marked = page.getByRole("option", { name: "Term 28", exact: true });
+    await expect(marked).toHaveAttribute("aria-selected", "true");
+    await expect(
+      page.getByText("is not among the terms read so far."),
+    ).toHaveCount(0);
+  });
+
+  test("an address naming no term says so and leaves the list usable", async ({
+    page,
+  }) => {
+    await page.goto("/?view=glossary&term=file%3Amissing.org");
+
+    await expect(
+      page.getByText("No glossary term is named file:missing.org."),
+    ).toBeVisible();
+    await expect(page.getByText("Select a term to read its definition.")).toBeVisible();
+
+    await page.getByRole("option", { name: "Term 1", exact: true }).click();
+
+    await expect(page.getByText("Definition 1.")).toBeVisible();
+    await expect(
+      page.getByText("No glossary term is named file:missing.org."),
+    ).toHaveCount(0);
   });
 });
 
