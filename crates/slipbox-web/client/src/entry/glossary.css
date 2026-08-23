@@ -187,8 +187,13 @@
   letter-spacing: 0.04em;
 }
 
-/* The peek pane: the selected term's definition and study trail. */
+/* The peek pane: the selected term's definition and study trail. It sets no
+   background of its own, so a definition is read on the canvas; the math cover
+   pair (`reading.css`) is restated in that tone, or an equation wide enough to
+   scroll would cover its own edges in the reading column's surface instead. */
 .glossary-detail {
+  --math-surface: var(--paper);
+  --math-surface-fade: var(--paper-fade);
   flex: 1;
   overflow-y: auto;
   overscroll-behavior: contain;

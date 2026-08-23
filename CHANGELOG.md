@@ -322,6 +322,13 @@ The format follows Keep a Changelog, and this project follows SemVer.
   underline at rest. The tones are unchanged, and neither `a` rule is touched, since
   those also reach the chrome, where a rule of underlines would read as a listing;
   the dotted and external variants keep the marks they already had.
+- Paint a display equation's scroll shadow in the surface it stands on. The cover
+  gradients that hide an equation's cut edges were painted in the reading column's
+  tone, which the column alone sets, so the same equation in a glossary definition
+  carried a slab of the column's surface across the canvas. The cover now comes from
+  a pair of variables defaulting to that tone, and the pane restates both halves in
+  its own; a cover fading out to `transparent` would fade through transparent black,
+  so each tone has a zero-alpha spelling of its own.
 
 ## [0.17.0] - 2026-07-25
 
