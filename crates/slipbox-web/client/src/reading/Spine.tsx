@@ -29,11 +29,10 @@ import {
   revealedColumn,
   type ColumnTitle,
 } from "./reading-title.js";
-import { spineNavigation } from "./spine-navigation.js";
+import { spineFilingMove, spineNavigation } from "./spine-navigation.js";
 import {
   columnOffset,
   columnStates,
-  isPinned,
   scrollTargetFor,
   verticalRevealedColumn,
   verticalRevealTop,
@@ -43,21 +42,7 @@ import {
 import type { ReadingStack } from "./stack.js";
 import "./reading.css";
 
-/**
- * What a column shows in place of a note its renderer could not draw.
- *
- * `retry` must be the boundary's own reset: a caught error latches until then,
- * and resetting rebuilds the column, which re-reads the note.
- */
-/**
- * What stands where a column whose note could not be drawn would have stood.
- *
- * It replaces the whole column, so it carries what the column would have carried:
- * the level-1 name that heads a column and names it for the focus a reveal owes
- * it, the negative tab index that lets that focus land, and the report that the
- * read has settled - a throw settles one as much as a failure the column states
- * itself, and the spine withholds focus until a column says so.
- */
+/** Render a focusable, retryable replacement for a failed column. */
 const UnreadableColumn: Component<{
   retry: () => void;
   onSettled: () => void;
@@ -104,9 +89,7 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
   // Read from the computed `flex-direction` rather than a duplicated breakpoint,
   // so reading.css stays the single source of the narrow-layout media query.
   const [narrow, setNarrow] = createSignal(false);
-  const [activeIndex, setActiveIndex] = createSignal(
-    Math.max(0, props.stack.keys().length - 1),
-  );
+  const [activeIndex, setActiveIndex] = createSignal(0);
 
   const glances = createGlanceController();
   onCleanup(() => glances.cancel());
@@ -114,10 +97,7 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
   // Handle of the reveal frame in flight, so a rapid re-pin supersedes it rather
   // than two chains fighting over the scroll offset.
   let revealFrame: number | null = null;
-  // The column a reveal still owes focus to, or null when none is owed. Deferred
-  // rather than focused with the scroll: an obscured column is `hidden`, which
-  // nothing can focus, so a sliver's reveal has to wait for the state its own
-  // scroll settles into.
+  // Focus only after the reveal makes the column readable.
   const [focusWanted, setFocusWanted] = createSignal<number | null>(null);
   const cancelReveal = (): void => {
     if (revealFrame !== null) {
@@ -127,11 +107,7 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
   };
   onCleanup(cancelReveal);
 
-  // Every column's note as that column read it, keyed by the reference it was
-  // read from: the tab is named after one column, and lifting the title here is
-  // what lets a scroll retitle out of what the surface already holds. Keyed rather
-  // than indexed by column, so a stack that replaces its right-hand side cannot
-  // show a closed column's title under a new one.
+  // Reference keys prevent a replaced column from inheriting a stale title.
   const [titles, setTitles] = createSignal<ReadonlyMap<string, ColumnTitle>>(
     new Map(),
   );
@@ -139,11 +115,6 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
     setTitles((held) => new Map(held).set(reference, known));
   };
 
-  // A closed column's title is dropped with it. Held past that, it would name the
-  // tab the moment its reference is reopened, out of a read the surface no longer
-  // stands behind - and the reference the map is keyed by is exactly what a
-  // reopening repeats. The same map is returned where nothing is stale, so a
-  // reveal or a follow that only appends retitles nothing.
   createEffect(() => {
     const live = new Set(props.stack.keys());
     setTitles((held) =>
@@ -175,22 +146,6 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
       ),
     );
 
-  const horizontalIndex = (left: number, snapshot: SpineMetrics): number => {
-    const count = props.stack.keys().length;
-    if (count === 0) {
-      return 0;
-    }
-    if (snapshot.scrollWidth <= snapshot.viewport) {
-      return count - 1;
-    }
-    for (let index = 0; index < count; index += 1) {
-      if (!isPinned(index, left, snapshot)) {
-        return index;
-      }
-    }
-    return count - 1;
-  };
-
   onMount(() => {
     measure();
     const onResize = (): void => {
@@ -198,7 +153,7 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
       const index = activeIndex();
       measure();
       if (wasNarrow !== narrow()) {
-        revealColumn(index);
+        revealColumn(index, false);
       }
     };
     window.addEventListener("resize", onResize);
@@ -208,10 +163,14 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
   // Scroll column `index` into view. The rAF defers the measure until the freshly
   // pinned column is laid out. The narrow layout stacks vertically, so it scrolls
   // by the live distance between the two boxes (see `verticalRevealTop`).
-  const revealColumn = (index: number): void => {
+  const revealColumn = (index: number, focus = true): void => {
     cancelReveal();
+    if (focus) {
+      setFocusWanted(index);
+    } else {
+      setFocusWanted(null);
+    }
     setActiveIndex(index);
-    setFocusWanted(index);
     const behavior = scrollBehavior();
     revealFrame = requestAnimationFrame(() => {
       revealFrame = null;
@@ -261,7 +220,16 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
       } else if (layoutIsNarrow === narrow()) {
         const left = container.scrollLeft;
         setScrollLeft(left);
-        setActiveIndex(horizontalIndex(left, metrics()));
+        const snapshot = metrics();
+        const index = revealedColumn(
+          props.stack.keys().length,
+          left,
+          snapshot,
+          snapshot.scrollWidth <= snapshot.viewport,
+        );
+        if (index !== undefined) {
+          setActiveIndex(index);
+        }
       }
     }
     glances.glance(null);
@@ -272,26 +240,15 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
     onCleanup(() => container.removeEventListener("scroll", onScroll, true));
   });
 
-  // The offset a column pins at, written twice: as the column's own `sticky`
-  // offset, and as the scroll margin of the snap mark standing in for it. CSS
-  // cannot compute a per-index offset, so both are written here.
+  // CSS cannot derive this per-column sticky and snap offset.
   const pin = (index: number): string => `${columnOffset(index, metrics())}px`;
 
   const states = createMemo<ColumnState[]>(() =>
     columnStates(props.stack.keys().length, scrollLeft(), metrics(), narrow()),
   );
 
-  // Whether the spine stands in the frame whole, so nothing is pinned or cut and
-  // no one column is the reading position. True of the narrow layout by
-  // construction: it stacks the columns vertically and rests every one of them,
-  // which leaves the horizontal geometry nothing to name, so the tab keeps naming
-  // the frontmost column there.
   const entire = (): boolean => metrics().scrollWidth <= metrics().viewport;
 
-  // The tab is named after the column the reader is reading, which the geometry
-  // the states are computed from is enough to say. A memo on the index, so only a
-  // change of which column that is retitles the tab; a scroll that leaves the
-  // reading position alone costs nothing and, either way, no request.
   const revealed = createMemo(() =>
     narrow()
       ? Math.min(activeIndex(), Math.max(0, props.stack.keys().length - 1))
@@ -310,14 +267,7 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
       : columnTitle(titles().get(reference));
   });
 
-  // Hand focus to the column a reveal owes it to, once that column is one a
-  // reader can read: not collapsed to a sliver, and past its own read. A column
-  // is named by the note's heading, and until the read settles the element
-  // carrying that name is a status line, so focus landing before then announces
-  // the wait rather than what opened. A read that failed has settled too, and
-  // lands focus on what the column says about it. Only a reveal asks, and the ask
-  // is spent when it is met, so the re-runs a scroll or a re-measure causes move
-  // nothing.
+  // Defer focus until the target is visible and its title or error has settled.
   createEffect(() => {
     const index = focusWanted();
     if (index === null || (states()[index] ?? "resting") === "obscured") {
@@ -328,14 +278,10 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
       return;
     }
     setFocusWanted(null);
-    // By class, not by child position: the spine also holds a snap mark per
-    // column, so a column's index is not its index among the children.
     const note = container
       .querySelectorAll(".spine-column")
       .item(index)
       ?.querySelector<HTMLElement>("article.reading-note");
-    // The reveal has already scrolled to where this column belongs; the scroll a
-    // focus does by default would slide it back out of that place.
     note?.focus({ preventScroll: true });
   });
 
@@ -344,10 +290,7 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
       <For each={props.stack.keys()}>
         {(reference, index) => (
           <>
-            {/* Where this column comes to rest, marked for the scrollport at the
-                column's own place in the flow. The column cannot carry the mark
-                itself: it is `sticky`, and a pinned box takes its snap position
-                with it (see reading.css). */}
+            {/* Sticky columns need a separate in-flow snap target. */}
             <div
               class="spine-snap"
               aria-hidden="true"
@@ -373,7 +316,7 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
                 </button>
                 <span
                   class="spine-position__count"
-                  aria-current={activeIndex() === index() ? "step" : undefined}
+                  aria-current={revealed() === index() ? "step" : undefined}
                 >
                   Note {index() + 1} of {props.stack.keys().length}
                 </span>
@@ -386,10 +329,7 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
                   Next
                 </button>
               </nav>
-              {/* The boundary must sit outside the column, not inside it: a Solid
-                  boundary cannot catch a throw from the scope it is rendered in.
-                  The fallback is handed the boundary's own reset, since a caught
-                  error latches and nothing the column fetches later clears it. */}
+              {/* The boundary reset is the only way to retry a latched error. */}
               <ErrorBoundary
                 fallback={(error, reset) => (
                   <UnreadableColumn
@@ -402,6 +342,7 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
                   reference={reference}
                   state={states()[index()] ?? "resting"}
                   navigation={spineNavigation(props.stack, glances, index, revealColumn)}
+                  readOn={spineFilingMove(props.stack, glances, index, revealColumn)}
                   onReveal={() => revealColumn(index())}
                   onTitle={(known) => learnTitle(reference, known)}
                 />
@@ -412,11 +353,7 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
       </For>
       <Show when={glances.request()}>
         {(request) => (
-          // Keyed to the target: a caught error latches until the boundary is
-          // discarded, and moving between links swaps an open card in place, so
-          // one shared boundary would silence every later preview. The fallback
-          // must take the error, since Solid logs a stack for any fallback that
-          // does not.
+          // Discard the latched boundary when the preview target changes.
           <Show when={referenceOf(request().target)} keyed>
             <ErrorBoundary fallback={(_error) => null}>
               <GlancePreview request={request()} />

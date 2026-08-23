@@ -182,9 +182,6 @@ article.reading-note:focus {
   font-size: 15px;
 }
 
-/* The title and the line under it are one head, so the space down to the prose
- * is the header's rather than the title's: the line then displaces the prose by
- * its own line box and nothing else. */
 .reading-note__header {
   margin: 0 0 24px;
 }
@@ -197,10 +194,6 @@ article.reading-note:focus {
   letter-spacing: -0.01em;
 }
 
-/* Set in the footer's label register, which is what the surface uses for a line
- * that says where something stands rather than what it says. No rule, no box,
- * and no mark: it is one statement, and subordinate to both the title above it
- * and the prose below. */
 .reading-note__place {
   margin: 0;
   color: var(--muted);
@@ -356,13 +349,8 @@ article.reading-note:focus {
   /* Lea Verou's scrolling shadows: the cover gradients
    * (background-attachment: local) sit against each edge and scroll away,
    * unmasking the shadow gradients (attachment: scroll), so an edge shadow shows
-   * only while there is more equation to reveal on that side.
-   *
-   * A cover is only a cover while it is painted in the tone behind the equation,
-   * and the same renderer sets an equation on more than one of them. The pair
-   * below is what a container standing on another tone restates - both halves or
-   * neither, since a cover fading out through the wrong hue is as visible as one
-   * starting from it. The default is the reading column's own surface. */
+   * only while there is more equation to reveal on that side. Containers may
+   * override the surface pair when rendering on another tone. */
   background:
     linear-gradient(
         to right,
@@ -397,21 +385,7 @@ article.reading-note:focus {
   background-attachment: local, local, scroll, scroll;
 }
 
-/* A link inside prose, marked by something a reader who does not separate the two
- * tones can see. `--link` measures 2.51:1 against `--ink` in light and 1.81:1 in
- * dark, under the 3:1 WCAG 1.4.1 asks of a distinction carried by color alone, and
- * the tones are left as they are: it is the resting state that gains an underline,
- * where the `a:hover` rule in tokens.css only paints one once the pointer has
- * already found the word. Neither `a` rule changes, since they also reach the rows
- * and controls of the chrome, where a rule of underlines would read as a listing
- * of links rather than as prose.
- *
- * A hairline at the reading size, offset clear of the descenders it crosses. A
- * decoration paints inside the line box it belongs to, so no paragraph moves.
- *
- * The two variants below already carry a mark that is not color - a dotted
- * underline, a trailing arrow - so they are exempt, stated in the selector rather
- * than left to the order these rules happen to sit in. */
+/* Prose links need a non-color affordance; variants provide their own. */
 .org-link:not(.org-link--inert, .org-link--external) {
   text-decoration: underline;
   text-decoration-thickness: 1px;
@@ -426,18 +400,40 @@ article.reading-note:focus {
   color: var(--muted-2);
 }
 
-/* A link whose target the surface will not follow. The label is prose and keeps
- * its contrast; only the decoration marks it, in the hairline tone. */
 .org-link--inert {
   text-decoration: underline dotted;
   text-decoration-color: var(--muted-3);
   text-underline-offset: 0.15em;
 }
 
-/* The footer is an index of the note's neighbourhood, so it is set at an index's
- * scale rather than the prose's: three groups at the reading scale cost a
- * screenful of a narrow viewport, which is a page of chrome under every note.
- * The rule and the space above it are what keep the two registers apart. */
+/* Filing-order moves wrap as whole controls on narrow columns. */
+.read-on {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 28px;
+  margin-top: 32px;
+}
+
+.read-on__link {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 8px;
+  align-content: center;
+  font-size: 14px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+
+.read-on__side {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Compact relation inventory, visually separated from note prose. */
 .relations {
   margin-top: 32px;
   padding-top: 16px;
@@ -448,19 +444,18 @@ article.reading-note:focus {
   margin-bottom: 16px;
 }
 
-/* One label per group, all three alike: letterspaced uppercase is chrome, and
- * three runs of it read as more chrome than index. */
-.relations__label {
-  margin: 0 0 2px;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 20px;
-  font-weight: 500;
+.relations__group + .relations__group {
+  border-top: 1px solid var(--column-border);
 }
 
-/* The disclosure that names a deferred group. It carries the label's own type
- * rather than a button's, since it is the label. The marker is decoration:
- * `aria-expanded` is what states the group's state. */
+.relations__label {
+  margin: 0 0 4px;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+}
+
 .relations__toggle {
   padding: 0;
   border: none;
@@ -483,19 +478,12 @@ article.reading-note:focus {
   content: "▾";
 }
 
-/* The markers go, for the surface's own rhythm. An engine that reads a listing
- * stripped of them as prose set out in lines drops the list semantics with them,
- * and a reader is then told neither that the rows are a listing nor how many
- * there are, so every listing here declares the role it already had. */
 .relations__list {
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-/* The connector hangs at the group's own left edge while its rows keep the
- * indent every relation row carries, so it reads as the label over them rather
- * than as another row in the listing. */
 .relations__connector {
   margin: 6px 0 2px;
   color: var(--muted);
@@ -503,15 +491,11 @@ article.reading-note:focus {
   font-weight: 400;
 }
 
-/* How far from the connector a row stands, stated only where it is more than
- * the one the connector above it already names. */
 .relations__connectors {
   color: var(--muted-2);
   font-size: 13px;
 }
 
-/* The rest of a bounded group, offered rather than shown. A text control, since
- * a button's chrome beside a listing would read as the listing's own frame. */
 .relations__more {
   margin: 6px 0 0;
   padding: 0;
@@ -529,26 +513,16 @@ article.reading-note:focus {
   color: var(--ink);
 }
 
-/* Wrapping keeps the row inside a narrow column: a rigid link plus a nowrap
- * preview is wider than the column, and a column that scrolls only vertically
- * has no way to reach the overflow.
- *
- * The padding is an index's row pitch, the line box plus a hairline of
- * separation, so a run of rows reads as one listing to be scanned rather than as
- * stacked paragraphs. Under a coarse pointer the link's own floor sets the row's
- * height instead, which is left to the token to state. */
+/* Allow titles and previews to wrap without horizontal overflow. */
 .relations__row {
   position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 2px 10px;
-  padding: 1px 0 1px 20px;
+  padding: 2px 0 2px 20px;
 }
 
-/* The direction mark hangs in the row's indent rather than joining the flex
- * flow, so every title starts on one axis down the column and the row's wrap
- * geometry is the same whichever mark it carries. */
 .relations__direction {
   position: absolute;
   left: 0;
@@ -571,14 +545,7 @@ article.reading-note:focus {
   overflow-wrap: anywhere;
 }
 
-/* One clipped line of the linking line, kept at the measure it takes to tell one
- * note from another: about 45 characters of prose. The measure is the flex basis,
- * so a title that leaves less than that sends the preview to a line of its own
- * rather than to a sliver of this one, and it is the floor, so a line that has to
- * shrink cannot take the preview below it either. `100%` caps the floor where the
- * column is itself narrower than the measure: a preview that cannot shrink would
- * overflow a column that scrolls vertically only, and the clip is the guard for
- * whatever still does not fit. */
+/* Prefer a useful preview measure, capped by the column width. */
 .relations__preview {
   flex: 1 1 30ch;
   min-width: min(30ch, 100%);
@@ -590,9 +557,6 @@ article.reading-note:focus {
   text-overflow: ellipsis;
 }
 
-/* The scanned match, marked where it stands in the mentioning line: the title
- * beside it says which note, and this says which words. Set like the search
- * excerpt's own match, so a marked run reads alike on either surface. */
 .relations__match {
   color: var(--ink);
   background: var(--link-active-bg);
@@ -600,9 +564,6 @@ article.reading-note:focus {
   border-radius: 3px;
 }
 
-/* What a bounded group holds back, and what a deferred group has to say for
- * itself, set like the source-truncation notice above the footer so an omission
- * and a failure read as one voice. */
 .relations__shortfall,
 .relations__status {
   margin: 6px 0 0;

@@ -1,12 +1,4 @@
-/*
- * The relations footer of a reading column. The directed inventory - one row per
- * related note, marked with the direction its links run in - comes out of the
- * `NoteContext` the column already fetched, so it costs no request of its own.
- *
- * Beside it stand deferred groups, which answer a question the context does not:
- * nothing is requested for one until a reader opens it, keeping a column's cost
- * at one request for as long as the footer is only read.
- */
+// Immediate relations come from NoteContext; exploration groups fetch on demand.
 
 import {
   For,
@@ -19,9 +11,9 @@ import {
 } from "solid-js";
 
 import { ApiError, client } from "../api/client.js";
-import type { NoteContext } from "../api/types.js";
+import type { NoteContext, NotePlace, NotePlaceNeighbor } from "../api/types.js";
 import { createReadingResource } from "../data/create-reading-resource.js";
-import { GrammarLink } from "../org/GrammarLink.jsx";
+import { GrammarLink, isBrowserGesture } from "../org/GrammarLink.jsx";
 import { RenderInline } from "../org/RenderInline.jsx";
 import { RenderPreview } from "../org/RenderPreview.jsx";
 import { mentionRows, type MentionRow } from "./mentions.js";
@@ -38,12 +30,8 @@ import {
   type RelationDirection,
   type RelationRow,
 } from "./relations.js";
+import type { FilingMove } from "./spine-navigation.js";
 
-/**
- * The mark a row carries for its direction, and what that mark is read as. The
- * glyph alone is not a label, so it is spoken through the `img` role's own
- * accessible name rather than left for a screen reader to pronounce.
- */
 const DIRECTIONS: Record<
   RelationDirection,
   { readonly glyph: string; readonly label: string }
@@ -53,35 +41,13 @@ const DIRECTIONS: Record<
   both: { glyph: "↔", label: "Links to and from" },
 };
 
-/**
- * Candidates the bridges lens is asked to rank. Its own cut on the answer, and a
- * different one from the head the group shows: the corpus's densest focus note
- * reaches about twenty candidates, so this bounds a pathological note rather
- * than a usual one.
- */
 export const RELATED_LENS_LIMIT = 50;
-
-/** Ranked related notes shown before the rest is offered. */
 export const RELATED_SHOWN = 8;
 
-/**
- * Occurrences the mention scan is asked for. It counts occurrences, where a row
- * counts notes, so it stands well above the row bound: the corpus's densest title
- * is named far more often than it is named in distinct notes.
- */
+// The scan limit counts occurrences; the display limit counts distinct notes.
 export const MENTIONS_SCAN_LIMIT = 200;
-
-/** Mentioning notes shown before the rest is offered. */
 export const MENTIONS_SHOWN = 8;
 
-/**
- * What a bounded group holds back. The total is the payload's own count, which a
- * row count cannot stand in for: a cut set and a whole one look alike. The
- * subject names which count it is, since the group's rows hold both directions.
- *
- * A payload that carries no total, as a daemon older than the field answers,
- * leaves the size of the set unknown, and nothing is claimed of an unknown.
- */
 export const RelationShortfall: Component<{
   shown: number;
   total?: number;
@@ -101,22 +67,14 @@ function describeError(error: unknown, fallback: string): string {
   return fallback;
 }
 
-/**
- * A group whose content is fetched only once it is opened. The caller owns the
- * open state, since the resource it defers is keyed on that state.
- */
 const DeferredGroup: Component<{
   label: string;
   open: boolean;
   onToggle: () => void;
-  /** A stated failure, which stands with the group closed. */
   failure?: string;
   children?: JSX.Element;
 }> = (props) => (
   <div class="relations__group">
-    {/* The label is the control: a heading with a button repeating it beside
-        would name the group twice. `aria-expanded` carries the state, so the
-        marker the cascade draws is decoration and says nothing of its own. */}
     <h2 class="relations__label">
       <button
         type="button"
@@ -168,7 +126,6 @@ const RelatedList: Component<{ rows: readonly RelatedRow[] }> = (props) => (
           <GrammarLink class="relations__link" target={row.target}>
             {row.title}
           </GrammarLink>
-          {/* One connector is what the group's own label already says. */}
           <Show when={row.connectors > 1}>
             <span class="relations__connectors">
               through {row.connectors} notes
@@ -180,14 +137,8 @@ const RelatedList: Component<{ rows: readonly RelatedRow[] }> = (props) => (
   </ul>
 );
 
-/**
- * Notes the bridges lens ranks beside this one, none of which it links to. Two
- * bounds cut the answer and a row count tells them apart from neither, so the
- * head states what it holds back and the lens's own limit is stated separately.
- */
 const RelatedNotes: Component<{
   nodeKey: string;
-  /** Keys the directed inventory prints, which are not news a second time. */
   listed: ReadonlySet<string>;
 }> = (props) => {
   const [open, setOpen] = createSignal(false);
@@ -199,8 +150,6 @@ const RelatedNotes: Component<{
     (key) => client.explore(key, "bridges", { limit: RELATED_LENS_LIMIT }),
   );
 
-  // A failed read leaves the group closed and says why, so the control that
-  // opened it is also the way to ask again.
   createEffect(() => {
     const error = related.error();
     if (error !== undefined) {
@@ -259,8 +208,6 @@ const RelatedNotes: Component<{
                 Show {held()} more
               </button>
             </Show>
-            {/* The head's cut is the control above; this is the other bound, and
-                the lens reports no total to measure it against. */}
             <Show when={rankedTotal(answer()) >= RELATED_LENS_LIMIT}>
               <p class="relations__shortfall">
                 The lens ranks at most {RELATED_LENS_LIMIT} notes, so the
@@ -282,9 +229,6 @@ const MentionsList: Component<{ rows: readonly MentionRow[] }> = (props) => (
           <GrammarLink class="relations__link" target={row.target}>
             {row.title}
           </GrammarLink>
-          {/* The match is marked where it stands in the line. The flag is
-              carried as data, so a literal `<mark>` in a note stays the
-              characters it spells. */}
           <span class="relations__preview">
             <For each={row.preview}>
               {(run) => (
@@ -305,14 +249,8 @@ const MentionsList: Component<{ rows: readonly MentionRow[] }> = (props) => (
   </ul>
 );
 
-/**
- * Notes naming this one in their prose without linking to it. The scan reports
- * occurrences and a row stands for a note, so the two bounds on the answer count
- * different things and are stated apart.
- */
 const UnlinkedMentions: Component<{
   nodeKey: string;
-  /** Keys the directed inventory prints, which are not news a second time. */
   listed: ReadonlySet<string>;
 }> = (props) => {
   const [open, setOpen] = createSignal(false);
@@ -374,8 +312,6 @@ const UnlinkedMentions: Component<{
                 Show {held()} more
               </button>
             </Show>
-            {/* The head's cut is the control above, and holds back notes; this is
-                the other bound, which the scan counts in occurrences. */}
             <Show
               when={answer().unlinked_references.length >= MENTIONS_SCAN_LIMIT}
             >
@@ -391,40 +327,78 @@ const UnlinkedMentions: Component<{
   );
 };
 
-export const RelationsFooter: Component<{ context: NoteContext }> = (props) => {
+interface ReadOnSide {
+  readonly side: string;
+  readonly neighbor: NotePlaceNeighbor;
+}
+
+function readOnSides(place: NotePlace | undefined): ReadOnSide[] {
+  const earlier = place?.earlier;
+  const later = place?.later;
+  return [
+    ...(earlier ? [{ side: "Filed before this", neighbor: earlier }] : []),
+    ...(later ? [{ side: "Filed after this", neighbor: later }] : []),
+  ];
+}
+
+const ReadOnLink: Component<{ move: ReadOnSide; readOn: FilingMove }> = (props) => (
+  <a
+    class="read-on__link"
+    href={props.readOn.address(props.move.neighbor.node_key)}
+    onClick={(event) => {
+      if (isBrowserGesture(event)) {
+        return;
+      }
+      event.preventDefault();
+      props.readOn.open(props.move.neighbor.node_key);
+    }}
+  >
+    <span class="read-on__side">{props.move.side}</span>
+    <span class="read-on__title">{props.move.neighbor.title}</span>
+  </a>
+);
+
+export const RelationsFooter: Component<{
+  context: NoteContext;
+  readOn: FilingMove;
+}> = (props) => {
   const rows = (): RelationRow[] => relationRows(props.context);
   const listed = (): ReadonlySet<string> =>
     new Set(rows().map((row) => row.key));
+  const sides = (): ReadOnSide[] => readOnSides(props.context.place);
 
   return (
-    <footer class="relations">
-      {/* Both of these read link topology: the inventory is links, and the
-          bridges lens walks them, so a note with no link is answered with
-          nothing by either. The mention scan reads prose instead, which is what
-          reaches a note no link touches, so it stands for such a note alone. */}
-      <Show when={rows().length > 0}>
-        <div class="relations__group">
-          <h2 class="relations__label">Links</h2>
-          <RelationsList rows={rows()} />
-          {/* The request bounds each direction of its own, so a cut is stated
-              per direction even though the rows are one listing. */}
-          <RelationShortfall
-            shown={shownInDirection(rows(), "out")}
-            total={props.context.forward_link_note_total}
-            subject="notes linked to"
-          />
-          <RelationShortfall
-            shown={shownInDirection(rows(), "in")}
-            total={props.context.backlink_note_total}
-            subject="notes linking here"
-          />
+    <>
+      <Show when={sides().length > 0}>
+        <div class="read-on">
+          <For each={sides()}>
+            {(move) => <ReadOnLink move={move} readOn={props.readOn} />}
+          </For>
         </div>
-        <RelatedNotes nodeKey={props.context.note.node_key} listed={listed()} />
       </Show>
-      <UnlinkedMentions
-        nodeKey={props.context.note.node_key}
-        listed={listed()}
-      />
-    </footer>
+      <footer class="relations">
+        <Show when={rows().length > 0}>
+          <div class="relations__group">
+            <h2 class="relations__label">Links</h2>
+            <RelationsList rows={rows()} />
+            <RelationShortfall
+              shown={shownInDirection(rows(), "out")}
+              total={props.context.forward_link_note_total}
+              subject="notes linked to"
+            />
+            <RelationShortfall
+              shown={shownInDirection(rows(), "in")}
+              total={props.context.backlink_note_total}
+              subject="notes linking here"
+            />
+          </div>
+          <RelatedNotes nodeKey={props.context.note.node_key} listed={listed()} />
+        </Show>
+        <UnlinkedMentions
+          nodeKey={props.context.note.node_key}
+          listed={listed()}
+        />
+      </footer>
+    </>
   );
 };

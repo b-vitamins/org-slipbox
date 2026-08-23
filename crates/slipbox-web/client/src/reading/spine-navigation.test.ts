@@ -1,21 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { GlanceController } from "./glance-controller.js";
-import { spineNavigation } from "./spine-navigation.js";
-import type { ReadingStack } from "./stack.js";
+import { spineFilingMove, spineNavigation } from "./spine-navigation.js";
+import { encodeStack, type ReadingStack } from "./stack.js";
 import type { GlanceRequest, LinkTarget } from "../org/navigation.jsx";
 
-/**
- * A stack whose methods are spies, so wiring can be asserted directly. `follow`
- * reports the column the target landed in; `landsAt` sets which.
- */
-function stubStack(landsAt = 0): ReadingStack & {
+function stubStack(landsAt = 0, keys: readonly string[] = []): ReadingStack & {
   follow: ReturnType<typeof vi.fn>;
+  readOn: ReturnType<typeof vi.fn>;
   open: ReturnType<typeof vi.fn>;
 } {
   return {
-    keys: () => [],
+    keys: () => keys,
     follow: vi.fn(() => landsAt),
+    readOn: vi.fn(() => landsAt),
     open: vi.fn(),
     sync: vi.fn(),
   };
@@ -94,5 +92,33 @@ describe("spineNavigation", () => {
 
     nav.pin({ id: null, target: "heading:notes/a.org:5" });
     expect(stack.follow).toHaveBeenCalledWith(0, "heading:notes/a.org:5");
+  });
+});
+
+describe("spineFilingMove", () => {
+  it("reads on from the column's live index, and reveals where it landed", () => {
+    const stack = stubStack(1);
+    const glances = stubGlances();
+    const reveal = vi.fn();
+    let index = 0;
+    const move = spineFilingMove(stack, glances, () => index, reveal);
+
+    index = 2;
+    move.open("file:g.org");
+
+    expect(stack.readOn).toHaveBeenCalledWith(2, "file:g.org");
+    expect(stack.follow).not.toHaveBeenCalled();
+    expect(glances.glance).toHaveBeenCalledWith(null);
+    expect(reveal).toHaveBeenCalledWith(1);
+  });
+
+  it("states the address the move opens without opening it", () => {
+    const stack = stubStack(0, ["root", "a", "b"]);
+    const move = spineFilingMove(stack, stubGlances(), () => 2, vi.fn());
+
+    expect(move.address("file:g.org")).toBe(
+      encodeStack(["root", "a", "file:g.org"]),
+    );
+    expect(stack.readOn).not.toHaveBeenCalled();
   });
 });

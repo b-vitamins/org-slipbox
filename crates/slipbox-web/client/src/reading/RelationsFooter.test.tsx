@@ -10,6 +10,7 @@ import {
   RELATED_SHOWN,
 } from "./RelationsFooter.jsx";
 import { RELATION_PREVIEW_CHARS } from "./relations.js";
+import type { FilingMove } from "./spine-navigation.js";
 import { __resetRefocusForTests } from "../data/refetch-on-focus.js";
 import { NavigationProvider, type Navigation } from "../org/navigation.jsx";
 import type {
@@ -19,6 +20,7 @@ import type {
   ForwardLinkRecord,
   NodeRecord,
   NoteContext,
+  NotePlace,
   UnlinkedReferenceRecord,
 } from "../api/types.js";
 
@@ -78,15 +80,11 @@ function backward(source: NodeRecord, preview = ""): BacklinkRecord {
 }
 
 interface ContextCounts {
-  /**
-   * Notes per direction, as the payload totals them. `null` for a daemon older
-   * than the fields, which answers without them.
-   */
   forwardTotal?: number | null;
   backwardTotal?: number | null;
-  /** The note record's link rows, which count occurrences and not notes. */
   forwardOccurrences?: number;
   backwardOccurrences?: number;
+  place?: NotePlace | null;
 }
 
 function context(
@@ -111,7 +109,9 @@ function context(
     },
     node_start_line: 1,
     node_line_count: 1,
-    place: { ordinal: 1, total: 1 },
+    ...(counts.place === null
+      ? {}
+      : { place: counts.place ?? { ordinal: 1, total: 1 } }),
     backlinks,
     forward_links,
     ...(counts.backwardTotal === null
@@ -125,12 +125,21 @@ function context(
 
 const inertNav: Navigation = { glance: () => {}, pin: () => {}, go: () => {} };
 
-/** The ranked group, which stands beside the directed inventory. */
+const inertReadOn: FilingMove = {
+  address: (target) => `?note=${target}`,
+  open: () => {},
+};
+
+function stubReadOn(address = "?note=notes/g.org"): FilingMove & {
+  open: ReturnType<typeof vi.fn>;
+} {
+  return { address: () => address, open: vi.fn() };
+}
+
 function relatedGroup(container: HTMLElement): Element {
   return container.querySelectorAll(".relations__group")[1] as Element;
 }
 
-/** The mention group, which stands last whether the others stand at all. */
 function mentionsGroup(container: HTMLElement): Element {
   const groups = container.querySelectorAll(".relations__group");
   return groups[groups.length - 1] as Element;
@@ -139,7 +148,7 @@ function mentionsGroup(container: HTMLElement): Element {
 function mount(context: NoteContext): HTMLElement {
   return render(() => (
     <NavigationProvider navigation={inertNav}>
-      <RelationsFooter context={context} />
+      <RelationsFooter readOn={inertReadOn} context={context} />
     </NavigationProvider>
   )).container;
 }
@@ -165,17 +174,12 @@ describe("RelationsFooter", () => {
       ),
     );
 
-    // Both directions in one listing, with the deferred group closed beside it.
     expect(container.querySelectorAll(".relations__list")).toHaveLength(1);
     expect(container.querySelectorAll(".relations__row")).toHaveLength(2);
     expect(screen.getByRole("link", { name: "Alpha" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ex" })).toBeInTheDocument();
   });
 
-  // The listing drops its markers for the surface's rhythm, and an engine that
-  // reads that as a listing meant to be read as prose drops the list semantics
-  // with them. Neither engine under test is one of those, so what is asserted is
-  // the declaration itself.
   it("declares the directed inventory a list", () => {
     const container = mount(
       context([], [backward(node("notes/x.org::0", "Ex"), "cites Self")]),
@@ -186,12 +190,11 @@ describe("RelationsFooter", () => {
     );
   });
 
-  // A glyph is not a label: a reader who cannot see the mark still has to be
-  // told which way the links run.
   it("names each row's direction for a screen reader", () => {
     render(() => (
       <NavigationProvider navigation={inertNav}>
         <RelationsFooter
+          readOn={inertReadOn}
           context={context(
             [
               forward(node("notes/a.org::0", "Alpha")),
@@ -215,6 +218,7 @@ describe("RelationsFooter", () => {
     const { container } = render(() => (
       <NavigationProvider navigation={inertNav}>
         <RelationsFooter
+          readOn={inertReadOn}
           context={context(
             [forward(node("notes/a.org::0", "Alpha"), "cites Alpha")],
             [],
@@ -233,6 +237,7 @@ describe("RelationsFooter", () => {
     const { container } = render(() => (
       <NavigationProvider navigation={inertNav}>
         <RelationsFooter
+          readOn={inertReadOn}
           context={context(
             [],
             [
@@ -253,12 +258,11 @@ describe("RelationsFooter", () => {
     expect(visibleText(preview)).toBe("bounded by ∑n​xn​ throughout");
   });
 
-  // What the row paints is one clipped line, but the text node behind it is
-  // what a screen reader reads out in full.
   it("renders a preview no longer than the character bound", () => {
     const { container } = render(() => (
       <NavigationProvider navigation={inertNav}>
         <RelationsFooter
+          readOn={inertReadOn}
           context={context(
             [],
             [
@@ -287,6 +291,7 @@ describe("RelationsFooter", () => {
     render(() => (
       <NavigationProvider navigation={navigation}>
         <RelationsFooter
+          readOn={inertReadOn}
           context={context(
             [forward(node("notes/a.org::0", "Alpha", "uuid-1"))],
             [],
@@ -306,12 +311,11 @@ describe("RelationsFooter", () => {
     });
   });
 
-  // The request bounds each direction, so a full-looking group can still be cut;
-  // only the payload's own total says how much of it the footer never received.
   it("states how many backlinks it holds back when the note has more", () => {
     render(() => (
       <NavigationProvider navigation={inertNav}>
         <RelationsFooter
+          readOn={inertReadOn}
           context={context([], [backward(node("notes/x.org::0", "Ex"))], {
             backwardTotal: 42,
           })}
@@ -324,12 +328,11 @@ describe("RelationsFooter", () => {
     ).toBeInTheDocument();
   });
 
-  // The note record counts link rows, and one note may link here twice; the
-  // listing holds notes, so trusting that count would state a cut that never was.
   it("says nothing about a note linked to twice from one note", () => {
     const { container } = render(() => (
       <NavigationProvider navigation={inertNav}>
         <RelationsFooter
+          readOn={inertReadOn}
           context={context([], [backward(node("notes/x.org::0", "Ex"))], {
             backwardTotal: 1,
             backwardOccurrences: 2,
@@ -341,9 +344,6 @@ describe("RelationsFooter", () => {
     expect(container.querySelector(".relations__shortfall")).toBeNull();
   });
 
-  // A daemon older than the totals answers without them. An unknown total is
-  // nothing to compare the rows against, so the group states no cut rather than
-  // reading the absence as a total of zero.
   it("says nothing about a direction the payload totals not at all", () => {
     const container = mount(
       context(
@@ -361,6 +361,7 @@ describe("RelationsFooter", () => {
     const { container } = render(() => (
       <NavigationProvider navigation={inertNav}>
         <RelationsFooter
+          readOn={inertReadOn}
           context={context(
             [forward(node("notes/a.org::0", "Alpha"))],
             [backward(node("notes/x.org::0", "Ex"))],
@@ -372,12 +373,11 @@ describe("RelationsFooter", () => {
     expect(container.querySelector(".relations__shortfall")).toBeNull();
   });
 
-  // Two records for one note collapse into one row, so what is shown is the rows
-  // rendered rather than the array they came from.
   it("measures what is shown by the rows it rendered, not by the array", () => {
     render(() => (
       <NavigationProvider navigation={inertNav}>
         <RelationsFooter
+          readOn={inertReadOn}
           context={context(
             [
               forward(node("notes/a.org::0", "Alpha"), "first mention"),
@@ -395,12 +395,11 @@ describe("RelationsFooter", () => {
     ).toBeInTheDocument();
   });
 
-  // One listing holds both directions, and the request bounds each of them, so a
-  // cut in one direction must not be reported as a cut in the other.
   it("states a cut in each direction against that direction's own total", () => {
     render(() => (
       <NavigationProvider navigation={inertNav}>
         <RelationsFooter
+          readOn={inertReadOn}
           context={context(
             [forward(node("notes/a.org::0", "Alpha"))],
             [backward(node("notes/x.org::0", "Ex"), "cites Self")],
@@ -418,13 +417,10 @@ describe("RelationsFooter", () => {
     ).toBeInTheDocument();
   });
 
-  // A note nothing links to and that links to nothing has no inventory and no
-  // bridge candidate, both being link topology. What is left is the prose scan,
-  // which is the only relation that reaches such a note at all.
   it("offers a note with no link the mention group alone", () => {
     const { container } = render(() => (
       <NavigationProvider navigation={inertNav}>
-        <RelationsFooter context={context([], [])} />
+        <RelationsFooter readOn={inertReadOn} context={context([], [])} />
       </NavigationProvider>
     ));
 
@@ -433,6 +429,121 @@ describe("RelationsFooter", () => {
     expect(
       screen.getByRole("button", { name: "Unlinked mentions" }),
     ).toBeInTheDocument();
+  });
+});
+
+function filed(place: NotePlace): NoteContext {
+  return { ...context([], []), place };
+}
+
+const BETWEEN: NotePlace = {
+  ordinal: 2,
+  total: 3,
+  earlier: { node_key: "notes/a.org", title: "Alpha" },
+  later: { node_key: "notes/g.org", title: "Gamma" },
+};
+
+function mountReadOn(place: NotePlace, readOn: FilingMove): HTMLElement {
+  return render(() => (
+    <NavigationProvider navigation={inertNav}>
+      <RelationsFooter readOn={readOn} context={filed(place)} />
+    </NavigationProvider>
+  )).container;
+}
+
+describe("RelationsFooter reading on", () => {
+  beforeEach(() => {
+    __resetRefocusForTests();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("offers a move to each side, naming the side and the note it reaches", () => {
+    const container = mountReadOn(BETWEEN, inertReadOn);
+
+    const links = [...container.querySelectorAll(".read-on__link")];
+    expect(
+      links.map((link) => [
+        link.querySelector(".read-on__side")?.textContent,
+        link.querySelector(".read-on__title")?.textContent,
+      ]),
+    ).toEqual([
+      ["Filed before this", "Alpha"],
+      ["Filed after this", "Gamma"],
+    ]);
+    expect(screen.getByRole("link", { name: /Alpha/ })).toHaveAccessibleName(
+      /Filed before this/,
+    );
+  });
+
+  it("stands above the relations footer rather than inside it", () => {
+    const container = mountReadOn(BETWEEN, inertReadOn);
+
+    const pair = container.querySelector(".read-on") as HTMLElement;
+    const footer = container.querySelector(".relations") as HTMLElement;
+    expect(
+      pair.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(footer.contains(pair)).toBe(false);
+    expect(footer.querySelectorAll("a")).toHaveLength(0);
+    expect(container.querySelectorAll(".relations__row")).toHaveLength(0);
+  });
+
+  it("offers the one move an end of the order holds, and no gap for the other", () => {
+    const container = mountReadOn(
+      { ordinal: 1, total: 3, later: BETWEEN.later },
+      inertReadOn,
+    );
+
+    expect(container.querySelectorAll(".read-on__link")).toHaveLength(1);
+    expect(
+      screen.getByRole("link", { name: /^Filed after this/ }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Filed before this")).not.toBeInTheDocument();
+  });
+
+  it("states no move where the payload states no position", () => {
+    const container = render(() => (
+      <NavigationProvider navigation={inertNav}>
+        <RelationsFooter readOn={inertReadOn} context={context([], [])} />
+      </NavigationProvider>
+    )).container;
+
+    expect(container.querySelector(".read-on")).toBeNull();
+  });
+
+  it("states no move where the payload carries no place", () => {
+    const container = mount(context([], [], { place: null }));
+
+    expect(container.querySelector(".read-on")).toBeNull();
+    expect(container.querySelector(".relations")).not.toBeNull();
+  });
+
+  it("reads on to the neighbor it names, at the address it carries", () => {
+    const readOn = stubReadOn("?note=notes/g.org");
+    mountReadOn(BETWEEN, readOn);
+
+    const link = screen.getByRole("link", { name: /^Filed after this/ });
+    expect(link).toHaveAttribute("href", "?note=notes/g.org");
+
+    fireEvent.click(link, { detail: 0 });
+    expect(readOn.open).toHaveBeenCalledWith("notes/g.org");
+  });
+
+  it("leaves a browser gesture to the browser", () => {
+    const readOn = stubReadOn("#filed");
+    mountReadOn(BETWEEN, readOn);
+
+    const kept = fireEvent.click(
+      screen.getByRole("link", { name: /^Filed after this/ }),
+      { metaKey: true },
+    );
+
+    expect(kept).toBe(true);
+    expect(readOn.open).not.toHaveBeenCalled();
   });
 });
 
@@ -451,7 +562,6 @@ function bridge(
   };
 }
 
-/** `count` candidates, each reached through one shared connector. */
 function ranking(count: number): ExplorationEntry[] {
   return Array.from({ length: count }, (_, i) =>
     bridge(node(`notes/b${i}.org::0`, `Bridged ${i + 1}`), [
@@ -460,11 +570,6 @@ function ranking(count: number): ExplorationEntry[] {
   );
 }
 
-/**
- * A fetch double answering `/api/explore` with `entries`, or with an error
- * envelope at any other status. Every URL asked for is recorded, which is what
- * a deferred group's cost is read off.
- */
 function stubExplore(entries: ExplorationEntry[], status = 200): string[] {
   const urls: string[] = [];
   vi.stubGlobal(
@@ -494,7 +599,6 @@ function explored(urls: string[]): URL[] {
 
 const RELATED = "Related notes";
 
-/** A note with one link, so the footer renders and the group stands beside it. */
 function linkedNote(): NoteContext {
   return context([forward(node("notes/a.org::0", "Alpha"))], []);
 }
@@ -509,8 +613,6 @@ describe("RelationsFooter related notes", () => {
     vi.unstubAllGlobals();
   });
 
-  // A column costs one request while the footer is only read; the lens is asked
-  // its question only when a reader asks for it.
   it("requests nothing for the group until it is opened", async () => {
     const urls = stubExplore(ranking(1));
     mount(linkedNote());
@@ -530,7 +632,6 @@ describe("RelationsFooter related notes", () => {
     expect(asked[0]!.searchParams.get("limit")).toBe(String(RELATED_LENS_LIMIT));
   });
 
-  // The reason the directed inventory declares its role, on the listing beside it.
   it("declares the ranked group's listing a list", async () => {
     stubExplore(ranking(1));
     const container = mount(linkedNote());
@@ -566,8 +667,6 @@ describe("RelationsFooter related notes", () => {
     expect(screen.getByRole("link", { name: "Second" })).toBeInTheDocument();
   });
 
-  // The ranking is the lens's, and how far a row stands from the connector above
-  // it is what put it where it is.
   it("states how many notes reached a row, above one", async () => {
     stubExplore([
       bridge(node("notes/b1.org::0", "Wide"), [
@@ -603,8 +702,6 @@ describe("RelationsFooter related notes", () => {
     expect(screen.queryByRole("button", { name: /^Show \d+ more$/ })).toBeNull();
   });
 
-  // Two bounds cut the answer, and the rows on screen are evidence of neither:
-  // the head says what it holds, and the lens's own limit is a separate sentence.
   it("distinguishes the head's cut from the lens's own bound", async () => {
     stubExplore(ranking(RELATED_LENS_LIMIT));
     mount(linkedNote());
@@ -646,8 +743,6 @@ describe("RelationsFooter related notes", () => {
     expect(relatedGroup(container).querySelector(".relations__connector")).toBeNull();
   });
 
-  // The lens excludes the note's own neighbors, but a row printed twice is the
-  // footer's own doing, so the rows it holds are what the exclusion is read off.
   it("keeps a note the directed inventory lists out of the group", async () => {
     const container = mount(linkedNote());
     stubExplore([
@@ -664,8 +759,6 @@ describe("RelationsFooter related notes", () => {
     expect(titles).toEqual(["Bridged 1"]);
   });
 
-  // A failure states itself where the control that asked stands, and asking
-  // again is that control, so the group goes back to being closed.
   it("leaves the group closed and states a failed read", async () => {
     const container = mount(linkedNote());
     stubExplore([], 500);
@@ -679,15 +772,10 @@ describe("RelationsFooter related notes", () => {
       ).toBeInTheDocument();
     });
     expect(relatedGroup(container).querySelector(".relations__list")).toBeNull();
-    // The rest of the footer is unaffected by a group that could not be read.
     expect(screen.getByRole("link", { name: "Alpha" })).toBeInTheDocument();
   });
 });
 
-/**
- * One occurrence, matched where the text first stands in the line. The line sits
- * in `source` itself unless `under` names a node inside it.
- */
 function mention(
   source: NodeRecord,
   preview: string,
@@ -705,17 +793,12 @@ function mention(
   };
 }
 
-/** `count` mentions, each in a note of its own. */
 function scanned(count: number): UnlinkedReferenceRecord[] {
   return Array.from({ length: count }, (_, i) =>
     mention(node(`notes/m${i}.org::0`, `Naming ${i + 1}`), "Self is named here"),
   );
 }
 
-/**
- * A fetch double answering the mention scan with `records`, or with an error
- * envelope at any other status. Every URL asked for is recorded.
- */
 function stubMentions(
   records: UnlinkedReferenceRecord[],
   status = 200,
@@ -758,8 +841,6 @@ describe("RelationsFooter unlinked mentions", () => {
     vi.unstubAllGlobals();
   });
 
-  // The scan walks files on disk, which is the most expensive read the footer
-  // can make, so nothing is asked for until a reader asks.
   it("requests nothing for the group until it is opened", async () => {
     const urls = stubMentions(scanned(1));
     mount(linkedNote());
@@ -780,7 +861,6 @@ describe("RelationsFooter unlinked mentions", () => {
     );
   });
 
-  // The reason the listings above declare their role, on the last of them.
   it("declares the mention group's listing a list", async () => {
     stubMentions(scanned(1));
     const container = mount(linkedNote());
@@ -797,7 +877,6 @@ describe("RelationsFooter unlinked mentions", () => {
     ).toBe("list");
   });
 
-  // The title says which note names this one; the mark says which words do.
   it("marks the matched text inside the line rather than beside it", async () => {
     const container = mount(linkedNote());
     stubMentions([
@@ -829,8 +908,6 @@ describe("RelationsFooter unlinked mentions", () => {
     expect(screen.queryByRole("button", { name: /^Show \d+ more$/ })).toBeNull();
   });
 
-  // The head holds back notes and the scan's limit counts occurrences, so a row
-  // count is evidence of neither bound and each says what it cut.
   it("distinguishes the head's cut from the scan's own bound", async () => {
     stubMentions(scanned(MENTIONS_SCAN_LIMIT));
     mount(linkedNote());
@@ -872,8 +949,6 @@ describe("RelationsFooter unlinked mentions", () => {
     expect(mentionsGroup(container).querySelector(".relations__list")).toBeNull();
   });
 
-  // The scan excludes an occurrence a link already covers, one occurrence at a
-  // time, so a note that links here and names it elsewhere still arrives.
   it("keeps a note the directed inventory lists out of the group", async () => {
     const container = mount(linkedNote());
     stubMentions([
@@ -890,9 +965,6 @@ describe("RelationsFooter unlinked mentions", () => {
     expect(titles).toEqual(["Naming 1"]);
   });
 
-  // The scan reports the node the line sits in, down to a heading holding no id,
-  // while the inventory lists notes: a mention inside a note listed there is the
-  // same note twice over, whichever of its headings the line stands under.
   it("keeps a listed note out though a heading in it holds the mention", async () => {
     const container = mount(linkedNote());
     stubMentions([

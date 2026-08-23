@@ -19,15 +19,8 @@ async function readerTop(page: Page): Promise<number> {
 /** How far below the reading area's top edge a revealed title may sit. */
 const REVEAL_SLACK = 8;
 
-/** The opening words of the body's first paragraph, which the measure is read on. */
 const FIRST_PARAGRAPH = "Paragraph 1.";
 
-/**
- * How many characters of a paragraph's first rendered line fit before it turns.
- * Where the text breaks is the browser's decision and nothing in the DOM records
- * it, so the break is found by walking a range to the character whose box drops
- * to the next line.
- */
 function charactersPerLine(page: Page, opening: string): Promise<number> {
   return page.evaluate((prefix) => {
     const paragraph = Array.from(document.querySelectorAll(".org-paragraph")).find(
@@ -53,7 +46,6 @@ function charactersPerLine(page: Page, opening: string): Promise<number> {
   }, opening);
 }
 
-/** The note box, the column holding it, and the width the column has to fill. */
 function noteGeometry(page: Page) {
   return page.evaluate(() => {
     const column = document.querySelector(".spine-column") as HTMLElement;
@@ -78,14 +70,8 @@ function noteGeometry(page: Page) {
   });
 }
 
-/**
- * The measure a relation preview keeps, in `ch`, which the stylesheet states as
- * its floor: about 45 characters of prose, and the point below which a clipped
- * line stops distinguishing the notes it belongs to.
- */
 const PREVIEW_MEASURE = 30;
 
-/** Rows a deferred group is given: more than it shows, so it holds some back. */
 const GROUP_ROWS = 12;
 
 const WORLD: FixtureWorld = {
@@ -104,11 +90,7 @@ const WORLD: FixtureWorld = {
           preview: "the destination",
         },
       ],
-      // A row's preview quotes the other note, so a row that has to wrap around
-      // one is an inbound row.
       backlinks: [
-        // Title and linking line are each wider than a 375px column, so the
-        // footer row has to wrap.
         {
           key: "file:verbose.org",
           id: "verbose-uuid",
@@ -116,8 +98,6 @@ const WORLD: FixtureWorld = {
           preview:
             "The linking line is long too, so title and preview cannot sit side by side.",
         },
-        // A middling title, which leaves the preview room for a fragment but not
-        // for a measure: the case the preview's own floor answers.
         {
           key: "file:middling.org",
           id: "middling-uuid",
@@ -125,10 +105,6 @@ const WORLD: FixtureWorld = {
           preview: "The linking line is long enough to be clipped at any width.",
         },
       ],
-      // Well over either deferred group's head, so an opened group carries both
-      // kinds of control a closed one keeps out of reach: its rows, and the offer
-      // of the rest. Nothing here reads the heads themselves, since a group that
-      // stopped holding anything back would fail on the offer being gone.
       bridges: Array.from({ length: GROUP_ROWS }, (_, at) => ({
         key: `file:bridged-${at}.org`,
         title: `Bridged Note ${at + 1}`,
@@ -145,6 +121,25 @@ const WORLD: FixtureWorld = {
       id: "pinned-uuid",
       title: "Pinned Note",
       body: "The pinned target, which must render in full on mobile.",
+    },
+  ],
+};
+
+const GLOSSARY_WORLD: FixtureWorld = {
+  notes: [
+    {
+      key: "file:alpha.org",
+      title: "Alpha",
+      body: tallBody(40),
+      glossaryStatus: "confirmed",
+      srDue: "2026-08-01",
+    },
+    {
+      key: "file:beta.org",
+      title: "Beta",
+      body: "Beta's definition.",
+      glossaryStatus: "confirmed",
+      srDue: "2026-08-02",
     },
   ],
 };
@@ -272,9 +267,6 @@ test.describe("mobile layout", () => {
     await page.goto("/?note=file:origin.org");
     await expect(page.getByRole("heading", { name: "Origin Note" })).toBeVisible();
 
-    // 375px is narrower than the measure, so the cap that holds the line length
-    // at a wide narrow viewport has to be inert here: every pixel the frame has
-    // is one the note needs.
     const geometry = await noteGeometry(page);
     expect(geometry.column).toBe(geometry.run);
     expect(geometry.note).toBe(geometry.run);
@@ -289,9 +281,6 @@ test.describe("mobile layout", () => {
 
     const rows = await page.evaluate(() => {
       const list = document.querySelector(".relations__list") as HTMLElement;
-      // `ch` is the preview's own unit, so it is read off the preview's font
-      // rather than assumed from a size. The ruler carries the class for that
-      // font and drops the floor stated in it, which is what it is measuring.
       const ruler = document.createElement("span");
       ruler.className = "relations__preview";
       ruler.style.cssText =
@@ -317,7 +306,6 @@ test.describe("mobile layout", () => {
             lines: box.height / line,
             shares: Math.abs(box.y - title.y) < line,
             width: box.width,
-            // What the row's own line leaves the preview from where it starts.
             room: listed.x + listed.width - box.x,
           };
         });
@@ -325,14 +313,9 @@ test.describe("mobile layout", () => {
 
     expect(rows.length).toBeGreaterThan(1);
     for (const row of rows) {
-      // A fragment shorter than this cannot tell one linking line from another,
-      // so the preview holds the measure whichever line it ends up on.
       expect(row.measure).toBeGreaterThanOrEqual(PREVIEW_MEASURE);
-      // Still one clipped line, never a wrapped paragraph.
       expect(row.lines).toBeLessThanOrEqual(1);
-      // Still inside a column that scrolls vertically only.
       expect(row.width).toBeLessThanOrEqual(row.room);
-      // A preview the title left no measure for takes the whole line instead.
       if (!row.shares) {
         expect(row.width).toBeGreaterThanOrEqual(row.room - 1);
       }
@@ -362,11 +345,38 @@ test.describe("mobile layout", () => {
   });
 });
 
-/*
- * At 720px the run is stacked but the frame is still wide, so a full-width
- * column offers a line far more room than prose can use. Its own viewport, since
- * the block above pins the whole file to 375px.
- */
+test.describe("the mobile glossary", () => {
+  test.beforeEach(async ({ page }) => {
+    await mountApi(page, GLOSSARY_WORLD);
+  });
+
+  test("moves from the term list to one definition and back", async ({ page }) => {
+    await page.goto("/?view=glossary");
+
+    await expect(page.getByRole("listbox", { name: "Glossary terms" })).toBeVisible();
+    await expect(page.locator(".glossary-detail")).toBeHidden();
+
+    await page.getByRole("option", { name: "Alpha" }).click();
+    await expect(page.locator(".glossary-list")).toBeHidden();
+    await expect(page.getByRole("heading", { name: "Alpha" })).toBeVisible();
+
+    const detail = page.locator(".glossary-detail");
+    await detail.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    expect(await detail.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+
+    await page.getByRole("button", { name: "Back to terms" }).click();
+    await page.getByRole("option", { name: "Beta" }).click();
+    await expect(page.getByRole("heading", { name: "Beta" })).toBeVisible();
+    await expect.poll(() => detail.evaluate((element) => element.scrollTop)).toBe(0);
+
+    await page.getByRole("button", { name: "Back to terms" }).click();
+    await expect(page.getByRole("listbox", { name: "Glossary terms" })).toBeVisible();
+    await expect(page.locator(".glossary-detail")).toBeHidden();
+  });
+});
+
 test.describe("the reading measure in a stacked column", () => {
   test.use({ viewport: { width: 720, height: 900 } });
 
@@ -381,8 +391,6 @@ test.describe("the reading measure in a stacked column", () => {
     const stacked = await charactersPerLine(page, FIRST_PARAGRAPH);
     const geometry = await noteGeometry(page);
 
-    // The note is inset while the column still spans the run, so the border along
-    // a column's top edge reaches both edges of the frame.
     expect(geometry.column).toBe(geometry.run);
     expect(geometry.note).toBeLessThan(geometry.run);
     expect(geometry.overflow).toBe(0);
@@ -393,8 +401,6 @@ test.describe("the reading measure in a stacked column", () => {
       Math.abs(geometry.noteLeft - geometry.columnLeft - trailing),
     ).toBeLessThanOrEqual(1);
 
-    // The same paragraph in the layout the measure is taken from, measured rather
-    // than assumed, so both readings are one text in one font.
     await page.setViewportSize({ width: 1200, height: 900 });
     await expect
       .poll(() =>
@@ -483,24 +489,31 @@ test.describe("the touch grammar", () => {
     }
 
     await page.getByRole("button", { name: "Glossary" }).tap();
+    await page.getByRole("button", { name: "Back to terms" }).tap();
     for (const control of [
       page.getByRole("button", { name: "All terms" }),
-      page.getByRole("button", { name: "Due for review" }),
+      page.getByRole("button", { name: "Due terms" }),
       page.getByRole("combobox", { name: "Search the glossary" }),
     ]) {
       expect(await heightOf(control)).toBeGreaterThanOrEqual(TOUCH_TARGET);
     }
 
-    // In the reading column a control is usually an anchor laid out as a box, so
-    // those are sampled beside the buttons.
     await page.goto("/?note=file:origin.org");
     await expect(page.getByRole("heading", { name: "Origin Note" })).toBeVisible();
     for (const control of [
       page.getByRole("link", { name: "Pinned Note", exact: true }),
       page.getByRole("link", { name: /^A deliberately long relation title/ }),
+      page.getByRole("link", { name: /^Filed after this/ }),
     ]) {
       expect(await heightOf(control)).toBeGreaterThanOrEqual(TOUCH_TARGET);
     }
+
+    const move = page.getByRole("link", { name: /^Filed after this/ });
+    const RAISED = TOUCH_TARGET + 16;
+    await page.evaluate((raised) => {
+      document.documentElement.style.setProperty("--touch-target", `${raised}px`);
+    }, RAISED);
+    expect(await heightOf(move)).toBeGreaterThanOrEqual(RAISED);
 
     await page.goto(`/?note=${MISSING_NOTE}`);
     const search = page.getByRole("link", { name: /^Search the slipbox for/ });
@@ -508,9 +521,6 @@ test.describe("the touch grammar", () => {
     expect(await heightOf(search)).toBeGreaterThanOrEqual(TOUCH_TARGET);
   });
 
-  // A deferred group keeps its rows and the offer of the rest behind one control,
-  // so a sweep that reads the footer as it stands measures the group's label and
-  // nothing else it holds.
   test("a deferred group's controls clear the floor, open as well as shut", async ({
     page,
   }) => {
@@ -535,8 +545,6 @@ test.describe("the touch grammar", () => {
         TOUCH_TARGET,
       );
 
-      // The fixtures stand one row over the head, so the rest is offered rather
-      // than shown, and the offer is a control of its own.
       const more = group.getByRole("button", { name: /^Show \d+ more$/ });
       await expect(more).toBeVisible();
       expect(await heightOf(more), `the offer in ${label}`).toBeGreaterThanOrEqual(
@@ -552,9 +560,6 @@ test.describe("the touch grammar", () => {
     const link = page.getByRole("link", { name: /^A deliberately long relation title/ });
     expect(await heightOf(link)).toBeGreaterThanOrEqual(TOUCH_TARGET);
 
-    // A row set at a height of its own would clear the constant above and then
-    // stop clearing it here. Raising the token is what says the floor is still
-    // the token after the row's own padding was cut to an index's.
     const RAISED = TOUCH_TARGET + 16;
     await page.evaluate((raised) => {
       document.documentElement.style.setProperty("--touch-target", `${raised}px`);

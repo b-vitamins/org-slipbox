@@ -8,7 +8,12 @@
 
 import type { Page, Route } from "@playwright/test";
 
-import type { NodeRecord, NoteContext, NotePlace } from "../src/api/types.js";
+import type {
+  NodeRecord,
+  NoteContext,
+  NotePlace,
+  NotePlaceNeighbor,
+} from "../src/api/types.js";
 
 export interface FixtureNote {
   /** The slipbox key, `file:<path>` or `heading:<path>::<line>`. */
@@ -20,9 +25,7 @@ export interface FixtureNote {
   body: string;
   forwardLinks?: FixtureLink[];
   backlinks?: FixtureLink[];
-  /** What the `bridges` lens ranks for this note, in the order it ranks it. */
   bridges?: FixtureBridge[];
-  /** Lines in other notes naming this one, in the order the scan reports them. */
   mentions?: FixtureMention[];
   /** Present only on a marked glossary term; absence keeps a note out of it. */
   glossaryStatus?: "stub" | "confirmed";
@@ -30,7 +33,6 @@ export interface FixtureNote {
   srDue?: string;
 }
 
-/** A note named by a relation, which the envelopes carry as a whole record. */
 export interface FixtureEndpoint {
   key: string;
   id?: string;
@@ -42,17 +44,13 @@ export interface FixtureLink extends FixtureEndpoint {
   preview: string;
 }
 
-/** One bridge candidate: a note two hops away, and the notes it was reached by. */
 export interface FixtureBridge extends FixtureEndpoint {
   via: FixtureEndpoint[];
 }
 
-/** One unlinked mention: the node whose line it is, that line, and the run matched. */
 export interface FixtureMention {
   source: FixtureEndpoint;
-  /** The mentioning line, verbatim Org. */
   line: string;
-  /** The run of `line` the scan matched, which it reports the column of. */
   matched: string;
 }
 
@@ -107,7 +105,6 @@ function linkNode(link: FixtureEndpoint): NodeRecord {
   return nodeRecord({ key: link.key, id: link.id, title: link.title, body: "" });
 }
 
-/** One `bridge-candidate` entry, its evidence notes named as the wire names them. */
 function bridgeEntry(bridge: FixtureBridge): Record<string, unknown> {
   return {
     kind: "anchor",
@@ -124,11 +121,8 @@ function bridgeEntry(bridge: FixtureBridge): Record<string, unknown> {
   };
 }
 
-/** One scanned mention, its column counted in characters from 1 as the scan does. */
 function mentionRecord(mention: FixtureMention): Record<string, unknown> {
   return {
-    // A fixture mention stands in its note's own body, so the note the scan
-    // names and the node the line sits in are the one record.
     source_note: linkNode(mention.source),
     source_anchor: linkNode(mention.source),
     row: 1,
@@ -145,11 +139,6 @@ function fileOf(key: string): string {
   return path.split(":")[0] ?? path;
 }
 
-/**
- * The filing order the store counts in: every note the index holds, by file path
- * and then by line. A fixture note starts at line 1, and `sort` is stable, so a
- * world's own order settles two notes sharing a file.
- */
 function filingOrder(world: FixtureWorld): FixtureNote[] {
   return [...world.notes].sort((left, right) => {
     const a = fileOf(left.key);
@@ -158,20 +147,23 @@ function filingOrder(world: FixtureWorld): FixtureNote[] {
   });
 }
 
-/** Where a note stands in that order, counted from 1 as the store counts it. */
 function notePlace(note: FixtureNote, world: FixtureWorld): NotePlace {
   const filed = filingOrder(world);
+  const at = filed.findIndex((other) => other.key === note.key);
+  const earlier = filed[at - 1];
+  const later = filed[at + 1];
   return {
-    ordinal: filed.findIndex((other) => other.key === note.key) + 1,
+    ordinal: at + 1,
     total: filed.length,
+    ...(earlier ? { earlier: neighbor(earlier) } : {}),
+    ...(later ? { later: neighbor(later) } : {}),
   };
 }
 
-/**
- * The `NoteContext` envelope. Every note is served whole and untruncated from
- * line 1, so `line_count` equals `total_lines`. Typed as the client's own mirror
- * of the wire, so a field the daemon grows cannot be missed here.
- */
+function neighbor(note: FixtureNote): NotePlaceNeighbor {
+  return { node_key: note.key, title: note.title };
+}
+
 function noteContext(note: FixtureNote, world: FixtureWorld): NoteContext {
   const lines = note.body.split("\n").length;
   return {
@@ -203,8 +195,6 @@ function noteContext(note: FixtureNote, world: FixtureWorld): NoteContext {
       preview: link.preview,
       explanation: { kind: "forward-link" },
     })),
-    // Totals count related notes, as the server counts them, where the arrays
-    // above are link rows and may name one note twice.
     backlink_note_total: distinctNotes(note.backlinks),
     forward_link_note_total: distinctNotes(note.forwardLinks),
   };
@@ -227,18 +217,8 @@ function matches(note: FixtureNote, query: string): boolean {
   );
 }
 
-/**
- * Terms one glossary page holds. Far below the server's own ceiling, so a world of
- * a few dozen terms still spans pages, and a requested `limit` is clamped to it the
- * way the routes clamp theirs.
- */
 const GLOSSARY_PAGE = 25;
 
-/**
- * One page of `listed`, starting at the position `after` names. The position is an
- * index into the listing, opaque to the client and minted per page as the routes
- * mint theirs.
- */
 function glossaryPage(
   listed: FixtureNote[],
   params: URLSearchParams,
@@ -360,8 +340,6 @@ export async function mountApi(page: Page, world: FixtureWorld): Promise<void> {
           : apiError(route, 404, "not-found", "no note for the given key");
       }
 
-      // Only the `bridges` lens has a fixture, since it is the only one the
-      // reading surface asks for; another lens is an unmodelled route.
       case "/api/explore": {
         const note = byKey.get(params.get("key") ?? "");
         if (!note || params.get("lens") !== "bridges") {
@@ -415,9 +393,6 @@ export async function mountApi(page: Page, world: FixtureWorld): Promise<void> {
       case "/api/glossary/terms":
         return json(route, glossaryPage(world.notes.filter(isTerm), params));
 
-      // One term by key, however far down the listing it sits. An unmarked note
-      // is no term, and the route answers for it the way it answers for a key
-      // naming nothing at all.
       case "/api/glossary/term": {
         const note = byKey.get(params.get("key") ?? "");
         return note && isTerm(note)
@@ -430,8 +405,6 @@ export async function mountApi(page: Page, world: FixtureWorld): Promise<void> {
             );
       }
 
-      // Ranked rather than ordered by a stored key, so this page carries its cut
-      // and its total without a position to continue from.
       case "/api/glossary/search": {
         const q = params.get("q") ?? "";
         const matched = world.notes.filter(

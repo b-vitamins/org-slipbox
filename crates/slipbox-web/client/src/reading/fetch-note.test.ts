@@ -116,8 +116,6 @@ describe("fetchNoteContext", () => {
   });
 
   it("holds the relation bound the context route admits", () => {
-    // A browser cannot import a Rust constant, so this module restates the bound
-    // the route admits and this test reads it back: asking above it is a 400.
     const routes = readFileSync(
       resolve(process.cwd(), "../src/http/routes.rs"),
       "utf8",

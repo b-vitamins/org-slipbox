@@ -1,14 +1,8 @@
-/*
- * TypeScript mirror of the slipbox-core result types the reading HTTP API
- * serves. Field names match serde's snake_case output and enum spellings match
- * their `rename_all` attributes. Hand-maintained, not generated: keep in
- * lockstep with slipbox-core (`nodes.rs`, `source.rs`, `relations.rs`,
- * `exploration.rs`, `glossary.rs`, `diagnostics.rs`).
- */
+// Hand-maintained mirror of slipbox-core HTTP result types. Field names match
+// serde output; keep changes in lockstep with the Rust definitions.
 
 export type NodeKind = "file" | "heading";
 
-/** A node's identity and indexed metadata. Mirrors `NodeRecord`. */
 export interface NodeRecord {
   node_key: string;
   explicit_id: string | null;
@@ -37,36 +31,25 @@ export interface NodeRecord {
   forward_link_count: number;
 }
 
-/** A link endpoint. Structurally identical to `NodeRecord`. */
 export type AnchorRecord = NodeRecord;
 
-/**
- * Liveness: the daemon answered, and the root it answered for. `/api/healthz`
- * composes this from the daemon's `PingInfo`, leaving out the database path a
- * liveness check has no use for, so it is a shape of its own rather than a mirror.
- */
 export interface HealthInfo {
   status: string;
   root: string;
   version: string;
 }
 
-/** Served root, database path, and derived-index counts. Mirrors `StatusInfo`. */
 export interface StatusInfo {
   version: string;
   root: string;
   db: string;
   files_indexed: number;
   nodes_indexed: number;
-  /**
-   * Addressable notes: file nodes and headings carrying an explicit id. A
-   * subset of `nodes_indexed`, which also counts plain headings.
-   */
+  /** Addressable file nodes and id-bearing headings. */
   notes_indexed: number;
   links_indexed: number;
 }
 
-/** A slice of a source file with truncation flags. Mirrors `SourceSlice`. */
 export interface SourceSlice {
   file_path: string;
   start_line: number;
@@ -91,11 +74,6 @@ export interface BridgeEvidenceRecord {
   title: string;
 }
 
-/**
- * Why a relation was surfaced. Serde tags this union on a `kind` field with
- * kebab-case variant names; both must match exactly. Mirrors
- * `ExplorationExplanation`.
- */
 export type ExplorationExplanation =
   | { kind: "backlink" }
   | { kind: "forward-link" }
@@ -130,7 +108,6 @@ export type ExplorationExplanation =
       via_notes: BridgeEvidenceRecord[];
     };
 
-/** An incoming link. Mirrors `BacklinkRecord`. */
 export interface BacklinkRecord {
   source_note: NodeRecord;
   source_anchor: AnchorRecord | null;
@@ -140,7 +117,6 @@ export interface BacklinkRecord {
   explanation: ExplorationExplanation;
 }
 
-/** An outgoing link. Mirrors `ForwardLinkRecord`. */
 export interface ForwardLinkRecord {
   destination_note: NodeRecord;
   row: number;
@@ -149,7 +125,6 @@ export interface ForwardLinkRecord {
   explanation: ExplorationExplanation;
 }
 
-/** A link to a shared reference. Mirrors `ReflinkRecord`. */
 export interface ReflinkRecord {
   source_anchor: AnchorRecord;
   row: number;
@@ -159,18 +134,9 @@ export interface ReflinkRecord {
   explanation: ExplorationExplanation;
 }
 
-/** An unlinked mention candidate. Mirrors `UnlinkedReferenceRecord`. */
 export interface UnlinkedReferenceRecord {
-  /**
-   * The note the mentioning line belongs to, which is the identity a listing of
-   * notes is read against. Absent from a daemon older than the field, where the
-   * anchor is all that is known of where the line sits.
-   */
+  /** Owning note; absent on older daemons. */
   source_note?: NodeRecord;
-  /**
-   * The indexed node the line sits in, which is the note itself unless a heading
-   * carrying no id stands between them.
-   */
   source_anchor: AnchorRecord;
   row: number;
   col: number;
@@ -179,16 +145,11 @@ export interface UnlinkedReferenceRecord {
   explanation: ExplorationExplanation;
 }
 
-/** A note filed beside another. Mirrors `NotePlaceNeighbor`. */
 export interface NotePlaceNeighbor {
   node_key: string;
   title: string;
 }
 
-/**
- * Where a note sits in filing order, counted from 1. A neighbor the order does
- * not hold is absent from the payload. Mirrors `NotePlaceResult`.
- */
 export interface NotePlace {
   ordinal: number;
   total: number;
@@ -196,27 +157,17 @@ export interface NotePlace {
   later?: NotePlaceNeighbor;
 }
 
-/**
- * A reading context: source slice, filing place, and immediate relations.
- * Mirrors `NoteContextResult`.
- */
 export interface NoteContext {
   note: NodeRecord;
   source: SourceSlice;
   node_start_line: number;
   node_line_count: number;
-  /** Absent from a daemon older than the field, so a reader of it must branch. */
+  /** Absent on older daemons. */
   place?: NotePlace;
   backlinks: BacklinkRecord[];
   forward_links: ForwardLinkRecord[];
-  /**
-   * Notes linking here, which the relation limit may cut `backlinks` short of.
-   * It counts notes, where `NodeRecord.backlink_count` counts link rows. Absent
-   * from a daemon older than the field, where the total is unknown rather than
-   * zero and a cut cannot be stated.
-   */
+  /** Unique related-note totals; absent on older daemons. */
   backlink_note_total?: number;
-  /** Notes linked to, which the limit may cut `forward_links` short of. */
   forward_link_note_total?: number;
 }
 
@@ -224,26 +175,15 @@ export interface SearchNodesResult {
   nodes: NodeRecord[];
 }
 
-/**
- * One run of a content-search excerpt, flagged with whether it matched the
- * query. The highlight is data, not markup, so note prose is never reinterpreted
- * by a renderer. Mirrors `ContentSegment`.
- */
 export interface ContentSegment {
   text: string;
   matched: boolean;
 }
 
-/**
- * A highlighted excerpt of a note's body around a content-search match. The
- * segments concatenate, in order, to the excerpt text; an empty list means no
- * excerpt. Mirrors `ContentSnippet`.
- */
 export interface ContentSnippet {
   segments: ContentSegment[];
 }
 
-/** One ranked content-search hit: the note, plus its excerpt. Mirrors `NodeContentHit`. */
 export interface NodeContentHit {
   node: NodeRecord;
   snippet: ContentSnippet;
@@ -273,10 +213,6 @@ export interface UnlinkedReferencesResult {
   unlinked_references: UnlinkedReferenceRecord[];
 }
 
-/**
- * Which question an exploration asks of a note. The lens decides which sections
- * the answer carries. Mirrors `ExplorationLens` (kebab-case).
- */
 export type ExplorationLens =
   | "structure"
   | "refs"
@@ -286,7 +222,6 @@ export type ExplorationLens =
   | "dormant"
   | "unresolved";
 
-/** What one section of an exploration lists. Mirrors `ExplorationSectionKind`. */
 export type ExplorationSectionKind =
   | "backlinks"
   | "forward-links"
@@ -299,17 +234,12 @@ export type ExplorationSectionKind =
   | "unresolved-tasks"
   | "weakly-integrated-notes";
 
-/** A note an exploration reached, and why. Mirrors `AnchorExplorationRecord`. */
 export interface AnchorExplorationRecord {
   anchor: AnchorRecord;
   explanation: ExplorationExplanation;
 }
 
-/**
- * One entry of an exploration section. Serde tags this union on a `kind` field
- * and flattens the record behind it, so a record's own fields sit beside the tag
- * rather than under a property of their own. Mirrors `ExplorationEntry`.
- */
+/** Serde flattens each record beside its `kind` tag. */
 export type ExplorationEntry =
   | ({ kind: "backlink" } & BacklinkRecord)
   | ({ kind: "forward-link" } & ForwardLinkRecord)
@@ -317,28 +247,16 @@ export type ExplorationEntry =
   | ({ kind: "unlinked-reference" } & UnlinkedReferenceRecord)
   | ({ kind: "anchor" } & AnchorExplorationRecord);
 
-/**
- * One section of an exploration. A section the lens defines is always present,
- * with an empty `entries` when it found nothing, so an absent section means the
- * lens does not ask that question at all. Mirrors `ExplorationSection`.
- */
 export interface ExplorationSection {
   kind: ExplorationSectionKind;
   entries: ExplorationEntry[];
 }
 
-/** One note read through one lens. Mirrors `ExploreResult`. */
 export interface ExploreResult {
   lens: ExplorationLens;
   sections: ExplorationSection[];
 }
 
-/**
- * Every glossary read returns the same list shape: one page of terms, the size of
- * the listing behind it, and the opaque token that asks for the next page. Search
- * ranks by relevance rather than a stored key, so it carries no token. Mirrors the
- * `*Result` structs.
- */
 export interface GlossaryTermsResult {
   terms: NodeRecord[];
   total: number;
@@ -346,12 +264,10 @@ export interface GlossaryTermsResult {
   next_position?: string | null;
 }
 
-/** One glossary term, or null when the key is unknown. Mirrors `GlossaryTermResult`. */
 export interface GlossaryTermResult {
   term: NodeRecord | null;
 }
 
-/** How search results are ordered. Mirrors `SearchNodesSort` (kebab-case). */
 export type SearchNodesSort =
   | "relevance"
   | "title"
@@ -360,7 +276,6 @@ export type SearchNodesSort =
   | "backlink-count"
   | "forward-link-count";
 
-/** The shared error envelope every failing response carries. */
 export interface ApiErrorBody {
   error: {
     kind: string;

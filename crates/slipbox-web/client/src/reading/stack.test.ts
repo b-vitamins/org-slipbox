@@ -6,6 +6,7 @@ import {
   decodeStack,
   encodeStack,
   reduceFollow,
+  reduceReadOn,
   type StackHistory,
 } from "./stack.js";
 
@@ -133,14 +134,53 @@ describe("reduceFollow", () => {
   });
 });
 
+describe("reduceReadOn", () => {
+  it("puts the neighbor where the note being read stood", () => {
+    expect(reduceReadOn(["a", "b", "c"], 2, "d", noIdentities())).toEqual({
+      keys: ["a", "b", "d"],
+      index: 2,
+      wasOpen: false,
+    });
+  });
+
+  it("keeps the trail before the column and drops what stood after it", () => {
+    expect(reduceReadOn(["a", "b", "c", "d"], 1, "e", noIdentities())).toEqual({
+      keys: ["a", "e"],
+      index: 1,
+      wasOpen: false,
+    });
+  });
+
+  it("replaces the whole stack when read on from the root", () => {
+    expect(reduceReadOn(["a", "b"], 0, "z", noIdentities())).toEqual({
+      keys: ["z"],
+      index: 0,
+      wasOpen: false,
+    });
+  });
+
+  it("reveals a neighbor the trail already holds", () => {
+    expect(reduceReadOn(["a", "b", "c"], 2, "a", noIdentities())).toEqual({
+      keys: ["a", "b", "c"],
+      index: 0,
+      wasOpen: true,
+    });
+  });
+
+  it("recognizes a neighbor open under its other spelling", () => {
+    const identities = identify("file:nf.org", "1698");
+    expect(reduceReadOn(["id:1698", "file:cov.org"], 1, "file:nf.org", identities)).toEqual(
+      { keys: ["id:1698", "file:cov.org"], index: 0, wasOpen: true },
+    );
+  });
+});
+
 describe("createReadingStack", () => {
   it("initializes from the current URL", () => {
     const stack = createReadingStack(memoryHistory("?note=root&stacked=a"));
     expect(stack.keys()).toEqual(["root", "a"]);
   });
 
-  // The first load pushes no entry of its own, so the collapse has to correct the
-  // entry it arrived on: a push here would leave a repeating address behind Back.
   it("opens a repeating first address once and rewrites it in place", () => {
     const pushed: string[] = [];
     const replaced: string[] = [];
@@ -206,6 +246,25 @@ describe("createReadingStack", () => {
 
     expect(stack.follow(1, "root")).toBe(0);
     expect(stack.keys()).toEqual(["root", "child"]);
+    expect(history.read()).toBe("?sentinel=1");
+  });
+
+  it("commits a filing move to the address, keeping the trail before it", () => {
+    const history = memoryHistory("?note=root&stacked=a&stacked=b");
+    const stack = createReadingStack(history, noIdentities());
+
+    expect(stack.readOn(2, "filed-after")).toBe(2);
+    expect(stack.keys()).toEqual(["root", "a", "filed-after"]);
+    expect(decodeStack(history.read())).toEqual(["root", "a", "filed-after"]);
+  });
+
+  it("pushes no entry for a filing move onto a note the trail holds", () => {
+    const history = memoryHistory("?note=root&stacked=a&stacked=b");
+    const stack = createReadingStack(history, noIdentities());
+    history.push("?sentinel=1");
+
+    expect(stack.readOn(2, "a")).toBe(1);
+    expect(stack.keys()).toEqual(["root", "a", "b"]);
     expect(history.read()).toBe("?sentinel=1");
   });
 

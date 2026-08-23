@@ -24,6 +24,7 @@ import { fetchNoteContext, WHOLE_NOTE_MAX_LINES } from "./fetch-note.js";
 import type { ColumnTitle } from "./reading-title.js";
 import { RelationsFooter } from "./RelationsFooter.jsx";
 import type { ColumnState } from "./spine-geometry.js";
+import type { FilingMove } from "./spine-navigation.js";
 
 function describeError(error: unknown): string {
   if (error instanceof ApiError) {
@@ -71,16 +72,6 @@ function shortfall(context: NoteContext): string | null {
   return `Showing ${shown} of this note's ${noteLines} lines.`;
 }
 
-/**
- * Where the note stands among the notes the slipbox holds, or `null` for a
- * payload that does not say. The count is of one order, the filing order, and
- * "filed" is what names it: nothing here is a date, and a note's position in the
- * cabinet is not the day it was written.
- *
- * The payload declares the field optional, since a daemon older than it answers
- * without one, and a position counted out of `undefined` would read as a fault
- * rather than as an omission.
- */
 function filedAt(place: NotePlace | undefined): string | null {
   return place === undefined ? null : `Filed ${place.ordinal} of ${place.total}`;
 }
@@ -89,13 +80,9 @@ export const ReadingColumn: Component<{
   reference: string;
   state: ColumnState;
   navigation: Navigation;
+  readOn: FilingMove;
   /** Bring this column back into view from its collapsed sliver. */
   onReveal: () => void;
-  /**
-   * What this column knows its note as, once its read settles. Reported rather
-   * than kept, because the tab is named after whichever column is being read and
-   * this read is the only place that title is fetched.
-   */
   onTitle?: (known: ColumnTitle) => void;
 }> = (props) => {
   const context = createReadingResource(
@@ -133,11 +120,7 @@ export const ReadingColumn: Component<{
     <>
       {/* `hidden` rather than unmounting: it removes the note from layout and
           from the accessibility tree while keeping the reader's state inside it.
-          Every state carries `headingId` on whatever element heads it.
-
-          The negative index is for the spine to focus a column it opens (see
-          `Spine.tsx`), which is why it is this element: it carries the note's
-          heading as its name, so focus lands somewhere that says what opened. */}
+          Every state carries `headingId` on whatever element heads it. */}
       <article
         class="reading-note"
         tabindex="-1"
@@ -201,9 +184,6 @@ export const ReadingColumn: Component<{
                 <h1 id={headingId} class="reading-note__title">
                   {ready().note.title}
                 </h1>
-                {/* Beside the title, not part of it: `aria-labelledby` names the
-                    column by the heading alone, so a count is not read out
-                    every time the column is announced. */}
                 <Show when={filedAt(ready().place)}>
                   {(line) => <p class="reading-note__place">{line()}</p>}
                 </Show>
@@ -214,7 +194,7 @@ export const ReadingColumn: Component<{
               <Show when={shortfall(ready())}>
                 {(notice) => <p class="reading-note__truncated">{notice()}</p>}
               </Show>
-              <RelationsFooter context={ready()} />
+              <RelationsFooter context={ready()} readOn={props.readOn} />
             </NavigationProvider>
           )}
         </Show>
