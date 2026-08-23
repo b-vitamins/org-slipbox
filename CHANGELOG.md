@@ -297,6 +297,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
   pinned, or the frontmost where the whole spine stands in the frame. Each column
   reports the title its own read already carried, so a scroll costs no request and
   the identity resolve the tab used to make is gone.
+- Place a glance card clear of the prose it explains. The card sat just below its
+  link, covering the lines the reader was asking about, while the space beside the
+  reading columns stood empty. It now takes that space, the trailing side first,
+  level with the link so it reads as a note in the margin, and falls back to the
+  old placement where neither side holds it. The space is measured against every
+  column, not the link's own: room the next column stands in is not free.
 
 ## [0.17.0] - 2026-07-25
 
