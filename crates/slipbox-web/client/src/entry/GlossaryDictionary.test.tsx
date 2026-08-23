@@ -132,19 +132,25 @@ function mount(
 ): {
   readonly mode: Accessor<GlossaryMode>;
   readonly showMode: (next: GlossaryMode) => void;
+  /** The modes the surface asked its owner for, in order: the owner pushes each. */
+  readonly modeAsks: GlossaryMode[];
 } {
   const [mode, setMode] = createSignal<GlossaryMode>(options.mode ?? "browse");
   const queryUrl = options.queryUrl ?? memoryQueryUrl();
+  const modeAsks: GlossaryMode[] = [];
   render(() => (
     <GlossaryDictionary
       onOpen={options.onOpen ?? (() => {})}
       mode={mode()}
-      onMode={setMode}
+      onMode={(next) => {
+        modeAsks.push(next);
+        setMode(next);
+      }}
       debounceMs={options.debounceMs ?? 0}
       queryUrl={queryUrl}
     />
   ));
-  return { mode, showMode: (next) => setMode(next) };
+  return { mode, showMode: (next) => setMode(next), modeAsks };
 }
 
 describe("GlossaryDictionary", () => {
@@ -313,7 +319,7 @@ describe("GlossaryDictionary", () => {
     mount();
     await screen.findByRole("option", { name: "Alpha" });
 
-    fireEvent.click(screen.getByRole("tab", { name: "Due for review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Due for review" }));
 
     expect(
       await screen.findByRole("option", { name: /Due term/ }),
@@ -335,7 +341,7 @@ describe("GlossaryDictionary", () => {
     mount();
     await screen.findByRole("option", { name: "Alpha" });
 
-    fireEvent.click(screen.getByRole("tab", { name: "Due for review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Due for review" }));
 
     expect(
       await screen.findByText("Nothing is due for review."),
@@ -566,7 +572,7 @@ describe("GlossaryDictionary", () => {
     mount({ onOpen });
     await screen.findByRole("option", { name: "Alpha" });
 
-    fireEvent.click(screen.getByRole("tab", { name: "Due for review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Due for review" }));
     await screen.findByRole("option", { name: "One" });
 
     const listbox = screen.getByRole("listbox");
@@ -645,7 +651,7 @@ describe("GlossaryDictionary", () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 
-  it("moves between glossary modes with the arrow keys", async () => {
+  it("filters one list from a pair of pressed controls, not a tab strip", async () => {
     vi.stubGlobal(
       "fetch",
       routedFetch({
@@ -656,26 +662,42 @@ describe("GlossaryDictionary", () => {
     );
 
     mount();
-    const browseTab = await screen.findByRole("tab", { name: "All terms" });
-    const studyTab = screen.getByRole("tab", { name: "Due for review" });
+    // The `aria-controls` idref is named only once there is a list to name, so
+    // the assertions below wait for the first row.
+    await screen.findByRole("option", { name: "Alpha" });
+    const browse = screen.getByRole("button", { name: "All terms" });
+    const study = screen.getByRole("button", { name: "Due for review" });
 
-    expect(browseTab).toHaveAttribute("aria-selected", "true");
-    expect(studyTab).toHaveAttribute("tabindex", "-1");
+    // What the controls switch is the content of a listbox, so no tab is
+    // announced without the panel that would complete it.
+    expect(screen.queryAllByRole("tab")).toHaveLength(0);
+    expect(screen.queryByRole("tablist")).toBeNull();
+    expect(screen.queryByRole("tabpanel")).toBeNull();
 
-    fireEvent.keyDown(browseTab, { key: "ArrowRight" });
+    // Each control names that list, and the pressed one says which filter holds.
+    const listbox = screen.getByRole("listbox");
+    expect(browse).toHaveAttribute("aria-controls", listbox.id);
+    expect(study).toHaveAttribute("aria-controls", listbox.id);
+    expect(browse).toHaveAttribute("aria-pressed", "true");
+    expect(study).toHaveAttribute("aria-pressed", "false");
+    expect(
+      screen.getByRole("group", { name: "Glossary listing" }),
+    ).toContainElement(study);
 
-    expect(studyTab).toHaveAttribute("aria-selected", "true");
+    // Both controls are ordinary tab stops: no roving tabindex hides one.
+    expect(browse.tabIndex).toBe(0);
+    expect(study.tabIndex).toBe(0);
+
+    fireEvent.click(study);
+
     expect(
       await screen.findByRole("option", { name: /Due term/ }),
     ).toBeInTheDocument();
-
-    fireEvent.keyDown(studyTab, { key: "ArrowLeft" });
-    expect(browseTab).toHaveAttribute("aria-selected", "true");
-    fireEvent.keyDown(browseTab, { key: "ArrowLeft" });
-    expect(studyTab).toHaveAttribute("aria-selected", "true");
+    expect(study).toHaveAttribute("aria-pressed", "true");
+    expect(browse).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("leaves the vertical arrows to the term list the tabs sit above", async () => {
+  it("leaves the arrow keys to the term list the controls sit above", async () => {
     vi.stubGlobal(
       "fetch",
       routedFetch({
@@ -686,20 +708,17 @@ describe("GlossaryDictionary", () => {
     );
 
     mount();
-    const browseTab = await screen.findByRole("tab", { name: "All terms" });
-    const studyTab = screen.getByRole("tab", { name: "Due for review" });
+    const browse = await screen.findByRole("button", { name: "All terms" });
+    const study = screen.getByRole("button", { name: "Due for review" });
 
-    expect(screen.getByRole("tablist")).toHaveAttribute(
-      "aria-orientation",
-      "horizontal",
-    );
+    // A pressed-state control is reached by Tab and activated by Space or Enter,
+    // so no arrow is spoken for here: all four stay with the term list.
+    for (const key of ["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"]) {
+      fireEvent.keyDown(browse, { key });
+    }
 
-    fireEvent.keyDown(browseTab, { key: "ArrowDown" });
-    expect(browseTab).toHaveAttribute("aria-selected", "true");
-    expect(studyTab).toHaveAttribute("aria-selected", "false");
-
-    fireEvent.keyDown(browseTab, { key: "ArrowUp" });
-    expect(browseTab).toHaveAttribute("aria-selected", "true");
+    expect(browse).toHaveAttribute("aria-pressed", "true");
+    expect(study).toHaveAttribute("aria-pressed", "false");
   });
 
   it("names an empty glossary rather than blaming an absent search", async () => {
@@ -753,7 +772,7 @@ describe("GlossaryDictionary", () => {
     mount();
     await screen.findByRole("option", { name: "Alpha" });
 
-    fireEvent.click(screen.getByRole("tab", { name: "Due for review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Due for review" }));
 
     expect(
       await screen.findByRole("heading", { name: "How terms come due" }),
@@ -823,7 +842,7 @@ describe("GlossaryDictionary", () => {
 
     expect(document.title).toBe("Glossary — slipbox");
 
-    fireEvent.click(screen.getByRole("tab", { name: "Due for review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Due for review" }));
     await screen.findByRole("heading", { name: "How terms come due" });
     expect(document.title).toBe("Glossary review — slipbox");
   });
@@ -975,7 +994,7 @@ describe("GlossaryDictionary", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders the list the mode it is given names, without being pressed", async () => {
+  it("renders the list the mode it is given names, without a click of its own", async () => {
     vi.stubGlobal(
       "fetch",
       routedFetch({
@@ -991,8 +1010,8 @@ describe("GlossaryDictionary", () => {
       await screen.findByRole("option", { name: /Due term/ }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("tab", { name: "Due for review" }),
-    ).toHaveAttribute("aria-selected", "true");
+      screen.getByRole("button", { name: "Due for review" }),
+    ).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("option", { name: "Alpha" }),
@@ -1012,11 +1031,38 @@ describe("GlossaryDictionary", () => {
     const surface = mount();
     await screen.findByRole("option", { name: "Alpha" });
 
-    fireEvent.click(screen.getByRole("tab", { name: "Due for review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Due for review" }));
     expect(surface.mode()).toBe("study");
 
-    fireEvent.click(screen.getByRole("tab", { name: "All terms" }));
+    fireEvent.click(screen.getByRole("button", { name: "All terms" }));
     expect(surface.mode()).toBe("browse");
+  });
+
+  it("asks for nothing when the filter pressed is the one already holding", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/glossary/terms": { terms: [term("notes/a.org::0", "Alpha")] },
+        "/api/glossary/due": { terms: [term("notes/due.org::0", "Due term")] },
+        "/api/note/context": contextFor("notes/a.org::0", "Alpha", "Body."),
+      }),
+    );
+
+    const surface = mount();
+    await screen.findByRole("option", { name: "Alpha" });
+    const browse = screen.getByRole("button", { name: "All terms" });
+    expect(browse).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(browse);
+
+    // The owner mirrors a mode to a pushed history entry, so reporting the mode
+    // already holding buys a way back that undoes nothing the reader can see.
+    expect(surface.modeAsks).toEqual([]);
+    expect(browse).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Due for review" }));
+
+    expect(surface.modeAsks).toEqual(["study"]);
   });
 
   it("takes a mode arriving from outside as a list change of its own", async () => {
@@ -1060,7 +1106,7 @@ describe("GlossaryDictionary", () => {
     );
   });
 
-  it("moves focus to the tab a mode arriving from outside selects", async () => {
+  it("holds focus on the control it is on when the mode arrives from outside", async () => {
     vi.stubGlobal(
       "fetch",
       routedFetch({
@@ -1071,21 +1117,21 @@ describe("GlossaryDictionary", () => {
     );
 
     const surface = mount({ mode: "study" });
-    const browseTab = await screen.findByRole("tab", { name: "All terms" });
-    const studyTab = screen.getByRole("tab", { name: "Due for review" });
-    studyTab.focus();
-    expect(document.activeElement).toBe(studyTab);
+    const browse = await screen.findByRole("button", { name: "All terms" });
+    const study = screen.getByRole("button", { name: "Due for review" });
+    study.focus();
 
     surface.showMode("browse");
 
-    expect(document.activeElement).toBe(browseTab);
-    expect(browseTab).toHaveAttribute("aria-selected", "true");
-    expect(browseTab.tabIndex).toBe(0);
-    expect(studyTab).toHaveAttribute("aria-selected", "false");
-    expect(studyTab).toHaveAttribute("tabindex", "-1");
+    // Both controls stay in the tab order, so a mode change moves no tab stop
+    // for focus to have to follow.
+    expect(document.activeElement).toBe(study);
+    expect(browse).toHaveAttribute("aria-pressed", "true");
+    expect(study).toHaveAttribute("aria-pressed", "false");
+    expect(study.tabIndex).toBe(0);
   });
 
-  it("leaves focus where it is when the mode moves and the tablist is not holding it", async () => {
+  it("leaves focus where it is when the mode moves and the controls are not holding it", async () => {
     vi.stubGlobal(
       "fetch",
       routedFetch({
@@ -1096,20 +1142,17 @@ describe("GlossaryDictionary", () => {
     );
 
     const surface = mount();
-    const browseTab = await screen.findByRole("tab", { name: "All terms" });
-    const studyTab = screen.getByRole("tab", { name: "Due for review" });
-    const field = screen.getByRole("combobox");
+    const study = screen.getByRole("button", { name: "Due for review" });
+    const field = await screen.findByRole("combobox");
     field.focus();
     expect(document.activeElement).toBe(field);
 
     surface.showMode("study");
     await screen.findByRole("option", { name: /Due term/ });
 
-    // Removing the focused search box drops focus to the body, not to a tab.
+    // Removing the focused search box drops focus to the body, not to a control.
     expect(document.activeElement).toBe(document.body);
-    expect(studyTab).toHaveAttribute("aria-selected", "true");
-    expect(studyTab.tabIndex).toBe(0);
-    expect(browseTab).toHaveAttribute("tabindex", "-1");
+    expect(study).toHaveAttribute("aria-pressed", "true");
 
     surface.showMode("browse");
     await screen.findByRole("option", { name: "Alpha" });
@@ -1165,7 +1208,7 @@ describe("GlossaryDictionary", () => {
     fireEvent.input(screen.getByRole("combobox"), { target: { value: "entropy" } });
     await screen.findByRole("option", { name: "Entropy" });
 
-    fireEvent.click(screen.getByRole("tab", { name: "Due for review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Due for review" }));
     await screen.findByRole("heading", { name: "How terms come due" });
 
     expect(queryUrl.writes).toEqual(["entropy"]);

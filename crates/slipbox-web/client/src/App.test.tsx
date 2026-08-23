@@ -170,7 +170,7 @@ describe("App shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Glossary" }));
 
     expect(
-      await screen.findByRole("tab", { name: "Due for review" }),
+      await screen.findByRole("button", { name: "Due for review" }),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("combobox", { name: "Search notes" }),
@@ -194,8 +194,8 @@ describe("App shell", () => {
     expect(
       await screen.findByRole("option", { name: /Due term/ }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Due for review" })).toHaveAttribute(
-      "aria-selected",
+    expect(screen.getByRole("button", { name: "Due for review" })).toHaveAttribute(
+      "aria-pressed",
       "true",
     );
     expect(screen.getByRole("button", { name: "Glossary" })).toHaveAttribute(
@@ -224,8 +224,8 @@ describe("App shell", () => {
     expect(
       await screen.findByRole("option", { name: "Alpha" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "All terms" })).toHaveAttribute(
-      "aria-selected",
+    expect(screen.getByRole("button", { name: "All terms" })).toHaveAttribute(
+      "aria-pressed",
       "true",
     );
     expect(window.location.search).toBe("?view=glossary");
@@ -284,11 +284,11 @@ describe("App shell", () => {
       await screen.findByRole("combobox", { name: "Search the glossary" }),
     ).toHaveValue("entropy");
 
-    fireEvent.click(screen.getByRole("tab", { name: "Due for review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Due for review" }));
     await screen.findByRole("heading", { name: "How terms come due" });
     expect(window.location.search).toBe("?q=entropy&view=review");
 
-    fireEvent.click(screen.getByRole("tab", { name: "All terms" }));
+    fireEvent.click(screen.getByRole("button", { name: "All terms" }));
     fireEvent.input(
       await screen.findByRole("combobox", { name: "Search the glossary" }),
       { target: { value: "prior" } },

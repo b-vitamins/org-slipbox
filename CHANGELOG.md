@@ -214,6 +214,13 @@ The format follows Keep a Changelog, and this project follows SemVer.
   surface outside every conditional block, and a definition's headings now begin
   one level under the headword: `RenderDocument` takes the heading base as a prop,
   and the reading column keeps today's `h2`.
+- Let the glossary's listing controls name what they switch. "All terms" and "Due
+  for review" carried the tab role with no tabpanel beside them, announcing a
+  relationship the surface never held, and their roving tabindex took the arrow
+  keys the term list drives. They are now toggle buttons in a group, each pressed
+  when its filter holds and each naming the listbox it filters, so both are
+  ordinary tab stops and every arrow key stays with the list. The segmented look
+  reads off the pressed state itself.
 
 ## [0.17.0] - 2026-07-25
 

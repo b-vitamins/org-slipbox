@@ -127,23 +127,14 @@ export const GlossaryDictionary: Component<{
   // against the terms on screen (see `markedIndex`).
   const [marked, setMarked] = createSignal<string | null>(null);
 
-  // Keyed on the mode rather than set from the tab handler, because the mode also
-  // changes from a reload or the back button.
-  //
-  // The roving tabindex below is derived from the mode, so this arrival moves the
-  // tablist's single tab stop: focus left on the tab it moved off would sit outside
-  // the tab order, and the next Tab would leave the tablist entirely. Focus follows
-  // the stop only while the tablist holds it, since taking focus from the search
-  // field or the term list would take the keyboard with it.
+  // Keyed on the mode rather than set from the control's own handler, because the
+  // mode also changes from a reload or the back button. The two lists share no
+  // rows, so the peek starts again from the first row of the list that arrives.
   createEffect(
     on(
       mode,
-      (next) => {
+      () => {
         setMarked(null);
-        const held = document.activeElement;
-        if (tabRefs.some((tab) => tab === held)) {
-          tabRefs[TABS.findIndex((tab) => tab.id === next)]?.focus();
-        }
       },
       { defer: true },
     ),
@@ -225,37 +216,24 @@ export const GlossaryDictionary: Component<{
   // carrying the arrow-key cursor; in browse mode the combobox owns focus.
   const listboxOwnsFocus = (): boolean => mode() === "study";
 
-  // A WAI-ARIA tablist: one tab stop (the roving tabindex below), the horizontal
-  // arrows walk between tabs and activate on focus, Home and End jump to the ends.
-  // Only the horizontal arrows, so the vertical pair stays with the term list.
-  const TABS: readonly { id: GlossaryMode; label: string }[] = [
+  // Two filters over one list, not two panels: each is a toggle whose pressed state
+  // says which filter holds, and both are ordinary tab stops. That leaves every
+  // arrow key to the term list below, which is the widget the arrows drive.
+  const FILTERS: readonly { id: GlossaryMode; label: string }[] = [
     { id: "browse", label: "All terms" },
     { id: "study", label: "Due for review" },
   ];
-  const tabRefs: HTMLButtonElement[] = [];
 
-  const onTabKeyDown = (event: KeyboardEvent, index: number): void => {
-    const last = TABS.length - 1;
-    let next: number;
-    switch (event.key) {
-      case "ArrowRight":
-        next = index === last ? 0 : index + 1;
-        break;
-      case "ArrowLeft":
-        next = index === 0 ? last : index - 1;
-        break;
-      case "Home":
-        next = 0;
-        break;
-      case "End":
-        next = last;
-        break;
-      default:
-        return;
+  /**
+   * Report a filter the reader pressed, unless it is the one already holding. The
+   * owner mirrors a mode to a pushed history entry, so re-reporting the mode on
+   * screen stacks entries that undo nothing: a reader pressing "All terms" twice
+   * would have to press back twice to leave the list they never left.
+   */
+  const show = (next: GlossaryMode): void => {
+    if (next !== mode()) {
+      props.onMode(next);
     }
-    event.preventDefault();
-    props.onMode(TABS[next]!.id);
-    tabRefs[next]?.focus();
   };
 
   const onKeyDown = (event: KeyboardEvent): void => {
@@ -292,27 +270,19 @@ export const GlossaryDictionary: Component<{
             peek's headword is an `h2` and a definition's headings nest under
             that, so the surface reads as one document in every state. */}
         <h1 class="glossary-title">Glossary</h1>
-        <div
-          class="glossary-modes"
-          role="tablist"
-          aria-orientation="horizontal"
-          aria-label="Glossary mode"
-        >
-          <For each={TABS}>
-            {(tab, index) => (
+        <div class="glossary-modes" role="group" aria-label="Glossary listing">
+          <For each={FILTERS}>
+            {(filter) => (
               <button
-                ref={(element) => (tabRefs[index()] = element)}
                 type="button"
-                role="tab"
-                aria-selected={mode() === tab.id}
-                // Roving tabindex: only the selected tab is in the tab order.
-                tabindex={mode() === tab.id ? undefined : -1}
+                aria-pressed={mode() === filter.id}
+                // Named only while there is a list: an idref resolving to nothing
+                // would announce a relationship the surface is not holding.
+                aria-controls={terms().length > 0 ? listboxId : undefined}
                 class="glossary-mode"
-                classList={{ "glossary-mode--active": mode() === tab.id }}
-                onClick={() => props.onMode(tab.id)}
-                onKeyDown={(event) => onTabKeyDown(event, index())}
+                onClick={() => show(filter.id)}
               >
-                {tab.label}
+                {filter.label}
               </button>
             )}
           </For>
