@@ -21,6 +21,7 @@ import type { NodeContentHit, StatusInfo } from "../api/types.js";
 import { createReadingResource } from "../data/create-reading-resource.js";
 import { WINDOW_SCHEDULER } from "../data/scheduler.js";
 import { useDocumentTitle } from "../dom/document-title.js";
+import { createHoverMotion, type HoverPlace } from "../dom/hover-motion.js";
 import { revealOption } from "../dom/scroll-into-view.js";
 import { RenderInline } from "../org/RenderInline.jsx";
 import { browserCursorHistory, type CursorHistory } from "./cursor-history.js";
@@ -49,8 +50,7 @@ function describeError(error: unknown): string {
 /** The served slipbox identity, the resting hero above the search field. */
 const IdentityHero: Component<{ info: StatusInfo }> = (props) => (
   <section class="entry-hero">
-    {/* The name, not the absolute path, which leaks a local username and directory
-        into every screenshot; the path stays on hover. */}
+    {/* Show the root name and retain the full path as a tooltip. */}
     <h1 class="entry-hero__root" title={props.info.root}>
       {slipboxName(props.info.root)}
     </h1>
@@ -80,7 +80,8 @@ const ResultRow: Component<{
   id: string;
   active: boolean;
   onChoose: () => void;
-  onHover: () => void;
+  onHover: (at: HoverPlace) => void;
+  onMove: (at: HoverPlace) => void;
 }> = (props) => {
   const runs = createMemo(() => excerptRuns(props.hit.snippet.segments));
   return (
@@ -92,7 +93,8 @@ const ResultRow: Component<{
       classList={{ "entry-result--active": props.active }}
       // A mouse press must not blur the input before the click opens the note.
       onMouseDown={(event) => event.preventDefault()}
-      onMouseEnter={props.onHover}
+      onMouseEnter={(event) => props.onHover({ x: event.clientX, y: event.clientY })}
+      onMouseMove={(event) => props.onMove({ x: event.clientX, y: event.clientY })}
       onClick={props.onChoose}
     >
       <span class="entry-result__title">{props.hit.node.title}</span>
@@ -170,6 +172,7 @@ export const EntrySurface: Component<{
   const markRow = (index: number | null): void => {
     setMarked(index === null ? null : (hits()[index]?.node.node_key ?? null));
   };
+  const hover = createHoverMotion();
   const hasQuery = (): boolean => search.term() !== null;
   // A full page means the server may have more it did not send.
   const atLimit = (): boolean => hits().length >= SEARCH_LIMIT;
@@ -179,15 +182,6 @@ export const EntrySurface: Component<{
   const listboxId = "entry-results";
   const optionId = (index: number): string => `${OPTION_ID}-${index}`;
 
-  /**
-   * What the surface found, in one line. The count is stated here and nowhere
-   * else - the capped list's line below carries the advice alone, so the two do
-   * not read as one fact twice.
-   *
-   * `Searching…` is reserved for a term with nothing in hand: a re-read keeps the
-   * notes it already has, and saying it again over those would announce a search
-   * the reader can already see the results of.
-   */
   const summary = (): string => {
     if (!hasQuery()) {
       return "";
@@ -197,25 +191,15 @@ export const EntrySurface: Component<{
       return results.loading() ? "Searching…" : "No notes match that search.";
     }
     if (atLimit()) {
-      return `Showing the first ${SEARCH_LIMIT} matches.`;
+      return `Top ${SEARCH_LIMIT} ranked matches.`;
     }
     return count === 1 ? "1 note matches." : `${count} notes match.`;
   };
 
-  /** The failure the surface is left reporting, or null when there is none. */
   const failure = (): unknown =>
     status.error() ?? randomError() ?? results.error() ?? null;
 
-  /**
-   * The live region's whole content. Every state the surface reports in words
-   * reads out of this one element, because a region announces nothing about text
-   * it already held when it was inserted: a paragraph mounted with a failure in
-   * it says that failure to nobody.
-   *
-   * A memo, so a re-render under the same query rewrites no text node and the
-   * region announces nothing. A failure outranks the search state, since it is
-   * the answer to what the reader just did.
-   */
+  // Keep every spoken state in one persistent live region.
   const announcement = createMemo((): string => {
     const failed = failure();
     if (failed !== null) {
@@ -295,9 +279,6 @@ export const EntrySurface: Component<{
   const onQueryInput = (value: string): void => {
     search.input(value);
     setAwaitedOpen(null);
-    // A failed random open is stale once a search is under way, and the one line
-    // the surface speaks through would otherwise keep reporting it instead of the
-    // count.
     setRandomError(null);
   };
 
@@ -358,9 +339,6 @@ export const EntrySurface: Component<{
 
   return (
     <main class="entry">
-      {/* The unreachable branch stops at the live region rather than enclosing
-          it: a branch that both removes the region and states the failure states
-          it to nobody. */}
       <Show when={!status.error()}>
         <Show when={status.ready()}>{(info) => <IdentityHero info={info()} />}</Show>
         <div class="entry-search">
@@ -368,9 +346,9 @@ export const EntrySurface: Component<{
             ref={field}
             type="search"
             class="entry-search__field"
-            placeholder="Search notes"
+            placeholder="What are you looking for?"
             autocomplete="off"
-            aria-label="Search notes"
+            aria-label="Search the slipbox"
             role="combobox"
             aria-expanded={isExpanded()}
             aria-controls={listboxId}
@@ -393,10 +371,6 @@ export const EntrySurface: Component<{
         </div>
       </Show>
 
-      {/* The live region, placed before there is anything to say: a region
-          announces nothing it already held when it arrived. The list stays
-          outside it, since re-reading every row is the announcement this
-          replaces. */}
       <p
         class="entry-status entry-status--summary"
         classList={{
@@ -408,14 +382,13 @@ export const EntrySurface: Component<{
         {announcement()}
       </p>
 
-      {/* Notes in hand, rather than a term: a failed or unanswered search holds
-          none, and those states are what the line above is left saying. */}
       <Show when={!status.error() && hits().length > 0}>
         <ul
           id={listboxId}
           role="listbox"
           aria-label="Search results"
           class="entry-results"
+          onMouseLeave={hover.left}
         >
           <For each={hits()}>
             {(hit, index) => (
@@ -424,7 +397,12 @@ export const EntrySurface: Component<{
                 id={optionId(index())}
                 active={active() === index()}
                 onChoose={() => open(hit)}
-                onHover={() => markRow(index())}
+                onHover={(at) => {
+                  if (hover.crossed(at)) {
+                    markRow(index());
+                  }
+                }}
+                onMove={hover.moved}
               />
             )}
           </For>

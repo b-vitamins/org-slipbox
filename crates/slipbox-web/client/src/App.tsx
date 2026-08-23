@@ -33,15 +33,7 @@ export const App: Component = () => {
   const atGlossary = (): boolean =>
     view.mode() === "glossary" || view.mode() === "review";
 
-  // The address the entry surface was left at, which carries its term and its mode
-  // and never a reading position. A note's address is written from scratch
-  // (`encodeStack`), so the term is gone from the URL the moment a result is
-  // opened: nothing but the entry the reader stands on can say what it held.
-  //
-  // Read off that entry rather than remembered across the surface's whole life: a
-  // reader who walks back to a note, or reloads one, arrives on an entry this
-  // surface never opened, and memory of another one would send them somewhere they
-  // have not been.
+  // History state preserves the entry URL while the visible URL holds a note stack.
   const wayBack = (): string =>
     atEntry() ? history.read() : readEntryAddress();
   let leftAt = wayBack();
@@ -56,16 +48,10 @@ export const App: Component = () => {
 
   const openNote = (key: string): void => {
     leftAt = history.read();
-    // Onto the entry being left, which the push carries forward, so the reading
-    // entry it opens holds the way back as well.
     writeEntryAddress(leftAt);
     stack.open(key);
   };
 
-  // Pushing that address and re-reading both stores from it makes Home a normal
-  // history entry the back button can undo, and clears the reading position the
-  // address does not hold. The result cursor rides in the entry's state, which a
-  // push carries forward (`browser-history.ts`).
   const goHome = (): void => {
     history.push(leftAt);
     stack.sync();
@@ -78,9 +64,17 @@ export const App: Component = () => {
         <Show
           when={atEntry()}
           fallback={
-            <button type="button" class="app-header__home" onClick={goHome}>
-              slipbox
-            </button>
+            <div class="app-header__reading">
+              <button
+                type="button"
+                class="app-header__home"
+                aria-label="Back to entry"
+                onClick={goHome}
+              >
+                <span aria-hidden="true">←</span>
+              </button>
+              <span class="app-header__brand">slipbox</span>
+            </div>
           }
         >
           <span class="app-header__title">slipbox</span>

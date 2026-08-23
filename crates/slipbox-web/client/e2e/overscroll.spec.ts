@@ -1,12 +1,3 @@
-/*
- * Scroll containment on the reading and glossary scrollports.
- *
- * A gesture continued past a scrollport's edge is handed to the browser as a
- * history gesture, which no engine synthesizes under automation. What a real
- * browser does give is the computed `overscroll-behavior` deciding it, plus a
- * wheel proving the scroll range the rule still has to leave reachable; jsdom
- * gives neither.
- */
 
 import { expect, test, type Page } from "@playwright/test";
 
@@ -31,18 +22,15 @@ const WORLD: FixtureWorld = {
   ],
 };
 
-/** Four 625px columns, wider than any frame the specs run in. */
 const TRAIL =
   "/?note=file:one.org&stacked=file:two.org&stacked=file:three.org&stacked=file:four.org";
 
-/** Both axes of one element's containment, as the cascade resolves them. */
 const containmentOf = (page: Page, selector: string) =>
   page.evaluate((target) => {
     const style = getComputedStyle(document.querySelector(target) as HTMLElement);
     return { x: style.overscrollBehaviorX, y: style.overscrollBehaviorY };
   }, selector);
 
-/** Repeat a wheel gesture until it is well past whatever edge it is aimed at. */
 async function wheelPastTheEdge(
   page: Page,
   deltaX: number,
@@ -78,8 +66,6 @@ test.describe("scroll containment", () => {
 
     expect((await containmentOf(page, ".spine")).x).toBe("contain");
 
-    // Aimed at the middle of the frame, so the gesture starts over a column and
-    // has to reach the spine through it.
     await page.mouse.move(600, 500);
     await wheelPastTheEdge(page, 400, 0);
     await expect
@@ -104,8 +90,6 @@ test.describe("scroll containment", () => {
 
     const column = await containmentOf(page, ".spine-column");
     expect(column.y).toBe("contain");
-    // The spine is the horizontal scroller under every column, and a column
-    // containing that axis too would take the swipe away from it.
     expect(column.x).toBe("auto");
 
     await page.mouse.move(600, 500);
@@ -126,8 +110,6 @@ test.describe("scroll containment", () => {
     await page.goto("/?note=file:one.org");
     await expect(page.getByRole("heading", { name: "Note One" })).toBeVisible();
 
-    // Containment on the viewport would also take a pull-to-refresh, which is
-    // the browser's to offer.
     for (const selector of [":root", "body"]) {
       expect(await containmentOf(page, selector)).toEqual({ x: "auto", y: "auto" });
     }
@@ -146,11 +128,6 @@ test.describe("scroll containment", () => {
   });
 });
 
-/*
- * Below the 800px breakpoint the spine is a vertical scroller inside the page
- * and the columns stack inside it, so containment is a different statement on
- * different boxes.
- */
 test.describe("scroll containment in the narrow layout", () => {
   test.use({ viewport: { width: 375, height: 720 } });
 
@@ -167,9 +144,6 @@ test.describe("scroll containment in the narrow layout", () => {
       x: "contain",
       y: "contain",
     });
-    // A stacked column scrolls nothing of its own here, so its containment is
-    // released: latched on the axis the spine now scrolls, it would hold the run
-    // still.
     expect((await containmentOf(page, ".spine-column")).y).toBe("auto");
 
     await page.mouse.move(180, 400);
@@ -181,7 +155,7 @@ test.describe("scroll containment in the narrow layout", () => {
 
   test("the narrow glossary surface keeps its own pull", async ({ page }) => {
     await page.goto("/?view=glossary");
-    await expect(page.getByText("A measure of uncertainty.")).toBeVisible();
+    await expect(page.getByRole("listbox", { name: "Glossary terms" })).toBeVisible();
 
     expect((await containmentOf(page, ".glossary")).y).toBe("contain");
   });

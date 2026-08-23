@@ -21,9 +21,6 @@
   overflow: hidden;
 }
 
-/* The surface's own heading. Sized as a column label rather than as a title
-   page: it names the surface for the outline, where the definition beside it
-   carries the reading. */
 .glossary-title {
   margin: 0;
   padding: 16px 16px 0;
@@ -59,16 +56,21 @@
   color: var(--ink);
 }
 
-/* The segmented look reads off the pressed state itself, so the appearance and
-   the announcement cannot drift apart. */
 .glossary-mode[aria-pressed="true"] {
   color: var(--ink);
   border-color: var(--muted-2);
   font-weight: 500;
 }
 
-.glossary-search {
+.glossary-search-row {
+  display: flex;
+  gap: 8px;
   margin: 8px 16px;
+}
+
+.glossary-search {
+  flex: 1;
+  min-width: 0;
   padding: 8px 12px;
   font-family: inherit;
   font-size: 15px;
@@ -80,13 +82,22 @@
   transition: border-color var(--dur-crossfade) var(--ease-settle);
 }
 
+.glossary-search__clear {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  color: var(--link);
+  font: inherit;
+  font-size: 13px;
+  background: none;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
 .glossary-search:focus {
   border-color: var(--link);
 }
 
-/* The ring `.entry-search__field` draws, for the reason it draws it: a pixel of
-   border hue is the weakest indicator on either surface, and this field is the
-   one tab stop into the term list. */
 .glossary-search:focus-visible {
   outline: 2px solid var(--link);
   outline-offset: 2px;
@@ -107,10 +118,6 @@
   font-size: 13px;
 }
 
-/* A gesture carried past an end of the list stays in it: nothing above it here
- * scrolls, so one handed on reaches the browser as a history gesture and takes
- * the reader off the surface. The pane below and the narrow surface are the same
- * statement on their own boxes. */
 .glossary-terms {
   flex: 1;
   margin: 0;
@@ -120,8 +127,6 @@
   overscroll-behavior: contain;
 }
 
-/* The way past the end of a page, laid out as a flex box so the label stays
-   centered when the coarse pointer's `min-height` floor stretches it. */
 .glossary-more {
   flex: 0 0 auto;
   display: flex;
@@ -167,11 +172,9 @@
   line-height: 21px;
 }
 
-/* Why a row is in the due listing, at the trailing edge where the row's own badge
-   sits. Set as an aside to the headword, which stays the row's subject. */
 .glossary-term__standing {
   flex: 0 0 auto;
-  color: var(--muted-2);
+  color: var(--ink);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
@@ -191,6 +194,10 @@
   overscroll-behavior: contain;
   display: flex;
   justify-content: center;
+}
+
+.glossary-detail__toolbar {
+  display: none;
 }
 
 .glossary-peek {
@@ -237,10 +244,6 @@
   color: var(--ink);
 }
 
-/* The way into the reader, at the trailing edge of the header. An anchor rather
-   than a button, so the destination is one a reader can copy or open in a new
-   tab, and a flex box, so the label stays centered when the coarse pointer's
-   `min-height` floor stretches the box taller than its own text. */
 .glossary-peek__open {
   flex: 0 0 auto;
   display: inline-flex;
@@ -319,21 +322,62 @@
 
 @media (max-width: 800px) {
   .glossary {
-    flex-direction: column;
-    overflow-y: auto;
+    overflow: hidden;
     overscroll-behavior: contain;
-    height: auto;
   }
 
   .glossary-list {
-    flex-basis: auto;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
     border-right: none;
-    border-bottom: 1px solid var(--hairline);
   }
 
   .glossary-terms {
-    max-height: 40vh;
-    max-height: 40dvh;
+    max-height: none;
+  }
+
+  .glossary-detail {
+    display: none;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .glossary--detail-open .glossary-list {
+    display: none;
+  }
+
+  .glossary--detail-open .glossary-detail {
+    display: block;
+  }
+
+  .glossary-detail__toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px 0;
+    background: var(--paper);
+  }
+
+  .glossary-detail__back {
+    padding: 8px 12px;
+    color: var(--link);
+    font: inherit;
+    font-size: 14px;
+    background: var(--paper);
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    cursor: pointer;
+  }
+
+  .glossary-detail__title {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 500;
   }
 
   .glossary-peek,

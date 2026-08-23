@@ -103,11 +103,6 @@ function routedFetch(routes: Record<string, unknown>): typeof fetch {
   }) as unknown as typeof fetch;
 }
 
-/**
- * A double routing on the whole request rather than on its path, since the pages
- * of one listing differ only by their query. `answer` returns a body to serve as a
- * 200, or a `Response` of its own for a failing page.
- */
 function pagedFetch(answer: (url: URL) => unknown): typeof fetch {
   return vi.fn((input: RequestInfo | URL) => {
     const answered = answer(new URL(String(input), "http://slipbox.test"));
@@ -117,11 +112,6 @@ function pagedFetch(answer: (url: URL) => unknown): typeof fetch {
   }) as unknown as typeof fetch;
 }
 
-/**
- * A browse listing of four terms served two at a time, plus a definition for
- * whichever term is peeked. `past-beta` is the position the first page hands out,
- * which the second page is served for and for nothing else.
- */
 function twoPageWorld(url: URL): unknown {
   if (url.pathname === "/api/glossary/terms") {
     return url.searchParams.get("after") === "past-beta"
@@ -148,10 +138,6 @@ function twoPageWorld(url: URL): unknown {
   return contextFor(key, key, "Body.");
 }
 
-/**
- * The two listings sharing no rows, plus the index and a definition for Beta: the
- * world a term addressed in one listing and absent from the other is read in.
- */
 function twoListWorld(url: URL): unknown {
   switch (url.pathname) {
     case "/api/glossary/due":
@@ -173,7 +159,6 @@ function twoListWorld(url: URL): unknown {
   }
 }
 
-/** The URLs a `pagedFetch` or `routedFetch` double was asked for, in order. */
 function asked(stub: typeof fetch): string[] {
   return (stub as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([url]) =>
     String(url),
@@ -210,11 +195,6 @@ function memoryTermUrl(initial: string | null = null): TermUrl & {
   };
 }
 
-/**
- * Mode lives in a signal so a test can both start in a mode and read back the
- * one the surface reports. Both URL seams default to in-memory and the debounce
- * to zero, so no test writes the real address bar or advances a timer.
- */
 function mount(
   options: {
     onOpen?: (key: string) => void;
@@ -226,7 +206,6 @@ function mount(
 ): {
   readonly mode: Accessor<GlossaryMode>;
   readonly showMode: (next: GlossaryMode) => void;
-  /** The modes the surface asked its owner for, in order: the owner pushes each. */
   readonly modeAsks: GlossaryMode[];
 } {
   const [mode, setMode] = createSignal<GlossaryMode>(options.mode ?? "browse");
@@ -308,8 +287,6 @@ describe("GlossaryDictionary", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: "Glossary" }),
     ).toBeInTheDocument();
-    // The headword outranks the definition's own headings, and the two Org
-    // levels below it skip nothing on the way down.
     expect(
       screen.getByRole("heading", { level: 2, name: "Entropy" }),
     ).toBeInTheDocument();
@@ -418,14 +395,13 @@ describe("GlossaryDictionary", () => {
       screen.getByRole("combobox", { name: "Search the glossary" }),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Due for review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Due terms" }));
 
     expect(
       await screen.findByRole("option", { name: /Due term/ }),
     ).toBeInTheDocument();
-    // The box stays, named for the set it acts on: one field, two stated jobs.
     expect(
-      screen.getByRole("combobox", { name: "Filter the terms due for review" }),
+      screen.getByRole("combobox", { name: "Search due terms" }),
     ).toBeInTheDocument();
     expect(await screen.findByLabelText("Review schedule")).toBeInTheDocument();
     expect(screen.getByText("2026-07-20")).toBeInTheDocument();
@@ -436,8 +412,6 @@ describe("GlossaryDictionary", () => {
       "fetch",
       routedFetch({
         "/api/glossary/terms": { terms: [term("notes/a.org::0", "Alpha")] },
-        // Three rows of a listing of twelve: the count answers for the listing,
-        // not for the page the surface is holding.
         "/api/glossary/due": {
           terms: [
             term("notes/one.org::0", "One"),
@@ -455,8 +429,6 @@ describe("GlossaryDictionary", () => {
     mount({ mode: "study" });
     await screen.findByRole("option", { name: /One/ });
 
-    // The order is named rather than reordered: the surface holds one page of a
-    // listing it did not sort.
     expect(
       screen.getByText(
         "12 terms are due, in schedule order: never reviewed first, then by due date, then by file path.",
@@ -516,92 +488,98 @@ describe("GlossaryDictionary", () => {
     const surface = mount({ mode: "study" });
     const rows = await screen.findAllByRole("option");
 
-    // A corpus no review has touched carries no dates, so the row says which of
-    // the two reasons for being due it is standing on.
     expect(rows[0]!).toHaveTextContent("never reviewed");
     expect(rows[1]!).toHaveTextContent("due 2026-07-20");
-    // A drawer a grading part-wrote is the third case, and it says which fact it
-    // is missing rather than leaving the aside off the row.
     expect(rows[2]!).toHaveTextContent("no due date recorded");
 
-    // The peek says the same of the term it is showing.
     expect(await screen.findByLabelText("Review schedule")).toHaveTextContent(
       "Never reviewed",
     );
 
-    // Browse lists every term, due or not, so a standing there would be a fact
-    // about a schedule the reader is not reading.
     surface.showMode("browse");
     const browsed = await screen.findAllByRole("option");
     expect(browsed[0]!).not.toHaveTextContent("never reviewed");
   });
 
   it("narrows the due list without reaching past what is due", async () => {
-    const fetch = routedFetch({
-      "/api/glossary/terms": { terms: [term("notes/a.org::0", "Alpha")] },
-      "/api/glossary/due": {
-        terms: [
-          term("notes/entropy.org::0", "Entropy"),
-          term("notes/prior.org::0", "Prior", { aliases: ["Entropic belief"] }),
-          term("notes/loss.org::0", "Loss"),
-        ],
-      },
-      // A term the index would answer with and the due list does not hold. The
-      // due listing carries no search, so reaching for this route at all would
-      // put a term that is not due into the review list.
-      "/api/glossary/search": { terms: [term("notes/other.org::0", "Entropy pool")] },
-      "/api/note/context": contextFor("notes/entropy.org::0", "Entropy", "Body."),
+    const fetch = pagedFetch((url) => {
+      if (url.pathname === "/api/glossary/due") {
+        return url.searchParams.get("q") === "entrop"
+          ? {
+              terms: [
+                term("notes/entropy.org::0", "Entropy"),
+                term("notes/prior.org::0", "Prior", {
+                  aliases: ["Entropic belief"],
+                }),
+              ],
+              total: 2,
+              has_more: false,
+            }
+          : {
+              terms: [
+                term("notes/entropy.org::0", "Entropy"),
+                term("notes/prior.org::0", "Prior", {
+                  aliases: ["Entropic belief"],
+                }),
+                term("notes/loss.org::0", "Loss"),
+              ],
+              total: 3,
+              has_more: false,
+            };
+      }
+      const key = url.searchParams.get("key") ?? "";
+      return contextFor(key, key, "Body.");
     });
     vi.stubGlobal("fetch", fetch);
 
     mount({ mode: "study" });
-    // A due row is named by its headword and the standing beside it, so the
-    // lookups here match the headword the row leads with.
     await screen.findByRole("option", { name: /^Entropy/ });
 
     fireEvent.input(
-      screen.getByRole("combobox", { name: "Filter the terms due for review" }),
+      screen.getByRole("combobox", { name: "Search due terms" }),
       { target: { value: "entrop" } },
     );
 
-    await waitFor(() =>
-      expect(screen.queryByRole("option", { name: /^Loss/ })).not.toBeInTheDocument(),
-    );
-    // The headword matches outright and the synonym matches for its own term.
-    expect(screen.getByRole("option", { name: /^Entropy/ })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /^Prior/ })).toBeInTheDocument();
     expect(
-      screen.queryByRole("option", { name: /^Entropy pool/ }),
-    ).not.toBeInTheDocument();
-    const searched = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
-      ([url]) => String(url).includes("/api/glossary/search"),
+      await screen.findByRole("option", { name: /^Entropy/ }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /^Loss/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^Prior/ })).toBeInTheDocument();
+    expect(asked(fetch)).toContain("/api/glossary/due?q=entrop&limit=200");
+    expect(asked(fetch).some((url) => url.includes("/api/glossary/search"))).toBe(
+      false,
     );
-    expect(searched).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(await screen.findByRole("option", { name: /^Loss/ })).toBeInTheDocument();
   });
 
   it("says which set a fruitless filter was over, and what it does not reach", async () => {
-    vi.stubGlobal(
-      "fetch",
-      routedFetch({
-        "/api/glossary/terms": { terms: [term("notes/a.org::0", "Alpha")] },
-        "/api/glossary/due": { terms: [term("notes/due.org::0", "Due term")] },
-        "/api/note/context": contextFor("notes/due.org::0", "Due term", "Body."),
-      }),
-    );
+    vi.stubGlobal("fetch", pagedFetch((url) => {
+      if (url.pathname === "/api/glossary/due") {
+        return url.searchParams.has("q")
+          ? { terms: [], total: 0, has_more: false }
+          : {
+              terms: [term("notes/due.org::0", "Due term")],
+              total: 1,
+              has_more: false,
+            };
+      }
+      const key = url.searchParams.get("key") ?? "";
+      return contextFor(key, key, "Body.");
+    }));
 
     mount({ mode: "study" });
     await screen.findByRole("option", { name: /^Due term/ });
 
     fireEvent.input(
-      screen.getByRole("combobox", { name: "Filter the terms due for review" }),
+      screen.getByRole("combobox", { name: "Search due terms" }),
       { target: { value: "zzz" } },
     );
 
     expect(
       await screen.findByText("No terms due for review match that filter."),
     ).toBeInTheDocument();
-    // Terms are due, so the standing explanation of how they come due would be
-    // answering a question the reader did not ask.
     expect(
       screen.getByRole("heading", { name: "Nothing due matches that filter" }),
     ).toBeInTheDocument();
@@ -615,7 +593,7 @@ describe("GlossaryDictionary", () => {
       "fetch",
       routedFetch({
         "/api/glossary/terms": { terms: [term("notes/a.org::0", "Alpha")] },
-        "/api/glossary/due": { terms: [] },
+        "/api/glossary/due": { terms: [], total: 0, has_more: false },
         "/api/glossary/search": { terms: [term("notes/a.org::0", "Alpha")] },
       }),
     );
@@ -624,34 +602,38 @@ describe("GlossaryDictionary", () => {
     await screen.findByText("Nothing is due for review.");
 
     fireEvent.input(
-      screen.getByRole("combobox", { name: "Filter the terms due for review" }),
+      screen.getByRole("combobox", { name: "Search due terms" }),
       { target: { value: "alpha" } },
     );
 
-    // Nothing was hidden, so the filter has nothing to answer for.
-    expect(screen.getByText("Nothing is due for review.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Nothing is due for review."),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "How terms come due" }),
     ).toBeInTheDocument();
   });
 
   it("carries the query into whichever list the mode names", async () => {
-    vi.stubGlobal(
-      "fetch",
-      routedFetch({
-        "/api/glossary/terms": { terms: [term("notes/a.org::0", "Alpha")] },
-        "/api/glossary/search": {
-          terms: [term("notes/entropy.org::0", "Entropy")],
-        },
-        "/api/glossary/due": {
-          terms: [
-            term("notes/entropy.org::0", "Entropy"),
-            term("notes/loss.org::0", "Loss"),
-          ],
-        },
-        "/api/note/context": contextFor("notes/entropy.org::0", "Entropy", "Body."),
-      }),
-    );
+    const fetch = pagedFetch((url) => {
+      switch (url.pathname) {
+        case "/api/glossary/terms":
+          return { terms: [term("notes/a.org::0", "Alpha")] };
+        case "/api/glossary/search":
+          return { terms: [term("notes/entropy.org::0", "Entropy")] };
+        case "/api/glossary/due":
+          return {
+            terms: [term("notes/entropy.org::0", "Entropy")],
+            total: 1,
+            has_more: false,
+          };
+        default: {
+          const key = url.searchParams.get("key") ?? "";
+          return contextFor(key, key, "Body.");
+        }
+      }
+    });
+    vi.stubGlobal("fetch", fetch);
 
     const surface = mount();
     await screen.findByRole("option", { name: "Alpha" });
@@ -662,8 +644,6 @@ describe("GlossaryDictionary", () => {
 
     surface.showMode("study");
 
-    // The query is held rather than dropped, and applies to the list that
-    // arrives: the same words, the narrower set.
     expect(
       await screen.findByRole("option", { name: /^Entropy/ }),
     ).toBeInTheDocument();
@@ -671,8 +651,9 @@ describe("GlossaryDictionary", () => {
       screen.queryByRole("option", { name: /^Loss/ }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("combobox", { name: "Filter the terms due for review" }),
+      screen.getByRole("combobox", { name: "Search due terms" }),
     ).toHaveValue("entrop");
+    expect(asked(fetch)).toContain("/api/glossary/due?q=entrop&limit=200");
   });
 
   it("reports an empty due list", async () => {
@@ -687,7 +668,7 @@ describe("GlossaryDictionary", () => {
     mount();
     await screen.findByRole("option", { name: "Alpha" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Due for review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Due terms" }));
 
     expect(
       await screen.findByText("Nothing is due for review."),
@@ -714,11 +695,7 @@ describe("GlossaryDictionary", () => {
     await screen.findByText("Body.");
 
     const control = screen.getByRole("link", { name: "Open in reader" });
-    // Beside the headword, not below the definition: a definition long enough to
-    // scroll would carry the way onward off the bottom of the pane.
     expect(control.closest(".glossary-peek__header")).not.toBeNull();
-    // An anchor rather than a button, so the destination is one a reader can
-    // copy or open in a new tab.
     expect(control).toHaveAttribute("href", "?note=notes%2Fentropy.org%3A%3A0");
 
     fireEvent.click(control);
@@ -748,8 +725,6 @@ describe("GlossaryDictionary", () => {
     mount({ onOpen });
     await screen.findByText("Body.");
 
-    // An id reference survives a rename, so the control opens the term the same
-    // way a link to it would.
     const control = screen.getByRole("link", { name: "Open in reader" });
     expect(control).toHaveAttribute("href", "?note=id%3Aentropy-uuid");
 
@@ -776,8 +751,6 @@ describe("GlossaryDictionary", () => {
     mount({ onOpen });
 
     const link = await screen.findByRole("link", { name: "the prior" });
-    // The anchor advertises a real destination, so it must honor one: a link the
-    // surface renders live and then swallows is worse than inert text.
     expect(link).toHaveAttribute("href", "?note=id%3Aprior-uuid");
 
     fireEvent.click(link);
@@ -918,11 +891,9 @@ describe("GlossaryDictionary", () => {
     mount({ onOpen });
     await screen.findByRole("option", { name: "Alpha" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Due for review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Due terms" }));
     await screen.findByRole("option", { name: /^One/ });
 
-    // One focusable widget in both modes: the field owns the cursor and the list
-    // is its popup, so the list takes no tab stop of its own.
     const listbox = screen.getByRole("listbox");
     expect(listbox).not.toHaveAttribute("tabindex");
     expect(listbox).not.toHaveAttribute("aria-activedescendant");
@@ -1014,19 +985,14 @@ describe("GlossaryDictionary", () => {
     );
 
     mount();
-    // The `aria-controls` idref is named only once there is a list to name, so
-    // the assertions below wait for the first row.
     await screen.findByRole("option", { name: "Alpha" });
     const browse = screen.getByRole("button", { name: "All terms" });
-    const study = screen.getByRole("button", { name: "Due for review" });
+    const study = screen.getByRole("button", { name: "Due terms" });
 
-    // What the controls switch is the content of a listbox, so no tab is
-    // announced without the panel that would complete it.
     expect(screen.queryAllByRole("tab")).toHaveLength(0);
     expect(screen.queryByRole("tablist")).toBeNull();
     expect(screen.queryByRole("tabpanel")).toBeNull();
 
-    // Each control names that list, and the pressed one says which filter holds.
     const listbox = screen.getByRole("listbox");
     expect(browse).toHaveAttribute("aria-controls", listbox.id);
     expect(study).toHaveAttribute("aria-controls", listbox.id);
@@ -1036,7 +1002,6 @@ describe("GlossaryDictionary", () => {
       screen.getByRole("group", { name: "Glossary listing" }),
     ).toContainElement(study);
 
-    // Both controls are ordinary tab stops: no roving tabindex hides one.
     expect(browse.tabIndex).toBe(0);
     expect(study.tabIndex).toBe(0);
 
@@ -1072,9 +1037,6 @@ describe("GlossaryDictionary", () => {
     fireEvent.input(field, { target: { value: "nothing" } });
     await screen.findByText("No terms match that search.");
 
-    // The popup is gone, so the idref would resolve to nothing: a combobox
-    // naming a listbox that is not rendered announces a relationship the
-    // surface is not holding, which is what the mode controls beside it guard.
     expect(field).not.toHaveAttribute("aria-controls");
     expect(field).toHaveAttribute("aria-expanded", "false");
   });
@@ -1091,10 +1053,8 @@ describe("GlossaryDictionary", () => {
 
     mount();
     const browse = await screen.findByRole("button", { name: "All terms" });
-    const study = screen.getByRole("button", { name: "Due for review" });
+    const study = screen.getByRole("button", { name: "Due terms" });
 
-    // A pressed-state control is reached by Tab and activated by Space or Enter,
-    // so no arrow is spoken for here: all four stay with the term list.
     for (const key of ["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"]) {
       fireEvent.keyDown(browse, { key });
     }
@@ -1154,7 +1114,7 @@ describe("GlossaryDictionary", () => {
     mount();
     await screen.findByRole("option", { name: "Alpha" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Due for review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Due terms" }));
 
     expect(
       await screen.findByRole("heading", { name: "How terms come due" }),
@@ -1224,9 +1184,9 @@ describe("GlossaryDictionary", () => {
 
     expect(document.title).toBe("Glossary — slipbox");
 
-    fireEvent.click(screen.getByRole("button", { name: "Due for review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Due terms" }));
     await screen.findByRole("heading", { name: "How terms come due" });
-    expect(document.title).toBe("Glossary review — slipbox");
+    expect(document.title).toBe("Due terms — slipbox");
   });
 
   it("never shows the previous term's definition under a new term's title", async () => {
@@ -1392,10 +1352,10 @@ describe("GlossaryDictionary", () => {
       await screen.findByRole("option", { name: /Due term/ }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Due for review" }),
+      screen.getByRole("button", { name: "Due terms" }),
     ).toHaveAttribute("aria-pressed", "true");
     expect(
-      screen.getByRole("combobox", { name: "Filter the terms due for review" }),
+      screen.getByRole("combobox", { name: "Search due terms" }),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("option", { name: "Alpha" }),
@@ -1415,7 +1375,7 @@ describe("GlossaryDictionary", () => {
     const surface = mount();
     await screen.findByRole("option", { name: "Alpha" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Due for review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Due terms" }));
     expect(surface.mode()).toBe("study");
 
     fireEvent.click(screen.getByRole("button", { name: "All terms" }));
@@ -1439,12 +1399,10 @@ describe("GlossaryDictionary", () => {
 
     fireEvent.click(browse);
 
-    // The owner mirrors a mode to a pushed history entry, so reporting the mode
-    // already holding buys a way back that undoes nothing the reader can see.
     expect(surface.modeAsks).toEqual([]);
     expect(browse).toHaveAttribute("aria-pressed", "true");
 
-    fireEvent.click(screen.getByRole("button", { name: "Due for review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Due terms" }));
 
     expect(surface.modeAsks).toEqual(["study"]);
   });
@@ -1479,9 +1437,6 @@ describe("GlossaryDictionary", () => {
 
     surface.showMode("study");
 
-    // Both listings hold the term the address names, so the peek is the same
-    // definition on either side of the change: the mode moved the list, not the
-    // term the reader was reading.
     await screen.findByRole("option", { name: /^One/ });
     expect(screen.getByRole("option", { name: /^Shared/ })).toHaveAttribute(
       "aria-selected",
@@ -1505,13 +1460,11 @@ describe("GlossaryDictionary", () => {
 
     const surface = mount({ mode: "study" });
     const browse = await screen.findByRole("button", { name: "All terms" });
-    const study = screen.getByRole("button", { name: "Due for review" });
+    const study = screen.getByRole("button", { name: "Due terms" });
     study.focus();
 
     surface.showMode("browse");
 
-    // Both controls stay in the tab order, so a mode change moves no tab stop
-    // for focus to have to follow.
     expect(document.activeElement).toBe(study);
     expect(browse).toHaveAttribute("aria-pressed", "true");
     expect(study).toHaveAttribute("aria-pressed", "false");
@@ -1529,7 +1482,7 @@ describe("GlossaryDictionary", () => {
     );
 
     const surface = mount();
-    const study = screen.getByRole("button", { name: "Due for review" });
+    const study = screen.getByRole("button", { name: "Due terms" });
     const field = await screen.findByRole("combobox");
     field.focus();
     expect(document.activeElement).toBe(field);
@@ -1537,8 +1490,6 @@ describe("GlossaryDictionary", () => {
     surface.showMode("study");
     await screen.findByRole("option", { name: /Due term/ });
 
-    // The field is one element across both modes, so a mode change neither
-    // removes it nor drops the focus it was holding.
     expect(document.activeElement).toBe(field);
     expect(study).toHaveAttribute("aria-pressed", "true");
 
@@ -1596,8 +1547,10 @@ describe("GlossaryDictionary", () => {
     fireEvent.input(screen.getByRole("combobox"), { target: { value: "entropy" } });
     await screen.findByRole("option", { name: "Entropy" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Due for review" }));
-    await screen.findByRole("heading", { name: "How terms come due" });
+    fireEvent.click(screen.getByRole("button", { name: "Due terms" }));
+    await screen.findByRole("heading", {
+      name: "Nothing due matches that filter",
+    });
 
     expect(queryUrl.writes).toEqual(["entropy"]);
     expect(queryUrl.read()).toBe("entropy");
@@ -1615,8 +1568,6 @@ describe("GlossaryDictionary", () => {
     mount();
     await screen.findByRole("option", { name: "Beta" });
 
-    // The cut is stated before it is continued: a list ending at Beta with no
-    // word about the rest is a list a reader takes for the whole glossary.
     expect(screen.getByText("2 of 4 terms read.")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Read more terms" }));
@@ -1628,7 +1579,6 @@ describe("GlossaryDictionary", () => {
       "Gamma",
       "Delta",
     ]);
-    // Nothing follows the last page, so nothing is claimed and nothing offered.
     expect(screen.queryByText(/terms read\./)).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Read more terms" }),
@@ -1641,8 +1591,6 @@ describe("GlossaryDictionary", () => {
     mount();
     await screen.findByRole("option", { name: "Beta" });
 
-    // jsdom lays nothing out, so the list measures zero high and is at its end
-    // by the same arithmetic a browser scrolled to the bottom satisfies.
     fireEvent.scroll(screen.getByRole("listbox"));
 
     expect(
@@ -1663,8 +1611,6 @@ describe("GlossaryDictionary", () => {
     fireEvent.click(screen.getByRole("button", { name: "Read more terms" }));
     await screen.findByRole("option", { name: "Delta" });
 
-    // Rows arrive after the ones held, and the peek is keyed by term rather than
-    // by row, so neither the cursor nor the definition beside it moves.
     expect(field).toHaveAttribute("aria-activedescendant", "glossary-option-1");
     expect(screen.getByRole("option", { name: "Beta" })).toHaveAttribute(
       "aria-selected",
@@ -1698,8 +1644,6 @@ describe("GlossaryDictionary", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getAllByRole("option")).toHaveLength(2);
-    // The page it failed on is still the page it would ask for, so the offer
-    // stands as the way to try again.
     expect(
       screen.getByRole("button", { name: "Read more terms" }),
     ).toBeInTheDocument();
@@ -1734,12 +1678,8 @@ describe("GlossaryDictionary", () => {
     fireEvent.scroll(list);
     fireEvent.scroll(list);
 
-    // jsdom lays nothing out, so every gesture reads as the end of the box the
-    // way a scrolled list does. The request goes out from the handler itself, so
-    // a re-issued page is already recorded here.
     expect(attempts()).toHaveLength(1);
 
-    // The offer is the way to try it again, and asking through it asks once.
     fireEvent.click(screen.getByRole("button", { name: "Read more terms" }));
     await waitFor(() => expect(attempts()).toHaveLength(2));
   });
@@ -1765,8 +1705,6 @@ describe("GlossaryDictionary", () => {
           };
         }
         firstPageReads += 1;
-        // A term filed ahead of Alpha between the two reads, so the first page
-        // ends one term earlier and hands out a boundary of its own.
         return firstPageReads === 1
           ? {
               terms: [
@@ -1797,9 +1735,6 @@ describe("GlossaryDictionary", () => {
     fireEvent(window, new Event("focus"));
     await screen.findByRole("option", { name: "Aardvark" });
 
-    // Gamma and Delta were read from a boundary this first page does not hand
-    // out, so they are rows of an order that no longer holds; keeping them would
-    // show a listing no request ever answered with.
     await waitFor(() =>
       expect(screen.getAllByRole("option").map((row) => row.textContent)).toEqual(
         ["Aardvark", "Alpha"],
@@ -1843,9 +1778,6 @@ describe("GlossaryDictionary", () => {
     fireEvent(window, new Event("focus"));
     await screen.findByText("unavailable: daemon is down");
 
-    // A listing on screen is not owed to the request that refreshed it: the
-    // failure is stated beside the terms already read rather than in place of
-    // them, which would take the whole list away for the duration of an outage.
     expect(screen.getAllByRole("option").map((row) => row.textContent)).toEqual([
       "Alpha",
       "Beta",
@@ -1872,7 +1804,6 @@ describe("GlossaryDictionary", () => {
         }
         if (url.pathname === "/api/glossary/terms") {
           if (url.searchParams.get("after") === "past-beta") {
-            // Left in flight, so the request outlives the listing that asked.
             return new Promise<Response>((resolve) => {
               releaseSecondPage = () =>
                 resolve(
@@ -1912,9 +1843,6 @@ describe("GlossaryDictionary", () => {
     surface.showMode("study");
     await screen.findByRole("option", { name: /^One/ });
 
-    // The flight belongs to the listing it was started for, so the listing that
-    // replaced it is not reported as mid-continuation and its own way onward is
-    // one the reader can take.
     expect(screen.getByRole("button", { name: "Read more terms" })).toBeEnabled();
 
     releaseSecondPage();
@@ -1929,8 +1857,6 @@ describe("GlossaryDictionary", () => {
           total: 1,
           has_more: false,
         },
-        // Ranked, so the page carries a total and a cut but no position: two of
-        // nine matches, with no token to ask for the seven behind them.
         "/api/glossary/search": {
           terms: [
             term("notes/e.org::0", "Entropy"),
@@ -1988,8 +1914,6 @@ describe("GlossaryDictionary", () => {
     surface.showMode("browse");
     await screen.findByRole("option", { name: "Beta" });
 
-    // The pages belong to the listing they were read from, so coming back reads
-    // it from its first page rather than restoring rows read under the other.
     expect(screen.getAllByRole("option")).toHaveLength(2);
   });
 
@@ -2026,14 +1950,27 @@ describe("GlossaryDictionary", () => {
     expect(
       await screen.findByRole("option", { name: /^Three/ }),
     ).toBeInTheDocument();
-    // The token is echoed rather than composed: the listing that minted it is
-    // the only one that can read it back.
     expect(asked(fetch)).toContain("/api/glossary/due?limit=200&after=past-two");
   });
 
-  it("keeps the pages read when a filter narrows the due list", async () => {
+  it("starts a filtered due listing and keeps its query on continuation", async () => {
     const fetch = pagedFetch((url) => {
       if (url.pathname === "/api/glossary/due") {
+        if (url.searchParams.get("q") === "entrop") {
+          return url.searchParams.get("after") === "past-entropy"
+            ? {
+                terms: [term("notes/loss.org::0", "Entropic loss")],
+                total: 2,
+                has_more: false,
+                next_position: null,
+              }
+            : {
+                terms: [term("notes/entropy.org::0", "Entropy")],
+                total: 2,
+                has_more: true,
+                next_position: "past-entropy",
+              };
+        }
         return url.searchParams.get("after") === "past-prior"
           ? {
               terms: [term("notes/loss.org::0", "Entropic loss")],
@@ -2062,21 +1999,27 @@ describe("GlossaryDictionary", () => {
     await screen.findByRole("option", { name: /^Entropic loss/ });
 
     fireEvent.input(
-      screen.getByRole("combobox", { name: "Filter the terms due for review" }),
+      screen.getByRole("combobox", { name: "Search due terms" }),
       { target: { value: "entrop" } },
     );
 
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("option", { name: /^Prior/ }),
-      ).not.toBeInTheDocument(),
-    );
-    // The filter is over the rows the surface holds, second page included, and
-    // asks the index for nothing: narrowing is not a re-read.
     expect(
-      screen.getByRole("option", { name: /^Entropic loss/ }),
+      await screen.findByRole("option", { name: /^Entropy/ }),
     ).toBeInTheDocument();
-    expect(asked(fetch).filter((url) => url.includes("/api/glossary/due"))).toHaveLength(2);
+    expect(
+      screen.queryByRole("option", { name: /^Prior/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: /^Entropic loss/ }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Read more terms" }));
+    expect(
+      await screen.findByRole("option", { name: /^Entropic loss/ }),
+    ).toBeInTheDocument();
+    expect(asked(fetch)).toContain(
+      "/api/glossary/due?q=entrop&limit=200&after=past-entropy",
+    );
   });
 
   it("opens the term the address names, marked in the list", async () => {
@@ -2130,8 +2073,6 @@ describe("GlossaryDictionary", () => {
     mount({ termUrl });
     await screen.findByRole("option", { name: "Beta" });
 
-    // The first row is peeked so the pane is never blank, which is a default
-    // rather than a choice: only a term the reader reached is worth an address.
     expect(termUrl.writes).toEqual([]);
 
     fireEvent.mouseEnter(screen.getByRole("option", { name: "Beta" }));
@@ -2171,12 +2112,114 @@ describe("GlossaryDictionary", () => {
     fireEvent.input(screen.getByRole("combobox"), { target: { value: "gamma" } });
     const gamma = await screen.findByRole("option", { name: "Gamma" });
 
-    // The search took the addressed row away and the first row stood in for it.
-    // An address left naming the row that went is read as naming the definition
-    // beside it, which is a term the reader never asked for.
     expect(gamma).toHaveAttribute("aria-selected", "true");
     expect(termUrl.read()).toBe("notes/g.org::0");
     expect(termUrl.writes).toEqual(["notes/b.org::0", "notes/g.org::0"]);
+  });
+
+  it("leaves the selection where it is when a row arrives under a resting cursor", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/glossary/terms": {
+          terms: [
+            term("notes/a.org::0", "Alpha"),
+            term("notes/b.org::0", "Beta"),
+          ],
+          total: 2,
+          has_more: false,
+        },
+        "/api/note/context": contextFor("notes/b.org::0", "Beta", "Beta body."),
+      }),
+    );
+    const termUrl = memoryTermUrl();
+
+    mount({ termUrl });
+    await screen.findByRole("option", { name: "Beta" });
+
+    const resting = { clientX: 40, clientY: 120 };
+    fireEvent.mouseEnter(screen.getByRole("option", { name: "Beta" }), resting);
+    expect(termUrl.writes).toEqual(["notes/b.org::0"]);
+
+    fireEvent.mouseEnter(screen.getByRole("option", { name: "Alpha" }), resting);
+
+    expect(screen.getByRole("option", { name: "Beta" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(termUrl.writes).toEqual(["notes/b.org::0"]);
+  });
+
+  it("selects the row the reader moves the cursor onto", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/glossary/terms": {
+          terms: [
+            term("notes/a.org::0", "Alpha"),
+            term("notes/b.org::0", "Beta"),
+          ],
+          total: 2,
+          has_more: false,
+        },
+        "/api/note/context": contextFor("notes/a.org::0", "Alpha", "Alpha body."),
+      }),
+    );
+    const termUrl = memoryTermUrl();
+
+    mount({ termUrl });
+    await screen.findByRole("option", { name: "Beta" });
+
+    fireEvent.mouseEnter(screen.getByRole("option", { name: "Beta" }), {
+      clientX: 40,
+      clientY: 148,
+    });
+    fireEvent.mouseMove(screen.getByRole("option", { name: "Beta" }), {
+      clientX: 40,
+      clientY: 140,
+    });
+    fireEvent.mouseEnter(screen.getByRole("option", { name: "Alpha" }), {
+      clientX: 40,
+      clientY: 120,
+    });
+
+    expect(screen.getByRole("option", { name: "Alpha" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(termUrl.writes).toEqual(["notes/b.org::0", "notes/a.org::0"]);
+  });
+
+  it("takes a hover the pointer returns to after leaving the list", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/glossary/terms": {
+          terms: [
+            term("notes/a.org::0", "Alpha"),
+            term("notes/b.org::0", "Beta"),
+          ],
+          total: 2,
+          has_more: false,
+        },
+        "/api/note/context": contextFor("notes/a.org::0", "Alpha", "Alpha body."),
+      }),
+    );
+    const termUrl = memoryTermUrl();
+
+    mount({ termUrl });
+    await screen.findByRole("option", { name: "Beta" });
+
+    const resting = { clientX: 40, clientY: 120 };
+    fireEvent.mouseEnter(screen.getByRole("option", { name: "Beta" }), resting);
+    fireEvent.mouseLeave(screen.getByRole("listbox"), resting);
+    fireEvent.mouseEnter(screen.getByRole("option", { name: "Alpha" }), resting);
+
+    expect(screen.getByRole("option", { name: "Alpha" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(termUrl.writes).toEqual(["notes/b.org::0", "notes/a.org::0"]);
   });
 
   it("states an address naming no term and leaves the list usable", async () => {
@@ -2214,8 +2257,6 @@ describe("GlossaryDictionary", () => {
     expect(
       await screen.findByText("No glossary term is named notes/gone.org::0."),
     ).toBeInTheDocument();
-    // No row stands in for the term the address named: a first term shown under
-    // someone else's address is a definition the reader would take for that one.
     expect(screen.getByRole("option", { name: "Alpha" })).toHaveAttribute(
       "aria-selected",
       "false",
@@ -2256,11 +2297,10 @@ describe("GlossaryDictionary", () => {
     mount({ termUrl: memoryTermUrl("notes/z.org::0") });
     await screen.findByRole("option", { name: "Alpha" });
 
-    // The index holds the term, so it is read and peeked; what the list says is
-    // why the reader cannot see it among the rows, which is a different fact
-    // from the term not existing.
     expect(
-      await screen.findByText("Zeta is not among the terms read so far."),
+      await screen.findByText(
+        "Zeta was opened from its link and is outside the current page.",
+      ),
     ).toBeInTheDocument();
     expect(
       await screen.findByRole("heading", { name: "Zeta", level: 2 }),
@@ -2282,15 +2322,19 @@ describe("GlossaryDictionary", () => {
     );
 
     mount({ termUrl: memoryTermUrl("notes/d.org::0") });
-    await screen.findByText("Delta is not among the terms read so far.");
+    await screen.findByText(
+      "Delta was opened from its link and is outside the current page.",
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Read more terms" }));
 
-    const delta = await screen.findByRole("option", { name: "Delta" });
-    expect(delta).toHaveAttribute("aria-selected", "true");
-    expect(
-      screen.queryByText(/is not among the terms read so far\./),
-    ).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByText(/was opened from its link/)).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("option", { name: "Delta" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 
   it("leaves the addressed term where it is when the mode changes", async () => {
@@ -2303,15 +2347,12 @@ describe("GlossaryDictionary", () => {
     surface.showMode("study");
     await screen.findByRole("option", { name: /^One/ });
 
-    // A mode change pushes a history entry, and the surface reports the mode
-    // before the entry is pushed: clearing the term here strips it from the
-    // entry being left, so the way back lands on a glossary naming nothing.
     expect(termUrl.read()).toBe("notes/b.org::0");
     expect(termUrl.writes).toEqual([]);
-    // The due listing does not hold it, which is a fact about the listing rather
-    // than grounds for standing another term under its address.
     expect(
-      await screen.findByText("Beta is not among the terms read so far."),
+      await screen.findByText(
+        "Beta was opened from its link and is outside the current page.",
+      ),
     ).toBeInTheDocument();
   });
 
@@ -2326,8 +2367,6 @@ describe("GlossaryDictionary", () => {
     await screen.findByRole("option", { name: /^One/ });
     surface.showMode("browse");
 
-    // The address is where the open term lives, so the listing that comes back
-    // reads it again rather than starting from its first row.
     const beta = await screen.findByRole("option", { name: "Beta" });
     expect(beta).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("option", { name: "Alpha" })).toHaveAttribute(

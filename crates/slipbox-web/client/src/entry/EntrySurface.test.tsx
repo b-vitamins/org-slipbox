@@ -146,6 +146,10 @@ describe("EntrySurface", () => {
     );
     expect(screen.getByText(/560 notes/)).toBeInTheDocument();
     expect(screen.queryByText(/1036 notes/)).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox")).toHaveAttribute(
+      "placeholder",
+      "What are you looking for?",
+    );
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
 
@@ -272,8 +276,6 @@ describe("EntrySurface", () => {
 
     const excerpt = document.querySelector(".entry-result__snippet");
     expect(excerpt?.querySelector("mark")?.textContent).toBe("posterior");
-    // The row clamps to two lines of about 84 characters, so the match has to
-    // stand inside that much text rather than past the clip.
     expect(excerpt?.textContent?.startsWith("…")).toBe(true);
     expect(excerpt?.textContent?.indexOf("posterior")).toBeLessThan(85);
   });
@@ -825,7 +827,7 @@ describe("EntrySurface", () => {
     fireEvent.input(screen.getByRole("combobox"), { target: { value: "note" } });
     await screen.findAllByRole("option");
 
-    expect(await screen.findByText(/Showing the first 20 matches/)).toBeInTheDocument();
+    expect(await screen.findByText(/Top 20 ranked matches/)).toBeInTheDocument();
   });
 
   it("does not show the cap notice for a partial page of results", async () => {
@@ -842,7 +844,7 @@ describe("EntrySurface", () => {
     fireEvent.input(screen.getByRole("combobox"), { target: { value: "note" } });
     await screen.findAllByRole("option");
 
-    expect(screen.queryByText(/Showing the first/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Top 20 ranked/)).not.toBeInTheDocument();
   });
 
   it("opens a random note from the surprise-me control", async () => {
@@ -988,12 +990,8 @@ describe("EntrySurface", () => {
     const main = container.querySelector("main");
 
     expect(main).not.toHaveAttribute("aria-live");
-    // The surface announced nothing once the region moved off it, so it reports
-    // no busy state either.
     expect(main).not.toHaveAttribute("aria-busy");
 
-    // Placed and empty: a region announces nothing it already held when it
-    // arrived, so it cannot be mounted with the first answer in it.
     const region = screen.getByRole("status");
     expect(region.textContent).toBe("");
 
@@ -1072,7 +1070,7 @@ describe("EntrySurface", () => {
 
     await waitFor(() =>
       expect(screen.getByRole("status").textContent).toBe(
-        "Showing the first 20 matches.",
+        "Top 20 ranked matches.",
       ),
     );
     const more = document.querySelector(".entry-status--more")?.textContent;
@@ -1099,8 +1097,6 @@ describe("EntrySurface", () => {
     const observer = new MutationObserver((records) => changes.push(...records));
     observer.observe(region, { childList: true, characterData: true, subtree: true });
 
-    // A refocus re-reads the same term and answers it with the same notes, which
-    // re-renders the list. Nothing in the region may be rewritten.
     fireEvent(window, new Event("visibilitychange"));
     fireEvent(window, new Event("focus"));
     await flush();
@@ -1124,8 +1120,6 @@ describe("EntrySurface", () => {
     );
 
     render(() => <EntrySurface onOpen={() => {}} queryUrl={memoryQueryUrl()} />);
-    // Taken while the read is still out, so the element the failure lands in is
-    // the one that was already there to announce it.
     const region = screen.getByRole("status");
 
     await waitFor(() =>
@@ -1212,6 +1206,80 @@ describe("EntrySurface", () => {
 
     expect(opened).toEqual(["notes/b.org::0"]);
     expect(cursorHistory.writes).toEqual(["notes/b.org::0"]);
+  });
+
+  it("takes a hover from the pointer's own move, not from a row arriving under it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/status": status,
+        "/api/search/content": {
+          hits: [
+            hit(node("notes/a.org::0", "First", [])),
+            hit(node("notes/b.org::0", "Second", [])),
+          ],
+        },
+      }),
+    );
+
+    render(() => (
+      <EntrySurface
+        onOpen={() => {}}
+        debounceMs={0}
+        queryUrl={memoryQueryUrl("note")}
+        cursorHistory={memoryCursorHistory()}
+      />
+    ));
+
+    const second = await screen.findByRole("option", { name: /Second/ });
+    const resting = { clientX: 30, clientY: 200 };
+    fireEvent.mouseEnter(second, resting);
+    expect(second).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.mouseEnter(screen.getByRole("option", { name: /First/ }), resting);
+
+    expect(second).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("option", { name: /First/ })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
+  });
+
+  it("takes a hover the pointer returns to after leaving the list", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/status": status,
+        "/api/search/content": {
+          hits: [
+            hit(node("notes/a.org::0", "First", [])),
+            hit(node("notes/b.org::0", "Second", [])),
+          ],
+        },
+      }),
+    );
+
+    render(() => (
+      <EntrySurface
+        onOpen={() => {}}
+        debounceMs={0}
+        queryUrl={memoryQueryUrl("note")}
+        cursorHistory={memoryCursorHistory()}
+      />
+    ));
+
+    const second = await screen.findByRole("option", { name: /Second/ });
+    const resting = { clientX: 30, clientY: 200 };
+    fireEvent.mouseEnter(second, resting);
+    expect(second).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.mouseLeave(screen.getByRole("listbox"), resting);
+    fireEvent.mouseEnter(screen.getByRole("option", { name: /First/ }), resting);
+
+    expect(screen.getByRole("option", { name: /First/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 
   it("restores the recorded cursor as the highlight the results arrive with", async () => {

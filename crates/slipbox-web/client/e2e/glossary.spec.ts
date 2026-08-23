@@ -1,11 +1,3 @@
-/*
- * The glossary dictionary's peek pane as a navigable surface.
- *
- * The peek renders a definition with the same renderer the reading column uses,
- * so its links are real anchors; what a real browser adds over jsdom is the
- * hoverless pointer, whose tap takes a hover's place in the grammar and so has
- * to be honored on a surface carrying no preview card.
- */
 
 import { expect, test } from "@playwright/test";
 
@@ -28,10 +20,8 @@ const WORLD: FixtureWorld = {
   ],
 };
 
-/** The definition the sole marked term peeks on arrival. */
 const DEFINITION = "A measure of uncertainty, dual to";
 
-/** Terms the fixture serves per page, and a world holding more than one page. */
 const PAGE = 25;
 const LONG: FixtureWorld = {
   notes: Array.from({ length: 30 }, (_, index) => ({
@@ -42,7 +32,16 @@ const LONG: FixtureWorld = {
   })),
 };
 
-/** The `min-height` the stylesheet gives a control under a coarse pointer. */
+const DUE_LONG: FixtureWorld = {
+  notes: Array.from({ length: 30 }, (_, index) => ({
+    key: `file:due-${index + 1}.org`,
+    title: index === 27 ? "Needle term" : `Due term ${index + 1}`,
+    body: `Definition ${index + 1}.`,
+    glossaryStatus: "confirmed" as const,
+    srDue: "2026-01-01",
+  })),
+};
+
 const TOUCH_TARGET = 44;
 
 test.describe("the glossary peek", () => {
@@ -56,8 +55,6 @@ test.describe("the glossary peek", () => {
 
     await page.getByRole("link", { name: "the prior" }).click();
 
-    // The glossary is an entry surface, so opening a note replaces it outright
-    // rather than stacking a column beside the definition.
     await expect(page.getByRole("heading", { name: "Prior" })).toBeVisible();
     await expect(page.getByText("What the model believes")).toBeVisible();
     await expect(page.locator(".glossary")).toHaveCount(0);
@@ -69,9 +66,6 @@ test.describe("the glossary peek", () => {
 
     await page.getByRole("link", { name: "the prior" }).hover();
 
-    // Opening replaces this surface synchronously with the hover that asked for
-    // it, so a glossary still mounted after the hover resolves is one that
-    // committed to nothing. No card either: the preview is the spine's chrome.
     await expect(page.locator(".glossary")).toBeVisible();
     await expect(page.locator(".glance-card")).toHaveCount(0);
   });
@@ -85,8 +79,6 @@ test.describe("the glossary peek", () => {
 
     await control.click();
 
-    // The peek heads its definition with an h2; the reading column heads a note
-    // with an h1, so the level is what separates the two surfaces here.
     await expect(
       page.getByRole("heading", { name: "Entropy", level: 1 }),
     ).toBeVisible();
@@ -121,7 +113,6 @@ test.describe("a glossary longer than one page", () => {
 
     await expect(page.getByRole("option", { name: "Term 30" })).toBeVisible();
     await expect(page.getByRole("option")).toHaveCount(30);
-    // The listing is whole, so it claims no remainder and offers no way onward.
     await expect(page.getByText("terms read.")).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: "Read more terms" }),
@@ -134,8 +125,6 @@ test.describe("a glossary longer than one page", () => {
     await page.goto("/?view=glossary");
     await expect(page.getByRole("option", { name: "Term 25" })).toBeVisible();
 
-    // The rows overflow their box, which is the geometry this drives: the list
-    // scrolls, the page does not, so the page's end would never come.
     const list = page.locator(".glossary-terms");
     expect(
       await list.evaluate((box) => box.scrollHeight - box.clientHeight),
@@ -149,12 +138,7 @@ test.describe("a glossary longer than one page", () => {
 
   test("holds the peeked term across the page that follows it", async ({ page }) => {
     await page.goto("/?view=glossary");
-    // Marked from the keyboard and continued by scrolling the box, so the pointer
-    // never rests over the list: rows arriving move the ones under a resting
-    // pointer, and hovering one is a selection like any other. Named exactly,
-    // since a role name matches on a substring and the page to come holds Term 30.
     const marked = page.getByRole("option", { name: "Term 3", exact: true });
-    // The first row is peeked on arrival, so two rows down is the third.
     const field = page.getByRole("combobox");
     await field.press("ArrowDown");
     await field.press("ArrowDown");
@@ -165,12 +149,47 @@ test.describe("a glossary longer than one page", () => {
       .evaluate((box) => box.scrollTo(0, box.scrollHeight));
     await expect(page.getByRole("option", { name: "Term 30" })).toBeVisible();
 
-    // Rows arrive after the ones held and the peek is keyed by term, so the
-    // definition beside the list is still the one the reader was reading.
     await expect(marked).toHaveAttribute("aria-selected", "true");
     await expect(
       page.getByRole("heading", { name: "Term 3", level: 2, exact: true }),
     ).toBeVisible();
+  });
+
+  test("takes a hover from the pointer's own move, not from rows moving under it", async ({
+    page,
+  }) => {
+    await page.goto("/?view=glossary");
+    const third = page.getByRole("option", { name: "Term 3", exact: true });
+    await expect(third).toBeVisible();
+
+    await third.hover();
+    await expect(third).toHaveAttribute("aria-selected", "true");
+    expect(new URL(page.url()).searchParams.get("term")).toBe("file:term-3.org");
+
+    await page.getByRole("combobox").press("q");
+    await expect(page.getByText("Searching needs a word")).toBeVisible();
+
+    await expect(third).toHaveAttribute("aria-selected", "true");
+    expect(new URL(page.url()).searchParams.get("term")).toBe("file:term-3.org");
+
+    const fifth = page.getByRole("option", { name: "Term 5", exact: true });
+    await fifth.hover();
+    await expect(fifth).toHaveAttribute("aria-selected", "true");
+    expect(new URL(page.url()).searchParams.get("term")).toBe("file:term-5.org");
+  });
+});
+
+test.describe("a due list longer than one page", () => {
+  test("search reaches a match beyond the first unfiltered page", async ({ page }) => {
+    await mountApi(page, DUE_LONG);
+    await page.goto("/?view=review");
+    await expect(page.getByRole("option", { name: /^Due term 25/ })).toBeVisible();
+    await expect(page.getByRole("option", { name: "Needle term" })).toHaveCount(0);
+
+    await page.getByRole("combobox", { name: "Search due terms" }).fill("needle");
+
+    await expect(page.getByRole("option", { name: /^Needle term/ })).toBeVisible();
+    await expect(page.getByText("1 due term matches, in schedule order.")).toBeVisible();
   });
 });
 
@@ -182,8 +201,6 @@ test.describe("the glossary term in the address", () => {
   test("a copied address reopens the definition it names", async ({ page }) => {
     await page.goto("/?view=glossary&term=file%3Aterm-3.org");
 
-    // Named exactly: a role name matches on a substring, and this list holds a
-    // Term 30 the pattern would otherwise reach too.
     const marked = page.getByRole("option", { name: "Term 3", exact: true });
     await expect(marked).toHaveAttribute("aria-selected", "true");
     await expect(
@@ -202,10 +219,6 @@ test.describe("the glossary term in the address", () => {
     await marked.click();
     await expect(page.getByText("Definition 3.")).toBeVisible();
 
-    // The address carries the term beside the surface's own parameter rather
-    // than in place of it, and replaces the entry rather than adding one: the
-    // way back out of the glossary is the way in, not a walk back through every
-    // term peeked along the way.
     expect(new URL(page.url()).search).toBe(
       "?view=glossary&term=file%3Aterm-3.org",
     );
@@ -227,10 +240,7 @@ test.describe("the glossary term in the address", () => {
 
     await page.getByRole("button", { name: "Notes" }).click();
 
-    // The term names a row of a term listing, so it goes off the address of a
-    // surface that has none. Off the entry being pushed, not the one being left:
-    // the way back is a glossary still showing the definition it was showing.
-    await expect(page.getByRole("combobox", { name: "Search notes" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Search the slipbox" })).toBeVisible();
     expect(new URL(page.url()).search).toBe("");
 
     await page.goBack();
@@ -244,24 +254,23 @@ test.describe("the glossary term in the address", () => {
   }) => {
     await page.goto("/?view=glossary&term=file%3Aterm-28.org");
 
-    // Off the first page, so the list cannot mark it: the term is read on its
-    // own and the list says why the row is nowhere to be found.
     await expect(page.getByText("Definition 28.")).toBeVisible();
+    const marked = page.getByRole("option", { name: "Term 28", exact: true });
+    await expect(marked).toBeVisible();
+    await expect(marked).toHaveAttribute("aria-selected", "true");
     await expect(
-      page.getByText("Term 28 is not among the terms read so far."),
+      page.getByText(
+        "Term 28 was opened from its link and is outside the current page.",
+      ),
     ).toBeVisible();
 
-    // Scrolled rather than clicked, keeping the pointer off the list: the rows the
-    // page brings move the ones a resting pointer is over, and hovering a row is
-    // a selection, which would be this test marking a term of its own.
     await page
       .locator(".glossary-terms")
       .evaluate((box) => box.scrollTo(0, box.scrollHeight));
 
-    const marked = page.getByRole("option", { name: "Term 28", exact: true });
     await expect(marked).toHaveAttribute("aria-selected", "true");
     await expect(
-      page.getByText("is not among the terms read so far."),
+      page.getByText("was opened from its link and is outside the current page."),
     ).toHaveCount(0);
   });
 
@@ -285,8 +294,6 @@ test.describe("the glossary term in the address", () => {
 });
 
 test.describe("the glossary peek under a hoverless pointer", () => {
-  // Without a touchscreen the browser reports `hover: hover`, and the tap below
-  // would be an ordinary click taking the committing path instead.
   test.use({ hasTouch: true });
 
   test.beforeEach(async ({ page }) => {
@@ -301,9 +308,6 @@ test.describe("the glossary peek under a hoverless pointer", () => {
 
     await page.getByRole("link", { name: "the prior" }).tap();
 
-    // In the reading column a tap raises a card carrying `Open` and `Replace`.
-    // This surface mounts no card, so a tap that only glanced would be a link a
-    // finger could never follow.
     await expect(page.locator(".glance-card")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Prior" })).toBeVisible();
   });
@@ -312,9 +316,6 @@ test.describe("the glossary peek under a hoverless pointer", () => {
     await page.goto("/?view=glossary");
     await expect(page.getByText(DEFINITION)).toBeVisible();
 
-    // A coarse pointer raises `--header-min-height` to what the bar then
-    // measures, so this is the branch where the pane's `calc(viewport - token)`
-    // has the taller header to subtract.
     const geometry = await page.evaluate(() => {
       const bottomOf = (selector: string): number =>
         (document.querySelector(selector) as HTMLElement).getBoundingClientRect()
@@ -336,8 +337,6 @@ test.describe("the glossary peek under a hoverless pointer", () => {
     await page.goto("/?view=glossary");
     await expect(page.getByText(DEFINITION)).toBeVisible();
 
-    // The floor comes off `min-height`, which an inline box ignores, so this
-    // control has to be laid out as one that does not.
     const box = await page
       .getByRole("link", { name: "Open in reader" })
       .boundingBox();

@@ -38,9 +38,6 @@ describe("encodeTerm", () => {
   });
 
   it("keeps the rest of the query when naming the term", () => {
-    // The surface mode and the search term live in the same query and are owned
-    // from the other side, so a whole-URL write would drop them: naming a term
-    // would take the reader out of the glossary.
     expect(encodeTerm("notes/a.org::0", "?view=glossary&q=entro")).toBe(
       "?view=glossary&q=entro&term=notes%2Fa.org%3A%3A0",
     );

@@ -83,7 +83,7 @@ test.describe("typeset previews", () => {
   // arrives with Org markup still in it.
   test("a search excerpt typesets its math and unwraps its links", async ({ page }) => {
     await page.goto("/");
-    await page.getByPlaceholder("Search notes").fill("transforms");
+    await page.getByPlaceholder("What are you looking for?").fill("transforms");
 
     const excerpt = page.locator(".entry-result__snippet").first();
     await expect(excerpt).toBeVisible();
@@ -94,7 +94,7 @@ test.describe("typeset previews", () => {
 
   test("a search excerpt shows a link's words rather than its id", async ({ page }) => {
     await page.goto("/");
-    await page.getByPlaceholder("Search notes").fill("identity");
+    await page.getByPlaceholder("What are you looking for?").fill("identity");
 
     const excerpt = page.locator(".entry-result__snippet").first();
     await expect(excerpt).toBeVisible();

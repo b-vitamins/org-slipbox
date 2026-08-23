@@ -476,7 +476,7 @@ test.describe("the touch grammar", () => {
       page.getByRole("button", { name: /^Color scheme:/ }),
       page.getByRole("button", { name: "Notes" }),
       page.getByRole("button", { name: "Glossary" }),
-      page.getByRole("combobox", { name: "Search notes" }),
+      page.getByRole("combobox", { name: "Search the slipbox" }),
       page.getByRole("button", { name: "Surprise me" }),
     ]) {
       expect(await heightOf(control)).toBeGreaterThanOrEqual(TOUCH_TARGET);

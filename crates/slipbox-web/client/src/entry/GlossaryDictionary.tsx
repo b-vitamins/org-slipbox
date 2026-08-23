@@ -1,15 +1,3 @@
-/*
- * The glossary dictionary: an `aria-activedescendant` term list beside a peek of
- * the highlighted term, in either of two modes, browse (every term, or a search's
- * matches) or study (the terms due today). Mode arrives as a prop and a change is
- * reported up to the frame that mirrors it to `?view=`; the search goes to `?q=`
- * and the open term to `?term=`, so a definition on screen has an address.
- *
- * One field serves both listings and is named for the one it is over: in browse
- * mode a query is a search of the glossary index, in study mode it narrows the due
- * terms the surface already holds.
- */
-
 import {
   ErrorBoundary,
   For,
@@ -19,6 +7,7 @@ import {
   createSignal,
   on,
   onCleanup,
+  onMount,
   type Component,
 } from "solid-js";
 
@@ -27,6 +16,7 @@ import type { GlossaryTermsResult, NodeRecord } from "../api/types.js";
 import { createReadingResource } from "../data/create-reading-resource.js";
 import { WINDOW_SCHEDULER } from "../data/scheduler.js";
 import { useDocumentTitle } from "../dom/document-title.js";
+import { createHoverMotion } from "../dom/hover-motion.js";
 import { revealOption } from "../dom/scroll-into-view.js";
 import { GlossaryPeek } from "./GlossaryPeek.jsx";
 import { browserQueryUrl, type QueryUrl } from "./query-url.js";
@@ -36,42 +26,13 @@ import { dueStanding } from "./study-facts.js";
 import { browserTermUrl, type TermUrl } from "./term-url.js";
 import "./glossary.css";
 
-/** How many terms one page of a listing or search holds. */
 const TERM_LIMIT = 200;
-/** Stable id root for listbox options, so `aria-activedescendant` can target them. */
 const OPTION_ID = "glossary-option";
-/** How near the end of the list, in px, asks for the page after it. */
 const CONTINUE_WITHIN = 48;
 
-/** The two list modes: browse the whole glossary, or study what's due. */
 export type GlossaryMode = "browse" | "study";
 
-/**
- * The rows of `listed` a filter leaves standing, matched as one case-folded
- * substring of a headword or one of its synonyms. That is the text a listing
- * carries: a definition's body is the index's to search, and the index answers no
- * search behind a due filter, so a term it returned could well not be due.
- */
-function narrowToFilter(
-  listed: NodeRecord[],
-  filter: string | null,
-): NodeRecord[] {
-  if (filter === null) {
-    return listed;
-  }
-  const needle = filter.toLocaleLowerCase();
-  return listed.filter((row) =>
-    [row.title, ...row.aliases].some((text) =>
-      text.toLocaleLowerCase().includes(needle),
-    ),
-  );
-}
-
-/**
- * `rows` with the first appearance of each key kept. A page read after the first
- * page was re-read can repeat a term the surface already holds, and two rows
- * resolving to one peek is a list a reader cannot walk.
- */
+/** Deduplicate page boundaries while preserving listing order. */
 function firstOfEachKey(rows: NodeRecord[]): NodeRecord[] {
   const seen = new Set<string>();
   return rows.filter((row) => {
@@ -83,11 +44,9 @@ function firstOfEachKey(rows: NodeRecord[]): NodeRecord[] {
   });
 }
 
-/** What a first page answered with, and the listing it answered for. */
 interface KeptPage {
   readonly listing: string;
   readonly rows: NodeRecord[];
-  /** The position it handed out, which the pages after it were read from. */
   readonly boundary: string | null;
 }
 
@@ -101,15 +60,9 @@ function describeError(error: unknown): string {
   return "the glossary is unreachable";
 }
 
-/**
- * The definition pane's standing explanation while the list beside it is empty.
- * Marking and grading both write to a note and this surface is read-only, so it
- * names the tools that write rather than offering a control.
- */
 const EmptyGlossary: Component<{
   mode: GlossaryMode;
   searched: boolean;
-  /** Whether terms are due and the filter in the box is what emptied the list. */
   filtered: boolean;
 }> = (props) => (
   <section class="glossary-empty">
@@ -141,9 +94,6 @@ const EmptyGlossary: Component<{
         </>
       }
     >
-      {/* Terms being due and none matching are different states, so the standing
-          explanation of how terms come due gives way to the filter's own account
-          rather than answering a question the reader did not ask. */}
       <Show
         when={props.filtered}
         fallback={
@@ -179,20 +129,11 @@ const EmptyGlossary: Component<{
 );
 
 export const GlossaryDictionary: Component<{
-  /**
-   * Open a note as a fresh reading root: a term by its slipbox key, or a note a
-   * definition links to by the reference that link carried.
-   */
   onOpen: (reference: string) => void;
-  /** Which list to show. Owned by the frame, which keeps it in the URL. */
   mode: GlossaryMode;
-  /** Report a mode the reader chose, for the owner to record and hand back. */
   onMode: (next: GlossaryMode) => void;
-  /** Debounce window (ms) before a keystroke becomes a live search term. */
   debounceMs?: number;
-  /** URL seam for the `?q=` term; defaults to the real address bar. */
   queryUrl?: QueryUrl;
-  /** URL seam for the `?term=` open term; defaults to the real address bar. */
   termUrl?: TermUrl;
 }> = (props) => {
   const queryUrl = props.queryUrl ?? browserQueryUrl();
@@ -206,27 +147,21 @@ export const GlossaryDictionary: Component<{
   const termUrl = props.termUrl ?? browserTermUrl();
 
   const mode = (): GlossaryMode => props.mode;
-  // The peek selection marks a term by key, not by row number; `active` resolves it
-  // against the terms on screen (see `markedIndex`). A restored address is a
-  // selection like any other, so it seeds the same signal.
+  const [detailOpen, setDetailOpen] = createSignal(termUrl.read() !== null);
+  const [narrow, setNarrow] = createSignal(window.innerWidth <= 800);
+  onMount(() => {
+    const update = (): void => {
+      setNarrow(window.innerWidth <= 800);
+    };
+    window.addEventListener("resize", update);
+    onCleanup(() => window.removeEventListener("resize", update));
+  });
   const [marked, setMarked] = createSignal<string | null>(termUrl.read());
-  /**
-   * The key the address arrived with, until a list holds it or the reader picks
-   * another row. A marked term no list holds is ordinarily a term a search or a
-   * re-read moved out of view, which the first row stands in for; one the reader
-   * asked for by name is not, and has to be answered for rather than replaced.
-   */
+  // Retain a deep-linked key until its list row or direct lookup resolves.
   const [fromAddress, setFromAddress] = createSignal<string | null>(
     termUrl.read(),
   );
 
-  // Keyed on the mode rather than set from the control's own handler, because the
-  // mode also changes from a reload or the back button. The address is where the
-  // open term lives, so the list that arrives is read against it again: the term
-  // is not cleared here, since a mode change pushes a history entry and the mode
-  // is reported before the push, which would strip the term from the entry being
-  // left instead of the one being pushed. The term goes off the URL a surface with
-  // no listing is pushed at, which is that surface's own encoding.
   createEffect(
     on(
       mode,
@@ -234,13 +169,12 @@ export const GlossaryDictionary: Component<{
         const named = termUrl.read();
         setMarked(named);
         setFromAddress(named);
+        setDetailOpen(named !== null);
       },
       { defer: true },
     ),
   );
 
-  // In browse mode an absent term is spelled `""`, which still fetches: a reading
-  // resource defers only on false, null, and undefined.
   const browsed = createReadingResource(
     () => (mode() === "browse" ? (search.term() ?? "") : false),
     (term) =>
@@ -249,54 +183,43 @@ export const GlossaryDictionary: Component<{
         : client.searchGlossary(term, { limit: TERM_LIMIT }),
   );
   const due = createReadingResource(
-    () => mode() === "study",
-    () => client.glossaryDue({ limit: TERM_LIMIT }),
+    () => (mode() === "study" ? (search.term() ?? "") : false),
+    (term) =>
+      client.glossaryDue({
+        query: term === "" ? undefined : term,
+        limit: TERM_LIMIT,
+      }),
   );
+  const [unfilteredDueTotal, setUnfilteredDueTotal] = createSignal<
+    number | null
+  >(null);
+  createEffect(() => {
+    if (mode() === "study" && search.term() === null) {
+      const result = due.ready();
+      if (typeof result?.total === "number") {
+        setUnfilteredDueTotal(result.total);
+      }
+    }
+  });
 
-  /** The first page of whichever listing the mode names. */
   const page = (): GlossaryTermsResult | undefined =>
     mode() === "study" ? due.ready() : browsed.ready();
 
-  // The pages read past the first. A reading resource holds one value per key, so
-  // a page read through it replaces the page before it instead of extending it;
-  // the pages the reader has walked to accumulate here.
   const [appended, setAppended] = createSignal<NodeRecord[]>([]);
-  /**
-   * Where the next page continues from: null once the listing is spent, and
-   * undefined while none has been continued yet, when the first page's own
-   * position is the one to echo.
-   */
   const [position, setPosition] = createSignal<string | null | undefined>(
     undefined,
   );
-  /**
-   * The listing a page is in flight for, or null when none is. Keyed, because one
-   * listing's flight says nothing about the listing that replaced it: read
-   * globally it would report the new list as mid-continuation and refuse to
-   * continue it.
-   */
   const [continuingListing, setContinuingListing] = createSignal<string | null>(
     null,
   );
   const [pageFailure, setPageFailure] = createSignal<unknown>(undefined);
-  /**
-   * The position a continuation failed at. The scrollport asks for the page after
-   * the rows on every gesture at its end, so a page that failed would go out
-   * again on each one; the offer below the list is the way to ask again.
-   */
+  // Suppress automatic retry storms; explicit retry remains available.
   const [failedPosition, setFailedPosition] = createSignal<string | null>(null);
 
-  /**
-   * Which listing is on screen. A change of it starts the pages over, since a
-   * position is minted per listing and rows read from one belong to no other. The
-   * due filter is not part of it: the field narrows rows already held, and a
-   * keystroke that threw those rows away would re-read the listing to narrow it.
-   */
   const listingKey = createMemo(() =>
-    mode() === "study" ? "due" : `browse:${search.term() ?? ""}`,
+    `${mode()}:${search.term() ?? ""}`,
   );
 
-  /** Forget every page read past the first, whose order no longer holds. */
   const startPagesOver = (): void => {
     setAppended([]);
     setPosition(undefined);
@@ -306,17 +229,10 @@ export const GlossaryDictionary: Component<{
 
   createEffect(on(listingKey, startPagesOver, { defer: true }));
 
-  /**
-   * What the first page last answered with. A listing on screen is not owed to the
-   * request that refreshed it, so these rows stand in for a re-read that failed;
-   * tagged with the listing, so rows of one never stand in another.
-   */
+  // Keep the last successful first page visible during a failed refresh.
   const [keptPage, setKeptPage] = createSignal<KeptPage | null>(null);
 
-  // A first page answering with another boundary is a listing that moved under the
-  // pages read past the old one: those rows belong to an order it no longer has,
-  // and holding them would show a list no request ever answered with. `on` runs
-  // its callback untracked, so the record it compares against is also its own.
+  // A changed first-page boundary invalidates every appended page.
   createEffect(
     on(page, (answered) => {
       if (answered === undefined) {
@@ -332,7 +248,6 @@ export const GlossaryDictionary: Component<{
     }),
   );
 
-  /** The first page's rows: the live page, or the ones kept over a failed re-read. */
   const firstRows = (): NodeRecord[] => {
     const answered = page();
     if (answered !== undefined) {
@@ -342,29 +257,15 @@ export const GlossaryDictionary: Component<{
     return kept !== null && kept.listing === listingKey() ? kept.rows : [];
   };
 
-  /** Every row read for the listing on screen, in the order its pages arrived. */
   const held = createMemo<NodeRecord[]>(() =>
     firstOfEachKey([...firstRows(), ...appended()]),
   );
 
-  // The due listing takes no query, so the field narrows the rows it answered with
-  // rather than asking for a narrower listing.
-  const dueShown = createMemo(() => narrowToFilter(held(), search.term()));
-
-  const terms = createMemo<NodeRecord[]>(() =>
-    mode() === "study" ? dueShown() : held(),
-  );
   const loading = (): boolean =>
     mode() === "study" ? due.loading() : browsed.loading();
   const failure = (): unknown =>
     mode() === "study" ? due.error() : browsed.error();
 
-  /** Whether terms are due and the filter is what left none of them showing. */
-  const filterHidDue = (): boolean =>
-    mode() === "study" && dueShown().length === 0 && held().length > 0;
-
-  // A page arriving with the addressed term in it settles the question, and the
-  // row takes over from here.
   createEffect(() => {
     const key = fromAddress();
     if (key !== null && held().some((row) => row.node_key === key)) {
@@ -372,11 +273,6 @@ export const GlossaryDictionary: Component<{
     }
   });
 
-  /**
-   * The addressed key while the pages read hold no row for it, which is what asks
-   * the index about it. Gated on the listing having answered: before that every
-   * key is unheld, and a term about to arrive in the first page needs no lookup.
-   */
   const addressUnheld = (): string | false => {
     const key = fromAddress();
     if (key === null || page() === undefined) {
@@ -385,22 +281,35 @@ export const GlossaryDictionary: Component<{
     return held().some((row) => row.node_key === key) ? false : key;
   };
 
-  // Either the term exists and is peeked from off the list, or the route refuses
-  // the key and the surface says so; both beat standing another term in its place.
   const addressed = createReadingResource(addressUnheld, (key) =>
     client.glossaryTerm(key),
   );
 
-  /**
-   * Whether this listing pages at all. Browse and due walk a stored order, so a
-   * position in it means the same thing on the next request; a search is ranked by
-   * relevance, which no stored key can pick up from, so the index mints no
-   * position for one and the whole answer is the one page.
-   */
+  const offList = (): NodeRecord | undefined =>
+    fromAddress() === null ? undefined : (addressed.ready()?.term ?? undefined);
+  const terms = createMemo<NodeRecord[]>(() => {
+    const addressedTerm = offList();
+    return addressedTerm === undefined
+      ? held()
+      : firstOfEachKey([addressedTerm, ...held()]);
+  });
+
+  createEffect(() => {
+    if (
+      narrow() &&
+      page() !== undefined &&
+      !loading() &&
+      failure() === undefined &&
+      terms().length === 0
+    ) {
+      setDetailOpen(true);
+    }
+  });
+
+  // Ranked browse search has no stable cursor; dictionary and due listings do.
   const continuable = (): boolean =>
     mode() === "study" || search.term() === null;
 
-  /** The token asking for the page after the ones held, or null when none does. */
   const nextPosition = (): string | null => {
     const advanced = position();
     if (advanced !== undefined) {
@@ -410,21 +319,13 @@ export const GlossaryDictionary: Component<{
     return first?.has_more ? (first.next_position ?? null) : null;
   };
 
-  /** Whether the listing holds terms the surface has not read. */
   const moreFollow = (): boolean =>
     continuable() ? nextPosition() !== null : (page()?.has_more ?? false);
 
-  /** Whether there is a page to ask for, which only a paged listing has. */
   const canContinue = (): boolean => continuable() && moreFollow();
 
-  /** Whether the listing on screen has a page of its own in flight. */
   const continuing = (): boolean => continuingListing() === listingKey();
 
-  /**
-   * How much of the listing the surface is holding, said only while it holds less
-   * than all of it. A search says as much and names the remedy it has instead of a
-   * continuation, rather than leaving a reader to work out which lists go on.
-   */
   const cutStatement = (): string | null => {
     const total = page()?.total;
     if (typeof total !== "number" || !moreFollow()) {
@@ -435,11 +336,6 @@ export const GlossaryDictionary: Component<{
       : `${held().length} of ${total} matches shown; a narrower search reaches the rest.`;
   };
 
-  /**
-   * Read the page after the ones held and keep it beside them. The position is the
-   * one the listing handed out, echoed rather than composed: it is the index's to
-   * mint and its to refuse.
-   */
   const continueListing = async (): Promise<void> => {
     const after = nextPosition();
     if (after === null || continuing() || !continuable()) {
@@ -451,10 +347,12 @@ export const GlossaryDictionary: Component<{
     try {
       const next =
         mode() === "study"
-          ? await client.glossaryDue({ limit: TERM_LIMIT, after })
+          ? await client.glossaryDue({
+              query: search.term() ?? undefined,
+              limit: TERM_LIMIT,
+              after,
+            })
           : await client.glossaryTerms({ limit: TERM_LIMIT, after });
-      // A listing the reader left while the page was in flight keeps its own
-      // pages: these rows are of a list no longer on screen.
       if (listingKey() === listing) {
         setAppended((rows) => [...rows, ...next.terms]);
         setPosition(next.has_more ? (next.next_position ?? null) : null);
@@ -470,22 +368,15 @@ export const GlossaryDictionary: Component<{
     }
   };
 
-  /**
-   * Continue at the end of the scrollport, unless the page there is the one that
-   * failed: a gesture is not a fresh instruction, and a failing page asked for on
-   * every one of them is a request storm the reader never made.
-   */
   const continueOnScroll = (): void => {
     if (nextPosition() !== failedPosition()) {
       void continueListing();
     }
   };
 
-  // `search.term()` is null exactly when the field holds no searchable word, which
-  // is the "no search yet" case.
   const emptyMessage = (): string => {
     if (mode() === "study") {
-      return filterHidDue()
+      return search.term() !== null && unfilteredDueTotal() !== 0
         ? "No terms due for review match that filter."
         : "Nothing is due for review.";
     }
@@ -494,41 +385,31 @@ export const GlossaryDictionary: Component<{
       : "No terms match that search.";
   };
 
-  /**
-   * The size and the order of the due listing, in one line. The count is the
-   * listing's own total rather than the rows on the surface, which is a smaller
-   * number the reader would read as the answer. The order is named rather than
-   * re-sorted here: the surface holds one page of a listing it did not sort, and a
-   * corpus no review has touched carries no dates for an order to be read off.
-   */
   const dueSummary = (): string | null => {
     const listing = due.ready();
     if (mode() !== "study" || !listing || !(listing.total > 0)) {
       return null;
     }
-    const counted =
-      listing.total === 1 ? "1 term is" : `${listing.total} terms are`;
+    if (search.term() !== null) {
+      const matches = listing.total === 1 ? "1 due term matches" : `${listing.total} due terms match`;
+      return `${matches}, in schedule order.`;
+    }
+    const counted = listing.total === 1 ? "1 term is" : `${listing.total} terms are`;
     return `${counted} due, in schedule order: never reviewed first, then by due date, then by file path.`;
   };
 
-  /** What the field is over, which is what it does: the box says both. */
   const fieldLabel = (): string =>
     mode() === "study"
-      ? "Filter the terms due for review"
+      ? "Search due terms"
       : "Search the glossary";
 
-  // Named per mode, so two open modes stay distinguishable in the tab strip.
   useDocumentTitle(() =>
-    mode() === "study" ? "Glossary review" : "Glossary",
+    mode() === "study" ? "Due terms" : "Glossary",
   );
 
   const listboxId = "glossary-terms";
   const optionId = (index: number): string => `${OPTION_ID}-${index}`;
 
-  // A list that no longer holds the marked term falls back to its first, so the peek
-  // is never blank beside a non-empty list. Not for a term the address named: that
-  // one is reported on instead, since a definition under someone else's address is
-  // read as the answer to it.
   const active = createMemo<number | null>(() => {
     const resolved = markedIndex(marked(), terms(), (term) => term.node_key);
     if (resolved !== null) {
@@ -540,19 +421,17 @@ export const GlossaryDictionary: Component<{
     return terms().length > 0 ? 0 : null;
   });
 
-  /** Move the peek to a row of the current list, or off the list entirely. */
+  const hover = createHoverMotion();
+
   const markRow = (index: number | null): void => {
     const key = index === null ? null : (terms()[index]?.node_key ?? null);
     setMarked(key);
-    setFromAddress(null);
+    if (key !== fromAddress()) {
+      setFromAddress(null);
+    }
     termUrl.replace(key);
   };
 
-  // The fallback above stands the first row in for a marked term the list dropped,
-  // which leaves the address naming one definition beside another on screen. The
-  // address follows the peek it moved: it is a replacement like every other
-  // selection, since no page was walked to. An address naming nothing claims
-  // nothing, so a listing read with no term named is left alone.
   createEffect(() => {
     const named = marked();
     const index = active();
@@ -566,28 +445,31 @@ export const GlossaryDictionary: Component<{
     }
   });
 
-  /** The addressed term read from the index, while no row on screen is it. */
-  const offList = (): NodeRecord | undefined =>
-    active() === null ? (addressed.ready()?.term ?? undefined) : undefined;
-
   const selected = (): NodeRecord | undefined => {
     const index = active();
-    return index === null ? offList() : terms()[index];
+    return index === null ? undefined : terms()[index];
   };
 
-  /** Why a peeked term is nowhere in the list beside it. */
+  let detail!: HTMLDivElement;
+  createEffect(
+    on(
+      () => selected()?.node_key,
+      () => {
+        if (detail) {
+          detail.scrollTop = 0;
+        }
+      },
+      { defer: true },
+    ),
+  );
+
   const offListStatement = (): string | null => {
     const off = offList();
     return off === undefined
       ? null
-      : `${off.title} is not among the terms read so far.`;
+      : `${off.title} was opened from its link and is outside the current page.`;
   };
 
-  /**
-   * The addressed key the index refuses. A key is one of a note's names rather
-   * than a term's headword, so the reader is owed the name that failed: it is what
-   * a stale bookmark, a renamed file, and an unmarked note look like from here.
-   */
   const unknownAddress = (): string | null => {
     const key = addressUnheld();
     return key !== false && addressed.error() !== undefined
@@ -599,26 +481,15 @@ export const GlossaryDictionary: Component<{
     return index === null ? undefined : optionId(index);
   };
 
-  // The cursor is an `aria-activedescendant`, not focus, so the browser does not
-  // scroll it into view; this list scrolls its own box.
   createEffect(() => {
     revealOption(activeId());
   });
 
-  // Two filters over one list, not two panels: each is a toggle whose pressed state
-  // says which filter holds, and both are ordinary tab stops. That leaves every
-  // arrow key to the term list below, which is the widget the arrows drive.
   const FILTERS: readonly { id: GlossaryMode; label: string }[] = [
     { id: "browse", label: "All terms" },
-    { id: "study", label: "Due for review" },
+    { id: "study", label: "Due terms" },
   ];
 
-  /**
-   * Report a filter the reader pressed, unless it is the one already holding. The
-   * owner mirrors a mode to a pushed history entry, so re-reporting the mode on
-   * screen stacks entries that undo nothing: a reader pressing "All terms" twice
-   * would have to press back twice to leave the list they never left.
-   */
   const show = (next: GlossaryMode): void => {
     if (next !== mode()) {
       props.onMode(next);
@@ -637,8 +508,6 @@ export const GlossaryDictionary: Component<{
         break;
       case "Enter": {
         event.preventDefault();
-        // The listed terms answer the settled term, not the field, so settle first:
-        // inside the debounce window they match a query already replaced.
         if (search.pending()) {
           search.settle();
           break;
@@ -653,11 +522,11 @@ export const GlossaryDictionary: Component<{
   };
 
   return (
-    <main class="glossary">
+    <main
+      class="glossary"
+      classList={{ "glossary--detail-open": detailOpen() }}
+    >
       <div class="glossary-list">
-        {/* The top of the outline, above every conditional block below it: the
-            peek's headword is an `h2` and a definition's headings nest under
-            that, so the surface reads as one document in every state. */}
         <h1 class="glossary-title">Glossary</h1>
         <div class="glossary-modes" role="group" aria-label="Glossary listing">
           <For each={FILTERS}>
@@ -665,8 +534,6 @@ export const GlossaryDictionary: Component<{
               <button
                 type="button"
                 aria-pressed={mode() === filter.id}
-                // Named only while there is a list: an idref resolving to nothing
-                // would announce a relationship the surface is not holding.
                 aria-controls={terms().length > 0 ? listboxId : undefined}
                 class="glossary-mode"
                 onClick={() => show(filter.id)}
@@ -677,26 +544,31 @@ export const GlossaryDictionary: Component<{
           </For>
         </div>
 
-        {/* One element across both modes, so a mode change neither takes the field
-            away nor drops the focus and text it was holding. */}
-        <input
-          type="search"
-          class="glossary-search"
-          placeholder={fieldLabel()}
-          autocomplete="off"
-          aria-label={fieldLabel()}
-          role="combobox"
-          aria-expanded={terms().length > 0}
-          // Named only while the popup is rendered, as the mode controls above
-          // are: an idref resolving to nothing announces a relationship the
-          // surface is not holding.
-          aria-controls={terms().length > 0 ? listboxId : undefined}
-          aria-activedescendant={activeId()}
-          value={search.query()}
-          onInput={(event) => search.input(event.currentTarget.value)}
-          onKeyDown={onKeyDown}
-        />
-
+        <div class="glossary-search-row">
+          <input
+            type="search"
+            class="glossary-search"
+            placeholder={fieldLabel()}
+            autocomplete="off"
+            aria-label={fieldLabel()}
+            role="combobox"
+            aria-expanded={terms().length > 0}
+            aria-controls={terms().length > 0 ? listboxId : undefined}
+            aria-activedescendant={activeId()}
+            value={search.query()}
+            onInput={(event) => search.input(event.currentTarget.value)}
+            onKeyDown={onKeyDown}
+          />
+          <Show when={search.query().length > 0}>
+            <button
+              type="button"
+              class="glossary-search__clear"
+              onClick={() => search.clear()}
+            >
+              Clear
+            </button>
+          </Show>
+        </div>
         <Show when={search.awaitingWord()}>
           <p class="glossary-status glossary-status--hint">
             {mode() === "study" ? "Filtering" : "Searching"} needs a word of at
@@ -710,9 +582,6 @@ export const GlossaryDictionary: Component<{
           )}
         </Show>
 
-        {/* Above the rows rather than in place of them: a re-read that failed
-            takes nothing away, and a listing the reader is holding is not owed
-            to the request that refreshed it. */}
         <Show when={failure()}>
           <p class="glossary-status glossary-status--error">
             {describeError(failure())}
@@ -732,16 +601,12 @@ export const GlossaryDictionary: Component<{
             </Show>
           }
         >
-          {/* The field is the tab stop in both modes and carries the cursor, so
-              the popup it controls takes neither and needs no key handler of its
-              own. */}
           <ul
             id={listboxId}
             role="listbox"
             aria-label="Glossary terms"
             class="glossary-terms"
-            // The list scrolls its own box, so its end is where the reader
-            // reaches the end of what has been read, and what asks for more.
+            onMouseLeave={hover.left}
             onScroll={(event) => {
               const box = event.currentTarget;
               const past = box.scrollHeight - box.scrollTop - box.clientHeight;
@@ -760,16 +625,20 @@ export const GlossaryDictionary: Component<{
                   classList={{
                     "glossary-term--active": active() === index(),
                   }}
-                  // A pointer only selects the row to peek it; opening is the
-                  // peek's own control or Enter. Click as well as hover, since a
-                  // touch pointer has no hover to select with.
-                  onMouseEnter={() => markRow(index())}
-                  onClick={() => markRow(index())}
+                  onMouseEnter={(event) => {
+                    if (hover.crossed({ x: event.clientX, y: event.clientY })) {
+                      markRow(index());
+                    }
+                  }}
+                  onMouseMove={(event) => {
+                    hover.moved({ x: event.clientX, y: event.clientY });
+                  }}
+                  onClick={() => {
+                    markRow(index());
+                    setDetailOpen(true);
+                  }}
                 >
                   <span class="glossary-term__title">{term.title}</span>
-                  {/* Only where the reader is reading the schedule: in browse
-                      mode a standing would be a fact about a listing that is not
-                      the one on screen. */}
                   <Show when={mode() === "study" && dueStanding(term)}>
                     {(standing) => (
                       <span class="glossary-term__standing">{standing()}</span>
@@ -795,9 +664,6 @@ export const GlossaryDictionary: Component<{
           )}
         </Show>
 
-        {/* Below the scrollport rather than inside it: a control the list scrolls
-            away is one a reader has to find, and a listing whose rows a filter
-            hid still has a cut to state. */}
         <Show when={cutStatement()}>
           {(statement) => (
             <p class="glossary-status glossary-status--hint">{statement()}</p>
@@ -820,14 +686,22 @@ export const GlossaryDictionary: Component<{
         </Show>
       </div>
 
-      <div class="glossary-detail">
+      <div ref={detail} class="glossary-detail">
+        <div class="glossary-detail__toolbar">
+          <button
+            type="button"
+            class="glossary-detail__back"
+            onClick={() => setDetailOpen(false)}
+          >
+            Back to terms
+          </button>
+          <Show when={narrow()}>
+            <h1 class="glossary-detail__title">Glossary</h1>
+          </Show>
+        </div>
         <Show
           when={selected()}
           fallback={
-            // Neither message is shown while the list is still being read, since a
-            // read that resolves into terms would flash an explanation of their
-            // absence first. A term the address named is being read for the same
-            // reason: it may yet fill this pane.
             <Show when={!loading() && !failure() && !addressed.loading()}>
               <Show
                 when={terms().length > 0}
@@ -835,7 +709,11 @@ export const GlossaryDictionary: Component<{
                   <EmptyGlossary
                     mode={mode()}
                     searched={search.term() !== null}
-                    filtered={filterHidDue()}
+                    filtered={
+                      mode() === "study" &&
+                      search.term() !== null &&
+                      unfilteredDueTotal() !== 0
+                    }
                   />
                 }
               >
@@ -847,17 +725,6 @@ export const GlossaryDictionary: Component<{
           }
         >
           {(term) => (
-            // A definition the renderer cannot draw throws out of the update that
-            // resolved it, where no branch in the peek is watching.
-            //
-            // Keyed to the term because a caught error latches until the boundary
-            // that caught it is discarded: one boundary for the pane would hold the
-            // message over every term walked to afterwards. Keyed on the key rather
-            // than the record, so re-reading the list leaves the peek's fetch alone.
-            //
-            // The fallback declares the error parameter even though it goes unread:
-            // a boundary whose fallback takes no error has not handled it, and Solid
-            // re-reports it to the console.
             <Show when={term().node_key} keyed>
               <ErrorBoundary
                 fallback={(_error) => (

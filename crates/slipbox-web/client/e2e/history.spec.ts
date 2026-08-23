@@ -73,11 +73,11 @@ test.describe("browser history", () => {
     await page.goto("/?note=file:root.org");
     await expect(page.getByRole("heading", { name: "Root Note" })).toBeVisible();
 
-    const home = page.getByRole("button", { name: "slipbox" });
+    const home = page.getByRole("button", { name: "Back to entry" });
     await expect(home).toBeVisible();
     await home.click();
 
-    await expect(page.getByRole("combobox", { name: "Search notes" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Search the slipbox" })).toBeVisible();
     await page.goBack();
     await expect(page.getByRole("heading", { name: "Root Note" })).toBeVisible();
   });
@@ -96,7 +96,7 @@ test.describe("returning to a search", () => {
     await page.setViewportSize({ width: 375, height: 600 });
     await page.goto("/");
 
-    const field = page.getByRole("combobox", { name: "Search notes" });
+    const field = page.getByRole("combobox", { name: "Search the slipbox" });
     await field.fill("gradient");
     await expect(page.getByRole("option")).toHaveCount(RESULT_COUNT);
 
@@ -114,7 +114,7 @@ test.describe("returning to a search", () => {
     ).toBeVisible();
 
     await page.goBack();
-    const restoredField = page.getByRole("combobox", { name: "Search notes" });
+    const restoredField = page.getByRole("combobox", { name: "Search the slipbox" });
     await expect(restoredField).toHaveValue("gradient");
     const restored = page.getByRole("option", { name: /Gradient note 18/ });
     await expect(restored).toHaveAttribute("aria-selected", "true");
@@ -135,7 +135,7 @@ test.describe("returning to a search", () => {
   }) => {
     await page.goto("/");
 
-    const field = page.getByRole("combobox", { name: "Search notes" });
+    const field = page.getByRole("combobox", { name: "Search the slipbox" });
     await field.fill("gradient");
     await expect(page.getByRole("option")).toHaveCount(RESULT_COUNT);
     await field.press("ArrowDown");
@@ -157,7 +157,7 @@ test.describe("returning to a search", () => {
     await shared.goto("/?q=gradient");
     await expect(shared.getByRole("option")).toHaveCount(RESULT_COUNT);
     await expect(
-      shared.getByRole("combobox", { name: "Search notes" }),
+      shared.getByRole("combobox", { name: "Search the slipbox" }),
     ).not.toHaveAttribute("aria-activedescendant");
     await shared.close();
   });

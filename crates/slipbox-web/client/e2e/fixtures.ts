@@ -419,14 +419,19 @@ export async function mountApi(page: Page, world: FixtureWorld): Promise<void> {
         });
       }
 
-      case "/api/glossary/due":
+      case "/api/glossary/due": {
+        const q = (params.get("q") ?? "").toLowerCase();
+        const due = world.notes.filter(
+          (note) =>
+            isTerm(note) &&
+            note.srDue &&
+            (q === "" || note.title.toLowerCase().includes(q)),
+        );
         return json(
           route,
-          glossaryPage(
-            world.notes.filter((note) => isTerm(note) && note.srDue),
-            params,
-          ),
+          glossaryPage(due, params),
         );
+      }
 
       // Deterministic: always the first note in `world`, never a real choice.
       case "/api/random": {

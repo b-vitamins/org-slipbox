@@ -67,7 +67,6 @@ function noteContext(title: string): unknown {
   };
 }
 
-/** One content-search hit for `title`, excerpt and all. */
 function contentHit(title: string): unknown {
   return {
     node: glossaryTerm(title),
@@ -128,7 +127,7 @@ describe("App shell", () => {
     render(() => <App />);
 
     expect(
-      await screen.findByRole("combobox", { name: "Search notes" }),
+      await screen.findByRole("combobox", { name: "Search the slipbox" }),
     ).toBeInTheDocument();
     expect(await screen.findByText("slipbox 0.17.0")).toBeInTheDocument();
     expect(screen.queryByText("/home/reader/notes")).not.toBeInTheDocument();
@@ -172,16 +171,16 @@ describe("App shell", () => {
     render(() => <App />);
 
     expect(
-      await screen.findByRole("combobox", { name: "Search notes" }),
+      await screen.findByRole("combobox", { name: "Search the slipbox" }),
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Glossary" }));
 
     expect(
-      await screen.findByRole("button", { name: "Due for review" }),
+      await screen.findByRole("button", { name: "Due terms" }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("combobox", { name: "Search notes" }),
+      screen.queryByRole("combobox", { name: "Search the slipbox" }),
     ).not.toBeInTheDocument();
   });
 
@@ -202,7 +201,7 @@ describe("App shell", () => {
     expect(
       await screen.findByRole("option", { name: /Due term/ }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Due for review" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Due terms" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
@@ -265,7 +264,7 @@ describe("App shell", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("keeps the term and the surface mode as one query, neither writer clobbering the other", async () => {
+  it("restores separate queries when switching between Notes and Glossary", async () => {
     vi.stubGlobal(
       "fetch",
       routedFetch({
@@ -281,29 +280,38 @@ describe("App shell", () => {
     render(() => <App />);
 
     fireEvent.input(
-      await screen.findByRole("combobox", { name: "Search notes" }),
+      await screen.findByRole("combobox", { name: "Search the slipbox" }),
       { target: { value: "entropy" } },
     );
     await waitFor(() => expect(window.location.search).toBe("?q=entropy"));
 
     fireEvent.click(screen.getByRole("button", { name: "Glossary" }));
-    expect(window.location.search).toBe("?q=entropy&view=glossary");
+    expect(window.location.search).toBe("?view=glossary");
     expect(
       await screen.findByRole("combobox", { name: "Search the glossary" }),
-    ).toHaveValue("entropy");
+    ).toHaveValue("");
 
-    fireEvent.click(screen.getByRole("button", { name: "Due for review" }));
-    await screen.findByRole("heading", { name: "How terms come due" });
-    expect(window.location.search).toBe("?q=entropy&view=review");
-
-    fireEvent.click(screen.getByRole("button", { name: "All terms" }));
     fireEvent.input(
-      await screen.findByRole("combobox", { name: "Search the glossary" }),
+      screen.getByRole("combobox", { name: "Search the glossary" }),
       { target: { value: "prior" } },
     );
-    await waitFor(() =>
-      expect(window.location.search).toBe("?q=prior&view=glossary"),
-    );
+    await waitFor(() => {
+      const params = new URLSearchParams(window.location.search);
+      expect(params.get("q")).toBe("prior");
+      expect(params.get("view")).toBe("glossary");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Notes" }));
+    expect(window.location.search).toBe("?q=entropy");
+    expect(
+      await screen.findByRole("combobox", { name: "Search the slipbox" }),
+    ).toHaveValue("entropy");
+
+    fireEvent.click(screen.getByRole("button", { name: "Glossary" }));
+    expect(window.location.search).toBe("?q=prior&view=glossary");
+    expect(
+      await screen.findByRole("combobox", { name: "Search the glossary" }),
+    ).toHaveValue("prior");
   });
 
   it("gives a reading view an in-app exit back to the entry", async () => {
@@ -314,17 +322,17 @@ describe("App shell", () => {
 
     render(() => <App />);
 
-    const home = await screen.findByRole("button", { name: "slipbox" });
+    const home = await screen.findByRole("button", { name: "Back to entry" });
+    expect(home).toHaveTextContent("←");
+    expect(home).not.toHaveTextContent("Back");
     expect(
-      screen.queryByRole("combobox", { name: "Search notes" }),
+      screen.queryByRole("combobox", { name: "Search the slipbox" }),
     ).not.toBeInTheDocument();
 
     fireEvent.click(home);
 
-    // A note reached by its own address has no search behind it, so the way out
-    // arrives at a surface holding nothing.
     expect(
-      await screen.findByRole("combobox", { name: "Search notes" }),
+      await screen.findByRole("combobox", { name: "Search the slipbox" }),
     ).toHaveValue("");
     expect(window.location.search).toBe("");
   });
@@ -344,37 +352,32 @@ describe("App shell", () => {
     render(() => <App />);
 
     fireEvent.input(
-      await screen.findByRole("combobox", { name: "Search notes" }),
+      await screen.findByRole("combobox", { name: "Search the slipbox" }),
       { target: { value: "entropy" } },
     );
     await waitFor(() => expect(window.location.search).toBe("?q=entropy"));
 
     fireEvent.click(await screen.findByRole("option", { name: /Beta/ }));
     await screen.findByRole("heading", { level: 1, name: "Beta" });
-    // A note's address is written from scratch, so the term is gone from the URL
-    // the moment the result is opened.
     expect(window.location.search).not.toContain("q=");
 
-    fireEvent.click(screen.getByRole("button", { name: "slipbox" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to entry" }));
 
     expect(
-      await screen.findByRole("combobox", { name: "Search notes" }),
+      await screen.findByRole("combobox", { name: "Search the slipbox" }),
     ).toHaveValue("entropy");
     expect(window.location.search).toBe("?q=entropy");
-    // The row the reader left from is marked again, as it is after a Back.
     const restored = await screen.findByRole("option", { name: /Beta/ });
     await waitFor(() =>
       expect(restored).toHaveAttribute("aria-selected", "true"),
     );
 
-    // Out and back a second time: what the surface holds now was restored to it
-    // rather than typed into it.
     fireEvent.click(restored);
     await screen.findByRole("heading", { level: 1, name: "Beta" });
-    fireEvent.click(screen.getByRole("button", { name: "slipbox" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to entry" }));
 
     expect(
-      await screen.findByRole("combobox", { name: "Search notes" }),
+      await screen.findByRole("combobox", { name: "Search the slipbox" }),
     ).toHaveValue("entropy");
     expect(window.location.search).toBe("?q=entropy");
   });
@@ -392,24 +395,21 @@ describe("App shell", () => {
     const opened = render(() => <App />);
 
     fireEvent.input(
-      await screen.findByRole("combobox", { name: "Search notes" }),
+      await screen.findByRole("combobox", { name: "Search the slipbox" }),
       { target: { value: "entropy" } },
     );
     await waitFor(() => expect(window.location.search).toBe("?q=entropy"));
     fireEvent.click(await screen.findByRole("option", { name: /Beta/ }));
     await screen.findByRole("heading", { level: 1, name: "Beta" });
 
-    // A reload: the same address, a fresh surface, and nothing left of what the
-    // last one held in memory. The query is not in the address, so the way back
-    // has to be recorded where a reload finds it.
     opened.unmount();
     render(() => <App />);
     await screen.findByRole("heading", { level: 1, name: "Beta" });
 
-    fireEvent.click(screen.getByRole("button", { name: "slipbox" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to entry" }));
 
     expect(
-      await screen.findByRole("combobox", { name: "Search notes" }),
+      await screen.findByRole("combobox", { name: "Search the slipbox" }),
     ).toHaveValue("entropy");
     expect(window.location.search).toBe("?q=entropy");
   });
@@ -428,7 +428,7 @@ describe("App shell", () => {
 
     const search = async (term: string): Promise<void> => {
       fireEvent.input(
-        await screen.findByRole("combobox", { name: "Search notes" }),
+        await screen.findByRole("combobox", { name: "Search the slipbox" }),
         { target: { value: term } },
       );
       await waitFor(() => expect(window.location.search).toBe(`?q=${term}`));
@@ -438,27 +438,23 @@ describe("App shell", () => {
       await screen.findByRole("heading", { level: 1, name: "Beta" });
     };
 
-    // The same note opened from two searches, and left by the header in between:
-    // two reading entries whose ways back differ.
     await search("entropy");
     await open();
-    fireEvent.click(screen.getByRole("button", { name: "slipbox" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to entry" }));
     await search("alpha");
     await open();
 
-    // Back over the second search to the first reading of the note. The reader
-    // walked there, so nothing the surface did says where they now are.
     window.history.back();
     expect(
-      await screen.findByRole("combobox", { name: "Search notes" }),
+      await screen.findByRole("combobox", { name: "Search the slipbox" }),
     ).toHaveValue("alpha");
     window.history.back();
     await screen.findByRole("heading", { level: 1, name: "Beta" });
 
-    fireEvent.click(screen.getByRole("button", { name: "slipbox" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to entry" }));
 
     expect(
-      await screen.findByRole("combobox", { name: "Search notes" }),
+      await screen.findByRole("combobox", { name: "Search the slipbox" }),
     ).toHaveValue("entropy");
     expect(window.location.search).toBe("?q=entropy");
   });
@@ -489,10 +485,10 @@ describe("App shell", () => {
     ).toBeInTheDocument();
     expect(document.documentElement.getAttribute(SCHEME_ATTRIBUTE)).toBe("dark");
 
-    fireEvent.click(screen.getByRole("button", { name: "slipbox" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to entry" }));
 
     expect(
-      await screen.findByRole("combobox", { name: "Search notes" }),
+      await screen.findByRole("combobox", { name: "Search the slipbox" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Color scheme: Dark" }),
