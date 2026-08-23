@@ -613,6 +613,51 @@ fn unlinked_references_query_names_the_note_a_mention_sits_in() -> Result<()> {
 }
 
 #[test]
+fn unlinked_references_query_passes_over_a_title_inside_a_link_target() -> Result<()> {
+    let workspace = tempdir()?;
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root)?;
+
+    fs::write(
+        root.join("current.org"),
+        "#+title: Current\n\n* Atlas\n:PROPERTIES:\n:ID: atlas-id\n:END:\nBody.\n",
+    )?;
+    // A one-word title is a word of its own addresses, and a link target is an
+    // address rather than prose: nothing is named there for a reader to link.
+    // The described link is the same line twice over, since only its label is
+    // covered as linked.
+    fs::write(
+        root.join("other.org"),
+        "#+title: Other\n\nAtlas should surface.\nBare [[id:atlas-id]] should stay out.\nDescribed [[id:atlas-id][Atlas]] should stay out.\nFiled [[file:atlas.org]] should stay out.\n",
+    )?;
+
+    let files = scan_root(&root)?;
+    let database_path = workspace.path().join("slipbox.sqlite");
+    let mut database = Database::open(&database_path)?;
+    database.sync_index(&files)?;
+
+    let source = database
+        .node_from_id("atlas-id")?
+        .expect("expected the atlas node");
+
+    let source_anchor = AnchorRecord::from(source);
+    let unlinked_references = query_unlinked_references(&database, &root, &source_anchor, 10)?;
+    assert_eq!(
+        unlinked_references
+            .iter()
+            .map(|record| record.preview.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Atlas should surface."]
+    );
+    assert_eq!(unlinked_references[0].source_anchor.title, "Other");
+    assert_eq!(unlinked_references[0].row, 3);
+    assert_eq!(unlinked_references[0].col, 1);
+    assert_eq!(unlinked_references[0].matched_text, "Atlas");
+
+    Ok(())
+}
+
+#[test]
 fn occurrence_query_returns_structured_hits_and_honors_limits() -> Result<()> {
     let workspace = tempdir()?;
     let root = workspace.path().join("notes");

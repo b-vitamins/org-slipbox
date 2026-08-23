@@ -356,6 +356,11 @@ The format follows Keep a Changelog, and this project follows SemVer.
   example, or verbatim run in a definition was a slab of canvas with no edges. The
   tone is a variable the pane restates in its own, as it already restates the math
   cover's, and the copy control's hover tone rides with it.
+- Pass over a title inside a link target when scanning unlinked mentions. Only
+  links reaching the queried note were excluded, so a note whose title is a word of
+  some other note's address was reported as mentioned at that address. Every bracket
+  link's target is now excluded, up to the description separator, so a label naming
+  another note is still read as prose.
 
 ## [0.17.0] - 2026-07-25
 
