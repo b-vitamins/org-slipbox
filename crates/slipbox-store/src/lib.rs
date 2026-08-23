@@ -24,6 +24,8 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
+pub use nodes::{GlossaryPage, GlossaryPosition};
+
 pub struct Database {
     connection: Connection,
     artifact_store: artifacts::ExplorationArtifactStore,

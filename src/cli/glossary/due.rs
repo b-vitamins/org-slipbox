@@ -27,6 +27,7 @@ impl HeadlessCommand for GlossaryDueArgs {
         client.glossary_due(&GlossaryDueParams {
             today: self.today.clone(),
             limit: self.limit,
+            after: None,
         })
     }
 

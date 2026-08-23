@@ -27,6 +27,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
   the note filed on each side. A note at either end of the order has no neighbor
   there, and that side is left out of the payload rather than sent as null. The
   reading client gains the matching types; no surface states a position yet.
+- Page both glossary listings past their first 200 terms. `/api/glossary/terms`
+  and `/api/glossary/due` answer with the size of the listing behind the page,
+  whether more follows, and an opaque `next_position` to pass back as `after`.
+  Each listing pages on its own key, so a token the other minted is refused
+  rather than resumed at the wrong place. `/api/glossary/search` ranks by
+  relevance, which is no stable key, so it serves one page and states the cut.
 
 ### Changed
 - Draw the `dormant` lens's candidates from link topology rather than from shared

@@ -181,15 +181,19 @@ fn explore(bridge: &ReadingBridge, query: &Query) -> Result<ApiResponse, ApiErro
     ApiResponse::json(&bridge.explore(&params)?)
 }
 
-/// The glossary as a dictionary listing.
+/// The glossary as a dictionary listing, `limit` terms at a time. `after` is the
+/// `next_position` an earlier page answered with, and continues the listing there;
+/// it is opaque, and one the index did not mint is refused.
 fn glossary_terms(bridge: &ReadingBridge, query: &Query) -> Result<ApiResponse, ApiError> {
     let params = ListGlossaryTermsParams {
         limit: query.bounded("limit", DEFAULT_LIMIT, 1, MAX_LIMIT)?,
+        after: query.optional("after")?,
     };
     ApiResponse::json(&bridge.list_glossary_terms(&params)?)
 }
 
-/// Search over glossary terms.
+/// Search over glossary terms. Ranking is by relevance rather than by a stored
+/// key, so this route serves one page and states the cut instead of paging.
 fn glossary_search(bridge: &ReadingBridge, query: &Query) -> Result<ApiResponse, ApiError> {
     let params = SearchGlossaryParams {
         query: search_term(query)?,
@@ -212,7 +216,9 @@ fn glossary_term(bridge: &ReadingBridge, query: &Query) -> Result<ApiResponse, A
     ApiResponse::json(&result)
 }
 
-/// Glossary terms due for review as of a reference day.
+/// Glossary terms due for review as of a reference day, `limit` at a time.
+/// `after` continues the listing from an earlier page's `next_position`, on this
+/// listing's own key rather than the dictionary listing's.
 fn glossary_due(bridge: &ReadingBridge, query: &Query) -> Result<ApiResponse, ApiError> {
     let params = GlossaryDueParams {
         // The due predicate compares ISO date strings, so a value that is not a
@@ -220,6 +226,7 @@ fn glossary_due(bridge: &ReadingBridge, query: &Query) -> Result<ApiResponse, Ap
         // wrong set of terms.
         today: query.optional_date("today")?,
         limit: query.bounded("limit", DEFAULT_LIMIT, 1, MAX_LIMIT)?,
+        after: query.optional("after")?,
     };
     ApiResponse::json(&bridge.glossary_due(&params)?)
 }

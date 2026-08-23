@@ -3,8 +3,9 @@ use slipbox_core::{
     ListGlossaryTermsParams, ListGlossaryTermsResult, SearchGlossaryParams, SearchGlossaryResult,
 };
 use slipbox_rpc::JsonRpcError;
+use slipbox_store::GlossaryPosition;
 
-use crate::server::rpc::{internal_error, parse_params, to_value};
+use crate::server::rpc::{internal_error, invalid_params, parse_params, to_value};
 use crate::server::state::ServerState;
 
 pub(crate) fn list_glossary_terms(
@@ -12,11 +13,17 @@ pub(crate) fn list_glossary_terms(
     params: serde_json::Value,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let params: ListGlossaryTermsParams = parse_params(params)?;
-    let terms = state
+    let after = position(params.normalized_after(), GlossaryPosition::parse_term)?;
+    let page = state
         .database
-        .list_glossary_terms(params.normalized_limit())
+        .list_glossary_terms(params.normalized_limit(), after.as_ref())
         .map_err(|error| internal_error(error.context("failed to list glossary terms")))?;
-    to_value(ListGlossaryTermsResult { terms })
+    to_value(ListGlossaryTermsResult {
+        terms: page.terms,
+        total: page.total,
+        has_more: page.has_more,
+        next_position: page.next_position,
+    })
 }
 
 pub(crate) fn search_glossary(
@@ -24,11 +31,15 @@ pub(crate) fn search_glossary(
     params: serde_json::Value,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let params: SearchGlossaryParams = parse_params(params)?;
-    let terms = state
+    let page = state
         .database
         .search_glossary(&params.query, params.normalized_limit())
         .map_err(|error| internal_error(error.context("failed to search glossary terms")))?;
-    to_value(SearchGlossaryResult { terms })
+    to_value(SearchGlossaryResult {
+        terms: page.terms,
+        total: page.total,
+        has_more: page.has_more,
+    })
 }
 
 pub(crate) fn glossary_due(
@@ -37,11 +48,17 @@ pub(crate) fn glossary_due(
 ) -> Result<serde_json::Value, JsonRpcError> {
     let params: GlossaryDueParams = parse_params(params)?;
     let today = crate::server::handlers::glossary_today(params.today.clone());
-    let terms = state
+    let after = position(params.normalized_after(), GlossaryPosition::parse_due)?;
+    let page = state
         .database
-        .glossary_due_terms(&today, params.normalized_limit())
+        .glossary_due_terms(&today, params.normalized_limit(), after.as_ref())
         .map_err(|error| internal_error(error.context("failed to list due glossary terms")))?;
-    to_value(GlossaryDueResult { terms })
+    to_value(GlossaryDueResult {
+        terms: page.terms,
+        total: page.total,
+        has_more: page.has_more,
+        next_position: page.next_position,
+    })
 }
 
 pub(crate) fn glossary_term(
@@ -56,4 +73,20 @@ pub(crate) fn glossary_term(
         // Only a marked term resolves through this method; a plain note answers None.
         .filter(|record| record.glossary);
     to_value(GlossaryTermResult { term })
+}
+
+/// Read a listing position through the index's own reader, refusing a token this
+/// listing did not mint rather than answering a different page.
+fn position(
+    after: Option<&str>,
+    read: impl Fn(&str) -> Option<GlossaryPosition>,
+) -> Result<Option<GlossaryPosition>, JsonRpcError> {
+    match after {
+        None => Ok(None),
+        Some(token) => read(token).map(Some).ok_or_else(|| {
+            invalid_params(format!(
+                "`after` is not a position in this listing: {token}"
+            ))
+        }),
+    }
 }

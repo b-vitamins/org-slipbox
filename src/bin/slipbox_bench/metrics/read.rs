@@ -364,19 +364,19 @@ pub(crate) fn benchmark_glossary_list(
     profile: &BenchmarkProfile,
 ) -> Result<TimingReport> {
     let sample = database
-        .list_glossary_terms(profile.iterations.search_limit)
+        .list_glossary_terms(profile.iterations.search_limit, None)
         .context("failed to fetch glossary list sample")?;
-    if sample.is_empty() {
+    if sample.terms.is_empty() {
         bail!("benchmark glossary list returned no terms");
     }
     measure_iterations(profile.iterations.glossary_list, |_| {
-        let terms = database
-            .list_glossary_terms(profile.iterations.search_limit)
+        let page = database
+            .list_glossary_terms(profile.iterations.search_limit, None)
             .context("failed to list glossary terms")?;
-        if terms.is_empty() {
+        if page.terms.is_empty() {
             bail!("benchmark glossary list returned no terms");
         }
-        black_box(terms.len());
+        black_box(page.terms.len());
         Ok(())
     })
 }
@@ -388,17 +388,17 @@ pub(crate) fn benchmark_glossary_search(
     let sample = database
         .search_glossary(GLOSSARY_QUERY, profile.iterations.search_limit)
         .context("failed to fetch glossary search sample")?;
-    if sample.is_empty() {
+    if sample.terms.is_empty() {
         bail!("benchmark glossary search returned no terms");
     }
     measure_iterations(profile.iterations.glossary_search, |_| {
-        let terms = database
+        let page = database
             .search_glossary(GLOSSARY_QUERY, profile.iterations.search_limit)
             .context("failed to search glossary terms")?;
-        if terms.is_empty() {
+        if page.terms.is_empty() {
             bail!("benchmark glossary search returned no terms");
         }
-        black_box(terms.len());
+        black_box(page.terms.len());
         Ok(())
     })
 }
@@ -408,19 +408,19 @@ pub(crate) fn benchmark_glossary_due(
     profile: &BenchmarkProfile,
 ) -> Result<TimingReport> {
     let sample = database
-        .glossary_due_terms(GLOSSARY_TODAY, profile.iterations.search_limit)
+        .glossary_due_terms(GLOSSARY_TODAY, profile.iterations.search_limit, None)
         .context("failed to fetch glossary due sample")?;
-    if sample.is_empty() {
+    if sample.terms.is_empty() {
         bail!("benchmark glossary due query returned no terms");
     }
     measure_iterations(profile.iterations.glossary_due, |_| {
-        let terms = database
-            .glossary_due_terms(GLOSSARY_TODAY, profile.iterations.search_limit)
+        let page = database
+            .glossary_due_terms(GLOSSARY_TODAY, profile.iterations.search_limit, None)
             .context("failed to query due glossary terms")?;
-        if terms.is_empty() {
+        if page.terms.is_empty() {
             bail!("benchmark glossary due query returned no terms");
         }
-        black_box(terms.len());
+        black_box(page.terms.len());
         Ok(())
     })
 }

@@ -715,8 +715,14 @@ A definite integral defined as the limit of Riemann sums.
     let mut client = DaemonClient::spawn(daemon_binary(), &DaemonServeConfig::new(&root, &db))?;
     client.index()?;
 
-    let listed = client.list_glossary_terms(&ListGlossaryTermsParams { limit: 50 })?;
+    let listed = client.list_glossary_terms(&ListGlossaryTermsParams {
+        limit: 50,
+        after: None,
+    })?;
     assert_eq!(listed.terms.len(), 1);
+    assert_eq!(listed.total, 1);
+    assert!(!listed.has_more);
+    assert_eq!(listed.next_position, None);
     let riemann = &listed.terms[0];
     assert!(riemann.glossary);
     assert_eq!(riemann.title, "Riemann integral");
@@ -753,6 +759,7 @@ A definite integral defined as the limit of Riemann sums.
     let not_yet = client.glossary_due(&GlossaryDueParams {
         today: Some("2026-07-26".to_owned()),
         limit: 50,
+        after: None,
     })?;
     assert!(not_yet.terms.is_empty());
 
@@ -760,6 +767,7 @@ A definite integral defined as the limit of Riemann sums.
     let due = client.glossary_due(&GlossaryDueParams {
         today: Some("2026-08-02".to_owned()),
         limit: 50,
+        after: None,
     })?;
     assert_eq!(due.terms.len(), 1);
     assert_eq!(due.terms[0].node_key, riemann_key);
@@ -793,8 +801,44 @@ A definite integral defined as the limit of Riemann sums.
     assert!(marked.term.glossary);
     assert_eq!(marked.term.glossary_status.as_deref(), Some("confirmed"));
 
-    let after_mark = client.list_glossary_terms(&ListGlossaryTermsParams { limit: 50 })?;
+    let after_mark = client.list_glossary_terms(&ListGlossaryTermsParams {
+        limit: 50,
+        after: None,
+    })?;
     assert_eq!(after_mark.terms.len(), 2);
+
+    // Two terms read one at a time: the client carries the token it was handed
+    // back without reading it, and the second page continues where the first ended.
+    let first = client.list_glossary_terms(&ListGlossaryTermsParams {
+        limit: 1,
+        after: None,
+    })?;
+    assert_eq!(first.total, 2);
+    assert!(first.has_more);
+    let second = client.list_glossary_terms(&ListGlossaryTermsParams {
+        limit: 1,
+        after: first.next_position.clone(),
+    })?;
+    assert!(!second.has_more);
+    assert_eq!(second.next_position, None);
+    assert_ne!(second.terms[0].node_key, first.terms[0].node_key);
+
+    // A token no listing minted is refused rather than read as the first page.
+    let refused = client
+        .list_glossary_terms(&ListGlossaryTermsParams {
+            limit: 1,
+            after: Some("not-a-position".to_owned()),
+        })
+        .expect_err("a malformed position is refused");
+    match refused {
+        DaemonClientError::Rpc(error) => {
+            assert_eq!(
+                error.data.as_ref().map(|data| data.kind),
+                Some(JsonRpcErrorKind::InvalidParams)
+            );
+        }
+        other => panic!("expected JSON-RPC invalid_params, got {other:?}"),
+    }
 
     // Grading a note that was never marked is a structured not-found error.
     fs::write(
