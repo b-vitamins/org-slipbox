@@ -163,6 +163,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
   column. A note now caps at the measure a column gives it and centers in what is
   left over, while the column, its border, and the seam under it keep the full
   width. Below the cap the note still fills the frame less its padding.
+- State a cut glossary listing on the command line. `glossary list`, `search`,
+  and `due` printed the page's own length as the count, so a listing cut at
+  `--limit` read as the whole glossary. Each now counts the page against the
+  whole listing when the page falls short of it.
 
 ## [0.17.0] - 2026-07-25
 

@@ -429,6 +429,18 @@ fn glossary_json_command(
     run_slipbox(&args)
 }
 
+fn glossary_human_command(
+    subcommand: &str,
+    root: &str,
+    db: &str,
+    extra: &[&str],
+) -> Result<std::process::Output> {
+    let mut args = vec!["glossary".to_owned(), subcommand.to_owned()];
+    args.extend(base_args(root, db));
+    args.extend(extra.iter().map(|value| (*value).to_owned()));
+    run_slipbox(&args)
+}
+
 fn with_bad_server_program(
     mut args: Vec<String>,
     root: &str,
@@ -1620,6 +1632,58 @@ fn glossary_commands_expose_stable_json_shapes_and_grade_round_trips() -> Result
     let grade_non_term =
         glossary_json_command("grade", &root, &db, &["--id", "essay-id", "--quality", "4"])?;
     assert_error_failure(&grade_non_term, "unknown glossary term");
+
+    Ok(())
+}
+
+#[test]
+fn glossary_human_listings_state_a_cut_page() -> Result<()> {
+    let (_workspace, root, db, _anonymous_anchor_key) = build_indexed_fixture()?;
+    seed_glossary_fixture(&root, &db)?;
+
+    // The fixture holds two terms, so a limit of one cuts the listing.
+    let cut = glossary_human_command("list", &root, &db, &["--limit", "1"])?;
+    assert!(cut.status.success(), "{cut:?}");
+    let cut_stdout = String::from_utf8(cut.stdout)?;
+    assert!(cut_stdout.starts_with("terms: 1 of 2\n"), "{cut_stdout:?}");
+    assert_eq!(
+        cut_stdout
+            .lines()
+            .filter(|line| line.starts_with("- "))
+            .count(),
+        1
+    );
+
+    // A listing that holds everything states one count, not a count of itself.
+    let whole = glossary_human_command("list", &root, &db, &[])?;
+    assert!(whole.status.success(), "{whole:?}");
+    let whole_stdout = String::from_utf8(whole.stdout)?;
+    assert!(whole_stdout.starts_with("terms: 2\n"), "{whole_stdout:?}");
+
+    // A query below the search-term floor lists the whole glossary, so a limit
+    // over that fallback is cut the same way.
+    let searched = glossary_human_command("search", &root, &db, &["e", "--limit", "1"])?;
+    assert!(searched.status.success(), "{searched:?}");
+    let searched_stdout = String::from_utf8(searched.stdout)?;
+    assert!(
+        searched_stdout.starts_with("terms: 1 of 2\n"),
+        "{searched_stdout:?}"
+    );
+
+    // Both terms are due at this date: the stub always, the confirmed one on
+    // schedule.
+    let due = glossary_human_command(
+        "due",
+        &root,
+        &db,
+        &["--today", "2026-08-02", "--limit", "1"],
+    )?;
+    assert!(due.status.success(), "{due:?}");
+    let due_stdout = String::from_utf8(due.stdout)?;
+    assert!(
+        due_stdout.starts_with("due terms: 1 of 2\n"),
+        "{due_stdout:?}"
+    );
 
     Ok(())
 }
