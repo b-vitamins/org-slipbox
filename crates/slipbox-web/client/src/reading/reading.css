@@ -80,6 +80,10 @@
   overflow: hidden;
 }
 
+.spine-position {
+  display: none;
+}
+
 .reading-note {
   padding: var(--note-padding);
 }
@@ -580,6 +584,48 @@
     flex-basis: auto;
     width: 100%;
     overflow: visible;
+  }
+
+  .spine-position {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px var(--note-padding-mobile);
+    color: var(--muted);
+    background: var(--surface);
+    border-bottom: 1px solid var(--hairline);
+    font-size: 13px;
+  }
+
+  .spine-position__count {
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .spine-position__move {
+    min-height: 32px;
+    padding: 4px 8px;
+    color: var(--link);
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .spine-position__move:last-child {
+    justify-self: end;
+  }
+
+  .spine-position__move:disabled {
+    color: var(--muted-2);
+    cursor: default;
+    opacity: 0.55;
   }
 
   /* The column takes the whole frame, but a line of prose keeps the measure a

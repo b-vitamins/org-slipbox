@@ -33,7 +33,9 @@ import { spineNavigation } from "./spine-navigation.js";
 import {
   columnOffset,
   columnStates,
+  isPinned,
   scrollTargetFor,
+  verticalRevealedColumn,
   verticalRevealTop,
   type ColumnState,
   type SpineMetrics,
@@ -81,6 +83,9 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
   // Read from the computed `flex-direction` rather than a duplicated breakpoint,
   // so reading.css stays the single source of the narrow-layout media query.
   const [narrow, setNarrow] = createSignal(false);
+  const [activeIndex, setActiveIndex] = createSignal(
+    Math.max(0, props.stack.keys().length - 1),
+  );
 
   const glances = createGlanceController();
   onCleanup(() => glances.cancel());
@@ -119,9 +124,40 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
     return next;
   };
 
+  const stackedIndex = (): number | undefined =>
+    verticalRevealedColumn(
+      container.getBoundingClientRect().top,
+      [...container.querySelectorAll(".spine-column")].map(
+        (column) => column.getBoundingClientRect().top,
+      ),
+    );
+
+  const horizontalIndex = (left: number, snapshot: SpineMetrics): number => {
+    const count = props.stack.keys().length;
+    if (count === 0) {
+      return 0;
+    }
+    if (snapshot.scrollWidth <= snapshot.viewport) {
+      return count - 1;
+    }
+    for (let index = 0; index < count; index += 1) {
+      if (!isPinned(index, left, snapshot)) {
+        return index;
+      }
+    }
+    return count - 1;
+  };
+
   onMount(() => {
     measure();
-    const onResize = (): void => void measure();
+    const onResize = (): void => {
+      const wasNarrow = narrow();
+      const index = activeIndex();
+      measure();
+      if (wasNarrow !== narrow()) {
+        revealColumn(index);
+      }
+    };
     window.addEventListener("resize", onResize);
     onCleanup(() => window.removeEventListener("resize", onResize));
   });
@@ -131,6 +167,7 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
   // by the live distance between the two boxes (see `verticalRevealTop`).
   const revealColumn = (index: number): void => {
     cancelReveal();
+    setActiveIndex(index);
     const behavior = scrollBehavior();
     revealFrame = requestAnimationFrame(() => {
       revealFrame = null;
@@ -170,7 +207,18 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
   // spine only on the capture phase.
   const onScroll = (event: Event): void => {
     if (event.target === container) {
-      setScrollLeft(container.scrollLeft);
+      const layoutIsNarrow =
+        getComputedStyle(container).flexDirection === "column";
+      if (layoutIsNarrow === narrow() && layoutIsNarrow) {
+        const index = stackedIndex();
+        if (index !== undefined) {
+          setActiveIndex(index);
+        }
+      } else if (layoutIsNarrow === narrow()) {
+        const left = container.scrollLeft;
+        setScrollLeft(left);
+        setActiveIndex(horizontalIndex(left, metrics()));
+      }
     }
     glances.glance(null);
   };
@@ -190,7 +238,7 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
   );
 
   return (
-    <div ref={container} class="spine">
+    <main ref={container} class="spine">
       <For each={props.stack.keys()}>
         {(reference, index) => (
           <>
@@ -212,6 +260,30 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
               }}
               style={{ left: pin(index()) }}
             >
+              <nav class="spine-position" aria-label="Reading trail">
+                <button
+                  type="button"
+                  class="spine-position__move"
+                  disabled={index() === 0}
+                  onClick={() => revealColumn(index() - 1)}
+                >
+                  Previous
+                </button>
+                <span
+                  class="spine-position__count"
+                  aria-current={activeIndex() === index() ? "step" : undefined}
+                >
+                  Note {index() + 1} of {props.stack.keys().length}
+                </span>
+                <button
+                  type="button"
+                  class="spine-position__move"
+                  disabled={index() + 1 === props.stack.keys().length}
+                  onClick={() => revealColumn(index() + 1)}
+                >
+                  Next
+                </button>
+              </nav>
               {/* The boundary must sit outside the column, not inside it: a Solid
                   boundary cannot catch a throw from the scope it is rendered in.
                   The fallback is handed the boundary's own reset, since a caught
@@ -244,6 +316,6 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
           </Show>
         )}
       </Show>
-    </div>
+    </main>
   );
 };

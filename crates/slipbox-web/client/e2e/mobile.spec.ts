@@ -167,6 +167,28 @@ test.describe("mobile layout", () => {
     ).toBeVisible();
   });
 
+  test("the narrow trail names the position and moves between notes", async ({
+    page,
+  }) => {
+    await page.goto("/?note=file:origin.org&stacked=file:pinned.org");
+
+    const secondTrail = page.locator(".spine-position").nth(1);
+    await expect(secondTrail.getByText("Note 2 of 2")).toHaveAttribute(
+      "aria-current",
+      "step",
+    );
+    await secondTrail.getByRole("button", { name: "Previous" }).click();
+
+    const firstTrail = page.locator(".spine-position").first();
+    await expect(firstTrail.getByText("Note 1 of 2")).toHaveAttribute(
+      "aria-current",
+      "step",
+    );
+    const column = await page.locator(".spine-column").first().boundingBox();
+    expect(column!.y).toBeGreaterThanOrEqual(await readerTop(page));
+    expect(column!.y).toBeLessThanOrEqual((await readerTop(page)) + REVEAL_SLACK);
+  });
+
   test("no obscured sliver survives the narrow layout", async ({ page }) => {
     await page.goto("/?note=file:origin.org");
     await page.getByRole("link", { name: "the pinned note" }).click();

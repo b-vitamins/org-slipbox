@@ -36,6 +36,86 @@ function bodylessResponse(title: string, key: string): Response {
   );
 }
 
+function stubResponsiveFrame(): {
+  setNarrow: (value: boolean) => void;
+  restore: () => void;
+} {
+  let narrow = false;
+  let scrollLeft = 0;
+  let scrollTop = 0;
+  const descriptors = new Map<string, PropertyDescriptor | undefined>();
+  for (const [name, descriptor] of Object.entries({
+    clientWidth: { configurable: true, get: () => (narrow ? 800 : 801) },
+    scrollWidth: { configurable: true, get: () => (narrow ? 800 : 3 * 625) },
+    scrollLeft: {
+      configurable: true,
+      get: () => scrollLeft,
+      set: (value: number) => {
+        scrollLeft = value;
+      },
+    },
+    scrollTop: {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => {
+        scrollTop = value;
+      },
+    },
+  })) {
+    descriptors.set(name, Object.getOwnPropertyDescriptor(HTMLElement.prototype, name));
+    Object.defineProperty(HTMLElement.prototype, name, descriptor);
+  }
+
+  const realStyle = globalThis.getComputedStyle;
+  vi.stubGlobal("getComputedStyle", (element: Element) => {
+    const style = realStyle(element);
+    return new Proxy(style, {
+      get(target, property) {
+        if (property === "flexDirection" && element.classList.contains("spine")) {
+          return narrow ? "column" : "row";
+        }
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  });
+
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains("spine")) {
+        return DOMRect.fromRect({ x: 0, y: 50, width: narrow ? 800 : 801, height: 700 });
+      }
+      if (this.classList.contains("spine-column")) {
+        const columns = [...this.parentElement!.querySelectorAll(".spine-column")];
+        const index = columns.indexOf(this);
+        return DOMRect.fromRect({
+          x: 0,
+          y: 50 + index * 700 - scrollTop,
+          width: narrow ? 800 : 625,
+          height: 700,
+        });
+      }
+      return DOMRect.fromRect();
+    });
+
+  return {
+    setNarrow(value) {
+      narrow = value;
+    },
+    restore() {
+      rect.mockRestore();
+      for (const [name, descriptor] of descriptors) {
+        if (descriptor === undefined) {
+          Reflect.deleteProperty(HTMLElement.prototype, name);
+        } else {
+          Object.defineProperty(HTMLElement.prototype, name, descriptor);
+        }
+      }
+    },
+  };
+}
+
 describe("Spine", () => {
   beforeEach(() => {
     __resetRefocusForTests();
@@ -234,5 +314,73 @@ describe("Spine", () => {
 
     expect(await screen.findByText("Fine")).toBeInTheDocument();
     expect(container.querySelector(".glance-card")).not.toBeNull();
+  });
+
+  it("keeps the reading position across the 800px layout boundary", async () => {
+    const frame = stubResponsiveFrame();
+    try {
+      const stack = createReadingStack({
+        read: () =>
+          "?note=notes/one.org&stacked=notes/two.org&stacked=notes/three.org",
+        push: () => {},
+        replace: () => {},
+      });
+      const { container } = render(() => <Spine stack={stack} />);
+      const spine = container.querySelector<HTMLElement>(".spine")!;
+
+      spine.scrollLeft = 585;
+      spine.dispatchEvent(new Event("scroll"));
+      expect(screen.getByText("Note 2 of 3")).toHaveAttribute(
+        "aria-current",
+        "step",
+      );
+
+      vi.mocked(Element.prototype.scrollTo).mockClear();
+      frame.setNarrow(true);
+      spine.scrollLeft = 0;
+      spine.dispatchEvent(new Event("scroll"));
+      window.dispatchEvent(new Event("resize"));
+      await vi.waitFor(() =>
+        expect(Element.prototype.scrollTo).toHaveBeenCalledWith(
+          expect.objectContaining({ top: 700 }),
+        ),
+      );
+
+      spine.scrollTop = 700;
+      spine.dispatchEvent(new Event("scroll"));
+      vi.mocked(Element.prototype.scrollTo).mockClear();
+      frame.setNarrow(false);
+      spine.scrollTop = 0;
+      spine.dispatchEvent(new Event("scroll"));
+      window.dispatchEvent(new Event("resize"));
+      await vi.waitFor(() =>
+        expect(Element.prototype.scrollTo).toHaveBeenCalledWith(
+          expect.objectContaining({ left: 537 }),
+        ),
+      );
+      expect(screen.getByText("Note 2 of 3")).toHaveAttribute(
+        "aria-current",
+        "step",
+      );
+    } finally {
+      frame.restore();
+    }
+  });
+
+  it("exposes the stack position and adjacent-note controls", () => {
+    const stack = createReadingStack({
+      read: () => "?note=notes/one.org&stacked=notes/two.org",
+      push: () => {},
+      replace: () => {},
+    });
+    render(() => <Spine stack={stack} />);
+
+    expect(screen.getAllByRole("navigation", { name: "Reading trail" })).toHaveLength(
+      2,
+    );
+    expect(screen.getByText("Note 1 of 2")).toBeInTheDocument();
+    expect(screen.getByText("Note 2 of 2")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Previous" })[0]).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: "Next" })[1]).toBeDisabled();
   });
 });
