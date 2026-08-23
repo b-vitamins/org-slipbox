@@ -7,226 +7,196 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
-- Ship a tab icon with the reading client. The shell declared none, so every load
-  paid a not-found for the browser's automatic `/favicon.ico` probe, and a reader
-  holding a session of notes open had nothing but the browser's default page mark
-  to tell one tab from another. The mark is one SVG that inverts for a dark tab
-  strip. `/favicon.ico` stays a not-found: a declared icon is what stops the
-  probe, and answering a missing image with the app shell would render as a broken
-  icon rather than a missing one.
+- Ship a tab icon with the reading client. The shell declared none, so every
+  load paid a not-found for the browser's `/favicon.ico` probe and a reader
+  holding a session of notes open had nothing but the browser's default mark to
+  tell one tab from another. The mark is one SVG that inverts for a dark tab
+  strip; `/favicon.ico` stays a not-found, since a declared icon is what stops
+  the probe.
 - Read the exploration lenses over the reading API. `/api/explore` takes a note
-  key, a lens, and an optional limit, and answers with the sections that lens
-  defines: structural links, shared references and unlinked mentions, planning and
-  task neighbors, bridge candidates, dormant material, unresolved tasks and weakly
-  integrated notes. The lens is a parameter rather than a route per lens, an
-  unknown one is refused with the accepted set rather than read as a default, and a
-  section the lens defines is served empty rather than omitted. The reading client
-  gains the matching types and an `explore` call; no surface asks for a lens yet.
-- Carry a note's place in the filing order on `/api/note/context`: its ordinal in
-  `(file_path, line)` order, the number of notes indexed, and the key and title of
-  the note filed on each side. A note at either end of the order has no neighbor
-  there, and that side is left out of the payload rather than sent as null. The
-  reading client gains the matching types; no surface states a position yet.
+  key, a lens - `structure`, `refs`, `time`, `tasks`, `bridges`, `dormant`,
+  `unresolved` - and an optional limit, and answers with the sections that lens
+  defines: structural links, shared references and unlinked mentions, planning
+  and task neighbors, bridge candidates, dormant material, unresolved tasks and
+  weakly integrated notes. The lens is a parameter rather than a route per lens,
+  an unknown one is refused with the accepted set, and a section the lens
+  defines is served empty rather than omitted. The reading client gains the
+  matching types and an `explore` call; no surface asks for a lens yet.
+- Carry a note's place in the filing order on `/api/note/context`: its ordinal
+  in `(file_path, line)` order, the number of notes indexed, and the key and
+  title of the note filed on each side. A note at either end of the order has no
+  neighbor there, and that side is left out of the payload rather than sent as
+  null.
 - Page both glossary listings past their first 200 terms. `/api/glossary/terms`
   and `/api/glossary/due` answer with the size of the listing behind the page,
   whether more follows, and an opaque `next_position` to pass back as `after`.
-  Each listing pages on its own key, so a token the other minted is refused
-  rather than resumed at the wrong place. `/api/glossary/search` ranks by
-  relevance, which is no stable key, so it serves one page and states the cut.
+  Each listing pages on its own key, so a token the other minted is refused.
+  `/api/glossary/search` ranks by relevance, which is no stable key, so it
+  serves one page and states the cut.
 - Offer ranked related notes in the reading footer: notes the bridges lens ranks
-  two hops out that this note does not link to, gathered under the connector they
-  are reached through and dropped where the directed inventory already lists them.
-  Nothing is asked of the lens until a reader opens the group, so a column still
-  costs one request for as long as its footer is only read. The head's cut and the
-  lens's own limit are stated separately, since a row count tells them apart from
-  neither.
+  two hops out that this note does not link to, gathered under the connector
+  they are reached through and dropped where the directed inventory already
+  lists them. Nothing is asked of the lens until a reader opens the group, so a
+  column still costs one request while its footer is only read. The group draws
+  a head of eight rows and states the lens's own ceiling of fifty separately,
+  since one count reports neither cut on its own.
 - Rest the reading spine at a snap position, so a free scroll settles with a
   column against the offset it pins at rather than part-cut at an edge. Snapping
   is by proximity, leaving a reader who deliberately holds two half columns
-  alone, and the narrow run snaps per note on the axis it scrolls.
+  alone, and the narrow run snaps per note.
 - Offer unlinked mentions in the reading footer: notes that write this note's
-  title in their prose without linking to it. The links inventory and the bridges
-  lens both read link topology, so a note no link touches is answered by neither,
-  and the footer now stands for such a note on the mention group alone. A note
-  collapses to its first occurrence, the scan's bound is counted in occurrences
-  where the head's cut is counted in notes, and the matched run is marked inside
-  the line it stands in. `slipbox explore` heads a mention with the note it sits
-  in, naming the anchor beside it where that is a heading of its own.
-- State what makes a glossary term due. The due listing drew bare headwords in an
-  order with no visible principle, since a corpus awaiting its first review carries
-  no due dates to sort on. The listing now states its own total and names the order
-  it holds the page in, and each row carries its standing: never reviewed, or the
-  date it came due. An empty review drawer is a fact rather than a blank pane, so
-  the peek says a term has never been reviewed instead of rendering nothing, while
-  a drawer holding part of a schedule still shows only the part it holds.
-- Browse the glossary past its first page. A reading resource holds one value per
-  key, so a second page read through it replaces the first rather than extending
-  it; the surface accumulates instead, keeping the first appearance of each node
-  key and dropping the lot when the listing changes. Each position is echoed back
-  as the listing handed it out, never composed. The term list is its own
-  scrollport, so reaching its end asks for the next page, and a control below it
-  does the same for a reader who has not scrolled. A search states its cut and its
-  total with no offer to continue: a ranking has no stored position to resume from.
-- Name the open glossary term in the URL. `?term=` joins `?q=` and `?view=`, read
-  on mount to seed the selection and replaced on every later one, so a definition
-  on screen has an address a reload or a copy reopens. A key none of the pages read
-  holds is resolved through `/api/glossary/term` and peeked off the list, and a key
-  the index refuses is named rather than answered with the first row.
-- Read a glance preview from the keyboard. A card raised by a cursor and one raised
-  by focus were tagged alike, and every card but the tap-raised one was
+  title in their prose without linking to it, the only relation the index holds
+  for a note no link touches. A note collapses to its first occurrence, the
+  scan's bound counts occurrences where the head's cut counts notes, and the
+  matched run is marked inside the line it stands in. `slipbox explore` heads a
+  mention with the note it sits in, naming the anchor beside it where that is a
+  heading of its own.
+- State what makes a glossary term due. The listing drew bare headwords in an
+  order with no visible principle, since a corpus awaiting its first review
+  carries no due dates to sort on. It now states its total, names the order it
+  holds the page in, and gives each row its standing: never reviewed, or the
+  date it came due. A term with no review says so instead of drawing an empty
+  drawer, and a drawer holding part of a schedule still shows only the part it
+  holds.
+- Browse the glossary past its first page. The term list is its own scrollport,
+  so reaching its end asks for the next page, and a control below it does the
+  same for a reader who has not scrolled. Pages accumulate on the first
+  appearance of each node key and are dropped when the listing changes, and each
+  position is echoed back as the listing handed it out. A search states its cut
+  and its total with no offer to continue: a ranking has no position to resume
+  from.
+- Name the open glossary term in the URL. `?term=` joins `?q=` and `?view=`,
+  read on mount and replaced on every later selection, so a definition on screen
+  has an address a reload or a copy reopens. A key no fetched page holds is
+  resolved through `/api/glossary/term`, and a key the index refuses is named
+  rather than answered with the first row.
+- Read a glance preview from the keyboard. Every card but the tap-raised one was
   `aria-hidden`, so a reader who reached a link by Tab was shown a preview
-  announced to nobody. A focus-raised card is now the description of the link that
-  raised it, read out after the link and cleared with the card. A cursor-raised one
-  stays decorative, since it says what the cursor is already over, and no card
-  takes focus: the reader stays on the link.
-- State a note's place in the filing order under its title. A column said nothing
-  of where its note stands among the notes the slipbox holds, so the collection was
-  invisible from inside it. One line reads `Filed 812 of 1193`, off the position the
-  context read already carries, so it costs no request; "filed" names the order it
-  counts and claims no date. The line is a sibling of the heading, so the column is
-  still announced by its title alone, and it takes exactly its own line box from the
-  prose.
-- Read on to a note's neighbors in the filing order. The order could be counted but
-  not walked: reaching the note filed beside this one meant guessing which link led
-  there. A pair of links above the relations inventory names each side and the note
-  it reaches, off the same context read. Reading on replaces the column being read
-  and leaves the trail to it standing, which is the follow rule one column earlier,
-  so the link grammar keeps its three verbs; a neighbor already in the trail is
-  revealed rather than opened again. Each link carries a real address, so a new tab
-  reaches the same reading path.
-- State the reading HTTP API's compatibility policy. The table accounted for every
-  surface but the one the web reader answers on. The API is internal to that
-  surface: the client is built and shipped from this repository, and a script has
-  the CLI and JSON-RPC contracts.
+  announced to nobody. A focus-raised card is now the description of the link
+  that raised it, read out after the link and cleared with the card; a
+  cursor-raised one stays decorative, and no card takes focus.
+- State a note's place in the filing order under its title. A column said
+  nothing of where its note stands among the notes the slipbox holds, so the
+  collection was invisible from inside it. One line reads `Filed 812 of 1193`,
+  off the position the context read already carries, so it costs no request. The
+  line is a sibling of the heading, so the column is still announced by its
+  title alone.
+- Read on to a note's neighbors in the filing order. The order could be counted
+  but not walked: reaching the note filed beside this one meant guessing which
+  link led there. A pair of links above the relations inventory names each side
+  and the note it reaches, off the same context read. Reading on replaces the
+  column being read and leaves the trail to it standing, revealing a neighbor
+  already in that trail rather than drawing it again, and each link carries a
+  real address a new tab reaches.
+- State the reading HTTP API's compatibility policy. The table accounted for
+  every surface but the one the web reader answers on. The API is internal to
+  that surface: the client is built and shipped from this repository, and a
+  script has the CLI and JSON-RPC contracts.
 
 ### Changed
-- Draw the `dormant` lens's candidates from link topology rather than from shared
-  `:ROAM_REFS:` entries, and order them by age rather than by citations in common.
-  The lens answers what older material a note should be read against, which a
-  shared citation neither establishes nor is needed for: a focus note carrying no
-  refs got nothing, and among the notes that did qualify the oldest could be
-  reported below a newer one that happened to share more references. Age now
-  leads, then the number of notes a candidate is reached through, then references.
-  A `dormant-shared-reference` explanation gains a `via_notes` list and its
-  `references` list is empty for a candidate found through links alone;
+- Draw the `dormant` lens's candidates from link topology rather than shared
+  `:ROAM_REFS:` entries, and order them by age rather than citations in common.
+  A focus note carrying no refs got nothing, and the oldest candidate could be
+  reported below a newer one that happened to share more references. Age leads
+  now, then the notes a candidate is reached through, then references. A
+  `dormant-shared-reference` explanation gains a `via_notes` list and carries an
+  empty `references` list for a candidate found through links alone;
   explanations stored before this change load with no via notes.
 - Draw the weakly integrated notes the `unresolved` lens reports from link
-  topology rather than from shared `:ROAM_REFS:` entries, so a link-poor note
-  surfaces because something the focus note links to, or is linked from, also
-  reaches it. The section names the notes a slipbox has nearly forgotten to
-  connect, and requiring a shared citation refused exactly the notes least likely
-  to carry one. Either kind of evidence now admits a candidate, ordered by
-  structural link count, then by how many notes reach it, then by references in
-  common, so the least connected note is still reported first. A
-  `weakly-integrated-shared-reference` explanation gains a `via_notes` list and
-  its `references` list is empty for a candidate found through links alone;
-  explanations stored before this change load with no via notes. A clause naming
-  evidence a candidate does not have is now left out of the rendered reason, here
-  and in the bridge lens.
-- Draw the bridge lens's candidates from link topology rather than from shared
+  topology rather than shared `:ROAM_REFS:` entries: requiring a shared citation
+  refused exactly the notes least likely to carry one. Either kind of evidence
+  admits a candidate now, ordered by structural link count, then by how many
+  notes reach it, then by references in common, so the least connected note is
+  still reported first. A `weakly-integrated-shared-reference` explanation gains
+  a `via_notes` list and carries an empty `references` list for a candidate
+  found through links alone; explanations stored before this change load with no
+  via notes. A clause naming evidence a candidate does not have is left out of
+  the rendered reason, here and in the bridge lens.
+- Draw the bridge lens's candidates from link topology rather than shared
   `:ROAM_REFS:` entries, so a note two hops out surfaces because something the
-  focus note links to, or is linked from, also reaches it. A shared reference was
-  the lens's entry condition, which made the whole lens answer to a citation
-  habit instead of to how the notes are linked: a note carrying no ref of its own
-  was refused before any candidate was considered, and a slipbox whose notes
-  carry no refs got nothing from the lens however densely it was linked.
-  References now rank a candidate rather than admit one, below the number of
-  notes a candidate bridges through and above the file-path order that separates
-  equals, so a citation in common still lifts the candidate that holds it.
-  Candidates a shared reference already reached keep their place, and the
-  `references` list on a `bridge-candidate` explanation is empty for a candidate
-  found through links alone. A note whose neighbors lead nowhere else still
-  returns nothing, because a bridge needs a second hop to exist.
+  focus note links to, or is linked from, also reaches it. A shared reference
+  was the lens's entry condition, so a note carrying no ref of its own was
+  refused before any candidate was considered. References rank a candidate now
+  rather than admit one, below the notes it bridges through and above the
+  file-path order that separates equals, and the `references` list on a
+  `bridge-candidate` explanation is empty for a candidate found through links
+  alone. Candidates a shared reference already reached keep their place, and a
+  note whose neighbors lead nowhere else still returns nothing.
 - Open a glossary term in the reader from a control beside its headword rather
   than one below its definition, where a long body carried it off the bottom of
-  the pane and a reader had to scroll past the whole definition to find the way
-  onward. The control is an anchor to the term's own reading URL, so its
-  destination can be copied, opened in a new tab, or middle-clicked the way any
-  other link can, and it routes through the same navigation grammar as a link out
-  of the definition, leaving one place to decide what opening means on this
-  surface. It names the term by its id when the note carries one and by its
-  slipbox key when it does not, the rule the relations footer already followed
-  and now shares a single constructor with, and it clears the coarse pointer's
-  touch-target floor, its label centered in the taller box that floor stretches
-  it into.
+  the pane. The control is an anchor to the term's own reading URL, so it can be
+  copied, opened in a new tab, or middle-clicked, and it routes through the same
+  navigation grammar as a link out of the definition. It names the term by its
+  id when the note carries one and by its slipbox key when it does not, and it
+  clears the coarse pointer's touch-target floor.
 - List a related note once in the reading footer, marked with the direction its
   links run in, rather than once per direction group. A reciprocal note stood in
   both groups, and a forward link's preview quoted the line of the note being
-  read, already on screen above the footer. One listing now holds a row per
-  related note, in first-appearance order with forward links first, and a preview
-  comes from the backlink alone. Each direction states its own cut against its
+  read, already on screen above the footer. One listing holds a row per related
+  note, in first-appearance order with forward links first, and a preview comes
+  from the backlink alone. Each direction still states its own cut against its
   own total.
 - Set the reading footer at an index's scale rather than the prose's. Three
-  groups at the reading scale cost a screenful of a narrow viewport, a page of
-  chrome under every note: a footer for a note with six related notes measured
-  345px and now measures 243px. Row pitch, group spacing, and the space above the
-  rule come down, and the three group labels share one register instead of a
-  letterspaced uppercase run. The rule stays, and under a coarse pointer a row's
-  height is still the touch-target token's floor.
+  groups at the reading scale cost a screenful of a narrow viewport: a footer
+  for a note with six related notes measured 345px and now measures 243px. Row
+  pitch, group spacing, and the space above the rule come down, and the group
+  labels share one register. Under a coarse pointer a row still holds the
+  touch-target floor.
 
 ### Removed
 - Retire the reading surface's hop-bounded neighborhood: the `/api/neighborhood`
   route, its walk, and the ranked distance rings the reading column offered
-  behind a disclosure. The rings answered which notes lie near this one, which is
-  the question the relations footer exists to answer, and answered it worse: a
-  second request per note, a second ranking, a filter box over a list a reader
-  had not asked for, and a second grammar for opening a note. A note's links and
-  backlinks remain in the footer, where they come out of the reading context the
-  column already fetched. What goes is the web surface's own walk: the indexed
-  link graph, the store queries over it, and the `slipbox graph` DOT export are
-  untouched, as is every other reading route.
+  behind a disclosure. The rings answered which notes lie near this one, the
+  question the relations footer exists to answer, and answered it worse: a
+  second request per note, a second ranking, and a second grammar for opening a
+  note. A note's links and backlinks stand in the footer as before. The indexed
+  link graph, the store queries over it, and the DOT export of `slipbox graph`
+  are untouched, as is every other reading route.
 
 ### Fixed
 - Refuse a reading-surface request whose `Host` is not a loopback authority with
   a 403, before any route runs. The surface binds loopback only, but a browser
   sends the name it was given, so a page under a name that resolves to
-  `127.0.0.1` reaches the port as a same-origin caller and binding alone does not
-  keep it out. `localhost` and any loopback literal are served with or without a
-  port; a name that merely resolves to loopback is refused, as is a head carrying
-  two `Host` fields, and an HTTP/1.0 request that names no host is unaffected.
+  `127.0.0.1` reached the port as a same-origin caller. `localhost` and any
+  loopback literal are served with or without a port, and a name that merely
+  resolves to loopback is refused. A head carrying two `Host` fields is
+  malformed rather than resolved to either, and is answered with a 400. A
+  request that names no host at all, which HTTP/1.0 permits, is unaffected.
 - Follow only an external Org link target whose scheme navigates (`http`,
   `https`, `mailto`), and render every other target as inert text still carrying
-  its label. A target reached the DOM as an `href` unfiltered, and a note body is
-  not necessarily the reader's own, so a `javascript:` link in an imported,
-  clipped, or shared note ran in the reading origin, which holds same-origin read
-  access to every note and glossary term the API serves; read-only bars the
-  write, not the read, and the corpus is what such a link would be after. The
-  scheme is read the way a browser reads one, after the tab, newline, and leading
+  its label. A target reached the DOM as an `href` unfiltered, and a note body
+  is not necessarily the reader's own, so a `javascript:` link in an imported or
+  shared note ran in the reading origin, which holds same-origin read access to
+  every note the API serves; read-only bars the write, not the read, and the
+  corpus is what such a link would be after. The scheme is read after the
   control characters a browser strips before parsing a URL, and the href handed
-  to the DOM is that normalized target rather than the raw one. A `file:` or
-  relative target, which this surface could not follow over HTTP anyway, now
-  reads as text rather than as a dead link.
+  to the DOM is that normalized target. A `file:` or relative target now reads
+  as text rather than as a dead link.
 - Follow a link inside a glossary definition. The peek pane draws a definition
-  with the same Org renderer the reading column uses, so its `id:` links came out
-  as real anchors, but the navigation grammar those anchors route through was
-  provided only inside a reading column. Unprovided, it fell back to the inert
-  one, where the anchor's own `preventDefault` swallowed the click and no verb
-  ran, leaving a link that read as live and behaved worse than inert text: a
-  modified click still opened it in a new tab while a plain one did nothing at
-  all. The glossary is an entry surface with no spine standing beside the
-  definition, so both committing verbs open the target as the reading root, and a
-  tap from a hoverless pointer commits rather than glancing at a preview card
-  this surface does not mount.
+  with the reading column's Org renderer, so its `id:` links came out as real
+  anchors, but the navigation grammar those anchors route through was provided
+  only inside a column: unprovided, the anchor's own `preventDefault` swallowed
+  the click and no verb ran, so a modified click opened a new tab while a plain
+  one did nothing. The glossary has no spine beside the definition, so both
+  committing verbs open the target as the reading root, and a tap from a
+  hoverless pointer commits.
 - Reach every backlink a note has in the reading footer. The fetch took the
-  context route's default of 25 relations per direction and dropped the rest of a
-  well-linked note's links without saying so; it now asks for 200, the route's own
-  ceiling. `/api/note/context` carries a total per direction alongside the arrays,
-  counting related notes the way the listings do rather than the link rows the
-  stored `backlink_count` sums, and a group states "Showing 14 of 16." only when
-  the rows it drew fall short of that total - so a note linked to twice from one
-  place no longer reads as cut.
+  context route's default of 25 relations per direction and dropped the rest
+  without saying so; it asks for 200 now, the route's own ceiling.
+  `/api/note/context` carries a total per direction, counting related notes the
+  way the listings do rather than the link rows `backlink_count` sums, and a
+  group states "Showing 14 of 16." only when its rows fall short of that total.
 - Open a stacked note once. An address naming one reference twice drew a column
-  per naming, so a note reached again from further down the stack stood twice with
-  both copies scrolling as one. A repeated reference now collapses to the first
-  position holding it, and the address is rewritten in place to the stack that is
-  drawn, adding no history entry to press Back through. Repeats compare
-  spellings, so two different references naming one note stand apart until a
-  fetch resolves both.
-- Size the app shell, the reading spine, the glossary pane and its term list, and
-  the entry surface's own top padding against the visible viewport rather than the
-  largest one, so a retracting browser toolbar no longer leaves the bottom of a
-  column behind chrome that is no longer there, or pushes the search field down out
-  of reach. Each site keeps its `vh` declaration ahead of the `dvh` one, so an
+  per naming, so a note reached again from further down the stack stood twice
+  with both copies scrolling as one. A repeat collapses to the first position
+  holding it, and the address is rewritten in place, adding no history entry to
+  press Back through. Repeats compare spellings, so two references naming one
+  note stand apart until a fetch resolves both.
+- Size the app shell, the reading spine, the glossary pane and its term list,
+  and the entry surface's top padding against the visible viewport rather than
+  the largest one, so a retracting browser toolbar no longer leaves the bottom
+  of a column behind chrome that is gone, or pushes the search field out of
+  reach. Each site keeps its `vh` declaration ahead of the `dvh` one, so an
   engine without the dynamic unit holds the old value.
 - Contain a swipe carried past the end of the reading spine, a note's body, or a
   glossary scrollport, so it no longer reaches the browser as a history gesture
@@ -235,132 +205,131 @@ The format follows Keep a Changelog, and this project follows SemVer.
   pull-to-refresh stays the browser's.
 - Hold the reading measure where the columns stack. A stacked column spans the
   whole frame, so at 720px a line of prose ran to 91 characters against 71 in a
-  column. A note now caps at the measure a column gives it and centers in what is
-  left over, while the column, its border, and the seam under it keep the full
-  width. Below the cap the note still fills the frame less its padding.
-- Bound a relation preview to the line it shows. The row clipped its preview to
-  one line in paint alone, so the text node still carried the whole paragraph the
-  index holds and a screen reader read out 300 characters where a sighted reader
-  saw one. The projection now elides at 120 characters, through the helper the
-  glance excerpt already uses, and the clip stays as the guard for a width where
-  the bounded preview still does not fit.
+  column. A note caps at the measure a column gives it and centers in what is
+  left, while the column, its border, and the seam under it keep the full width.
+  Below the cap the note still fills the frame less its padding.
+- Bound a relation preview to the line it shows. The row clipped its preview in
+  paint alone, so the text node carried the whole paragraph and a screen reader
+  read out 300 characters where a sighted reader saw one. The projection elides
+  at 120 characters, through the helper the glance excerpt uses, and the clip
+  stays as the guard for a width the bounded preview still overruns.
 - State a cut glossary listing on the command line. `glossary list`, `search`,
   and `due` printed the page's own length as the count, so a listing cut at
-  `--limit` read as the whole glossary. Each now counts the page against the
-  whole listing when the page falls short of it.
+  `--limit` read as the whole glossary. Each counts the page against the whole
+  listing now when the page falls short of it.
 - Keep a relation preview readable where its row wraps. The preview shared its
-  title's line down to a 22ch reservation, so a long title at a narrow width left
-  a fragment too short to tell one linking line from another while still costing
-  the row a full line. The measure is stated once at 30ch, about 45 characters, as
-  both the flex basis and the preview's floor, so a title that leaves less than
-  that sends the preview to a line of its own at full column width. The floor caps
-  at the column for a column narrower than the measure.
+  title's line down to a 22ch reservation, so a long title at a narrow width
+  left a fragment too short to tell one linking line from another. The measure
+  is stated once at 30ch, about 45 characters, as both the flex basis and the
+  preview's floor, so a title leaving less than that sends the preview to a line
+  of its own at full column width. The floor caps at the column where a column
+  is narrower than the measure.
 - Head the reading surface's glossary with a top-level heading. The highest
   heading it drew was the peek's `h2` headword, level with the definition's own
   Org headings, so the outline had no top and no nesting. An `h1` names the
-  surface outside every conditional block, and a definition's headings now begin
-  one level under the headword: `RenderDocument` takes the heading base as a prop,
-  and the reading column keeps today's `h2`.
-- Let the glossary's listing controls name what they switch. "All terms" and "Due
-  for review" carried the tab role with no tabpanel beside them, announcing a
-  relationship the surface never held, and their roving tabindex took the arrow
-  keys the term list drives. They are now toggle buttons in a group, each pressed
-  when its filter holds and each naming the listbox it filters, so both are
-  ordinary tab stops and every arrow key stays with the list. The segmented look
-  reads off the pressed state itself.
-- Keep the glossary's search field in the due listing. It rendered in browse mode
-  only, so a page of due terms could be reached by eye alone. The field stands in
-  both modes now, named for the set it is over, and in study mode narrows the due
-  rows the surface already holds by headword and synonym: the index answers no
-  search behind a due filter, so asking it would list terms that are not due. A
-  filter that hides every due term says so instead of explaining how terms come
-  due, and the field is the one tab stop into the list in both modes, which drops
-  the listbox's own.
-- Show where focus rests in either search field. The entry surface's field and the
-  glossary's each suppressed the platform ring and reported focus with a 1px border
-  tint, the weakest indicator on the surface. Each draws a 2px ring in the link
-  color as well, offset clear of the box so nothing moves, at `:focus-visible` so
-  the platform decides when focus is worth painting.
-- Announce what a search found rather than the masthead above it. `aria-live` sat
-  on the whole entry surface, so every keystroke re-announced the masthead and the
-  corpus line and never the one fact a searcher is waiting for. A status line holds
-  the count alone, placed before there is anything to say, with the result list,
-  the hero, and the random control outside it. The capped-list line drops the count
-  it restated and keeps the advice, and the surface-level `aria-busy` goes with the
-  region it described: a search in flight is reported in words instead, which a
-  busy flag would have suppressed.
-- Keep a search match inside the excerpt that claims it. The excerpt projection had
-  no length bound, so a match far into a snippet drew past the two-line clamp and
-  the row asserted a match it never showed. A pass now trims the leading context
-  until the first matched run draws inside what the clamp holds, marking the cut
-  with the same ellipsis the construct repairs use. It runs after those repairs, so
-  it measures prose that will be drawn rather than debris a repair is about to drop,
-  and keeps its own cut clear of every construct; an excerpt already inside the
-  clamp is untouched.
-- Move focus to a note opened from the search results. Committing a result replaced
-  the entry surface with the spine and left focus on the body, so the next Tab
-  restarted at the header and nothing named the note that had opened. A column's
-  article takes a negative tab index, and the spine focuses it whenever it reveals a
-  column, deferred until that column leaves the obscured state, which is hidden and
-  so unfocusable. The focus is the spine's own work rather than a tab stop, so the
-  article paints no ring and its scroll stands.
-- Keep the query when the header returns to the entry surface. The way home pushed
-  the bare path with a null state, so a reader who searched, opened a result and
-  took it landed on an empty field with no cursor, while browser Back restored both.
-  The shell holds the address the entry surface was left at and pushes that one, and
-  a stack push carries forward the history state it used to discard, which is where
-  the result cursor rides. That address holds no reading position, so the way home
+  surface, and a definition's headings begin one level under the headword; the
+  reading column keeps today's `h2`.
+- Let the glossary's listing controls name what they switch. "All terms" and
+  "Due for review" carried the tab role with no tabpanel beside them, and their
+  roving tabindex took the arrow keys the term list drives. They are toggle
+  buttons in a group now, each pressed when its filter holds and each naming the
+  listbox it filters, so both are ordinary tab stops and every arrow key stays
+  with the list.
+- Keep the glossary's search field in the due listing. It rendered in browse
+  mode only, so a page of due terms could be reached by eye alone. The field
+  stands in both modes now, named for the set it is over. In study mode the Rust
+  index applies the headword-or-alias query before counting and paging the due
+  set, so a match beyond the first page is complete and its total is stable. The
+  field remains the one tab stop into the list in both modes.
+- Preserve the revealed note when the spine crosses its 800px layout boundary.
+  The last known reading position is carried across the geometry change before
+  the browser resets the obsolete scroll axis, in both directions.
+- Reset the glossary detail scroll when its selected term changes. At narrow
+  widths the glossary now shows either the full-height term list or definition,
+  with an explicit way back, rather than two cramped nested scrollports.
+- Keep Notes and Glossary search terms independently, add a glossary Clear
+  control, name the entry field for the whole slipbox, and stack the mobile
+  search and random controls instead of squeezing them onto one row. The entry
+  search includes glossary-marked notes by title, so its prompt no longer names
+  notes as the whole corpus.
+- Show where focus rests in either search field. The entry surface's field and
+  the glossary's each suppressed the platform ring and reported focus with a 1px
+  border tint, the weakest indicator on the surface. Each draws a 2px ring in
+  the link color as well, offset clear of the box so nothing moves, at
+  `:focus-visible`.
+- Announce what a search found rather than the masthead above it. `aria-live`
+  sat on the whole entry surface, so every keystroke re-announced the masthead
+  and the corpus line and never the count a searcher is waiting for. A status
+  line holds the count alone, with the result list, the hero, and the random
+  control outside it, and the surface-level `aria-busy` goes with the region it
+  described: a search in flight is reported in words instead. The capped-list
+  line below the results drops the count it restated and keeps the advice.
+- Keep a search match inside the excerpt that claims it. The excerpt projection
+  had no length bound, so a match far into a snippet drew past the two-line
+  clamp and the row asserted a match it never showed. A pass trims the leading
+  context until the first matched run draws inside the clamp, marking the cut
+  with the ellipsis the construct repairs use and keeping its own cut clear of
+  every construct; an excerpt already inside the clamp is untouched.
+- Move focus to a note opened from the search results. Committing a result
+  replaced the entry surface with the spine and left focus on the body, so the
+  next Tab restarted at the header and nothing named the note that had opened.
+  The spine focuses a column's article whenever it reveals one, deferred until
+  the column leaves the obscured state, which is hidden and so unfocusable. The
+  article is no tab stop, so it paints no ring and its scroll stands.
+- Keep the query when the header returns to the entry surface. The way home
+  pushed the bare path with a null state, so a reader who searched, opened a
+  result and took it landed on an empty field with no cursor, while browser Back
+  restored both. The shell pushes the address the entry surface was left at, and
+  a stack push carries forward the history state it used to discard, where the
+  result cursor rides. That address holds no reading position, so the way home
   still clears the spine.
-- Take a hover selection from the pointer's own move. Both option lists selected a
-  row on `mouseenter`, which a row arriving under a resting cursor sends too: a
-  keystroke replaces the search results, and a glossary page appended below shifts
-  the rows above it. The reader lost the cursor Enter opens, and in the glossary the
-  address was rewritten to a term nobody reached. A crossing is read as a hover only
-  where the pointer is not already, and a click still selects whatever it presses.
+- Take a hover selection from the pointer's own move. Both option lists selected
+  a row on `mouseenter`, which a row arriving under a resting cursor sends too:
+  a keystroke replaced the search results and the reader lost the cursor Enter
+  opens, and in the glossary the address was rewritten to a term nobody reached.
+  A crossing counts as a hover only where the pointer is not already, and a
+  click still selects what it presses.
 - Title the tab after the column being read. The tab named the stack's last
-  reference and nothing revised it, so a scroll back along a trail left it naming a
-  column nobody was reading. It now names the first column the ladder has not
-  pinned, or the frontmost where the whole spine stands in the frame. Each column
-  reports the title its own read already carried, so a scroll costs no request and
-  the identity resolve the tab used to make is gone.
-- Place a glance card clear of the prose it explains. The card sat just below its
-  link, covering the lines the reader was asking about, while the space beside the
-  reading columns stood empty. It now takes that space, the trailing side first,
-  level with the link so it reads as a note in the margin, and falls back to the
-  old placement where neither side holds it. The space is measured against every
-  column, not the link's own: room the next column stands in is not free.
-- Dismiss a glance preview with Escape. The card's only dismissal was the pointer
-  leaving the link, so a reader on the keyboard could get rid of it by leaving the
-  link and no other way. Escape on the link clears it, since a keydown arrives
-  where the reader is standing and this key is a dismissal only there; nothing is
-  remembered, so the same link raises the card again without focus having to move.
+  reference and nothing revised it, so a scroll back along a trail left it
+  naming a column nobody was reading. It now names the first column the ladder
+  has not pinned, or the frontmost where the whole spine stands in the frame,
+  off the title each column's own read already carried, so a scroll costs no
+  request and the two client accessors the title path resolved through are gone.
+- Place a glance card clear of the prose it explains. The card sat just below
+  its link, covering the lines the reader was asking about, while the space
+  beside the reading columns stood empty. It takes that space now, the trailing
+  side first, level with the link so it reads as a note in the margin, and falls
+  back to the old placement where neither side holds it.
+- Dismiss a glance preview with Escape. The card's only dismissal was the
+  pointer leaving the link, so a reader on the keyboard could get rid of it by
+  leaving the link and no other way. Escape on the link clears it, and nothing
+  is remembered, so the same link raises the card again without focus having to
+  move.
 - Distinguish an in-prose link by more than its color. `--link` measures 2.51:1
-  against the prose in light and 1.81:1 in dark, under the 3:1 WCAG 1.4.1 asks of a
-  distinction carried by color alone, and the hover underline arrived only once the
-  pointer had already found the word. A link in a note body now carries a hairline
-  underline at rest. The tones are unchanged, and neither `a` rule is touched, since
-  those also reach the chrome, where a rule of underlines would read as a listing;
-  the dotted and external variants keep the marks they already had.
-- Paint a display equation's scroll shadow in the surface it stands on. The cover
-  gradients that hide an equation's cut edges were painted in the reading column's
-  tone, which the column alone sets, so the same equation in a glossary definition
-  carried a slab of the column's surface across the canvas. The cover now comes from
-  a pair of variables defaulting to that tone, and the pane restates both halves in
-  its own; a cover fading out to `transparent` would fade through transparent black,
-  so each tone has a zero-alpha spelling of its own.
-- Name `web` among the System commands in `--help`. The family listing omitted it,
-  so the only place the help mentioned the reading surface was the subcommand's own
-  entry.
-- Give a code block in a glossary definition its own surface. The block painted the
-  reading column's tone, which is the tone the peek pane stands on, so a source,
-  example, or verbatim run in a definition was a slab of canvas with no edges. The
-  tone is a variable the pane restates in its own, as it already restates the math
-  cover's, and the copy control's hover tone rides with it.
+  against the prose in light and 1.81:1 in dark, under the 3:1 WCAG 1.4.1 asks
+  of a distinction carried by color alone, and the hover underline arrived only
+  once the pointer had found the word. A link in a note body carries a hairline
+  underline at rest, while the dotted and external variants keep the marks they
+  already had; the tones are unchanged, and the chrome's links are untouched.
+- Paint a display equation's scroll shadow in the surface it stands on. The
+  cover gradients that hide an equation's cut edges were painted in the reading
+  column's tone, which the column alone sets, so the same equation in a glossary
+  definition carried a slab of the column's surface across the canvas. The cover
+  now comes from a pair of variables that default to the column's tone, and the
+  pane restates both halves in its own.
+- Name `web` among the System commands in `--help`. The family listing omitted
+  it, so the only place the help mentioned the reading surface was the
+  subcommand's own entry.
+- Give a code block in a glossary definition its own surface. The block painted
+  the reading column's tone, which is the tone the peek pane stands on, so a
+  source, example, or verbatim run in a definition was a slab of canvas with no
+  edges. The tone is now a variable defaulting to the column's, restated by the
+  pane in its own, and the copy control's hover tone rides with it.
 - Pass over a title inside a link target when scanning unlinked mentions. Only
-  links reaching the queried note were excluded, so a note whose title is a word of
-  some other note's address was reported as mentioned at that address. Every bracket
-  link's target is now excluded, up to the description separator, so a label naming
-  another note is still read as prose.
+  links reaching the queried note were excluded, so a note whose title is a word
+  of some other note's address was reported as mentioned at that address. Every
+  bracket link's target is excluded now, up to the description separator, so a
+  label naming another note is still read as prose.
 
 ## [0.17.0] - 2026-07-25
 
