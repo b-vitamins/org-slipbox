@@ -582,7 +582,17 @@
     overflow: visible;
   }
 
+  /* The column takes the whole frame, but a line of prose keeps the measure a
+   * column gives it: `--column-width` less the padding it carries there, plus the
+   * padding this layout carries. Centered in the width left over, and inert
+   * below the cap, so at 375px the note still fills the frame less its padding
+   * while the column, its border, and the seam under it stay full width. */
   .reading-note {
+    max-width: calc(
+      var(--column-width) - 2 * var(--note-padding) + 2 *
+        var(--note-padding-mobile)
+    );
+    margin-inline: auto;
     padding: var(--note-padding-mobile);
   }
 

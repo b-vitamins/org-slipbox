@@ -19,6 +19,65 @@ async function readerTop(page: Page): Promise<number> {
 /** How far below the reading area's top edge a revealed title may sit. */
 const REVEAL_SLACK = 8;
 
+/** The opening words of the body's first paragraph, which the measure is read on. */
+const FIRST_PARAGRAPH = "Paragraph 1.";
+
+/**
+ * How many characters of a paragraph's first rendered line fit before it turns.
+ * Where the text breaks is the browser's decision and nothing in the DOM records
+ * it, so the break is found by walking a range to the character whose box drops
+ * to the next line.
+ */
+function charactersPerLine(page: Page, opening: string): Promise<number> {
+  return page.evaluate((prefix) => {
+    const paragraph = Array.from(document.querySelectorAll(".org-paragraph")).find(
+      (node) => (node.textContent ?? "").startsWith(prefix),
+    );
+    const text = paragraph?.firstChild;
+    if (!(text instanceof Text)) {
+      throw new Error(`no paragraph opening ${prefix}`);
+    }
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 1);
+    const firstLine = range.getBoundingClientRect().top;
+    for (let at = 2; at <= text.length; at += 1) {
+      range.setEnd(text, at);
+      const rects = Array.from(range.getClientRects());
+      const last = rects[rects.length - 1];
+      if (last && last.top > firstLine + 1) {
+        return at - 1;
+      }
+    }
+    return text.length;
+  }, opening);
+}
+
+/** The note box, the column holding it, and the width the column has to fill. */
+function noteGeometry(page: Page) {
+  return page.evaluate(() => {
+    const column = document.querySelector(".spine-column") as HTMLElement;
+    const note = column.querySelector(".reading-note") as HTMLElement;
+    const paragraph = column.querySelector(".org-paragraph") as HTMLElement;
+    const style = getComputedStyle(note);
+    return {
+      run: Math.round((document.querySelector(".spine") as HTMLElement).clientWidth),
+      column: Math.round(column.getBoundingClientRect().width),
+      columnLeft: Math.round(column.getBoundingClientRect().left),
+      note: Math.round(note.getBoundingClientRect().width),
+      noteLeft: Math.round(note.getBoundingClientRect().left),
+      paragraph: Math.round(paragraph.getBoundingClientRect().width),
+      overflow: Math.round(
+        (document.querySelector(".spine") as HTMLElement).scrollWidth -
+          (document.querySelector(".spine") as HTMLElement).clientWidth,
+      ),
+      padding:
+        Math.round(Number.parseFloat(style.paddingLeft)) +
+        Math.round(Number.parseFloat(style.paddingRight)),
+    };
+  });
+}
+
 const WORLD: FixtureWorld = {
   notes: [
     {
@@ -151,6 +210,19 @@ test.describe("mobile layout", () => {
     expect(preview!.width).toBeGreaterThan(0);
   });
 
+  test("at 375px the note still fills the width, less its padding", async ({ page }) => {
+    await page.goto("/?note=file:origin.org");
+    await expect(page.getByRole("heading", { name: "Origin Note" })).toBeVisible();
+
+    // 375px is narrower than the measure, so the cap that holds the line length
+    // at a wide narrow viewport has to be inert here: every pixel the frame has
+    // is one the note needs.
+    const geometry = await noteGeometry(page);
+    expect(geometry.column).toBe(geometry.run);
+    expect(geometry.note).toBe(geometry.run);
+    expect(geometry.paragraph).toBe(geometry.note - geometry.padding);
+  });
+
   test("an empty glossary explains itself inside the phone's width", async ({
     page,
   }) => {
@@ -171,6 +243,55 @@ test.describe("mobile layout", () => {
       expect(box!.x + box!.width).toBeLessThanOrEqual(pane!.x + pane!.width);
     }
     expect(pane!.x + pane!.width).toBeLessThanOrEqual(375);
+  });
+});
+
+/*
+ * At 720px the run is stacked but the frame is still wide, so a full-width
+ * column offers a line far more room than prose can use. Its own viewport, since
+ * the block above pins the whole file to 375px.
+ */
+test.describe("the reading measure in a stacked column", () => {
+  test.use({ viewport: { width: 720, height: 900 } });
+
+  test.beforeEach(async ({ page }) => {
+    await mountApi(page, WORLD);
+  });
+
+  test("a stacked note reads at the measure a column gives it", async ({ page }) => {
+    await page.goto("/?note=file:origin.org");
+    await expect(page.getByRole("heading", { name: "Origin Note" })).toBeVisible();
+
+    const stacked = await charactersPerLine(page, FIRST_PARAGRAPH);
+    const geometry = await noteGeometry(page);
+
+    // The note is inset while the column still spans the run, so the border along
+    // a column's top edge reaches both edges of the frame.
+    expect(geometry.column).toBe(geometry.run);
+    expect(geometry.note).toBeLessThan(geometry.run);
+    expect(geometry.overflow).toBe(0);
+    expect(geometry.noteLeft).toBeGreaterThan(geometry.columnLeft);
+    const trailing =
+      geometry.columnLeft + geometry.column - (geometry.noteLeft + geometry.note);
+    expect(
+      Math.abs(geometry.noteLeft - geometry.columnLeft - trailing),
+    ).toBeLessThanOrEqual(1);
+
+    // The same paragraph in the layout the measure is taken from, measured rather
+    // than assumed, so both readings are one text in one font.
+    await page.setViewportSize({ width: 1200, height: 900 });
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            getComputedStyle(document.querySelector(".spine") as HTMLElement)
+              .flexDirection,
+        ),
+      )
+      .toBe("row");
+    const inColumn = await charactersPerLine(page, FIRST_PARAGRAPH);
+
+    expect(stacked).toBeLessThanOrEqual(inColumn);
   });
 });
 
