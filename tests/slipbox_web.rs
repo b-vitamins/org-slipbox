@@ -219,8 +219,13 @@ fn reading_bridge_serves_the_read_only_note_and_glossary_surface() -> Result<()>
         Some(ExplorationEntry::Anchor { record }) if record.anchor.title == "Weak"
     ));
 
-    let terms = bridge.list_glossary_terms(&ListGlossaryTermsParams { limit: 50 })?;
+    let terms = bridge.list_glossary_terms(&ListGlossaryTermsParams {
+        limit: 50,
+        after: None,
+    })?;
     assert_eq!(terms.terms.len(), 1);
+    assert_eq!(terms.total, 1);
+    assert!(!terms.has_more);
     let riemann_key = terms.terms[0].node_key.clone();
     assert_eq!(terms.terms[0].title, "Riemann integral");
 
@@ -243,11 +248,13 @@ fn reading_bridge_serves_the_read_only_note_and_glossary_surface() -> Result<()>
     let not_yet = bridge.glossary_due(&GlossaryDueParams {
         today: Some("2026-07-26".to_owned()),
         limit: 50,
+        after: None,
     })?;
     assert!(not_yet.terms.is_empty());
     let due = bridge.glossary_due(&GlossaryDueParams {
         today: Some("2026-08-02".to_owned()),
         limit: 50,
+        after: None,
     })?;
     assert_eq!(due.terms.len(), 1);
     assert_eq!(due.terms[0].node_key, riemann_key);
@@ -525,10 +532,15 @@ fn reading_server_serves_the_note_and_glossary_surface_over_http() -> Result<()>
 
     let terms = http_get(addr, "/api/glossary/terms")?;
     assert_eq!(terms.status, 200);
-    let riemann_key = terms.json()?["terms"][0]["node_key"]
+    let listing = terms.json()?;
+    let riemann_key = listing["terms"][0]["node_key"]
         .as_str()
         .context("the one glossary term should be listed")?
         .to_owned();
+    // The reading client reads the listing's size and its end off the answer.
+    assert_eq!(listing["total"], 1);
+    assert_eq!(listing["has_more"], false);
+    assert!(listing["next_position"].is_null(), "{}", terms.body);
 
     let glossary_search = http_get(addr, "/api/glossary/search?q=Riemann")?;
     assert_eq!(glossary_search.status, 200);
@@ -818,6 +830,20 @@ fn reading_server_refuses_a_parameter_it_cannot_honour_as_written() -> Result<()
         "/api/search/content?q=alpha%00beta",
         "/api/glossary/search?q=alpha%00beta",
         "/api/node?key=file:alpha.org%00",
+    ] {
+        let refused = http_get(addr, target)?;
+        assert_eq!(refused.status, 400, "{target} should be refused");
+        assert_eq!(refused.json()?["error"]["kind"], "bad-request");
+    }
+
+    // A position is opaque, so a token no listing minted is refused rather than
+    // answered with a page taken from somewhere else in the listing.
+    for target in [
+        "/api/glossary/terms?after=not-a-position",
+        "/api/glossary/terms?after=",
+        "/api/glossary/terms?after=%20",
+        "/api/glossary/due?after=not-a-position",
+        "/api/glossary/due?after=%20%09",
     ] {
         let refused = http_get(addr, target)?;
         assert_eq!(refused.status, 400, "{target} should be refused");

@@ -310,9 +310,17 @@ export interface ExploreResult {
   sections: ExplorationSection[];
 }
 
-/** Every glossary read returns the same list shape. Mirrors the `*Result { terms }` structs. */
+/**
+ * Every glossary read returns the same list shape: one page of terms, the size of
+ * the listing behind it, and the opaque token that asks for the next page. Search
+ * ranks by relevance rather than a stored key, so it carries no token. Mirrors the
+ * `*Result` structs.
+ */
 export interface GlossaryTermsResult {
   terms: NodeRecord[];
+  total: number;
+  has_more: boolean;
+  next_position?: string | null;
 }
 
 /** One glossary term, or null when the key is unknown. Mirrors `GlossaryTermResult`. */

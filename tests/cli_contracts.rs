@@ -1531,7 +1531,7 @@ fn glossary_commands_expose_stable_json_shapes_and_grade_round_trips() -> Result
     let list = glossary_json_command("list", &root, &db, &[])?;
     assert!(list.status.success(), "{list:?}");
     let list_json: Value = serde_json::from_slice(&list.stdout)?;
-    assert_exact_object_keys(&list_json, &["terms"]);
+    assert_exact_object_keys(&list_json, &["terms", "total", "has_more", "next_position"]);
     let listed = list_json["terms"]
         .as_array()
         .expect("glossary list terms should be an array");
@@ -1544,7 +1544,8 @@ fn glossary_commands_expose_stable_json_shapes_and_grade_round_trips() -> Result
     let search = glossary_json_command("search", &root, &db, &["Riemann"])?;
     assert!(search.status.success(), "{search:?}");
     let search_json: Value = serde_json::from_slice(&search.stdout)?;
-    assert_exact_object_keys(&search_json, &["terms"]);
+    // Search ranks by relevance, so it states the cut without a position.
+    assert_exact_object_keys(&search_json, &["terms", "total", "has_more"]);
     assert_node_record_keys(&search_json["terms"][0]);
     assert_eq!(search_json["terms"][0]["title"], "Riemann integral");
 
@@ -1566,7 +1567,7 @@ fn glossary_commands_expose_stable_json_shapes_and_grade_round_trips() -> Result
     let due = glossary_json_command("due", &root, &db, &["--today", "2026-08-02"])?;
     assert!(due.status.success(), "{due:?}");
     let due_json: Value = serde_json::from_slice(&due.stdout)?;
-    assert_exact_object_keys(&due_json, &["terms"]);
+    assert_exact_object_keys(&due_json, &["terms", "total", "has_more", "next_position"]);
     let due_terms = due_json["terms"]
         .as_array()
         .expect("glossary due terms should be an array");

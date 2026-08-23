@@ -33,7 +33,10 @@ impl HeadlessCommand for GlossaryListArgs {
     }
 
     fn execute(&self, client: &mut DaemonClient) -> Result<Self::Output, DaemonClientError> {
-        client.list_glossary_terms(&ListGlossaryTermsParams { limit: self.limit })
+        client.list_glossary_terms(&ListGlossaryTermsParams {
+            limit: self.limit,
+            after: None,
+        })
     }
 
     fn render_human(&self, output: &Self::Output) -> String {
