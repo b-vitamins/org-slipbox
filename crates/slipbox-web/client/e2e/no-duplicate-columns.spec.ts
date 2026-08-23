@@ -98,7 +98,7 @@ test.describe("distinct columns", () => {
     page,
   }) => {
     await page.goto("/");
-    await expect(page.getByRole("combobox", { name: "Search notes" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Search the slipbox" })).toBeVisible();
     const collapsed = `/?note=${encodeURIComponent("file:flows.org")}&stacked=${encodeURIComponent("file:change.org")}`;
     await page.goto(`${collapsed}&stacked=${encodeURIComponent("file:flows.org")}`);
 
@@ -109,7 +109,7 @@ test.describe("distinct columns", () => {
     await expect(page).toHaveURL(collapsed);
 
     await page.goBack();
-    await expect(page.getByRole("combobox", { name: "Search notes" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Search the slipbox" })).toBeVisible();
   });
 
   test("a relation row to an open note reveals it too", async ({ page }) => {

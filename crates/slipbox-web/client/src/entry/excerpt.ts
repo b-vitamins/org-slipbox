@@ -137,21 +137,11 @@ function dropCutHead(source: string): string {
   return `${ELLIPSIS}${OPEN.repeat(Math.max(0, closed - open))}${kept}`;
 }
 
-/**
- * Characters one line of a drawn excerpt holds: the row is `--column-width` wide
- * less its padding, and 14px body text averages close to half its size a
- * character. An estimate by nature, since the clamp measures line boxes and this
- * counts characters, which is why the clamp stays the last guard.
- */
+// Approximate the two-line CSS clamp while retaining it as the final visual guard.
 const LINE_CHARACTERS = 84;
-
-/** Lines `.entry-result__snippet` clamps an excerpt to. */
 const CLAMPED_LINES = 2;
-
-/** What the clamp leaves room for, in characters. */
 const DRAWN_CHARACTERS = LINE_CHARACTERS * CLAMPED_LINES;
 
-/** How many characters reduced prose draws as, atoms counted at their source. */
 function drawnLength(nodes: readonly Inline[]): number {
   let length = 0;
   for (const node of nodes) {
@@ -175,18 +165,11 @@ function drawnLength(nodes: readonly Inline[]): number {
   return length;
 }
 
-/** What `source` draws as, in characters: markup is measured at nothing. */
 function drawn(source: string): number {
   return drawnLength(inlinePreview(parseInline(source.replace(MARKERS, ""))));
 }
 
-/**
- * The opener of the construct a cut at `at` falls inside, or null when the cut
- * lands in prose.
- *
- * The outermost opener, since that is the one an excerpt has to start at to
- * parse; a nested construct is inside whatever encloses it either way.
- */
+/** Find the outermost construct containing a proposed cut. */
 function enclosingOpener(source: string, at: number): number | null {
   let inside: Construct | null = null;
   let opener = 0;
@@ -217,14 +200,6 @@ function enclosingOpener(source: string, at: number): number | null {
   return inside === null ? null : opener;
 }
 
-/**
- * Where an excerpt's leading context has to give way for its first match to draw
- * on screen, or null when the match already lands there.
- *
- * Neither repair: nothing here is markup an elision broke, only prose the clamp
- * has no room for. Null when the whole excerpt draws inside the clamp, since a
- * trim would then mark a cut nothing made.
- */
 function leadCut(source: string): number | null {
   const match = source.indexOf(OPEN);
   if (match === -1 || drawn(source) <= DRAWN_CHARACTERS) {
@@ -233,22 +208,13 @@ function leadCut(source: string): number | null {
   if (drawn(source.slice(0, match)) <= LINE_CHARACTERS) {
     return null;
   }
-  // Counted in source characters, which are never fewer than the characters they
-  // draw as, so the lead this keeps is inside a line whatever markup it holds.
   const at = match - LINE_CHARACTERS;
   const word = source.indexOf(" ", at);
   const between = word === -1 || word >= match ? at : word + 1;
-  // A cut inside a construct strands the excerpt on the second half of one: the
-  // parser reads a bare `][` or `\)` as the characters it spells, and a bound that
-  // keeps a match by cutting through what encloses it keeps nothing. The
-  // construct's own opener is the nearest place the cut can stand instead.
+  // Never begin inside Org markup; move the cut to its outer opener.
   return enclosingOpener(source, between) ?? between;
 }
 
-/**
- * Start an excerpt where its first match has room to draw, marking the cut with
- * the ellipsis the construct repairs mark theirs with.
- */
 function dropLongLead(source: string): string {
   const cut = leadCut(source);
   if (cut === null) {
@@ -424,13 +390,6 @@ function strip(text: string): string {
 
 /**
  * The runs of prose a content-search excerpt draws as, in order.
- *
- * Three passes over the spliced source, each with its own boundary: the ends are
- * repaired where the server's elision cut a construct in half, then the lead is
- * bounded to what the clamp leaves room for. The bound runs last, so what it
- * measures is prose that will be drawn rather than debris a repair is about to
- * drop, and it keeps its own cut clear of every construct so no repair has to
- * answer for it.
  */
 export function excerptRuns(
   segments: readonly ContentSegment[],

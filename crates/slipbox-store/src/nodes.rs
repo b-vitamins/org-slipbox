@@ -1671,6 +1671,22 @@ mod tests {
     }
 
     #[test]
+    fn content_search_includes_glossary_titles() -> Result<()> {
+        let glossary = term(
+            "Convex duality",
+            "",
+            "A relation between optimization problems.",
+        );
+        let (_workspace, database, _root) =
+            indexed_database(&[("duality.org", glossary.as_str())])?;
+
+        let hits = database.search_node_content("Convex duality", 20)?;
+        assert_eq!(content_titles(&hits), vec!["Convex duality"]);
+        assert!(hits[0].node.glossary);
+        Ok(())
+    }
+
+    #[test]
     fn content_search_stems_and_folds_like_note_search() -> Result<()> {
         let (_workspace, database, _root) = indexed_database(&[
             (

@@ -9,9 +9,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* The hero sits a share of the viewport down, and the share is of the viewport
-     the reader can see rather than the largest one a retracting toolbar leaves
-     room for; `vh` stands first as the fallback (see App.css). */
+  /* `vh` is the fallback for engines without dynamic viewport units. */
   padding: 12vh var(--note-padding) var(--note-padding);
   padding: 12dvh var(--note-padding) var(--note-padding);
 }
@@ -63,10 +61,6 @@
   border-color: var(--link);
 }
 
-/* The border tint is one pixel of hue, the weakest indicator on the surface, so a
-   focused field also draws a ring. Offset clear of the box, which is drawn over
-   the canvas and moves nothing. Whether a click counts as visible focus on a
-   field is the platform's rule; `:focus-visible` is how this defers to it. */
 .entry-search__field:focus-visible {
   outline: 2px solid var(--link);
   outline-offset: 2px;
@@ -113,9 +107,7 @@
   color: var(--ink);
 }
 
-/* The live region stands in the DOM before it has anything to say, so its resting
-   box is collapsed rather than hidden: `display: none` would take it out of the
-   accessibility tree and it would announce nothing on the way back in. */
+/* Keep the empty live region mounted without reserving space. */
 .entry-status--summary:empty {
   margin: 0;
 }
@@ -172,9 +164,6 @@
   color: var(--muted-2);
 }
 
-/* Two lines, and the last of the excerpt's bounds rather than the only one: the
-   projection keeps the first matched run inside what these hold (`excerpt.ts`),
-   and this clips whatever follows it. */
 .entry-result__snippet {
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -209,5 +198,31 @@
 @media (max-width: 800px) {
   .entry {
     padding: var(--note-padding-mobile);
+  }
+
+  .entry-results {
+    display: grid;
+    gap: 8px;
+  }
+
+  .entry-result {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+  }
+
+  .entry-result--active {
+    background: var(--link-active-bg);
+    border-color: var(--link);
+  }
+}
+
+@media (max-width: 480px) {
+  .entry-search {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .entry-search__random {
+    width: 100%;
   }
 }

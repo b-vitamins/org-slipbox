@@ -228,14 +228,7 @@ describe("excerptRuns", () => {
     );
   });
 
-  /*
-   * The length bound. A row draws on two clamped lines of about 84 characters, so
-   * these excerpts are measured in that unit rather than in words. The mark a cut
-   * leaves is the same ellipsis the server writes for its own elision, so a mark
-   * is never read here as proof of which side cut.
-   */
 
-  /** `words` copies of a 35-character clause, as leading context. */
   const context = (words: number): string =>
     "an opening clause of ample length. ".repeat(words);
 
@@ -253,7 +246,6 @@ describe("excerptRuns", () => {
     const drawn = flat([plain(context(6)), match("posterior")]);
 
     expect(drawn.match(/…/g)).toEqual(["…"]);
-    // What the kept lead resumes at stood after a space in the excerpt.
     expect(context(6)).toContain(` ${drawn.slice(1, 40)}`);
   });
 
@@ -267,7 +259,6 @@ describe("excerptRuns", () => {
   });
 
   it("leaves an excerpt the two lines already hold, mark and all", () => {
-    // Over a line of context, under two: the clamp shows all of it.
     const segments = [plain(context(3)), match("posterior"), plain(" collapse")];
 
     expect(flat(segments)).toBe(`${context(3)}posterior collapse`);
@@ -280,7 +271,6 @@ describe("excerptRuns", () => {
     expect(flat(segments)).toBe(`…${context(2)}posterior`);
   });
 
-  /** A formula long enough for the bound's cut to land inside it. */
   const formula = (terms: number): string => "\\alpha_i + \\beta_i + ".repeat(terms);
 
   it("snaps a length cut back to the inline formula enclosing the match", () => {
@@ -312,8 +302,6 @@ describe("excerptRuns", () => {
   });
 
   it("measures the bound over what the repairs leave, not the debris they drop", () => {
-    // The elision left a long broken link at the head. What the head repair leaves
-    // of it draws inside the clamp, so the bound has nothing to trim.
     const segments = [
       plain(`…${"0ada3238-a90d-4f8b-".repeat(12)}][the label]] and then `),
       match("posterior"),
@@ -323,8 +311,6 @@ describe("excerptRuns", () => {
   });
 
   it("keeps whole a link its own length cut would fall inside", () => {
-    // Snapped back to the link's opener, so the excerpt opens on a construct that
-    // parses rather than on the debris of one.
     const segments = [
       plain(
         `${context(4)}[[id:0ada3238-a90d][expectation maximisation]] ` +

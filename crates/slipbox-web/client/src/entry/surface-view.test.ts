@@ -54,9 +54,6 @@ describe("surface-view URL codec", () => {
     expect(encodeView("search", "/reader?view=glossary")).toBe("/reader");
   });
 
-  // `?term=` names a row of the glossary listing, so it means nothing on a
-  // surface with no listing: it is dropped from the URL being pushed, which
-  // leaves the entry being left holding the term it was showing.
   it("drops the open term when leaving the glossary and keeps it between its lists", () => {
     expect(encodeView("search", "?view=glossary&term=notes%2Fa.org%3A%3A0")).toBe(
       "",
@@ -118,15 +115,20 @@ describe("createSurfaceView", () => {
     expect(history.read()).toBe("?view=glossary");
   });
 
-  it("preserves a live search term across a mode round trip", () => {
+  it("keeps separate search terms for notes and glossary", () => {
     const history = memoryHistory("?q=gibbs");
     const view = createSurfaceView(history);
 
     view.show("glossary");
-    expect(history.read()).toBe("?q=gibbs&view=glossary");
+    expect(history.read()).toBe("?view=glossary");
+
+    history.replace("?q=entropy&view=glossary");
 
     view.show("search");
     expect(history.read()).toBe("?q=gibbs");
+
+    view.show("glossary");
+    expect(history.read()).toBe("?q=entropy&view=glossary");
   });
 
   it("keeps a live search term across a switch between the glossary lists", () => {

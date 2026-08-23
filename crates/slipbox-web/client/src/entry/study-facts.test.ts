@@ -85,8 +85,6 @@ describe("dueStanding", () => {
     ).toBe("due 2026-07-20");
   });
 
-  // Every other row in the listing states a standing, so a row left with none
-  // reads as a fact the surface knows and is withholding.
   it("says a graded term carries no due date rather than saying nothing", () => {
     expect(dueStanding(term({ sr_reps: "3" }))).toBe("no due date recorded");
   });

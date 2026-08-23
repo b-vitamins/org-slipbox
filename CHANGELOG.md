@@ -285,6 +285,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
   a stack push carries forward the history state it used to discard, which is where
   the result cursor rides. That address holds no reading position, so the way home
   still clears the spine.
+- Take a hover selection from the pointer's own move. Both option lists selected a
+  row on `mouseenter`, which a row arriving under a resting cursor sends too: a
+  keystroke replaces the search results, and a glossary page appended below shifts
+  the rows above it. The reader lost the cursor Enter opens, and in the glossary the
+  address was rewritten to a term nobody reached. A crossing is read as a hover only
+  where the pointer is not already, and a click still selects whatever it presses.
 
 ## [0.17.0] - 2026-07-25
 
