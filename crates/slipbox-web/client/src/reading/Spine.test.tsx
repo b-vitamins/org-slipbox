@@ -383,4 +383,64 @@ describe("Spine", () => {
     expect(screen.getAllByRole("button", { name: "Previous" })[0]).toBeDisabled();
     expect(screen.getAllByRole("button", { name: "Next" })[1]).toBeDisabled();
   });
+
+  it("takes focus into the column it opens, named for that note", async () => {
+    const stack = createReadingStack({
+      read: () => "?note=notes/one.org",
+      push: () => {},
+      replace: () => {},
+    });
+    const { container } = render(() => <Spine stack={stack} />);
+
+    const column = container.querySelector<HTMLElement>("article.reading-note");
+    expect(column).not.toBeNull();
+    await vi.waitFor(() => expect(column).toHaveFocus());
+
+    // What the focused element is called is the note's own heading, so a reader
+    // is told which note opened rather than that something did.
+    const heading = await screen.findByRole("heading", { level: 1, name: "One" });
+    expect(column!.getAttribute("aria-labelledby")).toBe(heading.id);
+  });
+
+  it("takes focus into the column a pinned link opens", async () => {
+    const stack = createReadingStack({
+      read: () => "?note=notes/one.org",
+      push: () => {},
+      replace: () => {},
+    });
+    const { container } = render(() => <Spine stack={stack} />);
+
+    // `click()` synthesizes a click of no pointer press, which the grammar reads
+    // as the keyboard activation it is, and pins.
+    (await screen.findByRole("link", { name: "the other note" })).click();
+
+    await vi.waitFor(() =>
+      expect(container.querySelectorAll(".spine-column")).toHaveLength(2),
+    );
+    const opened = container.querySelectorAll<HTMLElement>(".spine-column")[1]!;
+    await vi.waitFor(() =>
+      expect(opened.contains(document.activeElement)).toBe(true),
+    );
+  });
+
+  it("leaves focus alone when a re-render finds the stack unchanged", async () => {
+    const stack = createReadingStack({
+      read: () => "?note=notes/one.org",
+      push: () => {},
+      replace: () => {},
+    });
+    const { container } = render(() => <Spine stack={stack} />);
+
+    const column = container.querySelector<HTMLElement>("article.reading-note")!;
+    await vi.waitFor(() => expect(column).toHaveFocus());
+
+    // Focus has since left the spine for the header, and a re-measure re-renders
+    // every column: the reveal is what moves focus, not the render.
+    column.blur();
+    expect(document.body).toHaveFocus();
+    window.dispatchEvent(new Event("resize"));
+    await Promise.resolve();
+
+    expect(document.body).toHaveFocus();
+  });
 });

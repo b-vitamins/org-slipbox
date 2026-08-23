@@ -270,6 +270,13 @@ The format follows Keep a Changelog, and this project follows SemVer.
   it measures prose that will be drawn rather than debris a repair is about to drop,
   and keeps its own cut clear of every construct; an excerpt already inside the
   clamp is untouched.
+- Move focus to a note opened from the search results. Committing a result replaced
+  the entry surface with the spine and left focus on the body, so the next Tab
+  restarted at the header and nothing named the note that had opened. A column's
+  article takes a negative tab index, and the spine focuses it whenever it reveals a
+  column, deferred until that column leaves the obscured state, which is hidden and
+  so unfocusable. The focus is the spine's own work rather than a tab stop, so the
+  article paints no ring and its scroll stands.
 
 ## [0.17.0] - 2026-07-25
 
