@@ -9,11 +9,15 @@ daemon-owned writes fast enough for interactive use. Emacs owns editing UI,
 session state, and presentation. Rust owns parsing, indexing, ranking, query
 execution, and file mutation.
 
-The latest shipped release is `0.17.0`, which adds a read-only web reading
-surface as a third front-end over Notes and Glossary beside Emacs and the CLI:
-a `slipbox web` command bridges HTTP to a spawned read-only daemon, binds
-localhost only, and serves a SolidJS reading client beneath a bounded JSON API,
-without adding a new public bucket or any way to mutate notes over HTTP.
+The latest shipped release is `0.18.0`, which deepens the read-only web reading
+surface `0.17.0` introduced: the exploration lenses are served over its API and
+read in the reading column, a note states its place in the filing order and
+offers the notes filed on either side, both glossary listings page past their
+first page, narrow reading trails preserve their position across layout changes,
+and the glossary uses a full-height master/detail flow on phone-sized screens.
+The browser suite verifies its core entry, reading, error, and glossary states in
+light and dark themes at desktop and narrow widths. It still adds no public
+bucket and no way to mutate a note over HTTP.
 
 For the product model, see [doc/model.org](doc/model.org). The short version
 is:

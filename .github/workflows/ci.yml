@@ -20,11 +20,6 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y emacs-nox
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -64,11 +59,37 @@ jobs:
       - name: Run clippy
         run: make lint-rust
 
-      - name: Run Emacs batch tests
-        run: make test-elisp
-
       - name: Run benchmark regression gate
         run: make bench-check PROFILE=ci
+
+  elisp:
+    name: elisp-${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: emacs-29.1
+            os: ubuntu-latest
+            emacs: "29.1"
+          - label: emacs-30.2
+            os: ubuntu-latest
+            emacs: "30.2"
+          - label: macos-emacs-30.2
+            os: macos-14
+            emacs: "30.2"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Emacs
+        uses: purcell/setup-emacs@d37e139fc118479b4396f9277927506a8c384519
+        with:
+          version: ${{ matrix.emacs }}
+
+      - name: Run Emacs batch tests
+        run: make test-elisp
 
   e2e:
     name: e2e

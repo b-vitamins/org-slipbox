@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
@@ -20,9 +21,69 @@ jobs:
     name: verify
     uses: ./.github/workflows/ci.yml
 
+  release-source:
+    name: verify-release-source
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Match tag to package version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          [[ "$GITHUB_REF_NAME" == "v$version" ]]
+
+      - name: Require a signed tag and a green master run
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const name = context.ref.replace('refs/tags/', '');
+            const ref = await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `tags/${name}`,
+            });
+            if (ref.data.object.type !== 'tag') {
+              core.setFailed(`${name} is not an annotated tag`);
+              return;
+            }
+            const tag = await github.rest.git.getTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_sha: ref.data.object.sha,
+            });
+            if (!tag.data.verification?.verified) {
+              core.setFailed(`${name} does not have a verified signature`);
+              return;
+            }
+            const runs = await github.paginate(
+              github.rest.actions.listWorkflowRuns,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'ci.yml',
+                branch: 'master',
+                event: 'push',
+                status: 'success',
+                head_sha: tag.data.object.sha,
+                per_page: 100,
+              },
+            );
+            if (runs.length === 0) {
+              core.setFailed(
+                `${name} does not point to a commit with a successful master CI run`,
+              );
+            }
+
   build:
     name: build-${{ matrix.os }}
-    needs: verify
+    needs:
+      - verify
+      - release-source
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -75,6 +136,7 @@ jobs:
           cp LICENSE "dist/${prefix}/"
           tar -C dist -czf "dist/${prefix}.tar.gz" "${prefix}"
           echo "archive=dist/${prefix}.tar.gz" >> "$GITHUB_OUTPUT"
+          echo "prefix=${prefix}" >> "$GITHUB_OUTPUT"
 
       - name: Package release archive (Windows)
         id: package-windows
@@ -88,8 +150,91 @@ jobs:
           New-Item -ItemType Directory -Force -Path "dist/$prefix" | Out-Null
           Copy-Item "target/release/slipbox.exe" "dist/$prefix/"
           Copy-Item "LICENSE" "dist/$prefix/"
-          Compress-Archive -Path "dist/$prefix/*" -DestinationPath "dist/$prefix.zip" -Force
+          Compress-Archive -Path "dist/$prefix" -DestinationPath "dist/$prefix.zip" -Force
           "archive=dist/$prefix.zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "prefix=$prefix" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Smoke-test packaged archive (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          smoke_root="$(mktemp -d)"
+          server_pid=""
+          cleanup() {
+            if [[ -n "$server_pid" ]]; then
+              kill "$server_pid" 2>/dev/null || true
+            fi
+            rm -rf "$smoke_root"
+          }
+          trap cleanup EXIT
+          tar -xzf "${{ steps.package-unix.outputs.archive }}" -C "$smoke_root"
+          binary="$smoke_root/${{ steps.package-unix.outputs.prefix }}/slipbox"
+          expected="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          [[ "$($binary --version)" == "slipbox $expected" ]]
+          mkdir "$smoke_root/root"
+          "$binary" web \
+            --root "$smoke_root/root" \
+            --db "$smoke_root/index.db" \
+            --port 18090 >"$smoke_root/server.log" 2>&1 &
+          server_pid=$!
+          for _ in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:18090/api/healthz \
+              | grep -Fq '"status":"ok"'; then
+              break
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              cat "$smoke_root/server.log"
+              exit 1
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:18090/api/healthz \
+            | grep -Fq '"status":"ok"'
+          curl --fail --silent http://127.0.0.1:18090/ \
+            | grep -Fq '<div id="root"></div>'
+
+      - name: Smoke-test packaged archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $smokeRoot = Join-Path $env:RUNNER_TEMP "slipbox-smoke"
+          if (Test-Path $smokeRoot) { Remove-Item -Recurse -Force $smokeRoot }
+          New-Item -ItemType Directory -Path $smokeRoot | Out-Null
+          Expand-Archive -LiteralPath "${{ steps.package-windows.outputs.archive }}" -DestinationPath $smokeRoot
+          $binary = Join-Path $smokeRoot "${{ steps.package-windows.outputs.prefix }}/slipbox.exe"
+          $expected = (Get-Content Cargo.toml | Select-String '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          if ((& $binary --version) -ne "slipbox $expected") {
+            throw "packaged binary reported the wrong version"
+          }
+          $root = Join-Path $smokeRoot "root"
+          $db = Join-Path $smokeRoot "index.db"
+          New-Item -ItemType Directory -Path $root | Out-Null
+          $stdout = Join-Path $smokeRoot "server.out"
+          $stderr = Join-Path $smokeRoot "server.err"
+          $server = Start-Process -PassThru -FilePath $binary -ArgumentList @("web", "--root", $root, "--db", $db, "--port", "18090") -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          try {
+            $health = $null
+            for ($attempt = 0; $attempt -lt 30; $attempt += 1) {
+              try {
+                $health = Invoke-RestMethod "http://127.0.0.1:18090/api/healthz"
+                break
+              } catch {
+                if ($server.HasExited) {
+                  Get-Content $stdout, $stderr
+                  throw "packaged web server exited before becoming healthy"
+                }
+                Start-Sleep -Seconds 1
+              }
+            }
+            if ($health.status -ne "ok") { throw "packaged web server is not healthy" }
+            $page = (Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:18090/").Content
+            if (-not $page.Contains('<div id="root"></div>')) {
+              throw "packaged binary does not serve the embedded client"
+            }
+          } finally {
+            if (-not $server.HasExited) { Stop-Process -Id $server.Id -Force }
+          }
 
       - name: Upload release archive (Unix)
         if: runner.os != 'Windows'
@@ -112,6 +257,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
       - name: Download archives
         uses: actions/download-artifact@v4
         with:
@@ -125,9 +273,23 @@ jobs:
           find artifacts -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) \
             -print0 | sort -z | xargs -0 sha256sum > artifacts/sha256sums.txt
 
+      - name: Extract release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          awk -v version="$version" '
+            index($0, "## [" version "]") == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+            END { if (!found) exit 1 }
+          ' CHANGELOG.md > release-notes.md
+          test -s release-notes.md
+
       - name: Publish release assets
         uses: softprops/action-gh-release@v2
         with:
+          body_path: release-notes.md
           files: |
             artifacts/*.tar.gz
             artifacts/*.zip

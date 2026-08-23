@@ -660,24 +660,36 @@ pub(crate) fn benchmark_everyday_daily_append(
     workbench: &mut WorkbenchBench,
     profile: &BenchmarkProfile,
 ) -> Result<TimingReport> {
+    for iteration in 0..profile.iterations.everyday_daily_append.min(28) {
+        append_benchmark_daily(workbench, iteration, "Warmup")?;
+    }
     measure_iterations(profile.iterations.everyday_daily_append, |iteration| {
-        let heading = format!("Benchmark Daily Entry {iteration:04}");
-        let result = workbench.append_heading(&AppendHeadingParams {
-            file_path: format!("daily/bench-2026-03-{:02}.org", (iteration % 28) + 1),
-            title: format!("Benchmark Daily {}", (iteration % 28) + 1),
-            heading: heading.clone(),
-            level: 1,
-        })?;
-        if result.title != heading {
-            bail!(
-                "everyday daily append returned title {}, expected {}",
-                result.title,
-                heading
-            );
-        }
-        black_box(result.node_key);
-        Ok(())
+        append_benchmark_daily(workbench, iteration, "Entry")
     })
+}
+
+fn append_benchmark_daily(
+    workbench: &mut WorkbenchBench,
+    iteration: usize,
+    kind: &str,
+) -> Result<()> {
+    let day = (iteration % 28) + 1;
+    let heading = format!("Benchmark Daily {kind} {iteration:04}");
+    let result = workbench.append_heading(&AppendHeadingParams {
+        file_path: format!("daily/bench-2026-03-{day:02}.org"),
+        title: format!("Benchmark Daily {day}"),
+        heading: heading.clone(),
+        level: 1,
+    })?;
+    if result.title != heading {
+        bail!(
+            "everyday daily append returned title {}, expected {}",
+            result.title,
+            heading
+        );
+    }
+    black_box(result.node_key);
+    Ok(())
 }
 
 pub(crate) fn benchmark_everyday_metadata_update(

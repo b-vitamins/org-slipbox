@@ -6,6 +6,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-08-23
+
 ### Added
 - Ship a tab icon with the reading client. The shell declared none, so every
   load paid a not-found for the browser's `/favicon.ico` probe and a reader
@@ -21,7 +23,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
   weakly integrated notes. The lens is a parameter rather than a route per lens,
   an unknown one is refused with the accepted set, and a section the lens
   defines is served empty rather than omitted. The reading client gains the
-  matching types and an `explore` call; no surface asks for a lens yet.
+  matching types and an `explore` call, used by the Related notes group for the
+  bridges lens.
 - Carry a note's place in the filing order on `/api/note/context`: its ordinal
   in `(file_path, line)` order, the number of notes indexed, and the key and
   title of the note filed on each side. A note at either end of the order has no
@@ -44,6 +47,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
   column against the offset it pins at rather than part-cut at an edge. Snapping
   is by proximity, leaving a reader who deliberately holds two half columns
   alone, and the narrow run snaps per note.
+- Show a narrow reading trail's position above each note, with Previous and Next
+  controls that reveal adjacent notes without changing the trail.
 - Offer unlinked mentions in the reading footer: notes that write this note's
   title in their prose without linking to it, the only relation the index holds
   for a note no link touches. A note collapses to its first occurrence, the
@@ -68,8 +73,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Name the open glossary term in the URL. `?term=` joins `?q=` and `?view=`,
   read on mount and replaced on every later selection, so a definition on screen
   has an address a reload or a copy reopens. A key no fetched page holds is
-  resolved through `/api/glossary/term`, and a key the index refuses is named
-  rather than answered with the first row.
+  resolved through `/api/glossary/term` and inserted as the selected first row;
+  a key the index refuses is named rather than answered with another row.
+- Audit the complete entry, results, reading, glossary browse/due, and error
+  surfaces with axe in light and dark themes at desktop and phone widths.
 - Read a glance preview from the keyboard. Every card but the tap-raised one was
   `aria-hidden`, so a reader who reached a link by Tab was shown a preview
   announced to nobody. A focus-raised card is now the description of the link
@@ -142,14 +149,20 @@ The format follows Keep a Changelog, and this project follows SemVer.
   pitch, group spacing, and the space above the rule come down, and the group
   labels share one register. Under a coarse pointer a row still holds the
   touch-target floor.
+- Separate relation groups more clearly, strengthen their label hierarchy, and
+  give narrow search results distinct row boundaries.
+- Require release tags to be signed and to point at a successful normal `master`
+  CI run. Release archives are extracted and smoke-tested for version output,
+  embedded client assets, and HTTP health on every target before upload, and the
+  matching changelog section becomes the GitHub release body.
+- Test the Emacs package on its declared 29.1 floor, current Emacs, and macOS.
 - Defined the `0.18.x` reading-surface depth band as deepening the surface the
   `0.17.x` line shipped rather than widening the model: the exploration lenses
   read over the reading API, relations answered as an inventory rather than a
   walk, a note's place in the filing order carried and walkable from the column
-  being read, both glossary listings paged, and the surface held correct at
-  every viewport, pointer, and assistive technology it is reached through, while
-  the bounds the reading-surface band set stand and no new public bucket is
-  added.
+  being read, both glossary listings paged, and the core entry, reading,
+  glossary, and error states verified at desktop and narrow widths, while the
+  bounds the reading-surface band set stand and no new public bucket is added.
 
 ### Removed
 - Retire the reading surface's hop-bounded neighborhood: the `/api/neighborhood`
@@ -306,8 +319,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Place a glance card clear of the prose it explains. The card sat just below
   its link, covering the lines the reader was asking about, while the space
   beside the reading columns stood empty. It takes that space now, the trailing
-  side first, level with the link so it reads as a note in the margin, and falls
-  back to the old placement where neither side holds it.
+  side first, level with the link so it reads as a note in the margin, and
+  shrinks to a readable minimum when a common 1280px gutter narrowly misses its
+  preferred width. It falls back to the old placement only where neither side
+  holds that minimum.
 - Dismiss a glance preview with Escape. The card's only dismissal was the
   pointer leaving the link, so a reader on the keyboard could get rid of it by
   leaving the link and no other way. Escape on the link clears it, and nothing
@@ -338,6 +353,11 @@ The format follows Keep a Changelog, and this project follows SemVer.
   of some other note's address was reported as mentioned at that address. Every
   bracket link's target is excluded now, up to the description separator, so a
   label naming another note is still read as prose.
+- Compare `org-id` fallback locations by filesystem identity, so macOS's
+  `/var` and `/private/var` spellings do not make equivalent paths fail ERT.
+- Warm each daily file before timing everyday append latency, keeping file
+  creation and filesystem cold start outside the steady-state append samples.
+- Update `anyhow` past the `RUSTSEC-2026-0190` unsoundness advisory.
 
 ## [0.17.0] - 2026-07-25
 
