@@ -155,6 +155,13 @@ fn reading_bridge_serves_the_read_only_note_and_glossary_surface() -> Result<()>
     assert_eq!(context.note.title, "Alpha");
     assert!(context.source.content.contains("#+title: Alpha"));
     assert_eq!(context.forward_links.len(), 1);
+    // Alpha is filed first of the four notes, so only its later neighbor exists.
+    assert_eq!((context.place.ordinal, context.place.total), (1, 4));
+    assert!(context.place.earlier.is_none());
+    assert_eq!(
+        context.place.later.map(|neighbor| neighbor.title),
+        Some("Beta".to_owned())
+    );
 
     let backlinks = bridge.backlinks(&BacklinksParams {
         node_key: by_title.node_key.clone(),
@@ -472,6 +479,16 @@ fn reading_server_serves_the_note_and_glossary_surface_over_http() -> Result<()>
     assert_eq!(
         context_body["forward_links"].as_array().map(Vec::len),
         Some(1)
+    );
+    // The same request answers the position, and an absent neighbor is missing
+    // from the payload rather than null.
+    let place = &context_body["place"];
+    assert_eq!(place["ordinal"], 1);
+    assert_eq!(place["total"], 4);
+    assert_eq!(place["later"]["title"], "Beta");
+    assert!(
+        place.get("earlier").is_none(),
+        "the first filed note carries no earlier neighbor: {place}"
     );
 
     let backlinks = http_get(addr, &format!("/api/backlinks?key={}", encode(&beta_key)))?;

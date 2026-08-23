@@ -4691,3 +4691,73 @@ fn note_context_reports_unknown_key_as_not_found() {
         "an unresolvable key should be reported as a missing context note",
     );
 }
+
+#[test]
+fn note_context_states_where_the_note_is_filed() {
+    let (_workspace, mut state, target_key) = indexed_state();
+    let source_key = heading_key_by_title(&state, "alpha.org", "Source");
+
+    let context: NoteContextResult = serde_json::from_value(
+        note_context(&mut state, json!({ "node_key": source_key }))
+            .expect("note context should resolve an id heading"),
+    )
+    .expect("note context result should decode");
+
+    // The fixture files three notes: the file note, then the two id headings.
+    assert_eq!((context.place.ordinal, context.place.total), (2, 3));
+    let earlier = context
+        .place
+        .earlier
+        .expect("the second filed note has an earlier neighbor");
+    assert_eq!(earlier.node_key, "file:alpha.org");
+    assert_eq!(earlier.title, "Alpha");
+    let later = context
+        .place
+        .later
+        .expect("the second filed note has a later neighbor");
+    assert_eq!(later.node_key, target_key);
+    assert_eq!(later.title, "Target");
+}
+
+#[test]
+fn note_context_places_a_positional_heading_where_its_owner_is_filed() {
+    // An ordinary heading takes no place of its own, so the place has to come
+    // from the owning note the rest of the payload describes.
+    let (_workspace, mut state, _target_key) = indexed_state();
+    let heading_key = heading_key_by_title(&state, "alpha.org", "Reflink Source");
+
+    let context: NoteContextResult = serde_json::from_value(
+        note_context(&mut state, json!({ "node_key": heading_key }))
+            .expect("note context should resolve a positional heading"),
+    )
+    .expect("note context result should decode");
+
+    assert_eq!(context.note.node_key, "file:alpha.org");
+    assert_eq!(context.place.ordinal, 1);
+    assert!(context.place.earlier.is_none());
+}
+
+#[test]
+fn note_context_omits_a_filing_neighbor_the_order_does_not_hold() {
+    let (_workspace, mut state, target_key) = indexed_state();
+
+    let first = note_context(&mut state, json!({ "node_key": "file:alpha.org" }))
+        .expect("note context should resolve the first filed note");
+    let place = &first["place"];
+    assert_eq!(place["ordinal"], 1);
+    assert_eq!(place["later"]["title"], "Source");
+    assert!(
+        place.get("earlier").is_none(),
+        "the first filed note leaves its earlier neighbor out of the payload: {place}"
+    );
+
+    let last = note_context(&mut state, json!({ "node_key": target_key }))
+        .expect("note context should resolve the last filed note");
+    let place = &last["place"];
+    assert_eq!(place["ordinal"], place["total"]);
+    assert_eq!(place["earlier"]["title"], "Source");
+    assert!(
+        place.get("later").is_none(),
+        "the last filed note leaves its later neighbor out of the payload: {place}"
+    );
+}

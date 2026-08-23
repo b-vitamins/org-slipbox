@@ -165,12 +165,34 @@ export interface UnlinkedReferenceRecord {
   explanation: ExplorationExplanation;
 }
 
-/** A reading context: source slice plus immediate relations. Mirrors `NoteContextResult`. */
+/** A note filed beside another. Mirrors `NotePlaceNeighbor`. */
+export interface NotePlaceNeighbor {
+  node_key: string;
+  title: string;
+}
+
+/**
+ * Where a note sits in filing order, counted from 1. A neighbor the order does
+ * not hold is absent from the payload. Mirrors `NotePlaceResult`.
+ */
+export interface NotePlace {
+  ordinal: number;
+  total: number;
+  earlier?: NotePlaceNeighbor;
+  later?: NotePlaceNeighbor;
+}
+
+/**
+ * A reading context: source slice, filing place, and immediate relations.
+ * Mirrors `NoteContextResult`.
+ */
 export interface NoteContext {
   note: NodeRecord;
   source: SourceSlice;
   node_start_line: number;
   node_line_count: number;
+  /** Absent from a daemon older than the field, so a reader of it must branch. */
+  place?: NotePlace;
   backlinks: BacklinkRecord[];
   forward_links: ForwardLinkRecord[];
 }

@@ -22,6 +22,11 @@ The format follows Keep a Changelog, and this project follows SemVer.
   unknown one is refused with the accepted set rather than read as a default, and a
   section the lens defines is served empty rather than omitted. The reading client
   gains the matching types and an `explore` call; no surface asks for a lens yet.
+- Carry a note's place in the filing order on `/api/note/context`: its ordinal in
+  `(file_path, line)` order, the number of notes indexed, and the key and title of
+  the note filed on each side. A note at either end of the order has no neighbor
+  there, and that side is left out of the payload rather than sent as null. The
+  reading client gains the matching types; no surface states a position yet.
 
 ### Changed
 - Draw the `dormant` lens's candidates from link topology rather than from shared

@@ -91,8 +91,8 @@ fn node(bridge: &ReadingBridge, query: &Query) -> Result<ApiResponse, ApiError> 
     ApiResponse::json(&node)
 }
 
-/// A note's source slice together with its immediate backlinks and forward
-/// links.
+/// A note's source slice together with its place in the filing order and its
+/// immediate backlinks and forward links.
 fn note_context(bridge: &ReadingBridge, query: &Query) -> Result<ApiResponse, ApiError> {
     // Each shaping parameter stays `None` when absent, so the RPC layer's own
     // documented defaults apply rather than a second set restated here.

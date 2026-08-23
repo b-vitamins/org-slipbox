@@ -117,18 +117,20 @@ pub struct NoteContextResult {
     pub source: SourceSlice,
     pub node_start_line: u32,
     pub node_line_count: u32,
+    pub place: NotePlaceResult,
     pub backlinks: Vec<BacklinkRecord>,
     pub forward_links: Vec<ForwardLinkRecord>,
 }
 
-/// A note's place in `(file_path, line)` order, counted from 1.
+/// A note's place in `(file_path, line)` order, counted from 1. A neighbor the
+/// order does not hold is omitted rather than serialized as null.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NotePlaceResult {
     pub ordinal: u64,
     pub total: u64,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub earlier: Option<NotePlaceNeighbor>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub later: Option<NotePlaceNeighbor>,
 }
 
