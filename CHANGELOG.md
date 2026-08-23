@@ -315,6 +315,13 @@ The format follows Keep a Changelog, and this project follows SemVer.
   link and no other way. Escape on the link clears it, since a keydown arrives
   where the reader is standing and this key is a dismissal only there; nothing is
   remembered, so the same link raises the card again without focus having to move.
+- Distinguish an in-prose link by more than its color. `--link` measures 2.51:1
+  against the prose in light and 1.81:1 in dark, under the 3:1 WCAG 1.4.1 asks of a
+  distinction carried by color alone, and the hover underline arrived only once the
+  pointer had already found the word. A link in a note body now carries a hairline
+  underline at rest. The tones are unchanged, and neither `a` rule is touched, since
+  those also reach the chrome, where a rule of underlines would read as a listing;
+  the dotted and external variants keep the marks they already had.
 
 ## [0.17.0] - 2026-07-25
 
