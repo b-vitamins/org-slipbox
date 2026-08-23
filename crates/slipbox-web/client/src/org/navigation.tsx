@@ -21,11 +21,13 @@ export interface LinkTarget {
 }
 
 /**
- * How the reader raised a glance. `pointer` is a cursor resting on a link or a
- * link taking keyboard focus, so a commit gesture is still ahead of it. `touch`
- * is a tap, which nothing follows, so the preview must carry the way onward.
+ * How the reader raised a glance. A commit gesture is still ahead of both `hover`
+ * and `focus`, but they are told apart because only one of them has a cursor at
+ * the link: a card raised by `hover` is read where it is pointed at, one raised
+ * by `focus` has to be announced. `touch` is a tap, which nothing follows, so the
+ * preview must carry the way onward.
  */
-export type GlanceGesture = "pointer" | "touch";
+export type GlanceGesture = "hover" | "focus" | "touch";
 
 export interface GlanceRequest {
   readonly target: LinkTarget;

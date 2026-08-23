@@ -23,12 +23,14 @@ function noteContextResponse(title: string, content: string): Response {
 
 function requestFor(
   target: string,
-  verbs: Partial<Pick<GlanceRequest, "gesture" | "pin" | "go" | "dismiss">> = {},
+  verbs: Partial<
+    Pick<GlanceRequest, "gesture" | "origin" | "pin" | "go" | "dismiss">
+  > = {},
 ): GlanceRequest {
   return {
     target: { id: null, target },
     origin: document.createElement("a"),
-    gesture: "pointer",
+    gesture: "hover",
     pin: () => {},
     go: () => {},
     dismiss: () => {},
@@ -66,6 +68,62 @@ describe("GlancePreview", () => {
       "aria-hidden",
       "true",
     );
+  });
+
+  it("announces a focus-raised card as the description of its link", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(noteContextResponse("Duality gap", "The gap closes.")),
+      ),
+    );
+    // The link the reader is standing on, in the document so the relation between
+    // the two elements is the one an assistive technology would resolve.
+    const link = document.createElement("a");
+    document.body.append(link);
+
+    const { container, unmount } = render(() => (
+      <GlancePreview
+        request={requestFor("notes/duality.org", { gesture: "focus", origin: link })}
+      />
+    ));
+
+    const card = container.querySelector(".glance-card")!;
+    expect(card.id).not.toBe("");
+    expect(link).toHaveAttribute("aria-describedby", card.id);
+    expect(card).not.toHaveAttribute("aria-hidden");
+    // Read from the link rather than stepped into: the card is no tab stop.
+    expect(card).not.toHaveAttribute("tabindex");
+
+    expect(await screen.findByText("Duality gap")).toBeInTheDocument();
+    expect(link).toHaveAttribute("aria-describedby", card.id);
+
+    // The description names an element that leaves with the card.
+    unmount();
+    expect(link).not.toHaveAttribute("aria-describedby");
+    link.remove();
+  });
+
+  it("leaves a cursor-raised card out of what its link is announced as", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(noteContextResponse("Duality gap", "The gap closes.")),
+      ),
+    );
+    const link = document.createElement("a");
+    document.body.append(link);
+
+    const { container } = render(() => (
+      <GlancePreview request={requestFor("notes/duality.org", { origin: link })} />
+    ));
+
+    expect(link).not.toHaveAttribute("aria-describedby");
+    expect(container.querySelector(".glance-card")).toHaveAttribute(
+      "aria-hidden",
+      "true",
+    );
+    link.remove();
   });
 
   it("offers the committing verbs as controls when a tap raised it", async () => {

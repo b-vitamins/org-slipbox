@@ -98,13 +98,15 @@ export const GrammarLink: Component<{
 
   const onHover = (event: MouseEvent): void => {
     if (gestureCanHover(pointerType)) {
-      glance(event.currentTarget as HTMLElement, "pointer");
+      glance(event.currentTarget as HTMLElement, "hover");
     }
   };
 
+  // Tagged apart from the hover: the reader who arrived here by keyboard is not
+  // looking at a cursor, so the card raised has to say so for itself.
   const onFocus = (event: FocusEvent): void => {
     if (gestureCanHover(pointerType)) {
-      glance(event.currentTarget as HTMLElement, "pointer");
+      glance(event.currentTarget as HTMLElement, "focus");
     }
   };
 

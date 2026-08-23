@@ -100,12 +100,27 @@ describe("GrammarLink gestures", () => {
 
       link.dispatchEvent(new MouseEvent("mouseenter"));
       expect(spy.glances).toHaveLength(1);
-      expect(spy.glances[0]?.gesture).toBe("pointer");
+      expect(spy.glances[0]?.gesture).toBe("hover");
       expect(spy.pins).toHaveLength(0);
 
       press(link);
       expect(spy.pins).toEqual([TARGET]);
       expect(spy.goes).toHaveLength(0);
+    });
+
+    it("tags a glance the keyboard raised apart from one the cursor raised", () => {
+      stubPointer(false);
+      const spy = spyNavigation();
+      const link = renderLink(spy.navigation);
+
+      // The card raised here is the only account of the target a reader who is
+      // not looking at the cursor gets, so the raise has to be distinguishable.
+      link.dispatchEvent(new FocusEvent("focus"));
+      expect(spy.glances[0]?.gesture).toBe("focus");
+
+      link.dispatchEvent(new FocusEvent("blur"));
+      link.dispatchEvent(new MouseEvent("mouseenter"));
+      expect(spy.glances.at(-1)?.gesture).toBe("hover");
     });
 
     it("escalates to go on an alt-press", () => {
@@ -195,7 +210,7 @@ describe("GrammarLink gestures", () => {
 
       pointerGesture(link, "pointerenter", "mouse");
       link.dispatchEvent(new MouseEvent("mouseenter"));
-      expect(spy.glances).toEqual([expect.objectContaining({ gesture: "pointer" })]);
+      expect(spy.glances).toEqual([expect.objectContaining({ gesture: "hover" })]);
 
       pointerGesture(link, "pointerdown", "mouse");
       press(link);
