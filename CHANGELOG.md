@@ -348,6 +348,9 @@ The format follows Keep a Changelog, and this project follows SemVer.
   a pair of variables defaulting to that tone, and the pane restates both halves in
   its own; a cover fading out to `transparent` would fade through transparent black,
   so each tone has a zero-alpha spelling of its own.
+- Name `web` among the System commands in `--help`. The family listing omitted it,
+  so the only place the help mentioned the reading surface was the subcommand's own
+  entry.
 
 ## [0.17.0] - 2026-07-25
 
