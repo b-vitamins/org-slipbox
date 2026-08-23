@@ -20,8 +20,9 @@ use crate::text_query::{
 /// immediately before and after the match are either absent or not
 /// alphanumeric/underscore characters.
 ///
-/// Results exclude occurrences inside the queried node's own subtree and
-/// occurrences already covered by an indexed `id:` link to the same node. They
+/// Results exclude occurrences inside the queried node's own subtree,
+/// occurrences already covered by an indexed `id:` link to the same node, and
+/// occurrences inside link targets. They
 /// are emitted in indexed file-path order, then row and column order within
 /// each file. Duplicate occurrences are removed and truncation to `limit`
 /// happens in that same order.
@@ -104,14 +105,11 @@ pub(crate) fn query_unlinked_references(
 
             let source_anchor =
                 resolve_owning_anchor(&visible_anchors, row, &mut source_anchor_index);
-            // A heading carrying no id is a node of the index and not a note, so
-            // the note enclosing it is what names the mention. Every indexed file
-            // holds a file node, so a line always sits in some note; a line no
-            // note encloses is passed over rather than named after a heading.
             let Some(source_note) = owning_notes.get(&source_anchor.node_key) else {
                 continue;
             };
             let covered_spans = linked_spans.get(&row);
+            let target_spans = link_target_spans(line);
 
             for matched in matcher.find_iter(line) {
                 let start = matched.start();
@@ -119,7 +117,9 @@ pub(crate) fn query_unlinked_references(
                 if !has_phrase_boundaries(line, start, end) {
                     continue;
                 }
-                if covered_spans.is_some_and(|spans| span_is_linked(start, end, spans)) {
+                if covered_spans.is_some_and(|spans| span_is_linked(start, end, spans))
+                    || span_is_linked(start, end, &target_spans)
+                {
                     continue;
                 }
 
@@ -300,6 +300,28 @@ fn linked_label_span(line: &str, link: &IndexedLink) -> Option<(usize, usize)> {
     let label_start = start + 2 + path.len() + 2;
     let label_end = label_start + label.len();
     Some((label_start, label_end))
+}
+
+/// Return bracket-link target spans, excluding their descriptions.
+fn link_target_spans(line: &str) -> Vec<(usize, usize)> {
+    let mut spans = Vec::new();
+    let mut at = 0_usize;
+
+    while let Some(open) = line[at..].find("[[") {
+        let target_start = at + open + 2;
+        let Some(close) = line[target_start..].find("]]") else {
+            break;
+        };
+        let bracket_end = target_start + close;
+        let target = &line[target_start..bracket_end];
+        let target_end = target
+            .find("][")
+            .map_or(bracket_end, |separator| target_start + separator);
+        spans.push((target_start, target_end));
+        at = bracket_end + 2;
+    }
+
+    spans
 }
 
 fn span_is_linked(start: usize, end: usize, linked_spans: &[(usize, usize)]) -> bool {
