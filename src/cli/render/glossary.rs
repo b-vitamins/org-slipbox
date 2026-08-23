@@ -5,15 +5,15 @@ use slipbox_core::{
 };
 
 pub(crate) fn render_glossary_term_list(result: &ListGlossaryTermsResult) -> String {
-    render_term_lines("terms", &result.terms)
+    render_term_lines("terms", &result.terms, result.total)
 }
 
 pub(crate) fn render_glossary_search_result(result: &SearchGlossaryResult) -> String {
-    render_term_lines("terms", &result.terms)
+    render_term_lines("terms", &result.terms, result.total)
 }
 
 pub(crate) fn render_glossary_due_result(result: &GlossaryDueResult) -> String {
-    render_term_lines("due terms", &result.terms)
+    render_term_lines("due terms", &result.terms, result.total)
 }
 
 pub(crate) fn render_glossary_term_result(result: &GlossaryTermResult) -> String {
@@ -31,8 +31,14 @@ pub(crate) fn render_mark_result(result: &MarkGlossaryTermResult) -> String {
     render_glossary_term_summary(&result.term)
 }
 
-fn render_term_lines(label: &str, terms: &[NodeRecord]) -> String {
-    let mut output = format!("{label}: {}\n", terms.len());
+fn render_term_lines(label: &str, terms: &[NodeRecord], total: usize) -> String {
+    // A page cut at `--limit` states what it was cut from, so a partial listing
+    // does not read as the whole glossary.
+    let mut output = if total > terms.len() {
+        format!("{label}: {} of {total}\n", terms.len())
+    } else {
+        format!("{label}: {}\n", terms.len())
+    };
     for term in terms {
         output.push_str(&format!("- {}\n", render_term_line(term)));
     }
