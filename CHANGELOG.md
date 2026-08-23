@@ -196,10 +196,11 @@ The format follows Keep a Changelog, and this project follows SemVer.
   drawn, adding no history entry to press Back through. Repeats compare
   spellings, so two different references naming one note stand apart until a
   fetch resolves both.
-- Size the app shell, the reading spine, and the glossary pane and its term list
-  against the visible viewport rather than the largest one, so a retracting
-  browser toolbar no longer leaves the bottom of a column behind chrome that is no
-  longer there. Each site keeps its `vh` declaration ahead of the `dvh` one, so an
+- Size the app shell, the reading spine, the glossary pane and its term list, and
+  the entry surface's own top padding against the visible viewport rather than the
+  largest one, so a retracting browser toolbar no longer leaves the bottom of a
+  column behind chrome that is no longer there, or pushes the search field down out
+  of reach. Each site keeps its `vh` declaration ahead of the `dvh` one, so an
   engine without the dynamic unit holds the old value.
 - Contain a swipe carried past the end of the reading spine, a note's body, or a
   glossary scrollport, so it no longer reaches the browser as a history gesture
