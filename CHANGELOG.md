@@ -158,6 +158,11 @@ The format follows Keep a Changelog, and this project follows SemVer.
   and leaves the surface mid-read. A column contains the vertical axis only: the
   spine beneath it is the horizontal scroller. The viewport is untouched, so
   pull-to-refresh stays the browser's.
+- Hold the reading measure where the columns stack. A stacked column spans the
+  whole frame, so at 720px a line of prose ran to 91 characters against 71 in a
+  column. A note now caps at the measure a column gives it and centers in what is
+  left over, while the column, its border, and the seam under it keep the full
+  width. Below the cap the note still fills the frame less its padding.
 
 ## [0.17.0] - 2026-07-25
 
