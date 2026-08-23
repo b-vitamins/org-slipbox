@@ -111,16 +111,8 @@ export class ReadingClient {
     return this.get<HealthInfo>("/api/healthz");
   }
 
-  nodeByKey(key: string): Promise<NodeRecord> {
-    return this.get<NodeRecord>(`/api/node${buildQuery({ key })}`);
-  }
-
   nodeById(id: string): Promise<NodeRecord> {
     return this.get<NodeRecord>(`/api/node${buildQuery({ id })}`);
-  }
-
-  nodeByTitle(title: string): Promise<NodeRecord> {
-    return this.get<NodeRecord>(`/api/node${buildQuery({ title })}`);
   }
 
   searchNodes(
@@ -203,7 +195,6 @@ export class ReadingClient {
     );
   }
 
-  /** Read one note through one exploration lens. The lens is required. */
   explore(
     key: string,
     lens: ExplorationLens,
@@ -214,11 +205,6 @@ export class ReadingClient {
     );
   }
 
-  /**
-   * One page of the glossary. `after` is a `next_position` handed out by an
-   * earlier page, opaque here and minted per listing: composing one, or carrying
-   * one across listings, is a request the server refuses.
-   */
   glossaryTerms(
     options: { limit?: number; after?: string } = {},
   ): Promise<GlossaryTermsResult> {
@@ -227,7 +213,6 @@ export class ReadingClient {
     );
   }
 
-  /** Ranked, so the route mints no position and takes none: one page per query. */
   searchGlossary(
     query: string,
     options: { limit?: number } = {},
