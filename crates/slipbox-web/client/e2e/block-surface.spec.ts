@@ -1,37 +1,30 @@
-/*
- * A display equation wide enough to scroll covers its own edges with a gradient
- * in the surface behind it, so what that surface is has to be read off the
- * cascade: the same renderer sets an equation in the reading column and in a
- * glossary definition, which stand on different tones. Only a browser has a
- * cascade and a painted gradient to read back.
- */
 
 import { expect, test, type Locator } from "@playwright/test";
 
 import { mountApi, type FixtureWorld } from "./fixtures.js";
 
-/** Wider than either surface, so the covers have an edge to hide. */
 const EQUATION =
   "\\[ \\int_0^1 x^2 \\, dx + \\sum_{i=1}^{n} a_i b_i + " +
   "\\prod_{j=1}^{m} c_j = \\frac{1}{3} + \\alpha + \\beta + \\gamma \\]";
+
+const CODE = "#+begin_src python\nprint(1)\n#+end_src\n\nAnd =verbatim= inline.";
 
 const WORLD: FixtureWorld = {
   notes: [
     {
       key: "file:reading.org",
       title: "Reading Note",
-      body: `An equation stands here.\n\n${EQUATION}`,
+      body: `An equation stands here.\n\n${EQUATION}\n\n${CODE}`,
     },
     {
       key: "file:term.org",
       title: "Term",
-      body: `A definition, and an equation.\n\n${EQUATION}`,
+      body: `A definition, and an equation.\n\n${EQUATION}\n\n${CODE}`,
       glossaryStatus: "confirmed",
     },
   ],
 };
 
-/** The two colors one cover gradient runs between, the opaque end first. */
 function cover(math: Locator): Promise<{ opaque: string; faded: string }> {
   return math.evaluate((node) => {
     const painted = getComputedStyle(node).backgroundImage;
@@ -40,7 +33,6 @@ function cover(math: Locator): Promise<{ opaque: string; faded: string }> {
   });
 }
 
-/** The tone painted behind an element, from the nearest box that paints one. */
 function behind(math: Locator): Promise<string> {
   return math.evaluate((node) => {
     for (let box = node.parentElement; box; box = box.parentElement) {
@@ -53,7 +45,10 @@ function behind(math: Locator): Promise<string> {
   });
 }
 
-/** The same channels at zero alpha, spelled as a browser prints them. */
+function painted(box: Locator): Promise<string> {
+  return box.evaluate((node) => getComputedStyle(node).backgroundColor);
+}
+
 function zeroAlpha(color: string): string {
   return color.replace("rgb(", "rgba(").replace(")", ", 0)");
 }
@@ -82,14 +77,44 @@ test.describe("a math scroll shadow", () => {
         const pane = await cover(inPane);
         expect(pane.opaque).toBe(await behind(inPane));
 
-        // The slab this replaces: the pane's own tone is not the column's, so a
-        // cover taken from one of them is visible on the other.
         expect(pane.opaque).not.toBe(column.opaque);
 
-        // Each cover runs out through its own hue rather than through the
-        // transparent black `transparent` would fade to.
         expect(column.faded).toBe(zeroAlpha(column.opaque));
         expect(pane.faded).toBe(zeroAlpha(pane.opaque));
+      });
+    });
+  }
+});
+
+test.describe("a code block", () => {
+  test.beforeEach(async ({ page }) => {
+    await mountApi(page, WORLD);
+  });
+
+  for (const scheme of ["light", "dark"] as const) {
+    test.describe(`in the ${scheme} scheme`, () => {
+      test.use({ colorScheme: scheme });
+
+      test("paints a tone the surface it stands on does not", async ({ page }) => {
+        for (const [where, address] of [
+          ["column", "/?note=file:reading.org"],
+          ["pane", "/?view=glossary"],
+        ] as const) {
+          await page.goto(address);
+          for (const selector of [".org-src", ".org-verbatim"]) {
+            const block = page.locator(selector).first();
+            await expect(block).toBeVisible();
+            expect(await painted(block), `${selector} in the ${where}`).not.toBe(
+              await behind(block),
+            );
+          }
+
+          const copy = page.locator(".org-src__copy").first();
+          await copy.hover();
+          expect(await painted(copy), `the copy control in the ${where}`).not.toBe(
+            await painted(page.locator(".org-src").first()),
+          );
+        }
       });
     });
   }

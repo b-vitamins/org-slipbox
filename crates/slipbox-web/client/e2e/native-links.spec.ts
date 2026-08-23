@@ -65,8 +65,6 @@ test.describe("native links", () => {
     const link = page.getByRole("link", { name: "the target" });
     await expect(link).toBeVisible();
 
-    // Read with the pointer elsewhere, so what is asserted is the resting state
-    // rather than the hover the surface has always underlined.
     const decoration = await link.evaluate((node) => {
       const style = getComputedStyle(node);
       return { line: style.textDecorationLine, style: style.textDecorationStyle };
@@ -79,9 +77,6 @@ test.describe("native links", () => {
     await page.goto("/?note=file:source.org");
     await expect(page.getByRole("link", { name: "the target" })).toBeVisible();
 
-    // One line each, the same prose scale: the paragraph holding a link stands as
-    // tall as the one holding none, which is what a decoration inside the line box
-    // leaves untouched.
     const heights = await page
       .locator(".org-document .org-paragraph")
       .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
@@ -93,8 +88,6 @@ test.describe("native links", () => {
   }) => {
     await page.goto("/?note=file:source.org");
 
-    // Neither variant takes the underline above: an inert label keeps its dotted
-    // one, and an external link keeps its trailing marker, so no cue is doubled.
     const inert = page.locator(".org-link--inert", { hasText: "a local file" });
     await expect(inert).toBeVisible();
     expect(

@@ -1,8 +1,7 @@
 /*
  * Render inline Org nodes to DOM. An internal `id:` link renders through
  * `GrammarLink`, which routes gestures to the navigation grammar; an external
- * link carries no grammar and is a plain anchor the browser follows, but only
- * for a target whose scheme this surface will follow.
+ * safe external link carries no grammar and is followed by the browser.
  */
 
 import { For, Show, type Component } from "solid-js";
@@ -14,10 +13,7 @@ import type { Inline } from "./types.js";
 
 type LinkNode = Extract<Inline, { type: "link" }>;
 
-/**
- * An external link: an anchor when the surface will follow its target, and the
- * label as inert text when it will not, so an unfollowable target still reads.
- */
+/** Render unsupported external targets as readable inert text. */
 const ExternalLink: Component<{ node: LinkNode }> = (props) => (
   <Show
     when={followableHref(props.node.target)}

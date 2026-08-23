@@ -351,6 +351,11 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Name `web` among the System commands in `--help`. The family listing omitted it,
   so the only place the help mentioned the reading surface was the subcommand's own
   entry.
+- Give a code block in a glossary definition its own surface. The block painted the
+  reading column's tone, which is the tone the peek pane stands on, so a source,
+  example, or verbatim run in a definition was a slab of canvas with no edges. The
+  tone is a variable the pane restates in its own, as it already restates the math
+  cover's, and the copy control's hover tone rides with it.
 
 ## [0.17.0] - 2026-07-25
 

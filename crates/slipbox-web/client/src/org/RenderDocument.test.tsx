@@ -17,8 +17,6 @@ describe("RenderDocument", () => {
     expect(screen.getByText("bold").tagName).toBe("STRONG");
   });
 
-  // Asserted rather than left to the default: the reading column supplies the
-  // `h1`, so a first-level Org heading is a section within the note.
   it("starts body headings at the level below a column's own title", () => {
     const doc = parseOrg("* Section\n\n** Nested\n");
     render(() => <RenderDocument document={doc} />);
@@ -41,7 +39,6 @@ describe("RenderDocument", () => {
     expect(
       screen.getByRole("heading", { level: 4, name: "Nested" }),
     ).toBeInTheDocument();
-    // Past `h6` there is no deeper element to reach for.
     expect(
       screen.getByRole("heading", { level: 6, name: "Deepest" }),
     ).toBeInTheDocument();
@@ -134,14 +131,11 @@ describe("RenderDocument", () => {
     expect(link?.getAttribute("href")).toBe("https://example.org/a");
   });
 
-  // An Org body may be imported, clipped, or shared, and this origin can read
-  // the whole corpus, so a target that would execute here earns no anchor.
   it("renders a script-bearing link target as inert text, not an anchor", () => {
     const doc = parseOrg("see [[javascript:alert(1)][the paper]] now");
     const { container } = render(() => <RenderDocument document={doc} />);
 
     expect(container.querySelector("a")).toBeNull();
-    // The label is still prose the reader can read.
     const inert = screen.getByText("the paper");
     expect(inert.tagName).toBe("SPAN");
     expect(inert).toHaveClass("org-link--inert");

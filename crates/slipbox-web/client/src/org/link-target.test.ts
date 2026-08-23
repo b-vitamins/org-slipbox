@@ -28,8 +28,6 @@ describe("followableHref", () => {
     expect(followableHref("blob:http://localhost:8080/abc")).toBeNull();
   });
 
-  // A browser drops tab and newline from anywhere in a URL before parsing it,
-  // so a scheme split across them still navigates and still has to be refused.
   it("refuses a scheme split by the characters a browser strips", () => {
     expect(followableHref("java\tscript:alert(1)")).toBeNull();
     expect(followableHref("java\nscript:alert(1)")).toBeNull();
@@ -37,8 +35,6 @@ describe("followableHref", () => {
     expect(followableHref("j\ta\nv\ra\tscript:alert(1)")).toBeNull();
   });
 
-  // Leading C0 controls and spaces are trimmed before parsing, so they cannot
-  // be used to hide a scheme behind an apparently relative target either.
   it("refuses a scheme hidden behind leading whitespace or controls", () => {
     expect(followableHref("   javascript:alert(1)")).toBeNull();
     expect(followableHref("\u0000javascript:alert(1)")).toBeNull();
@@ -53,8 +49,6 @@ describe("followableHref", () => {
     expect(followableHref("")).toBeNull();
   });
 
-  // The href handed to the DOM has to be the string that passed the check, or
-  // the browser could re-derive a different one from what was allowed.
   it("returns the normalized target rather than the raw one", () => {
     expect(followableHref("  https://example.org/a  ")).toBe(
       "https://example.org/a",
