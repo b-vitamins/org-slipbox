@@ -1,16 +1,8 @@
-/*
- * The relations footer's own layout, and the cost of the groups beside its
- * directed inventory. A hanging mark or label is placed by the cascade against
- * the row it hangs off, so only a real browser reports where it and the title it
- * precedes actually sit; and only a real browser reports which requests a column
- * made before a reader touched it.
- */
 
 import { expect, test } from "@playwright/test";
 
 import { mountApi, type FixtureWorld } from "./fixtures.js";
 
-/** One note carrying a row of each direction: out only, both ways, in only. */
 const WORLD: FixtureWorld = {
   notes: [
     {
@@ -30,8 +22,6 @@ const WORLD: FixtureWorld = {
         },
         { key: "file:in.org", id: "in-uuid", title: "Inbound", preview: "cites the origin" },
       ],
-      // Ranked by the lens: the two-connector candidate leads, and the third
-      // stands under a connector of its own.
       bridges: [
         {
           key: "file:bridged.org",
@@ -55,8 +45,6 @@ const WORLD: FixtureWorld = {
           via: [{ key: "file:in.org", id: "in-uuid", title: "Inbound" }],
         },
       ],
-      // The name stands late in a long line, so the row has to wind the line
-      // forward to it: at the head of that line the mark would be clipped away.
       mentions: [
         {
           source: { key: "file:naming.org", id: "naming-uuid", title: "Naming Note" },
@@ -65,12 +53,23 @@ const WORLD: FixtureWorld = {
         },
       ],
     },
+    {
+      key: "file:dense.org",
+      title: "Dense",
+      body: "Six notes cite this one.",
+      backlinks: [
+        { key: "file:c1.org", id: "c1-uuid", title: "First", preview: "cites Dense" },
+        { key: "file:c2.org", id: "c2-uuid", title: "Second", preview: "cites Dense" },
+        { key: "file:c3.org", id: "c3-uuid", title: "Third", preview: "cites Dense" },
+        { key: "file:c4.org", id: "c4-uuid", title: "Fourth", preview: "cites Dense" },
+        { key: "file:c5.org", id: "c5-uuid", title: "Fifth", preview: "cites Dense" },
+        { key: "file:c6.org", id: "c6-uuid", title: "Sixth", preview: "cites Dense" },
+      ],
+    },
   ],
 };
 
-/** Every `/api/explore` request the page made, in order. */
 let explored: string[] = [];
-/** Every `/api/unlinked-references` request the page made, in order. */
 let scanned: string[] = [];
 
 test.describe("the relations footer", () => {
@@ -102,8 +101,6 @@ test.describe("the relations footer", () => {
     }
     expect(lefts.size).toBe(1);
 
-    // The mark hangs to the left of that column rather than indenting the title
-    // it belongs to.
     const mark = await page.locator(".relations__direction").first().boundingBox();
     expect(mark!.x + mark!.width).toBeLessThanOrEqual([...lefts][0]!);
   });
@@ -124,7 +121,6 @@ test.describe("the relations footer", () => {
     await page.getByRole("button", { name: "Related notes" }).click();
     await expect(page.getByRole("link", { name: "Bridged Note" })).toBeVisible();
 
-    // Two connectors, each named once, in the order the lens reached them.
     await expect(page.locator(".relations__connector")).toHaveText([
       "via Outbound",
       "via Inbound",
@@ -138,8 +134,6 @@ test.describe("the relations footer", () => {
     expect(connector!.y).toBeLessThan(row!.y);
   });
 
-  // A row paints one clipped line, so where the mark lands inside that line is
-  // the whole question, and only a real browser reports it.
   test("keeps the scanned match inside the line the row paints", async ({ page }) => {
     const group = page.getByRole("button", { name: "Unlinked mentions" });
     await expect(group).toHaveAttribute("aria-expanded", "false");
@@ -152,12 +146,96 @@ test.describe("the relations footer", () => {
     const mark = page.locator("mark.relations__match");
     await expect(mark).toHaveText("Origin");
     const preview = page.locator(".relations__preview", { has: mark });
-    // The line is wound forward to the match, and the cut is marked.
     await expect(preview).toHaveText(/^…/);
 
     const marked = await mark.boundingBox();
     const line = await preview.boundingBox();
     expect(marked!.x).toBeGreaterThanOrEqual(line!.x);
     expect(marked!.x + marked!.width).toBeLessThanOrEqual(line!.x + line!.width);
+  });
+});
+
+const INVENTORY_ROW = 24;
+
+const INVENTORY_FOOTER = 260;
+
+const REGISTER_GAP = 24;
+
+test.describe("the footer as an inventory", () => {
+  test.beforeEach(async ({ page }) => {
+    await mountApi(page, WORLD);
+    await page.goto("/?note=file:dense.org");
+    await expect(page.getByRole("heading", { name: "Dense" })).toBeVisible();
+  });
+
+  test("sets six related notes at an index's density, not the prose's", async ({
+    page,
+  }) => {
+    const rows = await page.locator(".relations__row").all();
+    expect(rows).toHaveLength(6);
+    for (const row of rows) {
+      expect((await row.boundingBox())!.height).toBeLessThanOrEqual(INVENTORY_ROW);
+    }
+
+    const footer = (await page.locator(".relations").boundingBox())!;
+    expect(footer.height).toBeLessThanOrEqual(INVENTORY_FOOTER);
+
+    const readOn = page.locator(".read-on");
+    const crossed =
+      (await readOn.count()) > 0 ? readOn : page.locator(".org-paragraph").last();
+    const above = (await crossed.boundingBox())!;
+    expect(footer.y - (above.y + above.height)).toBeGreaterThanOrEqual(REGISTER_GAP);
+    const rule = await page
+      .locator(".relations")
+      .evaluate((node) => getComputedStyle(node).borderTopWidth);
+    expect(rule).toBe("1px");
+
+    await page.locator(".relations").evaluate((node) => {
+      node.style.marginTop = "0px";
+    });
+    const joined = (await page.locator(".relations").boundingBox())!;
+    expect(joined.y - (above.y + above.height)).toBeLessThan(REGISTER_GAP);
+  });
+
+  test("gives every group one label register, whenever the group was added", async ({
+    page,
+  }) => {
+    const labels = page.locator(".relations__label, .relations__toggle");
+    await expect(labels).toHaveCount(5);
+
+    for (const name of ["Related notes", "Unlinked mentions"]) {
+      const group = page.getByRole("button", { name });
+      await group.click();
+      await expect(group).toHaveAttribute("aria-expanded", "true");
+    }
+    await expect(labels).toHaveCount(5);
+
+    const register = await labels.evaluateAll((nodes) =>
+      nodes.map((node) => {
+        const style = getComputedStyle(node);
+        return [
+          style.fontSize,
+          style.lineHeight,
+          style.fontWeight,
+          style.textTransform,
+          style.letterSpacing,
+          style.color,
+        ].join(" ");
+      }),
+    );
+    expect(new Set(register).size).toBe(1);
+
+    const transforms = await labels.evaluateAll((nodes) =>
+      nodes.map((node) => getComputedStyle(node).textTransform),
+    );
+    expect(new Set(transforms)).toEqual(new Set(["none"]));
+
+    const label = await labels
+      .first()
+      .evaluate((node) => parseFloat(getComputedStyle(node).fontSize));
+    const prose = await page
+      .locator(".org-document")
+      .evaluate((node) => parseFloat(getComputedStyle(node).fontSize));
+    expect(label).toBeLessThan(prose);
   });
 });

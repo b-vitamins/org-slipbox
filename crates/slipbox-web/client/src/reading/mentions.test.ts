@@ -43,10 +43,6 @@ function anchor(
   };
 }
 
-/**
- * One occurrence. The column defaults to where the text first stands, and the
- * line sits in `source` itself unless `under` names a node inside it.
- */
 function mention(
   source: AnchorRecord,
   preview: string,
@@ -92,19 +88,15 @@ function text(nodes: readonly Inline[]): string {
     .join("");
 }
 
-/** The whole preview a row carries, marked runs included. */
 function preview(row: MentionRow): string {
   return row.preview.map((run) => text(run.prose)).join("");
 }
 
-/** Only the runs the scan matched in. */
 function marked(row: MentionRow): string[] {
   return row.preview.filter((run) => run.matched).map((run) => text(run.prose));
 }
 
 describe("mentionRows", () => {
-  // The scan orders by indexed file path and then by position, which is the
-  // order the rows stand in.
   it("keeps the order the scan sent", () => {
     const rows = mentionRows(
       scan([
@@ -117,7 +109,6 @@ describe("mentionRows", () => {
     expect(rows.map((row) => row.title)).toEqual(["Beta", "Alpha"]);
   });
 
-  // A reader acts on the note, so the offsets inside it are not each a row.
   it("gives one note one row, its first occurrence", () => {
     const source = anchor("notes/a.org::0", "Alpha");
     const rows = mentionRows(
@@ -132,9 +123,6 @@ describe("mentionRows", () => {
     expect(preview(rows[0]!)).toBe("Measure in the first place");
   });
 
-  // The scan resolves the nearest node above the line, which may be a heading
-  // carrying no id, while the inventory lists notes: read against the heading a
-  // mention in a note that links here reads as news, which it is not.
   it("drops a listed note whose mention stands under a heading in it", () => {
     const note = anchor("notes/a.org::0", "Alpha");
     const rows = mentionRows(
@@ -155,8 +143,6 @@ describe("mentionRows", () => {
     expect(rows.map((row) => row.title)).toEqual(["Beta"]);
   });
 
-  // Two headings of one note are two nodes of the index and one note to a
-  // reader, so the note is named once, at its first occurrence.
   it("gives one note one row across the headings inside it", () => {
     const note = anchor("notes/a.org::0", "Alpha");
     const rows = mentionRows(
@@ -187,8 +173,6 @@ describe("mentionRows", () => {
     expect(preview(rows[0]!)).toBe("Measure in the first place");
   });
 
-  // A daemon older than the field answers no note, and where the line sits is
-  // then all that is known of it.
   it("names the anchor where the payload carries no note", () => {
     const older: UnlinkedReferenceRecord = {
       ...mention(anchor("notes/a.org::4", "A section"), "Measure once", "Measure"),
@@ -238,8 +222,6 @@ describe("mentionRows", () => {
     expect(preview(rows[0]!)).toBe("compared with Measure theory throughout");
   });
 
-  // The scan passes over an occurrence an indexed link already covers, so the
-  // one it reports may be the second of two in the same line.
   it("marks the occurrence the stated column names", () => {
     const rows = mentionRows(
       scan([
@@ -258,7 +240,6 @@ describe("mentionRows", () => {
     expect(hit!.matched).toBe(true);
   });
 
-  // A row paints one clipped line, so a match past its end would be invisible.
   it("winds a long line forward to the match and marks the cut", () => {
     const rows = mentionRows(
       scan([
@@ -275,8 +256,6 @@ describe("mentionRows", () => {
     expect(marked(rows[0]!)).toEqual(["Measure"]);
   });
 
-  // The clip is paint only: without a bound the whole line reaches the
-  // accessible tree, as it would on a link row.
   it("carries no more of the line than a link row would", () => {
     const rows = mentionRows(
       scan([
@@ -289,14 +268,11 @@ describe("mentionRows", () => {
       NOTHING_LISTED,
     );
 
-    // The two cut marks stand outside the bound.
     expect(preview(rows[0]!).length).toBeLessThanOrEqual(
       RELATION_PREVIEW_CHARS + 2,
     );
   });
 
-  // The line is raw Org, and the match may stand inside a construct, so the
-  // reduction runs over the whole window rather than around the match.
   it("reduces the markup the match stands in", () => {
     const rows = mentionRows(
       scan([

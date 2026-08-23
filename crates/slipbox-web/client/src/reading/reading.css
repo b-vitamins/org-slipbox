@@ -373,23 +373,28 @@
   text-underline-offset: 0.15em;
 }
 
+/* The footer is an index of the note's neighbourhood, so it is set at an index's
+ * scale rather than the prose's: three groups at the reading scale cost a
+ * screenful of a narrow viewport, which is a page of chrome under every note.
+ * The rule and the space above it are what keep the two registers apart. */
 .relations {
-  margin-top: 48px;
-  padding-top: 24px;
+  margin-top: 32px;
+  padding-top: 16px;
   border-top: 1px solid var(--hairline);
 }
 
 .relations__group {
-  margin-bottom: 24px;
+  margin-bottom: 16px;
 }
 
+/* One label per group, all three alike: letterspaced uppercase is chrome, and
+ * three runs of it read as more chrome than index. */
 .relations__label {
-  margin: 0 0 8px;
+  margin: 0 0 2px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 20px;
   font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
 }
 
 /* The disclosure that names a deferred group. It carries the label's own type
@@ -431,7 +436,7 @@
  * indent every relation row carries, so it reads as the label over them rather
  * than as another row in the listing. */
 .relations__connector {
-  margin: 8px 0 2px;
+  margin: 6px 0 2px;
   color: var(--muted);
   font-size: 13px;
   font-weight: 400;
@@ -465,14 +470,19 @@
 
 /* Wrapping keeps the row inside a narrow column: a rigid link plus a nowrap
  * preview is wider than the column, and a column that scrolls only vertically
- * has no way to reach the overflow. */
+ * has no way to reach the overflow.
+ *
+ * The padding is an index's row pitch, the line box plus a hairline of
+ * separation, so a run of rows reads as one listing to be scanned rather than as
+ * stacked paragraphs. Under a coarse pointer the link's own floor sets the row's
+ * height instead, which is left to the token to state. */
 .relations__row {
   position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 2px 10px;
-  padding: 4px 0 4px 20px;
+  padding: 1px 0 1px 20px;
 }
 
 /* The direction mark hangs in the row's indent rather than joining the flex
@@ -482,8 +492,8 @@
   position: absolute;
   left: 0;
   color: var(--muted-2);
-  font-size: 14px;
-  line-height: 24px;
+  font-size: 13px;
+  line-height: 20px;
 }
 
 .relations__link {
@@ -493,7 +503,8 @@
    * this taller than its own title; centering is inert at every box exactly one
    * line tall. */
   align-content: center;
-  font-size: 15px;
+  font-size: 14px;
+  line-height: 20px;
   /* A single long word (a formula, a path, a hyphenless title) would otherwise
    * set a floor wider than the column and clip against its edge. */
   overflow-wrap: anywhere;

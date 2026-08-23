@@ -68,7 +68,6 @@ function bridge(
   };
 }
 
-/** A bridges answer, its single section carrying `entries` in the lens's order. */
 function bridges(entries: ExplorationEntry[]): ExploreResult {
   return {
     lens: "bridges",
@@ -83,8 +82,6 @@ function titlesOf(groups: readonly RelatedGroup[]): string[][] {
 const NOTHING_LISTED: ReadonlySet<string> = new Set();
 
 describe("relatedGroups", () => {
-  // The lens ranks a note reached through several connectors above one reached
-  // through a single connector, and that ranking is what the group preserves.
   it("keeps the lens's order inside a group", () => {
     const groups = relatedGroups(
       bridges([
@@ -117,8 +114,6 @@ describe("relatedGroups", () => {
     expect(titlesOf(groups)).toEqual([["Alpha", "Gamma"], ["Beta"]]);
   });
 
-  // Titles are not identities: two notes may carry the same one, and a reader
-  // opening the wrong connector is worse than a repeated label.
   it("keeps two connectors that share a title apart", () => {
     const groups = relatedGroups(
       bridges([
@@ -132,8 +127,6 @@ describe("relatedGroups", () => {
     expect(titlesOf(groups)).toEqual([["Alpha"], ["Beta"]]);
   });
 
-  // The lens excludes the note's own neighbors, but the footer prints the rows
-  // it holds rather than the rows the server believes it holds.
   it("drops a note the directed inventory already lists", () => {
     const groups = relatedGroups(
       bridges([
@@ -157,8 +150,6 @@ describe("relatedGroups", () => {
     expect(groups).toEqual([]);
   });
 
-  // A lens answers in sections of its own choosing, and an entry carries the
-  // explanation that admitted it; neither is inferred from the other.
   it("reads only bridge candidates, whatever else the answer carries", () => {
     const groups = relatedGroups(
       {
@@ -193,8 +184,6 @@ describe("relatedGroups", () => {
     expect(titlesOf(groups)).toEqual([["Right"]]);
   });
 
-  // The store filters a candidate with no evidence out; the wire type still
-  // admits one, and a row has no group to stand under without a connector.
   it("drops a candidate reached through nothing", () => {
     const groups = relatedGroups(
       bridges([bridge(anchor("notes/a.org::0", "Alpha"), [])]),
@@ -222,8 +211,6 @@ describe("relatedGroups", () => {
 });
 
 describe("rankedTotal", () => {
-  // The listed notes the footer drops are still candidates the lens ranked, so
-  // the lens's own bound is measured before that exclusion and not after it.
   it("counts what the lens ranked, not what survives the exclusion", () => {
     const answer = bridges([
       bridge(anchor("notes/a.org::0", "Alpha"), [via("notes/c1.org::0", "Measure")]),
@@ -265,9 +252,6 @@ describe("relatedRowTotal", () => {
 });
 
 describe("boundedRelated", () => {
-  // What grouping a lens order of Alpha, Gamma, Beta leaves: the second-ranked
-  // row stands under a connector of its own, so the ranking runs across the
-  // groups rather than down the first one.
   const GROUPS: RelatedGroup[] = [
     {
       connector: "Measure",

@@ -78,6 +78,9 @@ function noteGeometry(page: Page) {
   });
 }
 
+/** Rows a deferred group is given: more than it shows, so it holds some back. */
+const GROUP_ROWS = 12;
+
 const WORLD: FixtureWorld = {
   notes: [
     {
@@ -107,6 +110,20 @@ const WORLD: FixtureWorld = {
             "The linking line is long too, so title and preview cannot sit side by side.",
         },
       ],
+      // Well over either deferred group's head, so an opened group carries both
+      // kinds of control a closed one keeps out of reach: its rows, and the offer
+      // of the rest. Nothing here reads the heads themselves, since a group that
+      // stopped holding anything back would fail on the offer being gone.
+      bridges: Array.from({ length: GROUP_ROWS }, (_, at) => ({
+        key: `file:bridged-${at}.org`,
+        title: `Bridged Note ${at + 1}`,
+        via: [{ key: "file:middling.org", title: "Middling Note" }],
+      })),
+      mentions: Array.from({ length: GROUP_ROWS }, (_, at) => ({
+        source: { key: `file:naming-${at}.org`, title: `Naming Note ${at + 1}` },
+        line: "Origin Note is named here, and not linked to.",
+        matched: "Origin Note",
+      })),
     },
     {
       key: "file:pinned.org",
@@ -416,6 +433,60 @@ test.describe("the touch grammar", () => {
     const search = page.getByRole("link", { name: /^Search the slipbox for/ });
     await expect(search).toBeVisible();
     expect(await heightOf(search)).toBeGreaterThanOrEqual(TOUCH_TARGET);
+  });
+
+  // A deferred group keeps its rows and the offer of the rest behind one control,
+  // so a sweep that reads the footer as it stands measures the group's label and
+  // nothing else it holds.
+  test("a deferred group's controls clear the floor, open as well as shut", async ({
+    page,
+  }) => {
+    await page.goto("/?note=file:origin.org");
+    await expect(page.getByRole("heading", { name: "Origin Note" })).toBeVisible();
+
+    for (const label of ["Related notes", "Unlinked mentions"]) {
+      const toggle = page.getByRole("button", { name: label });
+      expect(await heightOf(toggle), `the ${label} label`).toBeGreaterThanOrEqual(
+        TOUCH_TARGET,
+      );
+
+      await toggle.tap();
+      await expect(toggle).toHaveAttribute("aria-expanded", "true");
+      const group = page
+        .locator(".relations__group")
+        .filter({ has: page.getByRole("button", { name: label }) });
+
+      const row = group.locator(".relations__link").first();
+      await expect(row).toBeVisible();
+      expect(await heightOf(row), `a row in ${label}`).toBeGreaterThanOrEqual(
+        TOUCH_TARGET,
+      );
+
+      // The fixtures stand one row over the head, so the rest is offered rather
+      // than shown, and the offer is a control of its own.
+      const more = group.getByRole("button", { name: /^Show \d+ more$/ });
+      await expect(more).toBeVisible();
+      expect(await heightOf(more), `the offer in ${label}`).toBeGreaterThanOrEqual(
+        TOUCH_TARGET,
+      );
+    }
+  });
+
+  test("a relation row takes its floor from the touch-target token", async ({ page }) => {
+    await page.goto("/?note=file:origin.org");
+    await expect(page.getByRole("heading", { name: "Origin Note" })).toBeVisible();
+
+    const link = page.getByRole("link", { name: /^A deliberately long relation title/ });
+    expect(await heightOf(link)).toBeGreaterThanOrEqual(TOUCH_TARGET);
+
+    // A row set at a height of its own would clear the constant above and then
+    // stop clearing it here. Raising the token is what says the floor is still
+    // the token after the row's own padding was cut to an index's.
+    const RAISED = TOUCH_TARGET + 16;
+    await page.evaluate((raised) => {
+      document.documentElement.style.setProperty("--touch-target", `${raised}px`);
+    }, RAISED);
+    expect(await heightOf(link)).toBeGreaterThanOrEqual(RAISED);
   });
 
   test("a link in body prose is left the width of its own words", async ({ page }) => {
