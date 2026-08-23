@@ -392,21 +392,37 @@
   letter-spacing: 0.06em;
 }
 
+/* The markers go, for the surface's own rhythm. An engine that reads a listing
+ * stripped of them as prose set out in lines drops the list semantics with them,
+ * and a reader is then told neither that the rows are a listing nor how many
+ * there are, so every listing here declares the role it already had. */
 .relations__list {
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-/* Wrapping keeps the row inside a phone-width column: a rigid link plus a nowrap
+/* Wrapping keeps the row inside a narrow column: a rigid link plus a nowrap
  * preview is wider than the column, and a column that scrolls only vertically
  * has no way to reach the overflow. */
 .relations__row {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 2px 10px;
-  padding: 4px 0;
+  padding: 4px 0 4px 20px;
+}
+
+/* The direction mark hangs in the row's indent rather than joining the flex
+ * flow, so every title starts on one axis down the column and the row's wrap
+ * geometry is the same whichever mark it carries. */
+.relations__direction {
+  position: absolute;
+  left: 0;
+  color: var(--muted-2);
+  font-size: 14px;
+  line-height: 24px;
 }
 
 .relations__link {

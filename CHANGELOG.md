@@ -88,6 +88,13 @@ The format follows Keep a Changelog, and this project follows SemVer.
   and now shares a single constructor with, and it clears the coarse pointer's
   touch-target floor, its label centered in the taller box that floor stretches
   it into.
+- List a related note once in the reading footer, marked with the direction its
+  links run in, rather than once per direction group. A reciprocal note stood in
+  both groups, and a forward link's preview quoted the line of the note being
+  read, already on screen above the footer. One listing now holds a row per
+  related note, in first-appearance order with forward links first, and a preview
+  comes from the backlink alone. Each direction states its own cut against its
+  own total.
 
 ### Removed
 - Retire the reading surface's hop-bounded neighborhood: the `/api/neighborhood`
