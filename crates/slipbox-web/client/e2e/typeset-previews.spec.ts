@@ -18,6 +18,16 @@ const WORLD: FixtureWorld = {
           key: "file:change.org",
           id: "change-uuid",
           title: "Change of variables",
+          preview: "Built on the change of variables identity.",
+        },
+      ],
+      // A row's preview quotes the other note, so the math a preview has to
+      // typeset rides on the backlink rather than on the forward link.
+      backlinks: [
+        {
+          key: "file:change.org",
+          id: "change-uuid",
+          title: "Change of variables",
           preview: "bounded by \\(\\sum_n x_n\\) throughout",
         },
       ],

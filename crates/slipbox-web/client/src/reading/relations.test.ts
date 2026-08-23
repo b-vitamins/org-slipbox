@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { backwardRelations, forwardRelations } from "./relations.js";
+import { relationRows, shownInDirection } from "./relations.js";
 import type {
   BacklinkRecord,
   ForwardLinkRecord,
@@ -83,18 +83,18 @@ function context(
     place: { ordinal: 1, total: 1 },
     backlinks,
     forward_links,
-    // Neither projection reads a total; the footer above them does.
+    // The projection reads no total; the footer above it does.
     backlink_note_total: backlinks.length,
     forward_link_note_total: forward_links.length,
   };
 }
 
-describe("forwardRelations", () => {
-  it("projects each distinct destination in server order", () => {
-    const rows = forwardRelations(
+describe("relationRows", () => {
+  it("lists forward links in server order, marked outbound", () => {
+    const rows = relationRows(
       context(
         [
-          forward(node("notes/a.org::0", "Alpha"), "  see Alpha  "),
+          forward(node("notes/a.org::0", "Alpha")),
           forward(node("notes/b.org::0", "Beta")),
         ],
         [],
@@ -102,20 +102,39 @@ describe("forwardRelations", () => {
     );
 
     expect(rows.map((row) => row.title)).toEqual(["Alpha", "Beta"]);
+    expect(rows.map((row) => row.direction)).toEqual(["out", "out"]);
+  });
+
+  // The forward record's preview is the line of the note being read, a few
+  // centimetres above the footer, so it is not quoted back at the reader.
+  it("carries no preview on a forward-only row", () => {
+    const rows = relationRows(
+      context([forward(node("notes/a.org::0", "Alpha"), "see Alpha")], []),
+    );
+
+    expect(rows[0]!.preview).toEqual([]);
+  });
+
+  it("quotes the source note's line on an inbound row", () => {
+    const rows = relationRows(
+      context([], [backward(node("notes/x.org::0", "Ex"), "  cites Self  ")]),
+    );
+
+    expect(rows[0]!.direction).toBe("in");
     // The preview is trimmed.
-    expect(rows[0]!.preview).toEqual([{ type: "text", value: "see Alpha" }]);
+    expect(rows[0]!.preview).toEqual([{ type: "text", value: "cites Self" }]);
   });
 
   it("parses raw Org markup in the preview into renderable prose", () => {
-    const rows = forwardRelations(
+    const rows = relationRows(
       context(
+        [],
         [
-          forward(
-            node("notes/a.org::0", "Alpha"),
+          backward(
+            node("notes/x.org::0", "Ex"),
             "as [[id:xyz][the lemma]] shows, \\(x = 0\\) under /mild/ conditions",
           ),
         ],
-        [],
       ),
     );
 
@@ -130,8 +149,25 @@ describe("forwardRelations", () => {
     ]);
   });
 
+  it("lists a reciprocal note once, marked both ways, where it first stood", () => {
+    const rows = relationRows(
+      context(
+        [
+          forward(node("notes/a.org::0", "Alpha"), "cites Alpha"),
+          forward(node("notes/b.org::0", "Beta")),
+        ],
+        [backward(node("notes/a.org::0", "Alpha"), "cites Self back")],
+      ),
+    );
+
+    expect(rows.map((row) => row.title)).toEqual(["Alpha", "Beta"]);
+    expect(rows.map((row) => row.direction)).toEqual(["both", "out"]);
+    // The other note's line, not the line of the note being read.
+    expect(rows[0]!.preview).toEqual([{ type: "text", value: "cites Self back" }]);
+  });
+
   it("deduplicates repeated destinations, keeping the first", () => {
-    const rows = forwardRelations(
+    const rows = relationRows(
       context(
         [
           forward(node("notes/a.org::0", "Alpha"), "first"),
@@ -142,16 +178,30 @@ describe("forwardRelations", () => {
     );
 
     expect(rows).toHaveLength(1);
+  });
+
+  it("deduplicates repeated sources, keeping the first line", () => {
+    const rows = relationRows(
+      context(
+        [],
+        [
+          backward(node("notes/x.org::0", "Ex"), "first"),
+          backward(node("notes/x.org::0", "Ex"), "second"),
+        ],
+      ),
+    );
+
+    expect(rows).toHaveLength(1);
     expect(rows[0]!.preview).toEqual([{ type: "text", value: "first" }]);
   });
 
   it("prefers an id target when the note carries an explicit id", () => {
-    const withId = forwardRelations(
+    const withId = relationRows(
       context([forward(node("notes/a.org::0", "Alpha", "uuid-1"))], []),
     );
     expect(withId[0]!.target).toEqual({ id: "uuid-1", target: "id:uuid-1" });
 
-    const withoutId = forwardRelations(
+    const withoutId = relationRows(
       context([forward(node("notes/a.org::0", "Alpha"))], []),
     );
     expect(withoutId[0]!.target).toEqual({
@@ -161,30 +211,20 @@ describe("forwardRelations", () => {
   });
 });
 
-describe("backwardRelations", () => {
-  it("projects each distinct source in server order", () => {
-    const rows = backwardRelations(
+describe("shownInDirection", () => {
+  // A reciprocal note is one row, and it stands against both payload totals.
+  it("counts a both-ways row in each direction", () => {
+    const rows = relationRows(
       context(
-        [],
+        [forward(node("notes/a.org::0", "Alpha"))],
         [
+          backward(node("notes/a.org::0", "Alpha")),
           backward(node("notes/x.org::0", "Ex")),
-          backward(node("notes/y.org::0", "Why")),
         ],
       ),
     );
-    expect(rows.map((row) => row.title)).toEqual(["Ex", "Why"]);
-  });
 
-  it("deduplicates repeated sources", () => {
-    const rows = backwardRelations(
-      context(
-        [],
-        [
-          backward(node("notes/x.org::0", "Ex")),
-          backward(node("notes/x.org::0", "Ex")),
-        ],
-      ),
-    );
-    expect(rows).toHaveLength(1);
+    expect(shownInDirection(rows, "out")).toBe(1);
+    expect(shownInDirection(rows, "in")).toBe(2);
   });
 });

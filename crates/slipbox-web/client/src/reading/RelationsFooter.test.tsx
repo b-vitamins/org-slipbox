@@ -115,23 +115,84 @@ function context(
 const inertNav: Navigation = { glance: () => {}, pin: () => {}, go: () => {} };
 
 describe("RelationsFooter", () => {
-  it("renders the two relation groups from the fetched context", () => {
-    render(() => (
+  it("lists every related note once, in one group", () => {
+    const { container } = render(() => (
       <NavigationProvider navigation={inertNav}>
         <RelationsFooter
           context={context(
             [forward(node("notes/a.org::0", "Alpha"), "cites Alpha")],
-            [backward(node("notes/x.org::0", "Ex"))],
+            [
+              backward(node("notes/a.org::0", "Alpha"), "cites Self"),
+              backward(node("notes/x.org::0", "Ex"), "also cites Self"),
+            ],
           )}
         />
       </NavigationProvider>
     ));
 
-    expect(screen.getByText("Links to")).toBeInTheDocument();
-    expect(screen.getByText("Linked from")).toBeInTheDocument();
+    expect(container.querySelectorAll(".relations__group")).toHaveLength(1);
+    expect(container.querySelectorAll(".relations__row")).toHaveLength(2);
     expect(screen.getByRole("link", { name: "Alpha" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ex" })).toBeInTheDocument();
-    expect(screen.getByText("cites Alpha")).toBeInTheDocument();
+  });
+
+  // The listing drops its markers for the surface's rhythm, and an engine that
+  // reads that as a listing meant to be read as prose drops the list semantics
+  // with them. Neither engine under test is one of those, so what is asserted is
+  // the declaration itself.
+  it("declares the directed inventory a list", () => {
+    const { container } = render(() => (
+      <NavigationProvider navigation={inertNav}>
+        <RelationsFooter
+          context={context([], [backward(node("notes/x.org::0", "Ex"), "cites Self")])}
+        />
+      </NavigationProvider>
+    ));
+
+    expect(container.querySelector(".relations__list")?.getAttribute("role")).toBe(
+      "list",
+    );
+  });
+
+  // A glyph is not a label: a reader who cannot see the mark still has to be
+  // told which way the links run.
+  it("names each row's direction for a screen reader", () => {
+    render(() => (
+      <NavigationProvider navigation={inertNav}>
+        <RelationsFooter
+          context={context(
+            [
+              forward(node("notes/a.org::0", "Alpha")),
+              forward(node("notes/b.org::0", "Beta")),
+            ],
+            [
+              backward(node("notes/a.org::0", "Alpha"), "cites Self"),
+              backward(node("notes/x.org::0", "Ex"), "also cites Self"),
+            ],
+          )}
+        />
+      </NavigationProvider>
+    ));
+
+    expect(
+      screen.getAllByRole("img").map((mark) => mark.getAttribute("aria-label")),
+    ).toEqual(["Links to and from", "Links to", "Linked from"]);
+  });
+
+  it("shows no preview on a row the note only links out to", () => {
+    const { container } = render(() => (
+      <NavigationProvider navigation={inertNav}>
+        <RelationsFooter
+          context={context(
+            [forward(node("notes/a.org::0", "Alpha"), "cites Alpha")],
+            [],
+          )}
+        />
+      </NavigationProvider>
+    ));
+
+    expect(screen.queryByText("cites Alpha")).not.toBeInTheDocument();
+    expect(container.querySelector(".relations__preview")).toBeNull();
   });
 
   // A relation row is a fragment of a note, so the formula that linked two
@@ -141,13 +202,13 @@ describe("RelationsFooter", () => {
       <NavigationProvider navigation={inertNav}>
         <RelationsFooter
           context={context(
+            [],
             [
-              forward(
-                node("notes/a.org::0", "Alpha"),
+              backward(
+                node("notes/x.org::0", "Ex"),
                 "bounded by \\(\\sum_n x_n\\) throughout",
               ),
             ],
-            [],
           )}
         />
       </NavigationProvider>
@@ -158,19 +219,6 @@ describe("RelationsFooter", () => {
     // KaTeX keeps the TeX in its MathML annotation, which is how the math
     // reaches assistive tech; what the reader sees is the typeset glyphs.
     expect(visibleText(preview)).toBe("bounded by ∑n​xn​ throughout");
-  });
-
-  it("omits a group with no relations", () => {
-    render(() => (
-      <NavigationProvider navigation={inertNav}>
-        <RelationsFooter
-          context={context([forward(node("notes/a.org::0", "Alpha"))], [])}
-        />
-      </NavigationProvider>
-    ));
-
-    expect(screen.getByText("Links to")).toBeInTheDocument();
-    expect(screen.queryByText("Linked from")).not.toBeInTheDocument();
   });
 
   it("pins the related note when its row is clicked, via an id target", () => {
@@ -214,7 +262,9 @@ describe("RelationsFooter", () => {
       </NavigationProvider>
     ));
 
-    expect(screen.getByText("Showing 1 of 42.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Showing 1 of 42 notes linking here."),
+    ).toBeInTheDocument();
   });
 
   // The note record counts link rows, and one note may link here twice; the
@@ -287,7 +337,32 @@ describe("RelationsFooter", () => {
       </NavigationProvider>
     ));
 
-    expect(screen.getByText("Showing 1 of 5.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Showing 1 of 5 notes linked to."),
+    ).toBeInTheDocument();
+  });
+
+  // One listing holds both directions, and the request bounds each of them, so a
+  // cut in one direction must not be reported as a cut in the other.
+  it("states a cut in each direction against that direction's own total", () => {
+    render(() => (
+      <NavigationProvider navigation={inertNav}>
+        <RelationsFooter
+          context={context(
+            [forward(node("notes/a.org::0", "Alpha"))],
+            [backward(node("notes/x.org::0", "Ex"), "cites Self")],
+            { forwardTotal: 3, backwardTotal: 9 },
+          )}
+        />
+      </NavigationProvider>
+    ));
+
+    expect(
+      screen.getByText("Showing 1 of 3 notes linked to."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Showing 1 of 9 notes linking here."),
+    ).toBeInTheDocument();
   });
 
   // The footer is a hairline rule plus whatever it lists. A note nothing links

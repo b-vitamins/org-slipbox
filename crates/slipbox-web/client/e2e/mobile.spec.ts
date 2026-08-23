@@ -93,8 +93,12 @@ const WORLD: FixtureWorld = {
           title: "Pinned Note",
           preview: "the destination",
         },
-        // Title and linking line are each wider than a 375px phone column, so
-        // the footer row has to wrap.
+      ],
+      // A row's preview quotes the other note, so a row that has to wrap around
+      // one is an inbound row.
+      backlinks: [
+        // Title and linking line are each wider than a 375px column, so the
+        // footer row has to wrap.
         {
           key: "file:verbose.org",
           id: "verbose-uuid",
