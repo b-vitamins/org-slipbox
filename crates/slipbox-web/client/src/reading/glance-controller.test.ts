@@ -29,7 +29,7 @@ function manualScheduler(): Scheduler & { flush: () => void; pending: () => numb
 }
 
 /** A glance request carrying a distinguishable id, without a real DOM node. */
-function requestFor(id: string, gesture: GlanceGesture = "pointer"): GlanceRequest {
+function requestFor(id: string, gesture: GlanceGesture = "hover"): GlanceRequest {
   return {
     target: { id, target: `id:${id}` },
     origin: {} as HTMLElement,

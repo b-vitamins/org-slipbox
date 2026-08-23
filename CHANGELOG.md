@@ -72,6 +72,13 @@ The format follows Keep a Changelog, and this project follows SemVer.
   on screen has an address a reload or a copy reopens. A key none of the pages read
   holds is resolved through `/api/glossary/term` and peeked off the list, and a key
   the index refuses is named rather than answered with the first row.
+- Read a glance preview from the keyboard. A card raised by a cursor and one raised
+  by focus were tagged alike, and every card but the tap-raised one was
+  `aria-hidden`, so a reader who reached a link by Tab was shown a preview
+  announced to nobody. A focus-raised card is now the description of the link that
+  raised it, read out after the link and cleared with the card. A cursor-raised one
+  stays decorative, since it says what the cursor is already over, and no card
+  takes focus: the reader stays on the link.
 
 ### Changed
 - Draw the `dormant` lens's candidates from link topology rather than from shared

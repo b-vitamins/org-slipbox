@@ -1,11 +1,22 @@
 /*
  * The glance preview card: a floating peek at a link's target, placed in
- * viewport coordinates by `placeGlance` and remeasured after mount. A cursor- or
- * focus-raised card is decorative chrome and `aria-hidden`; a touch-raised one
- * carries the only commit gesture available, so it is not.
+ * viewport coordinates by `placeGlance` and remeasured after mount. A
+ * cursor-raised card is decorative chrome and `aria-hidden`, since it says what
+ * the cursor is already over. A focus-raised one is reached by nothing but the
+ * link, so it is that link's description; a touch-raised one carries the only
+ * commit gesture available. Neither is hidden, and neither takes focus: the
+ * reader stays on the link and the card is read from there.
  */
 
-import { Show, createEffect, createMemo, createSignal, type Component } from "solid-js";
+import {
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  createUniqueId,
+  onCleanup,
+  type Component,
+} from "solid-js";
 
 import { ApiError } from "../api/client.js";
 import { createReadingResource } from "../data/create-reading-resource.js";
@@ -47,10 +58,27 @@ function describeError(error: unknown): string {
 
 export const GlancePreview: Component<{ request: GlanceRequest }> = (props) => {
   let card!: HTMLDivElement;
+  const cardId = createUniqueId();
   const [placement, setPlacement] = createSignal<GlancePlacement | null>(null);
   let preferredWidth: number | null = null;
 
   const commits = (): boolean => props.request.gesture === "touch";
+  const decorative = (): boolean => props.request.gesture === "hover";
+  const describes = (): boolean => props.request.gesture === "focus";
+
+  // Named as the focused link's description rather than announced on its own, so
+  // the card is read out where the reader is standing and in the order they got
+  // there: the link, then what it leads to. A touch-raised card needs no such
+  // relation, since its own controls are what the reader moves on to. Cleared
+  // with the card, whose id it names.
+  createEffect(() => {
+    if (!describes()) {
+      return;
+    }
+    const link = props.request.origin;
+    link.setAttribute("aria-describedby", cardId);
+    onCleanup(() => link.removeAttribute("aria-describedby"));
+  });
 
   const reference = (): string => referenceOf(props.request.target);
   const context = createReadingResource(reference, (ref) =>
@@ -84,6 +112,7 @@ export const GlancePreview: Component<{ request: GlanceRequest }> = (props) => {
   return (
     <div
       ref={card}
+      id={cardId}
       class="glance-card"
       classList={{
         "glance-card--above": placement()?.above ?? false,
@@ -95,7 +124,7 @@ export const GlancePreview: Component<{ request: GlanceRequest }> = (props) => {
         top: `${placement()?.top ?? 0}px`,
         width: placement() === null ? undefined : `${placement()!.width}px`,
       }}
-      aria-hidden={commits() ? undefined : "true"}
+      aria-hidden={decorative() ? "true" : undefined}
     >
       <Show
         when={context.ready()}
