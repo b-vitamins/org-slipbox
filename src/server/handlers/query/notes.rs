@@ -247,6 +247,18 @@ pub(crate) fn note_context(
                 note.node_key
             ))
         })?;
+    // Totals for what the limit above may have cut, counted as the listings count
+    // them: one per related note, not one per link row.
+    let backlink_note_total = state
+        .database
+        .backlink_note_count(&note.node_key)
+        .map_err(|error| internal_error(error.context("failed to count context backlink notes")))?;
+    let forward_link_note_total = state
+        .database
+        .forward_link_note_count(&note.node_key)
+        .map_err(|error| {
+            internal_error(error.context("failed to count context forward-link notes"))
+        })?;
     to_value(NoteContextResult {
         note,
         source: source.source,
@@ -255,6 +267,8 @@ pub(crate) fn note_context(
         place,
         backlinks,
         forward_links,
+        backlink_note_total,
+        forward_link_note_total,
     })
 }
 

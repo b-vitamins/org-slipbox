@@ -15,22 +15,7 @@ impl Database {
         limit: usize,
         unique: bool,
     ) -> Result<Vec<ForwardLinkRecord>> {
-        let Some(source_note_key) = self
-            .connection
-            .query_row(
-                &format!(
-                    "SELECT n.node_key
-                       FROM nodes AS n
-                      WHERE n.node_key = ?1
-                        AND {}",
-                    note_where("n"),
-                ),
-                params![node_key],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .context("failed to resolve source note for forward links")?
-        else {
+        let Some(source_note_key) = self.forward_link_source_key(node_key)? else {
             return Ok(Vec::new());
         };
 
@@ -84,6 +69,41 @@ impl Database {
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .context("failed to read forward links")
     }
+
+    /// Count distinct forward-link destination notes.
+    pub fn forward_link_note_count(&self, node_key: &str) -> Result<u64> {
+        let Some(source_note_key) = self.forward_link_source_key(node_key)? else {
+            return Ok(0);
+        };
+        let sql = format!(
+            "SELECT COUNT(DISTINCT dest.node_key)
+               FROM links AS l
+               JOIN nodes AS dest ON dest.explicit_id = l.destination_explicit_id
+              WHERE l.source_note_key = ?1
+                AND {}",
+            note_where("dest"),
+        );
+        self.connection
+            .query_row(&sql, params![source_note_key], |row| row.get::<_, u64>(0))
+            .context("failed to count forward-link notes")
+    }
+
+    fn forward_link_source_key(&self, node_key: &str) -> Result<Option<String>> {
+        self.connection
+            .query_row(
+                &format!(
+                    "SELECT n.node_key
+                       FROM nodes AS n
+                      WHERE n.node_key = ?1
+                        AND {}",
+                    note_where("n"),
+                ),
+                params![node_key],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .context("failed to resolve source note for forward links")
+    }
 }
 
 fn row_to_forward_link(row: &rusqlite::Row<'_>) -> rusqlite::Result<ForwardLinkRecord> {
@@ -134,6 +154,52 @@ See [[id:beta-id][Beta]].
         assert_eq!(forward_links.len(), 1);
         assert_eq!(forward_links[0].destination_note.title, "Beta");
         assert_eq!(forward_links[0].row, 7);
+        Ok(())
+    }
+
+    #[test]
+    fn forward_link_note_count_counts_notes_where_the_stored_column_counts_links() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            (
+                "alpha.org",
+                r#":PROPERTIES:
+:ID: alpha-id
+:END:
+#+title: Alpha
+
+See [[id:beta-id][Beta]].
+And again, [[id:beta-id][Beta]].
+Also [[id:gamma-id][Gamma]].
+"#,
+            ),
+            (
+                "beta.org",
+                r#":PROPERTIES:
+:ID: beta-id
+:END:
+#+title: Beta
+"#,
+            ),
+            (
+                "gamma.org",
+                r#":PROPERTIES:
+:ID: gamma-id
+:END:
+#+title: Gamma
+"#,
+            ),
+        ])?;
+
+        let alpha = database
+            .node_from_id("alpha-id")?
+            .expect("alpha should be indexed");
+
+        assert_eq!(
+            alpha.forward_link_count, 3,
+            "the stored column sums link rows, and beta is linked twice",
+        );
+        assert_eq!(database.forward_link_note_count(&alpha.node_key)?, 2);
+        assert_eq!(database.forward_links(&alpha.node_key, 25, true)?.len(), 2);
         Ok(())
     }
 }

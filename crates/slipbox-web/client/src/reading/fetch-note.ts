@@ -20,15 +20,22 @@ export const WHOLE_NOTE_MAX_LINES = 1000;
 /** Enough lines to build a short glance excerpt without fetching the body. */
 export const PREVIEW_MAX_LINES = 40;
 
+/**
+ * Relations asked for per direction: 200 is the ceiling the context route
+ * admits, and its own default of 25 cuts a well-linked note's backlinks.
+ */
+export const MAX_RELATIONS_PER_DIRECTION = 200;
+
 export async function fetchNoteContext(
   reference: string,
   maxLines: number,
 ): Promise<NoteContext> {
+  const options = { maxLines, relations: MAX_RELATIONS_PER_DIRECTION };
   const context = reference.startsWith("id:")
     ? await client
         .nodeById(reference.slice(3))
-        .then((node) => client.noteContext(node.node_key, { maxLines }))
-    : await client.noteContext(reference, { maxLines });
+        .then((node) => client.noteContext(node.node_key, options))
+    : await client.noteContext(reference, options);
   noteIdentities.learn(context.note);
   return context;
 }

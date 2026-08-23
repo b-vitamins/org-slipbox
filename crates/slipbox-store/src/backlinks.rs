@@ -18,20 +18,7 @@ impl Database {
         limit: usize,
         unique: bool,
     ) -> Result<Vec<BacklinkRecord>> {
-        let explicit_id = self
-            .connection
-            .query_row(
-                "SELECT explicit_id
-                   FROM nodes
-                  WHERE node_key = ?1",
-                params![node_key],
-                |row| row.get::<_, Option<String>>(0),
-            )
-            .optional()
-            .context("failed to resolve note for backlink lookup")?
-            .flatten();
-
-        let Some(explicit_id) = explicit_id else {
+        let Some(explicit_id) = self.backlink_destination_id(node_key)? else {
             return Ok(Vec::new());
         };
 
@@ -106,6 +93,39 @@ impl Database {
 
         Ok(results)
     }
+
+    /// Count distinct backlink source notes.
+    pub fn backlink_note_count(&self, node_key: &str) -> Result<u64> {
+        let Some(explicit_id) = self.backlink_destination_id(node_key)? else {
+            return Ok(0);
+        };
+        let sql = format!(
+            "SELECT COUNT(DISTINCT l.source_note_key)
+               FROM links AS l
+               JOIN nodes AS a ON a.node_key = l.source_node_key
+               JOIN nodes AS src ON src.node_key = l.source_note_key
+              WHERE l.destination_explicit_id = ?1
+                AND {}",
+            note_where("src"),
+        );
+        self.connection
+            .query_row(&sql, params![explicit_id], |row| row.get::<_, u64>(0))
+            .context("failed to count backlink notes")
+    }
+
+    fn backlink_destination_id(&self, node_key: &str) -> Result<Option<String>> {
+        self.connection
+            .query_row(
+                "SELECT explicit_id
+                   FROM nodes
+                  WHERE node_key = ?1",
+                params![node_key],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()
+            .context("failed to resolve note for backlink lookup")
+            .map(Option::flatten)
+    }
 }
 
 struct BacklinkSource {
@@ -124,4 +144,77 @@ fn row_to_backlink_source(row: &rusqlite::Row<'_>) -> rusqlite::Result<BacklinkS
         col: row.get(ANCHOR_SELECT_COLUMN_COUNT * 2 + 1)?,
         preview: row.get(ANCHOR_SELECT_COLUMN_COUNT * 2 + 2)?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::Result;
+
+    use crate::test_support::indexed_database;
+
+    #[test]
+    fn backlink_note_count_counts_notes_where_the_stored_column_counts_links() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            (
+                "alpha.org",
+                r#":PROPERTIES:
+:ID: alpha-id
+:END:
+#+title: Alpha
+"#,
+            ),
+            (
+                "beta.org",
+                r#":PROPERTIES:
+:ID: beta-id
+:END:
+#+title: Beta
+
+See [[id:alpha-id][Alpha]].
+And again, [[id:alpha-id][Alpha]].
+"#,
+            ),
+            (
+                "gamma.org",
+                r#":PROPERTIES:
+:ID: gamma-id
+:END:
+#+title: Gamma
+
+See [[id:alpha-id][Alpha]].
+"#,
+            ),
+        ])?;
+
+        let alpha = database
+            .node_from_id("alpha-id")?
+            .expect("alpha should be indexed");
+
+        assert_eq!(
+            alpha.backlink_count, 3,
+            "the stored column sums link rows, and beta links twice",
+        );
+        assert_eq!(database.backlink_note_count(&alpha.node_key)?, 2);
+        assert_eq!(database.backlinks(&alpha.node_key, 25, true)?.len(), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn backlink_note_count_is_zero_for_a_note_nothing_links_to() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[(
+            "alpha.org",
+            r#":PROPERTIES:
+:ID: alpha-id
+:END:
+#+title: Alpha
+"#,
+        )])?;
+
+        let alpha = database
+            .node_from_id("alpha-id")?
+            .expect("alpha should be indexed");
+
+        assert_eq!(database.backlink_note_count(&alpha.node_key)?, 0);
+        Ok(())
+    }
 }

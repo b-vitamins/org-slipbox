@@ -195,6 +195,15 @@ export interface NoteContext {
   place?: NotePlace;
   backlinks: BacklinkRecord[];
   forward_links: ForwardLinkRecord[];
+  /**
+   * Notes linking here, which the relation limit may cut `backlinks` short of.
+   * It counts notes, where `NodeRecord.backlink_count` counts link rows. Absent
+   * from a daemon older than the field, where the total is unknown rather than
+   * zero and a cut cannot be stated.
+   */
+  backlink_note_total?: number;
+  /** Notes linked to, which the limit may cut `forward_links` short of. */
+  forward_link_note_total?: number;
 }
 
 export interface SearchNodesResult {

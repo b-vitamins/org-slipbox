@@ -120,6 +120,11 @@ pub struct NoteContextResult {
     pub place: NotePlaceResult,
     pub backlinks: Vec<BacklinkRecord>,
     pub forward_links: Vec<ForwardLinkRecord>,
+    /// Notes linking here, which the relation limit may cut `backlinks` short of.
+    /// It counts notes, where `NodeRecord::backlink_count` counts link rows.
+    pub backlink_note_total: u64,
+    /// Notes linked to, which the relation limit may cut `forward_links` short of.
+    pub forward_link_note_total: u64,
 }
 
 /// A note's place in `(file_path, line)` order, counted from 1. A neighbor the

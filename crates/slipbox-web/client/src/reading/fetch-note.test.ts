@@ -1,7 +1,10 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { noteIdentities } from "./note-identity.js";
 import {
+  MAX_RELATIONS_PER_DIRECTION,
   PREVIEW_MAX_LINES,
   WHOLE_NOTE_MAX_LINES,
   fetchNoteContext,
@@ -62,7 +65,7 @@ describe("fetchNoteContext", () => {
     const context = await fetchNoteContext("file:notes/alpha.org", WHOLE_NOTE_MAX_LINES);
 
     expect(calls).toEqual([
-      "/api/note/context?key=file%3Anotes%2Falpha.org&max_lines=1000",
+      "/api/note/context?key=file%3Anotes%2Falpha.org&max_lines=1000&relations=200",
     ]);
     expect(context.note.node_key).toBe("file:notes/alpha.org");
   });
@@ -84,7 +87,7 @@ describe("fetchNoteContext", () => {
     // by: an id must never reach the context route.
     expect(calls).toEqual([
       "/api/node?id=alpha-id",
-      "/api/note/context?key=file%3Anotes%2Falpha.org&max_lines=1000",
+      "/api/note/context?key=file%3Anotes%2Falpha.org&max_lines=1000&relations=200",
     ]);
     expect(context.note.node_key).toBe("file:notes/alpha.org");
   });
@@ -99,6 +102,28 @@ describe("fetchNoteContext", () => {
 
     expect(calls[0]).toContain("max_lines=40");
     expect(PREVIEW_MAX_LINES).toBeLessThan(WHOLE_NOTE_MAX_LINES);
+  });
+
+  it("asks for every relation a footer can render, not the server's default", async () => {
+    const { fetch, calls } = routedFetch({
+      "/api/note/context": contextFor("file:notes/alpha.org"),
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    await fetchNoteContext("file:notes/alpha.org", WHOLE_NOTE_MAX_LINES);
+
+    expect(calls[0]).toContain(`relations=${MAX_RELATIONS_PER_DIRECTION}`);
+  });
+
+  it("holds the relation bound the context route admits", () => {
+    // A browser cannot import a Rust constant, so this module restates the bound
+    // the route admits and this test reads it back: asking above it is a 400.
+    const routes = readFileSync(
+      resolve(process.cwd(), "../src/http/routes.rs"),
+      "utf8",
+    );
+    const declaration = /const MAX_LIMIT: usize = (\d+);/.exec(routes);
+    expect(declaration?.[1]).toBe(String(MAX_RELATIONS_PER_DIRECTION));
   });
 
   it("records the resolved note's identity so both its spellings compare equal", async () => {
