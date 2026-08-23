@@ -94,6 +94,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
   so the link grammar keeps its three verbs; a neighbor already in the trail is
   revealed rather than opened again. Each link carries a real address, so a new tab
   reaches the same reading path.
+- State the reading HTTP API's compatibility policy. The table accounted for every
+  surface but the one the web reader answers on. The API is internal to that
+  surface: the client is built and shipped from this repository, and a script has
+  the CLI and JSON-RPC contracts.
 
 ### Changed
 - Draw the `dormant` lens's candidates from link topology rather than from shared

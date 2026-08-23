@@ -20,6 +20,7 @@ The public model is defined in [[file:model.org][doc/model.org]].
 | CLI `--jsonl` report lines | Compatibility-sensitive | Add line kinds or fields deliberately. Changing existing line meaning requires a changelog entry and tests. |
 | JSON-RPC method names | Compatibility-sensitive | Keep method names stable. Replacements require a deprecation period or a documented break before `1.0`. |
 | JSON-RPC params/results | Compatibility-sensitive | Add optional params and result fields where possible. Required-param, enum, or wrapper changes require migration notes and tests. |
+| Web reading HTTP API | Internal to the reading surface | The client that consumes it is built and shipped from this repository, so routes and payloads may change with it. A payload field may be absent where a daemon predates it, so a client reads an absent field as unknown rather than as a fault. Scripts should use the CLI or JSON-RPC contracts. |
 | Durable exploration artifacts | Durable public records | Validate on load. Add fields with defaults where possible. Incompatible format changes require migration guidance. |
 | Durable review runs | Durable public records | Validate on load. Finding status, diff, and remediation evidence shapes are compatibility-sensitive. |
 | Workbench packs | Durable public records | Compatibility version `1` is supported. Future versions are rejected before typed parsing. |
@@ -58,6 +59,9 @@ Coverage inventory:
   test that locks every public operation method to its family, mutation class,
   and freshness behavior, and =src/server/operations.rs= has one locking the
   handler table to that same inventory.
+- Web reading HTTP API: =tests/slipbox_web.rs= drives the surface over real
+  HTTP against a spawned read-only daemon, covering every route, its refusals,
+  and the read-only guard.
 - Durable records: =tests/cli_contracts.rs= covers exploration artifact
   export/import/show, saved comparison execution, saved review diff/mark
   round-trips, workflow spec local inspection, workbench pack
