@@ -3,9 +3,11 @@
   flex-direction: column;
   /* A definite height, not a floor: with `min-height` a tall note grows the app
    * to its content height, and the spine's `flex: 1` then overrides its own
-   * `height: calc(100vh - header)` to match, scrolling the page instead of the
-   * column. */
+   * `height: calc(100dvh - header)` to match, scrolling the page instead of the
+   * column. The dynamic unit is the visible viewport rather than the largest
+   * one, so `vh` comes first as the fallback for an engine without `dvh`. */
   height: 100vh;
+  height: 100dvh;
 }
 
 .app-header {

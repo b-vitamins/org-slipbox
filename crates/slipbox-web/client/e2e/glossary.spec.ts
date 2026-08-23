@@ -116,6 +116,30 @@ test.describe("the glossary peek under a hoverless pointer", () => {
     await expect(page.getByRole("heading", { name: "Prior" })).toBeVisible();
   });
 
+  test("the pane and its term list end at the visible viewport", async ({ page }) => {
+    await page.goto("/?view=glossary");
+    await expect(page.getByText(DEFINITION)).toBeVisible();
+
+    // A coarse pointer raises `--header-min-height` to what the bar then
+    // measures, so this is the branch where the pane's `calc(viewport - token)`
+    // has the taller header to subtract.
+    const geometry = await page.evaluate(() => {
+      const bottomOf = (selector: string): number =>
+        (document.querySelector(selector) as HTMLElement).getBoundingClientRect()
+          .bottom;
+      return {
+        visibleViewport: Math.round(window.visualViewport?.height ?? 0),
+        paneBottom: Math.round(bottomOf(".glossary")),
+        termsBottom: Math.round(bottomOf(".glossary-terms")),
+        pageScrollHeight: document.documentElement.scrollHeight,
+      };
+    });
+
+    expect(geometry.paneBottom).toBe(geometry.visibleViewport);
+    expect(geometry.termsBottom).toBeLessThanOrEqual(geometry.visibleViewport);
+    expect(geometry.pageScrollHeight).toBeLessThanOrEqual(geometry.visibleViewport);
+  });
+
   test("the term's own control clears the touch-target floor", async ({ page }) => {
     await page.goto("/?view=glossary");
     await expect(page.getByText(DEFINITION)).toBeVisible();

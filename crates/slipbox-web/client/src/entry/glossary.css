@@ -10,6 +10,7 @@
   align-items: stretch;
   overflow: hidden;
   height: calc(100vh - var(--header-min-height));
+  height: calc(100dvh - var(--header-min-height));
 }
 
 .glossary-list {
@@ -265,6 +266,7 @@
 
   .glossary-terms {
     max-height: 40vh;
+    max-height: 40dvh;
   }
 
   .glossary-peek,

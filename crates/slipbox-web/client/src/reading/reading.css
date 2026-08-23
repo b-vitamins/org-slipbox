@@ -23,6 +23,7 @@
   overflow-x: auto;
   overflow-y: hidden;
   height: calc(100vh - var(--header-min-height));
+  height: calc(100dvh - var(--header-min-height));
 }
 
 .spine-column {
@@ -522,6 +523,7 @@
     justify-content: flex-start;
     overflow-x: hidden;
     overflow-y: auto;
+    /* Unpinned from the viewport: the stacked run is the scroller here. */
     height: auto;
   }
 
