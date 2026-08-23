@@ -404,6 +404,15 @@
   text-overflow: ellipsis;
 }
 
+/* What a bounded group holds back, set like the source-truncation notice above
+ * the footer so both omissions read as one voice. */
+.relations__shortfall {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 20px;
+}
+
 /* KaTeX's own 1.21em would tower over a 14px row, so a formula in a preview
  * inherits the size and color around it and clips its vertical overflow. */
 .relations__preview .katex,

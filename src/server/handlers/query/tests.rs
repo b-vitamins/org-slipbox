@@ -4559,6 +4559,107 @@ fn note_context_reads_a_whole_file_note_from_its_top() {
     assert_eq!(context.source.start_line, 1);
 }
 
+/// A slipbox where one note links to another twice, alongside a note that links
+/// to it once. Returns the state and the twice-linked note's key.
+fn doubled_link_state() -> (TempDir, ServerState, String) {
+    let workspace = tempfile::tempdir().expect("workspace should be created");
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root).expect("notes root should be created");
+    fs::write(
+        root.join("alpha.org"),
+        r#":PROPERTIES:
+:ID: alpha-id
+:END:
+#+title: Alpha
+
+Points to [[id:beta-id]].
+And again to [[id:beta-id]].
+"#,
+    )
+    .expect("alpha fixture should be written");
+    fs::write(
+        root.join("beta.org"),
+        r#":PROPERTIES:
+:ID: beta-id
+:END:
+#+title: Beta
+
+Points back to [[id:alpha-id]].
+And again to [[id:alpha-id]].
+"#,
+    )
+    .expect("beta fixture should be written");
+    fs::write(
+        root.join("gamma.org"),
+        r#":PROPERTIES:
+:ID: gamma-id
+:END:
+#+title: Gamma
+
+Points to [[id:alpha-id]].
+"#,
+    )
+    .expect("gamma fixture should be written");
+
+    let db_path = workspace.path().join("index.sqlite3");
+    let discovery = DiscoveryPolicy::default();
+    let mut state = ServerState::new(root.clone(), db_path, Vec::new(), discovery)
+        .expect("state should be created");
+    let files = scan_root_with_policy(&root, &state.discovery).expect("fixture should be indexed");
+    state
+        .database
+        .sync_index(&files)
+        .expect("fixture index should sync");
+    let alpha_key = state
+        .database
+        .node_from_id("alpha-id")
+        .expect("alpha note lookup should succeed")
+        .expect("alpha note should exist")
+        .node_key;
+
+    (workspace, state, alpha_key)
+}
+
+#[test]
+fn note_context_totals_relations_by_note_where_the_stored_counts_total_links() {
+    // The relation listings hold one entry per related note, so the totals count
+    // notes too. The stored columns count link rows, and one note may link twice.
+    let (_workspace, mut state, alpha_key) = doubled_link_state();
+
+    let context: NoteContextResult = serde_json::from_value(
+        note_context(&mut state, json!({ "node_key": alpha_key }))
+            .expect("note context should resolve"),
+    )
+    .expect("note context result should decode");
+
+    assert_eq!(context.note.backlink_count, 3);
+    assert_eq!(context.backlinks.len(), 2);
+    assert_eq!(context.backlink_note_total, 2);
+    assert_eq!(context.note.forward_link_count, 2);
+    assert_eq!(context.forward_links.len(), 1);
+    assert_eq!(context.forward_link_note_total, 1);
+}
+
+#[test]
+fn note_context_totals_the_notes_a_relation_limit_left_out() {
+    let (_workspace, mut state, alpha_key) = doubled_link_state();
+
+    let context: NoteContextResult = serde_json::from_value(
+        note_context(
+            &mut state,
+            json!({ "node_key": alpha_key, "relation_limit": 1 }),
+        )
+        .expect("note context should resolve"),
+    )
+    .expect("note context result should decode");
+
+    assert_eq!(context.backlinks.len(), 1);
+    assert_eq!(
+        context.backlink_note_total, 2,
+        "the total counts every linking note, including the one the limit cut",
+    );
+}
+
 #[test]
 fn note_context_scopes_an_explicit_id_heading_to_its_subtree() {
     // An explicit-ID heading is itself a note, so it owns its own context.

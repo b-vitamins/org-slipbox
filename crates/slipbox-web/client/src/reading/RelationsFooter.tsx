@@ -15,9 +15,28 @@ import {
   type RelationRow,
 } from "./relations.js";
 
-const RelationGroup: Component<{ label: string; rows: RelationRow[] }> = (
+/**
+ * What a bounded group holds back. The total is the payload's own count, which a
+ * row count cannot stand in for: a cut set and a whole one look alike.
+ *
+ * A payload that carries no total, as a daemon older than the field answers,
+ * leaves the size of the set unknown, and nothing is claimed of an unknown.
+ */
+export const RelationShortfall: Component<{ shown: number; total?: number }> = (
   props,
 ) => (
+  <Show when={props.total !== undefined && props.total > props.shown}>
+    <p class="relations__shortfall">
+      Showing {props.shown} of {props.total}.
+    </p>
+  </Show>
+);
+
+const RelationGroup: Component<{
+  label: string;
+  rows: RelationRow[];
+  total?: number;
+}> = (props) => (
   <Show when={props.rows.length > 0}>
     <div class="relations__group">
       <h2 class="relations__label">{props.label}</h2>
@@ -35,6 +54,7 @@ const RelationGroup: Component<{ label: string; rows: RelationRow[] }> = (
           )}
         </For>
       </ul>
+      <RelationShortfall shown={props.rows.length} total={props.total} />
     </div>
   </Show>
 );
@@ -48,8 +68,16 @@ export const RelationsFooter: Component<{ context: NoteContext }> = (props) => {
     // an unlinked note as a line with nothing beneath it.
     <Show when={forward().length > 0 || backward().length > 0}>
       <footer class="relations">
-        <RelationGroup label="Links to" rows={forward()} />
-        <RelationGroup label="Linked from" rows={backward()} />
+        <RelationGroup
+          label="Links to"
+          rows={forward()}
+          total={props.context.forward_link_note_total}
+        />
+        <RelationGroup
+          label="Linked from"
+          rows={backward()}
+          total={props.context.backlink_note_total}
+        />
       </footer>
     </Show>
   );

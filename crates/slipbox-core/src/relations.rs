@@ -176,8 +176,7 @@ pub enum ExplorationExplanation {
     DormantSharedReference {
         references: Vec<String>,
         modified_at_ns: i64,
-        /// Notes both the focus note and the candidate reach; empty when a
-        /// shared reference alone found the candidate.
+        /// Shared link neighbors; empty for reference-only evidence.
         #[serde(default)]
         via_notes: Vec<BridgeEvidenceRecord>,
     },
@@ -188,8 +187,7 @@ pub enum ExplorationExplanation {
     WeaklyIntegratedSharedReference {
         references: Vec<String>,
         structural_link_count: u64,
-        /// Notes both the focus note and the candidate reach; empty when a
-        /// shared reference alone found the candidate.
+        /// Shared link neighbors; empty for reference-only evidence.
         #[serde(default)]
         via_notes: Vec<BridgeEvidenceRecord>,
     },

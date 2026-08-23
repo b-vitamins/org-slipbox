@@ -123,7 +123,15 @@ function noteContext(note: FixtureNote): Record<string, unknown> {
       preview: link.preview,
       explanation: { kind: "forward-link" },
     })),
+    // Totals count related notes, as the server counts them, where the arrays
+    // above are link rows and may name one note twice.
+    backlink_note_total: distinctNotes(note.backlinks),
+    forward_link_note_total: distinctNotes(note.forwardLinks),
   };
+}
+
+function distinctNotes(links: FixtureLink[] | undefined): number {
+  return new Set((links ?? []).map((link) => link.key)).size;
 }
 
 function isTerm(note: FixtureNote): boolean {

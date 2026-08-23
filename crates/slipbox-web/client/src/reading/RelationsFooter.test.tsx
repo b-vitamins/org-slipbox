@@ -66,12 +66,29 @@ function backward(source: NodeRecord, preview = ""): BacklinkRecord {
   };
 }
 
+interface ContextCounts {
+  /**
+   * Notes per direction, as the payload totals them. `null` for a daemon older
+   * than the fields, which answers without them.
+   */
+  forwardTotal?: number | null;
+  backwardTotal?: number | null;
+  /** The note record's link rows, which count occurrences and not notes. */
+  forwardOccurrences?: number;
+  backwardOccurrences?: number;
+}
+
 function context(
   forward_links: ForwardLinkRecord[],
   backlinks: BacklinkRecord[],
+  counts: ContextCounts = {},
 ): NoteContext {
   return {
-    note: node("notes/self.org::0", "Self"),
+    note: {
+      ...node("notes/self.org::0", "Self"),
+      forward_link_count: counts.forwardOccurrences ?? forward_links.length,
+      backlink_count: counts.backwardOccurrences ?? backlinks.length,
+    },
     source: {
       file_path: "notes/self.org",
       start_line: 1,
@@ -86,6 +103,12 @@ function context(
     place: { ordinal: 1, total: 1 },
     backlinks,
     forward_links,
+    ...(counts.backwardTotal === null
+      ? {}
+      : { backlink_note_total: counts.backwardTotal ?? backlinks.length }),
+    ...(counts.forwardTotal === null
+      ? {}
+      : { forward_link_note_total: counts.forwardTotal ?? forward_links.length }),
   };
 }
 
@@ -176,6 +199,95 @@ describe("RelationsFooter", () => {
       id: "uuid-1",
       target: "id:uuid-1",
     });
+  });
+
+  // The request bounds each direction, so a full-looking group can still be cut;
+  // only the payload's own total says how much of it the footer never received.
+  it("states how many backlinks it holds back when the note has more", () => {
+    render(() => (
+      <NavigationProvider navigation={inertNav}>
+        <RelationsFooter
+          context={context([], [backward(node("notes/x.org::0", "Ex"))], {
+            backwardTotal: 42,
+          })}
+        />
+      </NavigationProvider>
+    ));
+
+    expect(screen.getByText("Showing 1 of 42.")).toBeInTheDocument();
+  });
+
+  // The note record counts link rows, and one note may link here twice; the
+  // listing holds notes, so trusting that count would state a cut that never was.
+  it("says nothing about a note linked to twice from one note", () => {
+    const { container } = render(() => (
+      <NavigationProvider navigation={inertNav}>
+        <RelationsFooter
+          context={context([], [backward(node("notes/x.org::0", "Ex"))], {
+            backwardTotal: 1,
+            backwardOccurrences: 2,
+          })}
+        />
+      </NavigationProvider>
+    ));
+
+    expect(container.querySelector(".relations__shortfall")).toBeNull();
+  });
+
+  // A daemon older than the totals answers without them. An unknown total is
+  // nothing to compare the rows against, so the group states no cut rather than
+  // reading the absence as a total of zero.
+  it("says nothing about a direction the payload totals not at all", () => {
+    const { container } = render(() => (
+      <NavigationProvider navigation={inertNav}>
+        <RelationsFooter
+          context={context(
+            [forward(node("notes/a.org::0", "Alpha"))],
+            [backward(node("notes/x.org::0", "Ex"))],
+            { forwardTotal: null, backwardTotal: null },
+          )}
+        />
+      </NavigationProvider>
+    ));
+
+    expect(container.querySelectorAll(".relations__row")).toHaveLength(2);
+    expect(container.querySelector(".relations__shortfall")).toBeNull();
+  });
+
+  it("says nothing about a group whose links all fit", () => {
+    const { container } = render(() => (
+      <NavigationProvider navigation={inertNav}>
+        <RelationsFooter
+          context={context(
+            [forward(node("notes/a.org::0", "Alpha"))],
+            [backward(node("notes/x.org::0", "Ex"))],
+          )}
+        />
+      </NavigationProvider>
+    ));
+
+    expect(container.querySelector(".relations__shortfall")).toBeNull();
+  });
+
+  // Two records for one note collapse into one row, so what is shown is the rows
+  // rendered rather than the array they came from.
+  it("measures what is shown by the rows it rendered, not by the array", () => {
+    render(() => (
+      <NavigationProvider navigation={inertNav}>
+        <RelationsFooter
+          context={context(
+            [
+              forward(node("notes/a.org::0", "Alpha"), "first mention"),
+              forward(node("notes/a.org::0", "Alpha"), "second mention"),
+            ],
+            [],
+            { forwardTotal: 5 },
+          )}
+        />
+      </NavigationProvider>
+    ));
+
+    expect(screen.getByText("Showing 1 of 5.")).toBeInTheDocument();
   });
 
   // The footer is a hairline rule plus whatever it lists. A note nothing links

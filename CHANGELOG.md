@@ -129,6 +129,14 @@ The format follows Keep a Changelog, and this project follows SemVer.
   definition, so both committing verbs open the target as the reading root, and a
   tap from a hoverless pointer commits rather than glancing at a preview card
   this surface does not mount.
+- Reach every backlink a note has in the reading footer. The fetch took the
+  context route's default of 25 relations per direction and dropped the rest of a
+  well-linked note's links without saying so; it now asks for 200, the route's own
+  ceiling. `/api/note/context` carries a total per direction alongside the arrays,
+  counting related notes the way the listings do rather than the link rows the
+  stored `backlink_count` sums, and a group states "Showing 14 of 16." only when
+  the rows it drew fall short of that total - so a note linked to twice from one
+  place no longer reads as cut.
 
 ## [0.17.0] - 2026-07-25
 

@@ -83,6 +83,9 @@ function context(
     place: { ordinal: 1, total: 1 },
     backlinks,
     forward_links,
+    // Neither projection reads a total; the footer above them does.
+    backlink_note_total: backlinks.length,
+    forward_link_note_total: forward_links.length,
   };
 }
 
