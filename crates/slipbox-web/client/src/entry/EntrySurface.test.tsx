@@ -244,6 +244,40 @@ describe("EntrySurface", () => {
     expect(excerpt?.querySelector("a")).toBeNull();
   });
 
+  it("shows the matched words of an excerpt too long to draw whole", async () => {
+    const lead = "an opening clause of ample length. ".repeat(6);
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/api/status": status,
+        "/api/search/content": {
+          hits: [
+            hit(node("notes/collapse.org::0", "Collapse", []), [
+              { text: lead, matched: false },
+              { text: "posterior", matched: true },
+              { text: " collapse", matched: false },
+            ]),
+          ],
+        },
+      }),
+    );
+
+    render(() => (
+      <EntrySurface onOpen={() => {}} debounceMs={0} queryUrl={memoryQueryUrl()} />
+    ));
+    await screen.findByText("notes");
+
+    fireEvent.input(screen.getByRole("combobox"), { target: { value: "posterior" } });
+    await screen.findByRole("option");
+
+    const excerpt = document.querySelector(".entry-result__snippet");
+    expect(excerpt?.querySelector("mark")?.textContent).toBe("posterior");
+    // The row clamps to two lines of about 84 characters, so the match has to
+    // stand inside that much text rather than past the clip.
+    expect(excerpt?.textContent?.startsWith("…")).toBe(true);
+    expect(excerpt?.textContent?.indexOf("posterior")).toBeLessThan(85);
+  });
+
   it("renders an excerpt as text, so prose that looks like markup stays prose", async () => {
     vi.stubGlobal(
       "fetch",
