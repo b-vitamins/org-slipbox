@@ -510,9 +510,17 @@
   overflow-wrap: anywhere;
 }
 
+/* One clipped line of the linking line, kept at the measure it takes to tell one
+ * note from another: about 45 characters of prose. The measure is the flex basis,
+ * so a title that leaves less than that sends the preview to a line of its own
+ * rather than to a sliver of this one, and it is the floor, so a line that has to
+ * shrink cannot take the preview below it either. `100%` caps the floor where the
+ * column is itself narrower than the measure: a preview that cannot shrink would
+ * overflow a column that scrolls vertically only, and the clip is the guard for
+ * whatever still does not fit. */
 .relations__preview {
-  flex: 1 1 22ch;
-  min-width: 0;
+  flex: 1 1 30ch;
+  min-width: min(30ch, 100%);
   color: var(--muted);
   font-size: 14px;
   line-height: 20px;

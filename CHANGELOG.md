@@ -201,6 +201,13 @@ The format follows Keep a Changelog, and this project follows SemVer.
   and `due` printed the page's own length as the count, so a listing cut at
   `--limit` read as the whole glossary. Each now counts the page against the
   whole listing when the page falls short of it.
+- Keep a relation preview readable where its row wraps. The preview shared its
+  title's line down to a 22ch reservation, so a long title at a narrow width left
+  a fragment too short to tell one linking line from another while still costing
+  the row a full line. The measure is stated once at 30ch, about 45 characters, as
+  both the flex basis and the preview's floor, so a title that leaves less than
+  that sends the preview to a line of its own at full column width. The floor caps
+  at the column for a column narrower than the measure.
 
 ## [0.17.0] - 2026-07-25
 
