@@ -7,7 +7,6 @@ import type {
   UnlinkedReferencesResult,
 } from "./types.js";
 
-/** A node record with only the fields a test names given a value. */
 function node(key: string, title: string): NodeRecord {
   return {
     node_key: key,
@@ -115,8 +114,6 @@ describe("ReadingClient URL construction", () => {
     });
     const client = new ReadingClient("http://127.0.0.1:8080/", fetch);
 
-    // The liveness answer names the root it answered for, which is the fact a
-    // reader of two slipboxes needs from it.
     expect(await client.healthz()).toEqual({
       status: "ok",
       root: "/notes",
@@ -176,7 +173,6 @@ describe("ReadingClient exploration reads", () => {
       "unresolved-tasks",
       "weakly-integrated-notes",
     ]);
-    // A section that found nothing arrives empty, not missing.
     expect(result.sections[1]!.entries).toEqual([]);
   });
 
@@ -207,7 +203,6 @@ describe("ReadingClient exploration reads", () => {
 
     const result = await client.explore("file:alpha.org", "bridges");
 
-    // Serde flattens the record into the tagged object.
     const [entry] = result.sections[0]!.entries;
     if (entry?.kind !== "anchor") {
       throw new Error(`expected an anchor entry, got \`${entry?.kind}\``);
@@ -220,7 +215,6 @@ describe("ReadingClient exploration reads", () => {
   });
 
   it("decodes an explanation written before it carried its evidence notes", async () => {
-    // `via_notes` is defaulted in slipbox-core, so a payload predating it decodes.
     const body = {
       lens: "dormant",
       sections: [
@@ -291,7 +285,6 @@ describe("ReadingClient unlinked-reference reads", () => {
     const [record] = result.unlinked_references;
     expect(record?.source_anchor.node_key).toBe("heading:notes/beta.org::4");
     expect(record?.col).toBe(7);
-    // The column indexes the preview, counting characters from 1.
     expect(record?.preview.slice(record.col - 1)).toMatch(/^Alpha/);
     expect(record?.explanation.kind).toBe("unlinked-reference");
   });
@@ -304,7 +297,7 @@ describe("ReadingClient error handling", () => {
     });
     const client = new ReadingClient("", fetch);
 
-    const error = await client.nodeByKey("x").catch((caught: unknown) => caught);
+    const error = await client.nodeById("x").catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(ApiError);
     const apiError = error as ApiError;

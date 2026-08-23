@@ -5,7 +5,13 @@
  * caps every source read at `WHOLE_NOTE_MAX_LINES`.
  */
 
-import { Show, createMemo, createUniqueId, type Component } from "solid-js";
+import {
+  Show,
+  createEffect,
+  createMemo,
+  createUniqueId,
+  type Component,
+} from "solid-js";
 
 import { ApiError } from "../api/client.js";
 import type { NoteContext } from "../api/types.js";
@@ -15,6 +21,7 @@ import { NavigationProvider, type Navigation } from "../org/navigation.jsx";
 import { parseOrg } from "../org/parse.js";
 import { RenderDocument } from "../org/RenderDocument.jsx";
 import { fetchNoteContext, WHOLE_NOTE_MAX_LINES } from "./fetch-note.js";
+import type { ColumnTitle } from "./reading-title.js";
 import { RelationsFooter } from "./RelationsFooter.jsx";
 import type { ColumnState } from "./spine-geometry.js";
 
@@ -70,11 +77,27 @@ export const ReadingColumn: Component<{
   navigation: Navigation;
   /** Bring this column back into view from its collapsed sliver. */
   onReveal: () => void;
+  /**
+   * What this column knows its note as, once its read settles. Reported rather
+   * than kept, because the tab is named after whichever column is being read and
+   * this read is the only place that title is fetched.
+   */
+  onTitle?: (known: ColumnTitle) => void;
 }> = (props) => {
   const context = createReadingResource(
     () => props.reference,
     (reference) => fetchNoteContext(reference, WHOLE_NOTE_MAX_LINES),
   );
+
+  createEffect(() => {
+    const value = context.ready();
+    const failure = context.error();
+    if (value !== undefined) {
+      props.onTitle?.({ title: value.note.title });
+    } else if (failure !== undefined) {
+      props.onTitle?.({ error: failure });
+    }
+  });
 
   const document = createMemo(() => {
     const value = context.ready();

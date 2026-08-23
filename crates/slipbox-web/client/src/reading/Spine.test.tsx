@@ -116,6 +116,34 @@ function stubResponsiveFrame(): {
   };
 }
 
+/**
+ * Stand in for the layout jsdom does not do. The spine measures its scroll
+ * container to decide which columns are pinned, covered or at rest, and it
+ * scrolls by writing `scrollLeft`, which jsdom holds at zero. Returns the undo.
+ */
+function stubSpineFrame(viewport: number, scrollWidth: number): () => void {
+  let scrollLeft = 0;
+  const stubs: Record<string, PropertyDescriptor> = {
+    clientWidth: { configurable: true, get: () => viewport },
+    scrollWidth: { configurable: true, get: () => scrollWidth },
+    scrollLeft: {
+      configurable: true,
+      get: () => scrollLeft,
+      set: (value: number) => {
+        scrollLeft = value;
+      },
+    },
+  };
+  for (const [name, descriptor] of Object.entries(stubs)) {
+    Object.defineProperty(HTMLElement.prototype, name, descriptor);
+  }
+  return () => {
+    for (const name of Object.keys(stubs)) {
+      Reflect.deleteProperty(HTMLElement.prototype, name);
+    }
+  };
+}
+
 describe("Spine", () => {
   beforeEach(() => {
     __resetRefocusForTests();
@@ -319,6 +347,16 @@ describe("Spine", () => {
   it("keeps the reading position across the 800px layout boundary", async () => {
     const frame = stubResponsiveFrame();
     try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: string) =>
+          Promise.resolve(
+            noteContextResponse(
+              input.includes("three") ? "Three" : input.includes("two") ? "Two" : "One",
+            ),
+          ),
+        ),
+      );
       const stack = createReadingStack({
         read: () =>
           "?note=notes/one.org&stacked=notes/two.org&stacked=notes/three.org",
@@ -334,6 +372,7 @@ describe("Spine", () => {
         "aria-current",
         "step",
       );
+      await vi.waitFor(() => expect(document.title).toBe("Two — slipbox"));
 
       vi.mocked(Element.prototype.scrollTo).mockClear();
       frame.setNarrow(true);
@@ -345,6 +384,7 @@ describe("Spine", () => {
           expect.objectContaining({ top: 700 }),
         ),
       );
+      expect(document.title).toBe("Two — slipbox");
 
       spine.scrollTop = 700;
       spine.dispatchEvent(new Event("scroll"));
@@ -362,6 +402,7 @@ describe("Spine", () => {
         "aria-current",
         "step",
       );
+      expect(document.title).toBe("Two — slipbox");
     } finally {
       frame.restore();
     }
@@ -402,6 +443,90 @@ describe("Spine", () => {
     expect(column!.getAttribute("aria-labelledby")).toBe(heading.id);
   });
 
+  it("holds focus out of the column it opens until the note is read", async () => {
+    // The read parks, which holds the column in the state it opens in.
+    let release: ((response: Response) => void) | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            release = resolve;
+          }),
+      ),
+    );
+    const stack = createReadingStack({
+      read: () => "?note=notes/one.org",
+      push: () => {},
+      replace: () => {},
+    });
+    const { container } = render(() => <Spine stack={stack} />);
+
+    const column = container.querySelector<HTMLElement>("article.reading-note")!;
+    await vi.waitFor(() => expect(release).not.toBeNull());
+    // What names the column is a status line for as long as it reads, so focus
+    // landing now announces the wait instead of the note that opened.
+    expect(screen.getByText("Reading…")).toBeInTheDocument();
+    expect(column).not.toHaveFocus();
+
+    release!(noteContextResponse("One"));
+    await vi.waitFor(() => expect(column).toHaveFocus());
+    const heading = await screen.findByRole("heading", { level: 1, name: "One" });
+    expect(column.getAttribute("aria-labelledby")).toBe(heading.id);
+  });
+
+  it("takes focus into a column that could not read its note", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({ error: { kind: "not-found", message: "no note" } }),
+            { status: 404, headers: { "content-type": "application/json" } },
+          ),
+        ),
+      ),
+    );
+    const stack = createReadingStack({
+      read: () => "?note=notes/gone.org",
+      push: () => {},
+      replace: () => {},
+    });
+    const { container } = render(() => <Spine stack={stack} />);
+
+    // A read that fails has settled too, and what the column says about it is
+    // what focus lands on.
+    const column = container.querySelector<HTMLElement>("article.reading-note")!;
+    await vi.waitFor(() => expect(column).toHaveFocus());
+    const named = document.getElementById(column.getAttribute("aria-labelledby")!);
+    expect(named).toHaveTextContent("This note is not in the slipbox.");
+  });
+
+  it("takes focus into a column whose note could not be drawn", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(bodylessResponse("One", "notes/one.org"))),
+    );
+    const stack = createReadingStack({
+      read: () => "?note=notes/one.org",
+      push: () => {},
+      replace: () => {},
+    });
+    const { container } = render(() => <Spine stack={stack} />);
+
+    // A throw the boundary caught has settled the read as much as a failure the
+    // column reports itself, and it replaces the whole column, so the fallback is
+    // the only thing left for focus to land on.
+    await screen.findByText("This note could not be rendered.");
+    const column = container.querySelector<HTMLElement>("article.reading-note")!;
+    await vi.waitFor(() => expect(column).toHaveFocus());
+    const named = document.getElementById(column.getAttribute("aria-labelledby")!);
+    expect(named).toHaveTextContent("This note could not be rendered.");
+    // The same report names the tab, which would otherwise hold the product name
+    // for a column that had something to say.
+    expect(document.title).toContain("Unavailable");
+  });
+
   it("takes focus into the column a pinned link opens", async () => {
     const stack = createReadingStack({
       read: () => "?note=notes/one.org",
@@ -420,6 +545,154 @@ describe("Spine", () => {
     const opened = container.querySelectorAll<HTMLElement>(".spine-column")[1]!;
     await vi.waitFor(() =>
       expect(opened.contains(document.activeElement)).toBe(true),
+    );
+  });
+
+  it("names the tab after the column it reads, asking for no title of its own", async () => {
+    const stack = createReadingStack({
+      read: () => "?note=notes/one.org",
+      push: () => {},
+      replace: () => {},
+    });
+    render(() => <Spine stack={stack} />);
+
+    await screen.findByRole("heading", { level: 1, name: "One" });
+    await vi.waitFor(() => expect(document.title).toBe("One — slipbox"));
+    // The column's own read carries the title, so the identity route is untouched.
+    const identityReads = vi
+      .mocked(fetch)
+      .mock.calls.filter(([input]) => String(input).startsWith("/api/node?"));
+    expect(identityReads).toHaveLength(0);
+  });
+
+  it("names the tab after the failure when the column cannot be read", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({ error: { kind: "not-found", message: "no note" } }),
+            { status: 404, headers: { "content-type": "application/json" } },
+          ),
+        ),
+      ),
+    );
+    const stack = createReadingStack({
+      read: () => "?note=notes/gone.org",
+      push: () => {},
+      replace: () => {},
+    });
+    render(() => <Spine stack={stack} />);
+
+    await vi.waitFor(() =>
+      expect(document.title).toBe("Note not found — slipbox"),
+    );
+  });
+
+  it("retitles the tab to the column a scroll brings back, and fetches nothing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string) =>
+        Promise.resolve(
+          noteContextResponse(
+            input.includes("three") ? "Three" : input.includes("two") ? "Two" : "One",
+          ),
+        ),
+      ),
+    );
+    const push = vi.fn();
+    const replace = vi.fn();
+    // Three columns in a frame that holds fewer, so the geometry has a reading
+    // position to name rather than the whole spine at once.
+    const restoreFrame = stubSpineFrame(1200, 3 * 625);
+    try {
+      const stack = createReadingStack({
+        read: () =>
+          "?note=notes/one.org&stacked=notes/two.org&stacked=notes/three.org",
+        push,
+        replace,
+      });
+      const { container } = render(() => <Spine stack={stack} />);
+      const spine = container.querySelector<HTMLElement>(".spine")!;
+
+      // `scrollTo` is a stub, so the spine's opening reveal moves nothing and the
+      // trail stands at its head.
+      await vi.waitFor(() => expect(document.title).toBe("One — slipbox"));
+      const reads = vi.mocked(fetch).mock.calls.length;
+
+      // Partway along, where the reader stands in the second column and the third
+      // rests ahead of it, unreached. The two ends of a trail are the offsets a
+      // column's rest state happens to name the reading position at.
+      spine.scrollLeft = 585;
+      spine.dispatchEvent(new Event("scroll"));
+      await vi.waitFor(() => expect(document.title).toBe("Two — slipbox"));
+
+      // The offset the third column comes to rest at, reached by hand as a reader
+      // reaches it: by scrolling, which asks the spine for nothing.
+      spine.scrollLeft = 675;
+      spine.dispatchEvent(new Event("scroll"));
+      await vi.waitFor(() => expect(document.title).toBe("Three — slipbox"));
+
+      spine.scrollLeft = 0;
+      spine.dispatchEvent(new Event("scroll"));
+      await vi.waitFor(() => expect(document.title).toBe("One — slipbox"));
+
+      expect(vi.mocked(fetch).mock.calls).toHaveLength(reads);
+      // The address carries the stack, not the reading position.
+      expect(push).not.toHaveBeenCalled();
+      expect(replace).not.toHaveBeenCalled();
+    } finally {
+      restoreFrame();
+    }
+  });
+
+  it("forgets the title of a column the stack closed", async () => {
+    let park: ((response: Response) => void) | null = null;
+    let readsOfTwo = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string) => {
+        if (input.includes("two")) {
+          readsOfTwo += 1;
+          if (readsOfTwo === 1) {
+            return Promise.resolve(noteContextResponse("Two"));
+          }
+          // The reopened column's read parks, which holds it in the state a title
+          // the surface no longer has grounds for would be read in.
+          return new Promise<Response>((resolve) => {
+            park = resolve;
+          });
+        }
+        return Promise.resolve(
+          noteContextResponse(input.includes("three") ? "Three" : "One"),
+        );
+      }),
+    );
+    let address = "?note=notes/one.org&stacked=notes/two.org";
+    const stack = createReadingStack({
+      read: () => address,
+      push: () => {},
+      replace: () => {},
+    });
+    render(() => <Spine stack={stack} />);
+
+    await vi.waitFor(() => expect(document.title).toBe("Two — slipbox"));
+
+    // Back, then on to a different note: the column holding the first is closed.
+    address = "?note=notes/one.org&stacked=notes/three.org";
+    stack.sync();
+    await vi.waitFor(() => expect(document.title).toBe("Three — slipbox"));
+
+    // Reopened, and reading. Nothing on screen has answered for this reference
+    // yet, so the tab names the product rather than what the closed column read.
+    address = "?note=notes/one.org&stacked=notes/two.org";
+    stack.sync();
+    await vi.waitFor(() => expect(park).not.toBeNull());
+    expect(document.title).toBe("slipbox");
+
+    park!(noteContextResponse("Two, revised"));
+    await vi.waitFor(() =>
+      expect(document.title).toBe("Two, revised — slipbox"),
     );
   });
 

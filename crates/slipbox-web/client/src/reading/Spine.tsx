@@ -12,12 +12,12 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  createUniqueId,
   onCleanup,
   onMount,
   type Component,
 } from "solid-js";
 
-import { createReadingResource } from "../data/create-reading-resource.js";
 import { scrollBehavior } from "../dom/reduced-motion.js";
 import { useDocumentTitle } from "../dom/document-title.js";
 import { referenceOf } from "../org/navigation.jsx";
@@ -25,9 +25,9 @@ import { createGlanceController } from "./glance-controller.js";
 import { GlancePreview } from "./GlancePreview.jsx";
 import { ReadingColumn } from "./ReadingColumn.jsx";
 import {
-  frontmostReference,
-  resolveNoteTitle,
-  unresolvedTitle,
+  columnTitle,
+  revealedColumn,
+  type ColumnTitle,
 } from "./reading-title.js";
 import { spineNavigation } from "./spine-navigation.js";
 import {
@@ -49,20 +49,41 @@ import "./reading.css";
  * `retry` must be the boundary's own reset: a caught error latches until then,
  * and resetting rebuilds the column, which re-reads the note.
  */
-const UnreadableColumn: Component<{ retry: () => void }> = (props) => (
-  <article class="reading-note">
-    <p class="reading-note__status reading-note__status--error">
-      This note could not be rendered.
-    </p>
-    <button
-      type="button"
-      class="reading-note__retry"
-      onClick={() => props.retry()}
-    >
-      Read it again
-    </button>
-  </article>
-);
+/**
+ * What stands where a column whose note could not be drawn would have stood.
+ *
+ * It replaces the whole column, so it carries what the column would have carried:
+ * the level-1 name that heads a column and names it for the focus a reveal owes
+ * it, the negative tab index that lets that focus land, and the report that the
+ * read has settled - a throw settles one as much as a failure the column states
+ * itself, and the spine withholds focus until a column says so.
+ */
+const UnreadableColumn: Component<{
+  retry: () => void;
+  onSettled: () => void;
+}> = (props) => {
+  const headingId = createUniqueId();
+  onMount(() => props.onSettled());
+  return (
+    <article class="reading-note" tabindex="-1" aria-labelledby={headingId}>
+      <p
+        id={headingId}
+        class="reading-note__status reading-note__status--error"
+        role="heading"
+        aria-level="1"
+      >
+        This note could not be rendered.
+      </p>
+      <button
+        type="button"
+        class="reading-note__retry"
+        onClick={() => props.retry()}
+      >
+        Read it again
+      </button>
+    </article>
+  );
+};
 
 function readPixelToken(element: HTMLElement, name: string, fallback: number): number {
   const raw = getComputedStyle(element).getPropertyValue(name).trim();
@@ -106,14 +127,31 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
   };
   onCleanup(cancelReveal);
 
-  // The tab is titled after the frontmost column. While the resolve is in
-  // flight the accessor returns undefined, so `useDocumentTitle` falls back to
-  // the product name rather than holding a stale title.
-  const frontmost = createMemo(() => frontmostReference(props.stack.keys()));
-  const focusTitle = createReadingResource(frontmost, resolveNoteTitle);
-  useDocumentTitle(() =>
-    focusTitle.error() ? unresolvedTitle(focusTitle.error()) : focusTitle.ready(),
+  // Every column's note as that column read it, keyed by the reference it was
+  // read from: the tab is named after one column, and lifting the title here is
+  // what lets a scroll retitle out of what the surface already holds. Keyed rather
+  // than indexed by column, so a stack that replaces its right-hand side cannot
+  // show a closed column's title under a new one.
+  const [titles, setTitles] = createSignal<ReadonlyMap<string, ColumnTitle>>(
+    new Map(),
   );
+  const learnTitle = (reference: string, known: ColumnTitle): void => {
+    setTitles((held) => new Map(held).set(reference, known));
+  };
+
+  // A closed column's title is dropped with it. Held past that, it would name the
+  // tab the moment its reference is reopened, out of a read the surface no longer
+  // stands behind - and the reference the map is keyed by is exactly what a
+  // reopening repeats. The same map is returned where nothing is stale, so a
+  // reveal or a follow that only appends retitles nothing.
+  createEffect(() => {
+    const live = new Set(props.stack.keys());
+    setTitles((held) =>
+      [...held.keys()].every((reference) => live.has(reference))
+        ? held
+        : new Map([...held].filter(([reference]) => live.has(reference))),
+    );
+  });
 
   // Returns the same snapshot it publishes, so `revealColumn` can read the fresh
   // geometry before Solid flushes the signal write into `metrics()`.
@@ -243,12 +281,50 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
     columnStates(props.stack.keys().length, scrollLeft(), metrics(), narrow()),
   );
 
+  // Whether the spine stands in the frame whole, so nothing is pinned or cut and
+  // no one column is the reading position. True of the narrow layout by
+  // construction: it stacks the columns vertically and rests every one of them,
+  // which leaves the horizontal geometry nothing to name, so the tab keeps naming
+  // the frontmost column there.
+  const entire = (): boolean => metrics().scrollWidth <= metrics().viewport;
+
+  // The tab is named after the column the reader is reading, which the geometry
+  // the states are computed from is enough to say. A memo on the index, so only a
+  // change of which column that is retitles the tab; a scroll that leaves the
+  // reading position alone costs nothing and, either way, no request.
+  const revealed = createMemo(() =>
+    narrow()
+      ? Math.min(activeIndex(), Math.max(0, props.stack.keys().length - 1))
+      : revealedColumn(
+          props.stack.keys().length,
+          scrollLeft(),
+          metrics(),
+          entire(),
+        ),
+  );
+  useDocumentTitle(() => {
+    const index = revealed();
+    const reference = index === undefined ? undefined : props.stack.keys()[index];
+    return reference === undefined
+      ? undefined
+      : columnTitle(titles().get(reference));
+  });
+
   // Hand focus to the column a reveal owes it to, once that column is one a
-  // reader can read. Only a reveal asks, and the ask is spent when it is met, so
-  // the re-runs a scroll or a re-measure causes move nothing.
+  // reader can read: not collapsed to a sliver, and past its own read. A column
+  // is named by the note's heading, and until the read settles the element
+  // carrying that name is a status line, so focus landing before then announces
+  // the wait rather than what opened. A read that failed has settled too, and
+  // lands focus on what the column says about it. Only a reveal asks, and the ask
+  // is spent when it is met, so the re-runs a scroll or a re-measure causes move
+  // nothing.
   createEffect(() => {
     const index = focusWanted();
     if (index === null || (states()[index] ?? "resting") === "obscured") {
+      return;
+    }
+    const reference = props.stack.keys()[index];
+    if (reference !== undefined && !titles().has(reference)) {
       return;
     }
     setFocusWanted(null);
@@ -315,13 +391,19 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
                   The fallback is handed the boundary's own reset, since a caught
                   error latches and nothing the column fetches later clears it. */}
               <ErrorBoundary
-                fallback={(_error, reset) => <UnreadableColumn retry={reset} />}
+                fallback={(error, reset) => (
+                  <UnreadableColumn
+                    retry={reset}
+                    onSettled={() => learnTitle(reference, { error })}
+                  />
+                )}
               >
                 <ReadingColumn
                   reference={reference}
                   state={states()[index()] ?? "resting"}
                   navigation={spineNavigation(props.stack, glances, index, revealColumn)}
                   onReveal={() => revealColumn(index())}
+                  onTitle={(known) => learnTitle(reference, known)}
                 />
               </ErrorBoundary>
             </section>

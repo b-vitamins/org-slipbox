@@ -291,6 +291,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
   the rows above it. The reader lost the cursor Enter opens, and in the glossary the
   address was rewritten to a term nobody reached. A crossing is read as a hover only
   where the pointer is not already, and a click still selects whatever it presses.
+- Title the tab after the column being read. The tab named the stack's last
+  reference and nothing revised it, so a scroll back along a trail left it naming a
+  column nobody was reading. It now names the first column the ladder has not
+  pinned, or the frontmost where the whole spine stands in the frame. Each column
+  reports the title its own read already carried, so a scroll costs no request and
+  the identity resolve the tab used to make is gone.
 
 ## [0.17.0] - 2026-07-25
 
