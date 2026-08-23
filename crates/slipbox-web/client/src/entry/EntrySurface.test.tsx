@@ -945,7 +945,7 @@ describe("EntrySurface", () => {
     expect(document.title).toBe("Unavailable — slipbox");
   });
 
-  it("exposes the surface as a polite live region for assistive tech", async () => {
+  it("announces from a status line placed before any search, not from the surface", async () => {
     vi.stubGlobal("fetch", routedFetch({ "/api/status": status }));
 
     const { container } = render(() => (
@@ -953,8 +953,186 @@ describe("EntrySurface", () => {
     ));
     const main = container.querySelector("main");
 
-    expect(main).toHaveAttribute("aria-live", "polite");
+    expect(main).not.toHaveAttribute("aria-live");
+    // The surface announced nothing once the region moved off it, so it reports
+    // no busy state either.
+    expect(main).not.toHaveAttribute("aria-busy");
+
+    // Placed and empty: a region announces nothing it already held when it
+    // arrived, so it cannot be mounted with the first answer in it.
+    const region = screen.getByRole("status");
+    expect(region.textContent).toBe("");
+
+    expect(await screen.findByText("notes")).toBeInTheDocument();
+    expect(region).not.toContainElement(screen.getByRole("heading", { level: 1 }));
+  });
+
+  it("announces how many notes matched, and holds no result row", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({ "/api/status": status, "/api/search/content": { hits: hits(3) } }),
+    );
+
+    render(() => (
+      <EntrySurface onOpen={() => {}} debounceMs={0} queryUrl={memoryQueryUrl()} />
+    ));
     await screen.findByText("notes");
+
+    fireEvent.input(screen.getByRole("combobox"), { target: { value: "note" } });
+    await screen.findAllByRole("option");
+
+    const region = screen.getByRole("status");
+    expect(region.textContent).toBe("3 notes match.");
+    expect(region).not.toContainElement(screen.getByRole("listbox"));
+    expect(region.querySelectorAll('[role="option"]')).toHaveLength(0);
+  });
+
+  it("counts a single match in the singular", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({ "/api/status": status, "/api/search/content": { hits: hits(1) } }),
+    );
+
+    render(() => (
+      <EntrySurface onOpen={() => {}} debounceMs={0} queryUrl={memoryQueryUrl()} />
+    ));
+    await screen.findByText("notes");
+
+    fireEvent.input(screen.getByRole("combobox"), { target: { value: "note" } });
+    await screen.findByRole("option");
+
+    expect(screen.getByRole("status").textContent).toBe("1 note matches.");
+  });
+
+  it("announces a search that matched nothing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({ "/api/status": status, "/api/search/content": { hits: [] } }),
+    );
+
+    render(() => (
+      <EntrySurface onOpen={() => {}} debounceMs={0} queryUrl={memoryQueryUrl()} />
+    ));
+    await screen.findByText("notes");
+
+    fireEvent.input(screen.getByRole("combobox"), { target: { value: "zzz" } });
+
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toBe("No notes match that search."),
+    );
+  });
+
+  it("states the count once, leaving the capped list the advice", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({ "/api/status": status, "/api/search/content": { hits: hits(20) } }),
+    );
+
+    render(() => (
+      <EntrySurface onOpen={() => {}} debounceMs={0} queryUrl={memoryQueryUrl()} />
+    ));
+    await screen.findByText("notes");
+
+    fireEvent.input(screen.getByRole("combobox"), { target: { value: "note" } });
+    await screen.findAllByRole("option");
+
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toBe(
+        "Showing the first 20 matches.",
+      ),
+    );
+    const more = document.querySelector(".entry-status--more")?.textContent;
+    expect(more).toBe("Refine your search to narrow it.");
+  });
+
+  it("does not re-announce a list that re-renders under the same query", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({ "/api/status": status, "/api/search/content": { hits: hits(3) } }),
+    );
+
+    render(() => (
+      <EntrySurface onOpen={() => {}} debounceMs={0} queryUrl={memoryQueryUrl()} />
+    ));
+    await screen.findByText("notes");
+
+    fireEvent.input(screen.getByRole("combobox"), { target: { value: "note" } });
+    await screen.findAllByRole("option");
+    const region = screen.getByRole("status");
+    expect(region.textContent).toBe("3 notes match.");
+
+    const changes: MutationRecord[] = [];
+    const observer = new MutationObserver((records) => changes.push(...records));
+    observer.observe(region, { childList: true, characterData: true, subtree: true });
+
+    // A refocus re-reads the same term and answers it with the same notes, which
+    // re-renders the list. Nothing in the region may be rewritten.
+    fireEvent(window, new Event("visibilitychange"));
+    fireEvent(window, new Event("focus"));
+    await flush();
+    observer.disconnect();
+
+    expect(region.textContent).toBe("3 notes match.");
+    expect(changes).toEqual([]);
+  });
+
+  it("announces an unreachable surface from the region that stood before it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({ error: { kind: "unavailable", message: "daemon is down" } }),
+            { status: 503, headers: { "content-type": "application/json" } },
+          ),
+        ),
+      ),
+    );
+
+    render(() => <EntrySurface onOpen={() => {}} queryUrl={memoryQueryUrl()} />);
+    // Taken while the read is still out, so the element the failure lands in is
+    // the one that was already there to announce it.
+    const region = screen.getByRole("status");
+
+    await waitFor(() =>
+      expect(region.textContent).toBe("unavailable: daemon is down"),
+    );
+    expect(region).toBeInTheDocument();
+  });
+
+  it("announces a failed random open", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({ "/api/status": status }), // /api/random falls through to 404
+    );
+
+    render(() => (
+      <EntrySurface onOpen={() => {}} debounceMs={0} queryUrl={memoryQueryUrl()} />
+    ));
+    await screen.findByText("notes");
+    const region = screen.getByRole("status");
+
+    fireEvent.click(screen.getByRole("button", { name: "Surprise me" }));
+
+    await waitFor(() => expect(region.textContent).toMatch(/not-found/));
+  });
+
+  it("announces that a search is waiting on a word long enough to run", async () => {
+    vi.stubGlobal("fetch", routedFetch({ "/api/status": status }));
+
+    render(() => (
+      <EntrySurface onOpen={() => {}} debounceMs={0} queryUrl={memoryQueryUrl()} />
+    ));
+    await screen.findByText("notes");
+    const region = screen.getByRole("status");
+
+    fireEvent.input(screen.getByRole("combobox"), { target: { value: "k" } });
+
+    await waitFor(() =>
+      expect(region.textContent).toBe(
+        "Searching needs a word of at least 2 characters.",
+      ),
+    );
   });
 
   it("focuses the search field on arrival, so a restored search is arrowable", async () => {

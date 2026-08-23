@@ -179,6 +179,54 @@ export const EntrySurface: Component<{
   const listboxId = "entry-results";
   const optionId = (index: number): string => `${OPTION_ID}-${index}`;
 
+  /**
+   * What the surface found, in one line. The count is stated here and nowhere
+   * else - the capped list's line below carries the advice alone, so the two do
+   * not read as one fact twice.
+   *
+   * `Searching…` is reserved for a term with nothing in hand: a re-read keeps the
+   * notes it already has, and saying it again over those would announce a search
+   * the reader can already see the results of.
+   */
+  const summary = (): string => {
+    if (!hasQuery()) {
+      return "";
+    }
+    const count = hits().length;
+    if (count === 0) {
+      return results.loading() ? "Searching…" : "No notes match that search.";
+    }
+    if (atLimit()) {
+      return `Showing the first ${SEARCH_LIMIT} matches.`;
+    }
+    return count === 1 ? "1 note matches." : `${count} notes match.`;
+  };
+
+  /** The failure the surface is left reporting, or null when there is none. */
+  const failure = (): unknown =>
+    status.error() ?? randomError() ?? results.error() ?? null;
+
+  /**
+   * The live region's whole content. Every state the surface reports in words
+   * reads out of this one element, because a region announces nothing about text
+   * it already held when it was inserted: a paragraph mounted with a failure in
+   * it says that failure to nobody.
+   *
+   * A memo, so a re-render under the same query rewrites no text node and the
+   * region announces nothing. A failure outranks the search state, since it is
+   * the answer to what the reader just did.
+   */
+  const announcement = createMemo((): string => {
+    const failed = failure();
+    if (failed !== null) {
+      return describeError(failed);
+    }
+    if (search.awaitingWord()) {
+      return `Searching needs a word of at least ${MIN_TERM_CHARACTERS} characters.`;
+    }
+    return summary();
+  });
+
   const activeId = (): string | undefined => {
     const index = active();
     return index === null ? undefined : optionId(index);
@@ -247,6 +295,10 @@ export const EntrySurface: Component<{
   const onQueryInput = (value: string): void => {
     search.input(value);
     setAwaitedOpen(null);
+    // A failed random open is stale once a search is under way, and the one line
+    // the surface speaks through would otherwise keep reporting it instead of the
+    // count.
+    setRandomError(null);
   };
 
   const openRandom = async (): Promise<void> => {
@@ -305,15 +357,11 @@ export const EntrySurface: Component<{
   };
 
   return (
-    <main class="entry" aria-live="polite" aria-busy={status.loading()}>
-      <Show
-        when={!status.error()}
-        fallback={
-          <p class="entry-status entry-status--error">
-            {describeError(status.error())}
-          </p>
-        }
-      >
+    <main class="entry">
+      {/* The unreachable branch stops at the live region rather than enclosing
+          it: a branch that both removes the region and states the failure states
+          it to nobody. */}
+      <Show when={!status.error()}>
         <Show when={status.ready()}>{(info) => <IdentityHero info={info()} />}</Show>
         <div class="entry-search">
           <input
@@ -343,65 +391,48 @@ export const EntrySurface: Component<{
             Surprise me
           </button>
         </div>
+      </Show>
 
-        <Show when={randomError()}>
-          <p class="entry-status entry-status--error">
-            {describeError(randomError())}
+      {/* The live region, placed before there is anything to say: a region
+          announces nothing it already held when it arrived. The list stays
+          outside it, since re-reading every row is the announcement this
+          replaces. */}
+      <p
+        class="entry-status entry-status--summary"
+        classList={{
+          "entry-status--error": failure() !== null,
+          "entry-status--hint": failure() === null && search.awaitingWord(),
+        }}
+        role="status"
+      >
+        {announcement()}
+      </p>
+
+      {/* Notes in hand, rather than a term: a failed or unanswered search holds
+          none, and those states are what the line above is left saying. */}
+      <Show when={!status.error() && hits().length > 0}>
+        <ul
+          id={listboxId}
+          role="listbox"
+          aria-label="Search results"
+          class="entry-results"
+        >
+          <For each={hits()}>
+            {(hit, index) => (
+              <ResultRow
+                hit={hit}
+                id={optionId(index())}
+                active={active() === index()}
+                onChoose={() => open(hit)}
+                onHover={() => markRow(index())}
+              />
+            )}
+          </For>
+        </ul>
+        <Show when={atLimit()}>
+          <p class="entry-status entry-status--more">
+            Refine your search to narrow it.
           </p>
-        </Show>
-
-        <Show when={search.awaitingWord()}>
-          <p class="entry-status entry-status--hint">
-            Searching needs a word of at least {MIN_TERM_CHARACTERS} characters.
-          </p>
-        </Show>
-
-        <Show when={hasQuery()}>
-          <Show
-            when={!results.error()}
-            fallback={
-              <p class="entry-status entry-status--error">
-                {describeError(results.error())}
-              </p>
-            }
-          >
-            <Show
-              when={hits().length > 0}
-              fallback={
-                <Show
-                  when={!results.loading()}
-                  fallback={<p class="entry-status">Searching…</p>}
-                >
-                  <p class="entry-status">No notes match that search.</p>
-                </Show>
-              }
-            >
-              <ul
-                id={listboxId}
-                role="listbox"
-                aria-label="Search results"
-                class="entry-results"
-              >
-                <For each={hits()}>
-                  {(hit, index) => (
-                    <ResultRow
-                      hit={hit}
-                      id={optionId(index())}
-                      active={active() === index()}
-                      onChoose={() => open(hit)}
-                      onHover={() => markRow(index())}
-                    />
-                  )}
-                </For>
-              </ul>
-              <Show when={atLimit()}>
-                <p class="entry-status entry-status--more">
-                  Showing the first {SEARCH_LIMIT} matches. Refine your search to
-                  narrow it.
-                </p>
-              </Show>
-            </Show>
-          </Show>
         </Show>
       </Show>
     </main>
