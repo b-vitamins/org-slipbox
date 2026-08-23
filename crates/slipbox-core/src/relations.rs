@@ -284,6 +284,9 @@ pub struct UnlinkedReferencesResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UnlinkedReferenceRecord {
+    /// Canonical note containing the mention.
+    pub source_note: NodeRecord,
+    /// Indexed anchor containing the mention.
     pub source_anchor: AnchorRecord,
     pub row: u32,
     pub col: u32,

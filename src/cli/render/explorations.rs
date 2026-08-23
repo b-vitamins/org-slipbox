@@ -115,10 +115,19 @@ pub(crate) fn render_exploration_entry(output: &mut String, entry: &ExplorationE
         ExplorationEntry::UnlinkedReference { record } => {
             output.push_str(&format!(
                 "- {} at {}:{}\n",
-                render_anchor_identity(&record.source_anchor),
+                render_node_identity(&record.source_note),
                 record.row,
                 record.col
             ));
+            // The line sits in a node of the index, which is a heading carrying no
+            // id as often as the note itself. Stated where it is the heading, as a
+            // backlink states its own, and left out where it repeats the note.
+            if record.source_anchor.node_key != record.source_note.node_key {
+                output.push_str(&format!(
+                    "  anchor: {}\n",
+                    render_anchor_identity(&record.source_anchor)
+                ));
+            }
             output.push_str(&format!("  matched text: {}\n", record.matched_text));
             output.push_str(&format!("  preview: {}\n", record.preview));
             output.push_str(&format!(

@@ -22,7 +22,9 @@ import { ApiError, client } from "../api/client.js";
 import type { NoteContext } from "../api/types.js";
 import { createReadingResource } from "../data/create-reading-resource.js";
 import { GrammarLink } from "../org/GrammarLink.jsx";
+import { RenderInline } from "../org/RenderInline.jsx";
 import { RenderPreview } from "../org/RenderPreview.jsx";
+import { mentionRows, type MentionRow } from "./mentions.js";
 import {
   boundedRelated,
   rankedTotal,
@@ -61,6 +63,16 @@ export const RELATED_LENS_LIMIT = 50;
 
 /** Ranked related notes shown before the rest is offered. */
 export const RELATED_SHOWN = 8;
+
+/**
+ * Occurrences the mention scan is asked for. It counts occurrences, where a row
+ * counts notes, so it stands well above the row bound: the corpus's densest title
+ * is named far more often than it is named in distinct notes.
+ */
+export const MENTIONS_SCAN_LIMIT = 200;
+
+/** Mentioning notes shown before the rest is offered. */
+export const MENTIONS_SHOWN = 8;
 
 /**
  * What a bounded group holds back. The total is the payload's own count, which a
@@ -262,18 +274,135 @@ const RelatedNotes: Component<{
   );
 };
 
+const MentionsList: Component<{ rows: readonly MentionRow[] }> = (props) => (
+  <ul class="relations__list" role="list">
+    <For each={props.rows}>
+      {(row) => (
+        <li class="relations__row">
+          <GrammarLink class="relations__link" target={row.target}>
+            {row.title}
+          </GrammarLink>
+          {/* The match is marked where it stands in the line. The flag is
+              carried as data, so a literal `<mark>` in a note stays the
+              characters it spells. */}
+          <span class="relations__preview">
+            <For each={row.preview}>
+              {(run) => (
+                <Show
+                  when={run.matched}
+                  fallback={<RenderInline nodes={run.prose} />}
+                >
+                  <mark class="relations__match">
+                    <RenderInline nodes={run.prose} />
+                  </mark>
+                </Show>
+              )}
+            </For>
+          </span>
+        </li>
+      )}
+    </For>
+  </ul>
+);
+
+/**
+ * Notes naming this one in their prose without linking to it. The scan reports
+ * occurrences and a row stands for a note, so the two bounds on the answer count
+ * different things and are stated apart.
+ */
+const UnlinkedMentions: Component<{
+  nodeKey: string;
+  /** Keys the directed inventory prints, which are not news a second time. */
+  listed: ReadonlySet<string>;
+}> = (props) => {
+  const [open, setOpen] = createSignal(false);
+  const [showAll, setShowAll] = createSignal(false);
+  const [failure, setFailure] = createSignal<string | undefined>(undefined);
+
+  const mentions = createReadingResource(
+    () => (open() ? props.nodeKey : false),
+    (key) => client.unlinkedReferences(key, { limit: MENTIONS_SCAN_LIMIT }),
+  );
+
+  createEffect(() => {
+    const error = mentions.error();
+    if (error !== undefined) {
+      setFailure(describeError(error, "The mentions could not be read."));
+      setOpen(false);
+    }
+  });
+
+  const rows = createMemo(() => {
+    const answer = mentions.ready();
+    return answer ? mentionRows(answer, props.listed) : [];
+  });
+  const head = createMemo(() =>
+    showAll() ? rows() : rows().slice(0, MENTIONS_SHOWN),
+  );
+  const held = (): number => rows().length - head().length;
+
+  return (
+    <DeferredGroup
+      label="Unlinked mentions"
+      open={open()}
+      failure={failure()}
+      onToggle={() => {
+        setFailure(undefined);
+        setOpen((was) => !was);
+      }}
+    >
+      <Show
+        when={mentions.ready()}
+        fallback={<p class="relations__status">Scanning for mentions…</p>}
+      >
+        {(answer) => (
+          <Show
+            when={rows().length > 0}
+            fallback={
+              <p class="relations__status">
+                No note names this one without linking to it.
+              </p>
+            }
+          >
+            <MentionsList rows={head()} />
+            <Show when={held() > 0}>
+              <button
+                type="button"
+                class="relations__more"
+                onClick={() => setShowAll(true)}
+              >
+                Show {held()} more
+              </button>
+            </Show>
+            {/* The head's cut is the control above, and holds back notes; this is
+                the other bound, which the scan counts in occurrences. */}
+            <Show
+              when={answer().unlinked_references.length >= MENTIONS_SCAN_LIMIT}
+            >
+              <p class="relations__shortfall">
+                The scan stops at {MENTIONS_SCAN_LIMIT} mentions, so the slipbox
+                may hold more.
+              </p>
+            </Show>
+          </Show>
+        )}
+      </Show>
+    </DeferredGroup>
+  );
+};
+
 export const RelationsFooter: Component<{ context: NoteContext }> = (props) => {
   const rows = (): RelationRow[] => relationRows(props.context);
   const listed = (): ReadonlySet<string> =>
     new Set(rows().map((row) => row.key));
 
   return (
-    // The footer carries a rule above it, which would otherwise be drawn under
-    // an unlinked note as a line with nothing beneath it. A note with no link
-    // has no bridge candidate either: the lens walks link topology, so the
-    // deferred group below would answer with nothing for one.
-    <Show when={rows().length > 0}>
-      <footer class="relations">
+    <footer class="relations">
+      {/* Both of these read link topology: the inventory is links, and the
+          bridges lens walks them, so a note with no link is answered with
+          nothing by either. The mention scan reads prose instead, which is what
+          reaches a note no link touches, so it stands for such a note alone. */}
+      <Show when={rows().length > 0}>
         <div class="relations__group">
           <h2 class="relations__label">Links</h2>
           <RelationsList rows={rows()} />
@@ -290,11 +419,12 @@ export const RelationsFooter: Component<{ context: NoteContext }> = (props) => {
             subject="notes linking here"
           />
         </div>
-        <RelatedNotes
-          nodeKey={props.context.note.node_key}
-          listed={listed()}
-        />
-      </footer>
-    </Show>
+        <RelatedNotes nodeKey={props.context.note.node_key} listed={listed()} />
+      </Show>
+      <UnlinkedMentions
+        nodeKey={props.context.note.node_key}
+        listed={listed()}
+      />
+    </footer>
   );
 };

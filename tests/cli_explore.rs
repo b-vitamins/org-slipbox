@@ -110,6 +110,9 @@ DEADLINE: <2026-05-03 Sat>
 :ROAM_REFS: cite:shared2024
 :END:
 Anonymous anchor body.
+
+* Nameless Mention
+Support is named here, and not linked to.
 "#,
     )?;
     fs::write(
@@ -474,6 +477,39 @@ fn explore_command_prints_human_output_with_explanations() -> Result<()> {
     assert!(stdout.contains("Dormant Bridge"));
     assert!(stdout.contains("why: shared references @shared2024; via Neighbor ["));
     assert!(output.stderr.is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn explore_command_names_the_note_an_unlinked_mention_sits_in() -> Result<()> {
+    let (_workspace, root, db, _) = build_indexed_fixture()?;
+
+    let output = Command::new(slipbox_binary())
+        .args([
+            "explore",
+            "--root",
+            &root,
+            "--db",
+            &db,
+            "--server-program",
+            slipbox_binary(),
+            "--id",
+            "support-id",
+            "--lens",
+            "refs",
+        ])
+        .output()?;
+
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout)?;
+    // The scan resolves the nearest indexed node above the line, which is a
+    // heading carrying no id as often as a note. Headed by such a heading, the
+    // entry names something nothing else in the listing can be read against, so
+    // the note enclosing it heads the entry and the heading is stated beside it.
+    assert!(stdout.contains("[unlinked references]"), "{stdout}");
+    assert!(stdout.contains("- Context ["), "{stdout}");
+    assert!(stdout.contains("  anchor: Nameless Mention ["), "{stdout}");
 
     Ok(())
 }

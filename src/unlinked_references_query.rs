@@ -5,7 +5,7 @@ use anyhow::{Context, Result, anyhow};
 use regex::{Regex, RegexBuilder};
 
 use slipbox_core::{AnchorRecord, ExplorationExplanation, IndexedLink, UnlinkedReferenceRecord};
-use slipbox_store::Database;
+use slipbox_store::{Database, note_owners_by_anchor_key};
 
 use crate::root_path::resolve_root_path_from_canonical_root;
 use crate::text_query::{
@@ -69,6 +69,7 @@ pub(crate) fn query_unlinked_references(
         if visible_anchors.is_empty() {
             continue;
         }
+        let owning_notes = note_owners_by_anchor_key(&visible_anchors);
 
         let current_range = if file_path == node.file_path {
             Some(current_subtree_range(root, &file_path, node)?)
@@ -103,6 +104,13 @@ pub(crate) fn query_unlinked_references(
 
             let source_anchor =
                 resolve_owning_anchor(&visible_anchors, row, &mut source_anchor_index);
+            // A heading carrying no id is a node of the index and not a note, so
+            // the note enclosing it is what names the mention. Every indexed file
+            // holds a file node, so a line always sits in some note; a line no
+            // note encloses is passed over rather than named after a heading.
+            let Some(source_note) = owning_notes.get(&source_anchor.node_key) else {
+                continue;
+            };
             let covered_spans = linked_spans.get(&row);
 
             for matched in matcher.find_iter(line) {
@@ -116,6 +124,7 @@ pub(crate) fn query_unlinked_references(
                 }
 
                 let result = UnlinkedReferenceRecord {
+                    source_note: source_note.clone(),
                     source_anchor: source_anchor.clone(),
                     row,
                     col: column_number(line, start),

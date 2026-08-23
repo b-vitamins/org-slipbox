@@ -510,6 +510,16 @@
   text-overflow: ellipsis;
 }
 
+/* The scanned match, marked where it stands in the mentioning line: the title
+ * beside it says which note, and this says which words. Set like the search
+ * excerpt's own match, so a marked run reads alike on either surface. */
+.relations__match {
+  color: var(--ink);
+  background: var(--link-active-bg);
+  font-weight: 500;
+  border-radius: 3px;
+}
+
 /* What a bounded group holds back, and what a deferred group has to say for
  * itself, set like the source-truncation notice above the footer so an omission
  * and a failure read as one voice. */
