@@ -170,6 +170,55 @@ Exit signal:
 - spaced-repetition grade writeback and any global or force-directed graph
   remain deferred
 
+* 0.18.x: Reading Surface Depth
+
+Theme: deepen the reading surface the 0.17.x line shipped rather than widen the
+model: read the exploration lenses through it, place a note in the filing order,
+and hold the reading experience correct at every viewport, pointer, and
+assistive technology it is reached through.
+
+Focus:
+
+- the exploration lenses served read-only over the reading API, the lens named
+  in the request and an unknown one refused with the accepted set rather than
+  read as a default
+- relations answered as an inventory rather than a walk: ranked related notes
+  and unlinked mentions in the reading footer, with the hop-bounded neighborhood
+  and the route behind it retired
+- the `bridges`, `dormant`, and `unresolved` lenses drawn from link topology
+  rather than from shared reference entries, so a note carrying no ref of its
+  own is still explored and a reference ranks a candidate instead of admitting
+  one
+- a note's place in the filing order carried on the reading context and walkable
+  from inside the column being read
+- both glossary listings paged past their first page across the reading API, the
+  JSON-RPC boundary, and the surface, each on its own key, with the standing
+  that makes a term due stated rather than implied by an order
+- the surface correct where it is narrow or reached without a pointer: the
+  visible viewport rather than the largest one, contained gestures, the reading
+  measure held where columns stack, a spine that rests at a snap position, focus
+  that is visible and follows the reading, and every listing, heading, control,
+  and live region named for what it does
+- the reading origin held: a loopback authority required before any route runs,
+  and only a navigating link scheme followed out of a note body
+
+Exit signal:
+
+- the reading API answers every lens the CLI reads, the reading column reads the
+  one its ranked relations need, and no HTTP path reaches a mutating operation
+- a reader on a keyboard alone can enter, search, read, follow, glance, dismiss,
+  and study, and is told what changed
+- the reading client's unit tests, the HTTP contract tests, and the end-to-end
+  suite cover each addition, and every CI gate is green
+- no new public bucket is added: Explorations are read through the seven lenses
+  alone, saved artifacts, comparisons, and trails are not served, and Reviews
+  and Assets still get no web surface
+- the surface stays bounded as the 0.17.x line set it: read-only,
+  localhost-only, single user, no second database, no separate sync mechanism,
+  and no push channel
+- spaced-repetition grade writeback and any global or force-directed graph
+  remain deferred
+
 * 1.0.x: Stability Line
 
 Theme: make the public surface dependable enough for ordinary users,

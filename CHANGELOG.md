@@ -142,6 +142,14 @@ The format follows Keep a Changelog, and this project follows SemVer.
   pitch, group spacing, and the space above the rule come down, and the group
   labels share one register. Under a coarse pointer a row still holds the
   touch-target floor.
+- Defined the `0.18.x` reading-surface depth band as deepening the surface the
+  `0.17.x` line shipped rather than widening the model: the exploration lenses
+  read over the reading API, relations answered as an inventory rather than a
+  walk, a note's place in the filing order carried and walkable from the column
+  being read, both glossary listings paged, and the surface held correct at
+  every viewport, pointer, and assistive technology it is reached through, while
+  the bounds the reading-surface band set stand and no new public bucket is
+  added.
 
 ### Removed
 - Retire the reading surface's hop-bounded neighborhood: the `/api/neighborhood`
