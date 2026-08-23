@@ -22,6 +22,9 @@
   justify-content: safe center;
   overflow-x: auto;
   overflow-y: hidden;
+  /* A swipe carried past either end stays in the spine instead of reaching the
+   * browser as a history gesture, which would leave the page mid-read. */
+  overscroll-behavior-x: contain;
   height: calc(100vh - var(--header-min-height));
   height: calc(100dvh - var(--header-min-height));
 }
@@ -32,6 +35,10 @@
   width: var(--column-width);
   height: 100%;
   overflow-y: auto;
+  /* A pull past the top or bottom of a body stays in the column. That axis only:
+   * the spine is the horizontal scroller beneath every column, so a sideways
+   * gesture over one has to carry on out to it. */
+  overscroll-behavior-y: contain;
   background: var(--surface);
   border-left: 1px solid var(--column-border);
   transition:
@@ -523,6 +530,10 @@
     justify-content: flex-start;
     overflow-x: hidden;
     overflow-y: auto;
+    /* The run scrolls vertically here, so the containment is restated on both
+     * axes: the pull that reaches an end is a vertical one, and a sideways
+     * gesture has no range to spend on this axis at all. */
+    overscroll-behavior: contain;
     /* Unpinned from the viewport: the stacked run is the scroller here. */
     height: auto;
   }
@@ -536,6 +547,9 @@
     width: 100%;
     height: auto;
     min-height: 100%;
+    /* A body no longer scrolls in its own box, so the column's containment is
+     * released to the run that does scroll. */
+    overscroll-behavior-y: auto;
     left: 0 !important;
     border-left: none;
     border-top: 1px solid var(--column-border);

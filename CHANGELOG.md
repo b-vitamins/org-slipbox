@@ -149,6 +149,11 @@ The format follows Keep a Changelog, and this project follows SemVer.
   browser toolbar no longer leaves the bottom of a column behind chrome that is no
   longer there. Each site keeps its `vh` declaration ahead of the `dvh` one, so an
   engine without the dynamic unit holds the old value.
+- Contain a swipe carried past the end of the reading spine, a note's body, or a
+  glossary scrollport, so it no longer reaches the browser as a history gesture
+  and leaves the surface mid-read. A column contains the vertical axis only: the
+  spine beneath it is the horizontal scroller. The viewport is untouched, so
+  pull-to-refresh stays the browser's.
 
 ## [0.17.0] - 2026-07-25
 
