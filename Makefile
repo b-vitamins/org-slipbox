@@ -121,6 +121,9 @@ guix-lint-rust:
 guix-bench-check:
 	$(GUIX_SHELL) $(MAKE) bench-check
 
+RELEASE_VERSION ?=
+export RELEASE_VERSION
+
 .PHONY: check-release-metadata
 check-release-metadata:
 	@version="$$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"; \
@@ -129,9 +132,33 @@ check-release-metadata:
 		exit 1; \
 	fi; \
 	status=0; \
-	if ! grep -Fq "The latest shipped release is \`$$version\`" README.md; then \
-		echo "README.md: latest shipped release line does not mention $$version"; \
+	requested="$${RELEASE_VERSION:-}"; \
+	if [ -n "$$requested" ] && [ "$$requested" != "$$version" ]; then \
+		echo "Cargo.toml: release version $$requested does not match $$version"; \
 		status=1; \
+	fi; \
+	heading="$$(awk -v version="$$version" \
+		'index($$0, "## [" version "] - ") == 1 { print; exit }' CHANGELOG.md)"; \
+	if grep -Fq "The current release candidate is \`$$version\`" README.md && \
+		grep -Fq "The latest shipped release is \`$$version\`" README.md; then \
+		echo "README.md: $$version cannot be both a candidate and shipped"; \
+		status=1; \
+	fi; \
+	if [ -z "$$requested" ] && \
+		grep -Fq "The current release candidate is \`$$version\`" README.md; then \
+		if [ "$$heading" != "## [$$version] - Unreleased" ]; then \
+			echo "CHANGELOG.md: candidate $$version must be marked Unreleased"; \
+			status=1; \
+		fi; \
+	else \
+		if ! grep -Fq "The latest shipped release is \`$$version\`" README.md; then \
+			echo "README.md: latest shipped release line does not mention $$version"; \
+			status=1; \
+		fi; \
+		if ! printf '%s\n' "$$heading" | grep -Eq ' - [0-9]{4}-[0-9]{2}-[0-9]{2}$$'; then \
+			echo "CHANGELOG.md: shipped $$version must have a dated release section"; \
+			status=1; \
+		fi; \
 	fi; \
 	client="crates/slipbox-web/client"; \
 	for manifest in "$$client/package.json" "$$client/package-lock.json"; do \

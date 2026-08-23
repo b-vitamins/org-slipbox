@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import { visibleText } from "../test/visible-text.js";
 import {
@@ -131,9 +131,9 @@ const inertReadOn: FilingMove = {
 };
 
 function stubReadOn(address = "?note=notes/g.org"): FilingMove & {
-  open: ReturnType<typeof vi.fn>;
+  open: Mock<FilingMove["open"]>;
 } {
-  return { address: () => address, open: vi.fn() };
+  return { address: () => address, open: vi.fn<FilingMove["open"]>() };
 }
 
 function relatedGroup(container: HTMLElement): Element {

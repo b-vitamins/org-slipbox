@@ -5,9 +5,7 @@ on:
     branches:
       - master
   pull_request:
-  # Callable so the release workflow can gate a tag on this exact suite instead
-  # of a copy of it: whatever verification means here is what a published
-  # archive has passed.
+  # Releases reuse this suite.
   workflow_call:
   workflow_dispatch:
 
@@ -19,11 +17,6 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y emacs-nox
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -46,9 +39,7 @@ jobs:
       - name: Test reading client
         run: make test-web
 
-      # Build the client before the Rust steps: the workspace `--all-features`
-      # clippy gate enables `embed-assets`, whose build script compiles this
-      # tree in and fails when it is absent.
+      # All-feature clippy needs the built client for embed-assets.
       - name: Build reading client
         run: make build-web
 
@@ -64,11 +55,58 @@ jobs:
       - name: Run clippy
         run: make lint-rust
 
-      - name: Run Emacs batch tests
-        run: make test-elisp
+      - name: Install Emacs for benchmarks
+        uses: purcell/setup-emacs@d37e139fc118479b4396f9277927506a8c384519
+        with:
+          version: "30.2"
 
       - name: Run benchmark regression gate
-        run: make bench-check PROFILE=ci
+        run: |
+          set -euo pipefail
+          benchmark_tmp="$(mktemp -d /dev/shm/slipbox-bench.XXXXXX)"
+          trap 'rmdir "$benchmark_tmp" || true' EXIT
+          mkdir -p target/bench
+          df -T "$benchmark_tmp" | tee target/bench/filesystem.txt
+          TMPDIR="$benchmark_tmp" make bench-check PROFILE=ci
+
+      - name: Upload benchmark measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-ci
+          path: |
+            target/bench/ci-check.json
+            target/bench/filesystem.txt
+          if-no-files-found: warn
+
+  elisp:
+    name: elisp-${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: emacs-29.1
+            os: ubuntu-latest
+            emacs: "29.1"
+          - label: emacs-30.2
+            os: ubuntu-latest
+            emacs: "30.2"
+          - label: macos-emacs-30.2
+            os: macos-14
+            emacs: "30.2"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Emacs
+        uses: purcell/setup-emacs@d37e139fc118479b4396f9277927506a8c384519
+        with:
+          version: ${{ matrix.emacs }}
+
+      - name: Run Emacs batch tests
+        run: make test-elisp
 
   e2e:
     name: e2e
@@ -78,9 +116,6 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      # A Node-only job: the end-to-end suite drives the built client in a real
-      # browser and needs no Rust or Emacs toolchain, so it runs beside `verify`
-      # rather than lengthening its critical path.
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -88,8 +123,5 @@ jobs:
           cache: npm
           cache-dependency-path: crates/slipbox-web/client/package-lock.json
 
-      # `make test-e2e` builds the client, provisions Chromium, then runs the
-      # Playwright suite against `vite preview`; the config owns the server
-      # lifecycle. This is the layer the jsdom unit suite cannot reach.
       - name: Run reading-client end-to-end tests
         run: make test-e2e

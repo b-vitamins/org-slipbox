@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, type Mock } from "vitest";
 
 import type { GlanceController } from "./glance-controller.js";
 import { spineFilingMove, spineNavigation } from "./spine-navigation.js";
@@ -6,24 +6,24 @@ import { encodeStack, type ReadingStack } from "./stack.js";
 import type { GlanceRequest, LinkTarget } from "../org/navigation.jsx";
 
 function stubStack(landsAt = 0, keys: readonly string[] = []): ReadingStack & {
-  follow: ReturnType<typeof vi.fn>;
-  readOn: ReturnType<typeof vi.fn>;
-  open: ReturnType<typeof vi.fn>;
+  follow: Mock<ReadingStack["follow"]>;
+  readOn: Mock<ReadingStack["readOn"]>;
+  open: Mock<ReadingStack["open"]>;
 } {
   return {
     keys: () => keys,
-    follow: vi.fn(() => landsAt),
-    readOn: vi.fn(() => landsAt),
-    open: vi.fn(),
-    sync: vi.fn(),
+    follow: vi.fn<ReadingStack["follow"]>(() => landsAt),
+    readOn: vi.fn<ReadingStack["readOn"]>(() => landsAt),
+    open: vi.fn<ReadingStack["open"]>(),
+    sync: vi.fn<ReadingStack["sync"]>(),
   };
 }
 
-function stubGlances(): GlanceController & { glance: ReturnType<typeof vi.fn> } {
+function stubGlances(): GlanceController & { glance: Mock<GlanceController["glance"]> } {
   return {
     request: () => null,
-    glance: vi.fn(),
-    cancel: vi.fn(),
+    glance: vi.fn<GlanceController["glance"]>(),
+    cancel: vi.fn<GlanceController["cancel"]>(),
   };
 }
 

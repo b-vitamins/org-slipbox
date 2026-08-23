@@ -11,7 +11,7 @@
   },
   "iterations": {
     "full_index": 1,
-    "index_file": 20,
+    "index_file": 40,
     "search_nodes": 80,
     "search_nodes_sorted": 80,
     "search_files": 80,

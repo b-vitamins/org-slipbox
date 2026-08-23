@@ -2,10 +2,7 @@
 import { defineConfig } from "vitest/config";
 import solid from "vite-plugin-solid";
 
-// Relative asset URLs (`base: "./"`) let the `slipbox` binary embed the whole
-// `dist/` tree and serve it from any mount point; no source maps, since they
-// would ship inside every binary. `/api` is proxied in development so the
-// client reaches the daemon without CORS.
+// Relative URLs keep embedded assets relocatable.
 export default defineConfig({
   base: "./",
   plugins: [solid()],
@@ -24,6 +21,9 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    // Let jsdom supply storage rather than Node's file-backed implementation.
+    execArgv:
+      Number.parseInt(process.versions.node, 10) >= 25 ? ["--no-webstorage"] : [],
     globals: true,
     setupFiles: ["src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],

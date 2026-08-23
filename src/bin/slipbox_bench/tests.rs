@@ -30,7 +30,8 @@ use crate::slipbox_bench::metrics::{
     select_dedicated_exploration_fixture,
 };
 use crate::slipbox_bench::profile::{
-    BenchmarkProfile, CorpusConfig, IterationConfig, ThresholdConfig,
+    BenchmarkProfile, CorpusConfig, IterationConfig, ThresholdConfig, load_profile,
+    resolve_profile_path,
 };
 use crate::slipbox_bench::report::{TimingReport, check_threshold, check_threshold_set};
 
@@ -42,6 +43,32 @@ fn timing_report_computes_sorted_percentiles() {
     assert_eq!(report.median_ms, 3.0);
     assert_eq!(report.p95_ms, 5.0);
     assert_eq!(report.max_ms, 5.0);
+}
+
+#[test]
+fn index_file_profiles_sample_the_tail_without_changing_budgets() -> Result<()> {
+    for (name, budget) in [("ci", 100.0), ("release", 120.0)] {
+        let profile = load_profile(&resolve_profile_path(name)?)?;
+        assert!(profile.iterations.index_file >= 40, "{name}");
+        assert_eq!(profile.thresholds.index_file_p95_ms, budget, "{name}");
+    }
+    Ok(())
+}
+
+#[test]
+fn index_file_p95_still_rejects_a_sustained_slow_tail() {
+    for (stalls, expected_p95) in [(2, 12.0), (3, 154.0)] {
+        let mut samples = vec![12.0; 40];
+        samples[..stalls].fill(154.0);
+        let report = TimingReport::from_samples(samples);
+        assert_eq!(report.samples_ms.len(), 40);
+        assert_eq!(report.p95_ms, expected_p95);
+        assert_eq!(report.max_ms, 154.0);
+        assert_eq!(
+            check_threshold("index_file", report.p95_ms, 100.0).is_err(),
+            stalls > 2
+        );
+    }
 }
 
 #[test]

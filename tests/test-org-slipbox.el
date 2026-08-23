@@ -358,16 +358,16 @@ ROOT-NODE defaults to NODE."
           (let ((org-slipbox-directory root)
                 (org-slipbox-file-exclude-regexp "^archive/"))
             (org-slipbox-update-org-id-locations extra-dir)
-            (should (equal (gethash "excluded-id" org-id-locations)
-                           (abbreviate-file-name excluded)))
-            (should (equal (gethash "extra-id" org-id-locations)
-                           (abbreviate-file-name extra-file)))
+            (should (file-equal-p (gethash "excluded-id" org-id-locations)
+                                  excluded))
+            (should (file-equal-p (gethash "extra-id" org-id-locations)
+                                  extra-file))
             (cl-letf (((symbol-function 'org-slipbox-node-from-id) (lambda (_id) nil)))
               (unwind-protect
                   (progn
                     (org-slipbox-id-mode 1)
                     (let ((location (org-id-find "excluded-id")))
-                      (should (equal (car location) (abbreviate-file-name excluded)))
+                      (should (file-equal-p (car location) excluded))
                       (with-temp-buffer
                         (insert-file-contents excluded)
                         (goto-char (cdr location))
@@ -396,14 +396,14 @@ ROOT-NODE defaults to NODE."
                         nil excluded nil 'silent)
           (let ((org-slipbox-directory root))
             (org-slipbox-update-org-id-locations)
-            (should (equal (gethash "excluded-id" org-id-locations)
-                           (abbreviate-file-name excluded)))
+            (should (file-equal-p (gethash "excluded-id" org-id-locations)
+                                  excluded))
             (cl-letf (((symbol-function 'org-slipbox-node-from-id) (lambda (_id) nil)))
               (unwind-protect
                   (progn
                     (org-slipbox-id-mode 1)
                     (let ((location (org-id-find "excluded-id")))
-                      (should (equal (car location) (abbreviate-file-name excluded)))
+                      (should (file-equal-p (car location) excluded))
                       (with-temp-buffer
                         (insert-file-contents excluded)
                         (goto-char (cdr location))
