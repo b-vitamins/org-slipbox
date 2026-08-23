@@ -84,12 +84,17 @@
   font-size: 13px;
 }
 
+/* A gesture carried past an end of the list stays in it: nothing above it here
+ * scrolls, so one handed on reaches the browser as a history gesture and takes
+ * the reader off the surface. The pane below and the narrow surface are the same
+ * statement on their own boxes. */
 .glossary-terms {
   flex: 1;
   margin: 0;
   padding: 0 8px 16px;
   list-style: none;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .glossary-term {
@@ -123,6 +128,7 @@
 .glossary-detail {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   justify-content: center;
 }
@@ -255,6 +261,7 @@
   .glossary {
     flex-direction: column;
     overflow-y: auto;
+    overscroll-behavior: contain;
     height: auto;
   }
 
