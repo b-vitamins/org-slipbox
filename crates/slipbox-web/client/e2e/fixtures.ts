@@ -18,18 +18,29 @@ export interface FixtureNote {
   body: string;
   forwardLinks?: FixtureLink[];
   backlinks?: FixtureLink[];
+  /** What the `bridges` lens ranks for this note, in the order it ranks it. */
+  bridges?: FixtureBridge[];
   /** Present only on a marked glossary term; absence keeps a note out of it. */
   glossaryStatus?: "stub" | "confirmed";
   /** `YYYY-MM-DD`; a term with one set is what `/api/glossary/due` returns. */
   srDue?: string;
 }
 
-export interface FixtureLink {
+/** A note named by a relation, which the envelopes carry as a whole record. */
+export interface FixtureEndpoint {
   key: string;
   id?: string;
   title: string;
+}
+
+export interface FixtureLink extends FixtureEndpoint {
   /** The linking line, verbatim Org; the client flattens it to a preview. */
   preview: string;
+}
+
+/** One bridge candidate: a note two hops away, and the notes it was reached by. */
+export interface FixtureBridge extends FixtureEndpoint {
+  via: FixtureEndpoint[];
 }
 
 export interface FixtureWorld {
@@ -79,8 +90,25 @@ function nodeRecord(note: FixtureNote): Record<string, unknown> {
 }
 
 /** A relation endpoint's record. Its body is empty: only the link names it. */
-function linkNode(link: FixtureLink): Record<string, unknown> {
+function linkNode(link: FixtureEndpoint): Record<string, unknown> {
   return nodeRecord({ key: link.key, id: link.id, title: link.title, body: "" });
+}
+
+/** One `bridge-candidate` entry, its evidence notes named as the wire names them. */
+function bridgeEntry(bridge: FixtureBridge): Record<string, unknown> {
+  return {
+    kind: "anchor",
+    anchor: linkNode(bridge),
+    explanation: {
+      kind: "bridge-candidate",
+      references: [],
+      via_notes: bridge.via.map((note) => ({
+        node_key: note.key,
+        explicit_id: note.id ?? null,
+        title: note.title,
+      })),
+    },
+  };
 }
 
 function fileOf(key: string): string {
@@ -246,6 +274,29 @@ export async function mountApi(page: Page, world: FixtureWorld): Promise<void> {
         return note
           ? json(route, noteContext(note))
           : apiError(route, 404, "not-found", "no note for the given key");
+      }
+
+      // Only the `bridges` lens has a fixture, since it is the only one the
+      // reading surface asks for; another lens is an unmodelled route.
+      case "/api/explore": {
+        const note = byKey.get(params.get("key") ?? "");
+        if (!note || params.get("lens") !== "bridges") {
+          return apiError(
+            route,
+            404,
+            "not-found",
+            `no fixture for lens ${params.get("lens") ?? ""}`,
+          );
+        }
+        return json(route, {
+          lens: "bridges",
+          sections: [
+            {
+              kind: "bridge-candidates",
+              entries: (note.bridges ?? []).map(bridgeEntry),
+            },
+          ],
+        });
       }
 
       case "/api/search/nodes": {

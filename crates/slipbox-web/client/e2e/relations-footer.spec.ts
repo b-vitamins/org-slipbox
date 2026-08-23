@@ -1,7 +1,9 @@
 /*
- * The relations footer's own layout. A hanging mark is placed by the cascade
- * against the row it hangs off, so only a real browser reports where it and the
- * title it precedes actually sit.
+ * The relations footer's own layout, and the cost of the groups beside its
+ * directed inventory. A hanging mark or label is placed by the cascade against
+ * the row it hangs off, so only a real browser reports where it and the title it
+ * precedes actually sit; and only a real browser reports which requests a column
+ * made before a reader touched it.
  */
 
 import { expect, test } from "@playwright/test";
@@ -28,12 +30,47 @@ const WORLD: FixtureWorld = {
         },
         { key: "file:in.org", id: "in-uuid", title: "Inbound", preview: "cites the origin" },
       ],
+      // Ranked by the lens: the two-connector candidate leads, and the third
+      // stands under a connector of its own.
+      bridges: [
+        {
+          key: "file:bridged.org",
+          id: "bridged-uuid",
+          title: "Bridged Note",
+          via: [
+            { key: "file:out.org", id: "out-uuid", title: "Outbound" },
+            { key: "file:in.org", id: "in-uuid", title: "Inbound" },
+          ],
+        },
+        {
+          key: "file:second.org",
+          id: "second-uuid",
+          title: "Second Bridged",
+          via: [{ key: "file:out.org", id: "out-uuid", title: "Outbound" }],
+        },
+        {
+          key: "file:third.org",
+          id: "third-uuid",
+          title: "Third Bridged",
+          via: [{ key: "file:in.org", id: "in-uuid", title: "Inbound" }],
+        },
+      ],
     },
   ],
 };
 
+/** Every `/api/explore` request the page made, in order. */
+let explored: string[] = [];
+
 test.describe("the relations footer", () => {
   test.beforeEach(async ({ page }) => {
+    explored = [];
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (url.pathname === "/api/explore") {
+        explored.push(url.search);
+      }
+    });
     await mountApi(page, WORLD);
     await page.goto("/?note=file:origin.org");
     await expect(page.getByRole("heading", { name: "Origin" })).toBeVisible();
@@ -54,5 +91,35 @@ test.describe("the relations footer", () => {
     // it belongs to.
     const mark = await page.locator(".relations__direction").first().boundingBox();
     expect(mark!.x + mark!.width).toBeLessThanOrEqual([...lefts][0]!);
+  });
+
+  test("asks the lens nothing until the related group is opened", async ({ page }) => {
+    const group = page.getByRole("button", { name: "Related notes" });
+    await expect(group).toHaveAttribute("aria-expanded", "false");
+    expect(explored).toHaveLength(0);
+
+    await group.click();
+    await expect(page.getByRole("link", { name: "Bridged Note" })).toBeVisible();
+
+    expect(explored).toHaveLength(1);
+    expect(explored[0]).toContain("lens=bridges");
+  });
+
+  test("hangs a connector left of the rows it names", async ({ page }) => {
+    await page.getByRole("button", { name: "Related notes" }).click();
+    await expect(page.getByRole("link", { name: "Bridged Note" })).toBeVisible();
+
+    // Two connectors, each named once, in the order the lens reached them.
+    await expect(page.locator(".relations__connector")).toHaveText([
+      "via Outbound",
+      "via Inbound",
+    ]);
+
+    const connector = await page.locator(".relations__connector").first().boundingBox();
+    const row = await page
+      .getByRole("link", { name: "Bridged Note" })
+      .boundingBox();
+    expect(connector!.x).toBeLessThan(row!.x);
+    expect(connector!.y).toBeLessThan(row!.y);
   });
 });

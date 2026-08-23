@@ -33,6 +33,13 @@ The format follows Keep a Changelog, and this project follows SemVer.
   Each listing pages on its own key, so a token the other minted is refused
   rather than resumed at the wrong place. `/api/glossary/search` ranks by
   relevance, which is no stable key, so it serves one page and states the cut.
+- Offer ranked related notes in the reading footer: notes the bridges lens ranks
+  two hops out that this note does not link to, gathered under the connector they
+  are reached through and dropped where the directed inventory already lists them.
+  Nothing is asked of the lens until a reader opens the group, so a column still
+  costs one request for as long as its footer is only read. The head's cut and the
+  lens's own limit are stated separately, since a row count tells them apart from
+  neither.
 - Rest the reading spine at a snap position, so a free scroll settles with a
   column against the offset it pins at rather than part-cut at an edge. Snapping
   is by proximity, leaving a reader who deliberately holds two half columns

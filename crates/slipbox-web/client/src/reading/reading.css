@@ -392,6 +392,31 @@
   letter-spacing: 0.06em;
 }
 
+/* The disclosure that names a deferred group. It carries the label's own type
+ * rather than a button's, since it is the label. The marker is decoration:
+ * `aria-expanded` is what states the group's state. */
+.relations__toggle {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.relations__toggle::before {
+  content: "▸";
+  display: inline-block;
+  width: 20px;
+  color: var(--muted-2);
+}
+
+.relations__toggle[aria-expanded="true"]::before {
+  content: "▾";
+}
+
 /* The markers go, for the surface's own rhythm. An engine that reads a listing
  * stripped of them as prose set out in lines drops the list semantics with them,
  * and a reader is then told neither that the rows are a listing nor how many
@@ -400,6 +425,42 @@
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* The connector hangs at the group's own left edge while its rows keep the
+ * indent every relation row carries, so it reads as the label over them rather
+ * than as another row in the listing. */
+.relations__connector {
+  margin: 8px 0 2px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+/* How far from the connector a row stands, stated only where it is more than
+ * the one the connector above it already names. */
+.relations__connectors {
+  color: var(--muted-2);
+  font-size: 13px;
+}
+
+/* The rest of a bounded group, offered rather than shown. A text control, since
+ * a button's chrome beside a listing would read as the listing's own frame. */
+.relations__more {
+  margin: 6px 0 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  cursor: pointer;
+}
+
+.relations__more:hover {
+  color: var(--ink);
 }
 
 /* Wrapping keeps the row inside a narrow column: a rigid link plus a nowrap
@@ -449,13 +510,19 @@
   text-overflow: ellipsis;
 }
 
-/* What a bounded group holds back, set like the source-truncation notice above
- * the footer so both omissions read as one voice. */
-.relations__shortfall {
+/* What a bounded group holds back, and what a deferred group has to say for
+ * itself, set like the source-truncation notice above the footer so an omission
+ * and a failure read as one voice. */
+.relations__shortfall,
+.relations__status {
   margin: 6px 0 0;
   color: var(--muted);
   font-size: 14px;
   line-height: 20px;
+}
+
+.relations__status--error {
+  color: var(--ink);
 }
 
 /* KaTeX's own 1.21em would tower over a 14px row, so a formula in a preview
