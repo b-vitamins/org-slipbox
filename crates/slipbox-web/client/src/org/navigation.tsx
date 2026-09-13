@@ -1,7 +1,8 @@
 /*
- * The context carrying the reading surface's navigation grammar: the renderer
- * turns a gesture into one of `glance`, `pin`, `go` and the spine decides how
- * each is honored. Internal targets prefer stable ids and otherwise use node keys.
+ * The context carrying the host's navigation grammar: the renderer turns a
+ * gesture into one of `glance`, `pin`, `go` and the host decides how each is
+ * honored and what URL a link carries. Internal targets prefer stable ids and
+ * otherwise use node keys.
  */
 
 import {
@@ -34,6 +35,12 @@ export interface GlanceRequest {
 }
 
 export interface Navigation {
+  /**
+   * The URL a link to `target` carries, or `null` where the host addresses notes
+   * some other way. The grammar is the host's, so a modifier-click, a middle-click
+   * and a cold load reach whatever the host would have opened.
+   */
+  readonly href: (target: LinkTarget) => string | null;
   /** Preview a target without committing; `null` dismisses the preview. */
   readonly glance: (request: GlanceRequest | null) => void;
   /** Open the target as a new column beside its origin. */
@@ -55,7 +62,12 @@ export function targetForNote(key: string, explicitId: string | null): LinkTarge
 }
 
 /** A no-op navigation, so a column renders standalone (e.g. in tests). */
-const INERT: Navigation = { glance: () => {}, pin: () => {}, go: () => {} };
+const INERT: Navigation = {
+  href: () => null,
+  glance: () => {},
+  pin: () => {},
+  go: () => {},
+};
 
 const NavigationContext = createContext<Navigation>(INERT);
 

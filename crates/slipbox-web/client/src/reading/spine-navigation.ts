@@ -1,5 +1,6 @@
 import { referenceOf, type LinkTarget, type Navigation } from "../org/navigation.jsx";
 import type { GlanceController } from "./glance-controller.js";
+import { noteHref } from "./note-href.js";
 import { encodeStack, reduceReadOn, type ReadingStack } from "./stack.js";
 
 /** Bind link navigation to a column whose index may change with the stack. */
@@ -10,6 +11,7 @@ export function spineNavigation(
   reveal: (index: number) => void,
 ): Navigation {
   return {
+    href: noteHref,
     glance: (request) => glances.glance(request),
     pin: (target: LinkTarget) => {
       glances.glance(null);

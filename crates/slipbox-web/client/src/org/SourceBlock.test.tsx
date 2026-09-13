@@ -79,6 +79,72 @@ describe("SourceBlock", () => {
     vi.unstubAllGlobals();
   });
 
+  it("drops a copy that succeeds after the block was removed", async () => {
+    vi.useFakeTimers();
+    const scheduled = vi.spyOn(window, "setTimeout");
+    let settle: () => void = () => {};
+    const writeText = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          settle = resolve;
+        }),
+    );
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+
+    const { container, unmount } = render(() => (
+      <SourceBlock lang="rust" code="fn f() {}" />
+    ));
+    screen.getByRole("button", { name: "Copy code to clipboard" }).click();
+    expect(writeText).toHaveBeenCalledTimes(1);
+
+    unmount();
+    const timers = scheduled.mock.calls.length;
+    settle();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(scheduled.mock.calls.length).toBe(timers);
+    expect(container.querySelector(".org-src")).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("drops a refusal that arrives after the block was removed", async () => {
+    vi.useFakeTimers();
+    const scheduled = vi.spyOn(window, "setTimeout");
+    let refuse: (reason: Error) => void = () => {};
+    const writeText = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          refuse = reject;
+        }),
+    );
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+
+    const own = document.createElement("p");
+    own.textContent = "what the host selected";
+    document.body.append(own);
+
+    const { unmount } = render(() => <SourceBlock lang="sh" code="ls -la" />);
+    screen.getByRole("button", { name: "Copy code to clipboard" }).click();
+
+    const range = document.createRange();
+    range.selectNodeContents(own);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    unmount();
+    const timers = scheduled.mock.calls.length;
+    refuse(new Error("denied"));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(scheduled.mock.calls.length).toBe(timers);
+    expect(window.getSelection()?.toString()).toBe("what the host selected");
+
+    own.remove();
+    vi.unstubAllGlobals();
+  });
+
   it("announces the outcome politely", () => {
     const { container } = render(() => <SourceBlock lang="rust" code="fn f() {}" />);
     expect(container.querySelector(".org-src__chrome")).toHaveAttribute(

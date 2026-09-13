@@ -6,33 +6,57 @@
 
 import { For, Show, type Component } from "solid-js";
 
+import { useAssetResolver } from "./assets.jsx";
 import { GrammarLink } from "./GrammarLink.jsx";
-import { followableHref } from "./link-target.js";
+import { followableHref, resolvedAssetHref } from "./link-target.js";
 import { InlineMath } from "./Math.jsx";
 import type { Inline } from "./types.js";
 
+import "./org.css";
+
 type LinkNode = Extract<Inline, { type: "link" }>;
 
-/** Render unsupported external targets as readable inert text. */
-const ExternalLink: Component<{ node: LinkNode }> = (props) => (
-  <Show
-    when={followableHref(props.node.target)}
-    fallback={
-      <span
-        class="org-link org-link--inert"
-        title="This link's target is not one the reading surface follows."
-      >
-        <RenderInline nodes={props.node.label} />
-      </span>
-    }
-  >
-    {(href) => (
-      <a class="org-link org-link--external" href={href()}>
-        <RenderInline nodes={props.node.label} />
-      </a>
-    )}
-  </Show>
-);
+/**
+ * Render a target the document cannot follow itself: as an anchor where the host
+ * resolves it to a URL of an admitted scheme, and otherwise as readable inert text.
+ */
+const ExternalLink: Component<{ node: LinkNode }> = (props) => {
+  const resolveAsset = useAssetResolver();
+  const asset = (): string | null => {
+    const resolved = resolveAsset(props.node.target);
+    return resolved === null ? null : resolvedAssetHref(resolved);
+  };
+  return (
+    <Show
+      when={followableHref(props.node.target)}
+      fallback={
+        <Show
+          when={asset()}
+          fallback={
+            <span
+              class="org-link org-link--inert"
+              title="This link's target is not one the reading surface follows."
+            >
+              <RenderInline nodes={props.node.label} />
+            </span>
+          }
+        >
+          {(href) => (
+            <a class="org-link org-link--asset" href={href()}>
+              <RenderInline nodes={props.node.label} />
+            </a>
+          )}
+        </Show>
+      }
+    >
+      {(href) => (
+        <a class="org-link org-link--external" href={href()}>
+          <RenderInline nodes={props.node.label} />
+        </a>
+      )}
+    </Show>
+  );
+};
 
 const OrgLink: Component<{ node: LinkNode }> = (props) => (
   <Show

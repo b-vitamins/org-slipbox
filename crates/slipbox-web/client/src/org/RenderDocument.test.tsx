@@ -1,6 +1,7 @@
 import { render, screen } from "@solidjs/testing-library";
 import { describe, expect, it, vi } from "vitest";
 
+import { noteHref } from "../reading/note-href.js";
 import { NavigationProvider, type Navigation } from "./navigation.jsx";
 import { parseOrg } from "./parse.js";
 import { RenderDocument } from "./RenderDocument.jsx";
@@ -67,6 +68,7 @@ describe("RenderDocument", () => {
 
   it("pins an id link on a plain click instead of following the browser", () => {
     const navigation: Navigation = {
+      href: noteHref,
       glance: vi.fn(),
       pin: vi.fn(),
       go: vi.fn(),
@@ -98,6 +100,7 @@ describe("RenderDocument", () => {
 
   it("escalates to go on an alt-click", () => {
     const navigation: Navigation = {
+      href: noteHref,
       glance: vi.fn(),
       pin: vi.fn(),
       go: vi.fn(),

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Org document</title>
+    <!--
+      The bundle emits its stylesheet as a file rather than injecting it, so a
+      host links it. Both references are relative, so the directory may be served
+      from any local origin.
+    -->
+    <link rel="stylesheet" href="./document.css" />
+    <style>
+      /* Layout is the host's; the shared tokens the column reads come from
+         `document.css`, which also paints this page's baseline. */
+      .host-column {
+        max-width: var(--column-width);
+        margin: 0 auto;
+        padding: var(--note-padding);
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      Content is data: the source arrives as JSON this page reads, never as script
+      it evaluates.
+    -->
+    <script type="application/json" id="org-source">
+      {
+        "source": "A document rendered by the bundled Org pipeline, with *bold*, /italic/, =verbatim= and inline math \\(e^{i\\pi} = -1\\).\n\n* Blocks\n\n- a plain list item\n- another, with =code= in it\n\n#+begin_src rust\nfn main() {\n    println!(\"hello\");\n}\n#+end_src\n\n#+begin_quote\nA quoted line.\n#+end_quote\n\n\\[ \\int_0^1 x^2 \\, dx = \\frac{1}{3} \\]\n\n| Column | Value |\n|--------+-------|\n| alpha  | 1     |\n| beta   | 2     |\n"
+      }
+    </script>
+    <div class="host-column" id="org-host"></div>
+    <script type="module">
+      import { mountOrgDocument } from "./document.js";
+
+      const source = document.getElementById("org-source").textContent;
+      const host = document.getElementById("org-host");
+      mountOrgDocument(host, { content: JSON.parse(source) });
+    </script>
+  </body>
+</html>

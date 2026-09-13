@@ -1,0 +1,27 @@
+/*
+ * The container a mounted document owns. Palette, type scale and metrics come
+ * from the shared tokens, resolved on this element rather than inherited: an
+ * inherited `color` computes in the scheme of the element that declared it, so a
+ * document painting in a scheme the page does not would take the page's ink onto
+ * its own canvas.
+ */
+
+.org-document-host {
+  /* Restated so an instance following the platform keeps following it on a page
+   * that pinned a scheme for itself. */
+  color-scheme: light dark;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--text-size);
+  line-height: var(--text-line);
+  letter-spacing: var(--text-letter-spacing);
+}
+
+.org-document-host[data-theme="light"] {
+  color-scheme: light;
+}
+
+.org-document-host[data-theme="dark"] {
+  color-scheme: dark;
+}

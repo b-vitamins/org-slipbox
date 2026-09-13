@@ -7,6 +7,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Add a reusable Org document bundle with explicit content, theme, navigation
+  intents and asset resolution. It shares the web renderer and ships local
+  KaTeX fonts, a hashed asset inventory and third-party notices independently
+  of the reading application. Android integration remains unbuilt.
 - Document the planned Git-sourced Android reader in `doc/android.org`: source
   eligibility, read-only/native boundaries, coherent offline sync, private data,
   and delivery. Link its roadmap, model, and compatibility policy; the app is

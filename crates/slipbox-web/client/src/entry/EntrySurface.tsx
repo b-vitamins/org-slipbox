@@ -23,7 +23,9 @@ import { WINDOW_SCHEDULER } from "../data/scheduler.js";
 import { useDocumentTitle } from "../dom/document-title.js";
 import { createHoverMotion, type HoverPlace } from "../dom/hover-motion.js";
 import { revealOption } from "../dom/scroll-into-view.js";
+import { NavigationProvider } from "../org/navigation.jsx";
 import { RenderInline } from "../org/RenderInline.jsx";
+import { ADDRESSES_ONLY } from "../reading/note-href.js";
 import { browserCursorHistory, type CursorHistory } from "./cursor-history.js";
 import { excerptRuns } from "./excerpt.js";
 import { slipboxName } from "./identity.js";
@@ -338,81 +340,85 @@ export const EntrySurface: Component<{
   };
 
   return (
-    <main class="entry">
-      <Show when={!status.error()}>
-        <Show when={status.ready()}>{(info) => <IdentityHero info={info()} />}</Show>
-        <div class="entry-search">
-          <input
-            ref={field}
-            type="search"
-            class="entry-search__field"
-            placeholder="What are you looking for?"
-            autocomplete="off"
-            aria-label="Search the slipbox"
-            role="combobox"
-            aria-expanded={isExpanded()}
-            aria-controls={listboxId}
-            aria-activedescendant={activeId()}
-            value={search.query()}
-            onInput={(event) => onQueryInput(event.currentTarget.value)}
-            onKeyDown={onKeyDown}
-          />
-          <button
-            type="button"
-            class="entry-search__random"
-            // The field owns focus; a press here must not blur it first.
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => void openRandom()}
-            disabled={randomPending()}
-            aria-busy={randomPending()}
-          >
-            Surprise me
-          </button>
-        </div>
-      </Show>
-
-      <p
-        class="entry-status entry-status--summary"
-        classList={{
-          "entry-status--error": failure() !== null,
-          "entry-status--hint": failure() === null && search.awaitingWord(),
-        }}
-        role="status"
-      >
-        {announcement()}
-      </p>
-
-      <Show when={!status.error() && hits().length > 0}>
-        <ul
-          id={listboxId}
-          role="listbox"
-          aria-label="Search results"
-          class="entry-results"
-          onMouseLeave={hover.left}
-        >
-          <For each={hits()}>
-            {(hit, index) => (
-              <ResultRow
-                hit={hit}
-                id={optionId(index())}
-                active={active() === index()}
-                onChoose={() => open(hit)}
-                onHover={(at) => {
-                  if (hover.crossed(at)) {
-                    markRow(index());
-                  }
-                }}
-                onMove={hover.moved}
-              />
-            )}
-          </For>
-        </ul>
-        <Show when={atLimit()}>
-          <p class="entry-status entry-status--more">
-            Refine your search to narrow it.
-          </p>
+    // An excerpt's links are addresses only: this surface has no reading column
+    // to raise a glance in, so a link only carries where it would open.
+    <NavigationProvider navigation={ADDRESSES_ONLY}>
+      <main class="entry">
+        <Show when={!status.error()}>
+          <Show when={status.ready()}>{(info) => <IdentityHero info={info()} />}</Show>
+          <div class="entry-search">
+            <input
+              ref={field}
+              type="search"
+              class="entry-search__field"
+              placeholder="What are you looking for?"
+              autocomplete="off"
+              aria-label="Search the slipbox"
+              role="combobox"
+              aria-expanded={isExpanded()}
+              aria-controls={listboxId}
+              aria-activedescendant={activeId()}
+              value={search.query()}
+              onInput={(event) => onQueryInput(event.currentTarget.value)}
+              onKeyDown={onKeyDown}
+            />
+            <button
+              type="button"
+              class="entry-search__random"
+              // The field owns focus; a press here must not blur it first.
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => void openRandom()}
+              disabled={randomPending()}
+              aria-busy={randomPending()}
+            >
+              Surprise me
+            </button>
+          </div>
         </Show>
-      </Show>
-    </main>
+
+        <p
+          class="entry-status entry-status--summary"
+          classList={{
+            "entry-status--error": failure() !== null,
+            "entry-status--hint": failure() === null && search.awaitingWord(),
+          }}
+          role="status"
+        >
+          {announcement()}
+        </p>
+
+        <Show when={!status.error() && hits().length > 0}>
+          <ul
+            id={listboxId}
+            role="listbox"
+            aria-label="Search results"
+            class="entry-results"
+            onMouseLeave={hover.left}
+          >
+            <For each={hits()}>
+              {(hit, index) => (
+                <ResultRow
+                  hit={hit}
+                  id={optionId(index())}
+                  active={active() === index()}
+                  onChoose={() => open(hit)}
+                  onHover={(at) => {
+                    if (hover.crossed(at)) {
+                      markRow(index());
+                    }
+                  }}
+                  onMove={hover.moved}
+                />
+              )}
+            </For>
+          </ul>
+          <Show when={atLimit()}>
+            <p class="entry-status entry-status--more">
+              Refine your search to narrow it.
+            </p>
+          </Show>
+        </Show>
+      </main>
+    </NavigationProvider>
   );
 };

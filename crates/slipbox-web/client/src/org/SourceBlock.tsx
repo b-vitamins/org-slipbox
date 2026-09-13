@@ -59,21 +59,35 @@ export const SourceBlock: Component<{ lang: string | null; code: string }> = (
       setState("resting");
     }, COPIED_FEEDBACK_MS);
   };
+  // A press can arrive on a retained button, and a write can settle, after this
+  // block is gone: neither may reach the clipboard, a detached selection, or a
+  // timer nothing owns.
+  let attached = true;
   onCleanup(() => {
+    attached = false;
     if (reverting !== null) {
       window.clearTimeout(reverting);
     }
   });
 
   const copy = async (): Promise<void> => {
+    if (!attached) {
+      return;
+    }
     try {
       const clipboard = navigator.clipboard;
       if (!clipboard) {
         throw new Error("this browser exposes no clipboard");
       }
       await clipboard.writeText(props.code);
+      if (!attached) {
+        return;
+      }
       report("copied");
     } catch {
+      if (!attached) {
+        return;
+      }
       selectContents(code);
       report("failed");
     }

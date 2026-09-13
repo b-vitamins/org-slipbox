@@ -14,6 +14,7 @@ import {
 import { parseOrg } from "../org/parse.js";
 import { RenderDocument } from "../org/RenderDocument.jsx";
 import { fetchNoteContext, WHOLE_NOTE_MAX_LINES } from "../reading/fetch-note.js";
+import { noteHref } from "../reading/note-href.js";
 import { StudyFacts } from "./StudyFacts.jsx";
 
 function describeError(error: unknown): string {
@@ -27,6 +28,7 @@ function describeError(error: unknown): string {
 function peekNavigation(onOpen: (reference: string) => void): Navigation {
   const open = (target: LinkTarget): void => onOpen(referenceOf(target));
   return {
+    href: noteHref,
     glance: (request) => {
       if (request?.gesture === "touch") {
         request.go();

@@ -8,11 +8,15 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:document": "node scripts/build-document.mjs",
     "preview": "vite preview",
+    "preview:document": "vite preview --config vite.document.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:document": "playwright test --config playwright.document.config.ts",
+    "check:document-graph": "node scripts/document-graph.mjs"
   },
   "dependencies": {
     "katex": "^0.16.47",

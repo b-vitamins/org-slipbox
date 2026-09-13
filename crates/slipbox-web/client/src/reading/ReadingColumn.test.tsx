@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { NotePlace } from "../api/types.js";
 import { __resetRefocusForTests } from "../data/refetch-on-focus.js";
+import { ADDRESSES_ONLY } from "./note-href.js";
 import { ReadingColumn } from "./ReadingColumn.jsx";
 import type { ColumnState } from "./spine-geometry.js";
 import type { FilingMove } from "./spine-navigation.js";
@@ -69,7 +70,7 @@ function mount(reference: string) {
     <ReadingColumn
       reference={reference}
       state="resting"
-      navigation={{ glance: () => {}, pin: () => {}, go: () => {} }}
+      navigation={ADDRESSES_ONLY}
       readOn={INERT_READ_ON}
       onReveal={() => {}}
     />
@@ -97,7 +98,7 @@ describe("ReadingColumn obscured sliver", () => {
       <ReadingColumn
         reference="notes/gradient.org"
         state="obscured"
-        navigation={{ glance: () => {}, pin: () => {}, go: () => {} }}
+        navigation={ADDRESSES_ONLY}
         readOn={INERT_READ_ON}
         onReveal={onReveal}
       />
@@ -123,7 +124,7 @@ describe("ReadingColumn obscured sliver", () => {
       <ReadingColumn
         reference="notes/gradient.org"
         state={state()}
-        navigation={{ glance: () => {}, pin: () => {}, go: () => {} }}
+        navigation={ADDRESSES_ONLY}
         readOn={INERT_READ_ON}
         onReveal={() => {}}
       />

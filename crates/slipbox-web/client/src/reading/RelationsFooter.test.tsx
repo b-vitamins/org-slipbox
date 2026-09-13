@@ -9,6 +9,7 @@ import {
   RELATED_LENS_LIMIT,
   RELATED_SHOWN,
 } from "./RelationsFooter.jsx";
+import { ADDRESSES_ONLY, noteHref } from "./note-href.js";
 import { RELATION_PREVIEW_CHARS } from "./relations.js";
 import type { FilingMove } from "./spine-navigation.js";
 import { __resetRefocusForTests } from "../data/refetch-on-focus.js";
@@ -123,8 +124,6 @@ function context(
   };
 }
 
-const inertNav: Navigation = { glance: () => {}, pin: () => {}, go: () => {} };
-
 const inertReadOn: FilingMove = {
   address: (target) => `?note=${target}`,
   open: () => {},
@@ -147,7 +146,7 @@ function mentionsGroup(container: HTMLElement): Element {
 
 function mount(context: NoteContext): HTMLElement {
   return render(() => (
-    <NavigationProvider navigation={inertNav}>
+    <NavigationProvider navigation={ADDRESSES_ONLY}>
       <RelationsFooter readOn={inertReadOn} context={context} />
     </NavigationProvider>
   )).container;
@@ -192,7 +191,7 @@ describe("RelationsFooter", () => {
 
   it("names each row's direction for a screen reader", () => {
     render(() => (
-      <NavigationProvider navigation={inertNav}>
+      <NavigationProvider navigation={ADDRESSES_ONLY}>
         <RelationsFooter
           readOn={inertReadOn}
           context={context(
@@ -216,7 +215,7 @@ describe("RelationsFooter", () => {
 
   it("shows no preview on a row the note only links out to", () => {
     const { container } = render(() => (
-      <NavigationProvider navigation={inertNav}>
+      <NavigationProvider navigation={ADDRESSES_ONLY}>
         <RelationsFooter
           readOn={inertReadOn}
           context={context(
@@ -235,7 +234,7 @@ describe("RelationsFooter", () => {
   // notes is typeset in it rather than shown as its TeX source.
   it("typesets math in a row preview through KaTeX", () => {
     const { container } = render(() => (
-      <NavigationProvider navigation={inertNav}>
+      <NavigationProvider navigation={ADDRESSES_ONLY}>
         <RelationsFooter
           readOn={inertReadOn}
           context={context(
@@ -260,7 +259,7 @@ describe("RelationsFooter", () => {
 
   it("renders a preview no longer than the character bound", () => {
     const { container } = render(() => (
-      <NavigationProvider navigation={inertNav}>
+      <NavigationProvider navigation={ADDRESSES_ONLY}>
         <RelationsFooter
           readOn={inertReadOn}
           context={context(
@@ -284,6 +283,7 @@ describe("RelationsFooter", () => {
 
   it("pins the related note when its row is clicked, via an id target", () => {
     const navigation: Navigation = {
+      href: noteHref,
       glance: vi.fn(),
       pin: vi.fn(),
       go: vi.fn(),
@@ -313,7 +313,7 @@ describe("RelationsFooter", () => {
 
   it("states how many backlinks it holds back when the note has more", () => {
     render(() => (
-      <NavigationProvider navigation={inertNav}>
+      <NavigationProvider navigation={ADDRESSES_ONLY}>
         <RelationsFooter
           readOn={inertReadOn}
           context={context([], [backward(node("notes/x.org::0", "Ex"))], {
@@ -330,7 +330,7 @@ describe("RelationsFooter", () => {
 
   it("says nothing about a note linked to twice from one note", () => {
     const { container } = render(() => (
-      <NavigationProvider navigation={inertNav}>
+      <NavigationProvider navigation={ADDRESSES_ONLY}>
         <RelationsFooter
           readOn={inertReadOn}
           context={context([], [backward(node("notes/x.org::0", "Ex"))], {
@@ -359,7 +359,7 @@ describe("RelationsFooter", () => {
 
   it("says nothing about a group whose links all fit", () => {
     const { container } = render(() => (
-      <NavigationProvider navigation={inertNav}>
+      <NavigationProvider navigation={ADDRESSES_ONLY}>
         <RelationsFooter
           readOn={inertReadOn}
           context={context(
@@ -375,7 +375,7 @@ describe("RelationsFooter", () => {
 
   it("measures what is shown by the rows it rendered, not by the array", () => {
     render(() => (
-      <NavigationProvider navigation={inertNav}>
+      <NavigationProvider navigation={ADDRESSES_ONLY}>
         <RelationsFooter
           readOn={inertReadOn}
           context={context(
@@ -397,7 +397,7 @@ describe("RelationsFooter", () => {
 
   it("states a cut in each direction against that direction's own total", () => {
     render(() => (
-      <NavigationProvider navigation={inertNav}>
+      <NavigationProvider navigation={ADDRESSES_ONLY}>
         <RelationsFooter
           readOn={inertReadOn}
           context={context(
@@ -419,7 +419,7 @@ describe("RelationsFooter", () => {
 
   it("offers a note with no link the mention group alone", () => {
     const { container } = render(() => (
-      <NavigationProvider navigation={inertNav}>
+      <NavigationProvider navigation={ADDRESSES_ONLY}>
         <RelationsFooter readOn={inertReadOn} context={context([], [])} />
       </NavigationProvider>
     ));
@@ -445,7 +445,7 @@ const BETWEEN: NotePlace = {
 
 function mountReadOn(place: NotePlace, readOn: FilingMove): HTMLElement {
   return render(() => (
-    <NavigationProvider navigation={inertNav}>
+    <NavigationProvider navigation={ADDRESSES_ONLY}>
       <RelationsFooter readOn={readOn} context={filed(place)} />
     </NavigationProvider>
   )).container;
@@ -507,7 +507,7 @@ describe("RelationsFooter reading on", () => {
 
   it("states no move where the payload states no position", () => {
     const container = render(() => (
-      <NavigationProvider navigation={inertNav}>
+      <NavigationProvider navigation={ADDRESSES_ONLY}>
         <RelationsFooter readOn={inertReadOn} context={context([], [])} />
       </NavigationProvider>
     )).container;

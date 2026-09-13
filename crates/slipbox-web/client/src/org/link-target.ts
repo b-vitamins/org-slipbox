@@ -19,3 +19,41 @@ export function followableHref(target: string): string | null {
   }
   return FOLLOWABLE_SCHEMES.has(scheme.toLowerCase()) ? normalized : null;
 }
+
+/*
+ * Schemes a host may resolve an asset to. Narrower than a browser would accept:
+ * `data:` is excluded because a document could otherwise be handed a whole HTML
+ * page to navigate to, and `blob:` is admitted here but not to content, since
+ * only the host can have created one.
+ */
+const RESOLVED_SCHEMES = new Set(["http", "https", "blob"]);
+
+/*
+ * A browser folds a backslash to a slash for every scheme reached from here, so
+ * `\\host`, `/\host` and `https:\\host` all name an authority. The forms are
+ * refused outright rather than rewritten, which keeps this check independent of
+ * how far a given engine takes that folding.
+ */
+const AMBIGUOUS_SLASH = /\\/;
+
+/**
+ * Validate a URL a host resolved for an unfollowable target. A scheme-less URL
+ * is relative to the document and allowed; `//host` and the backslash forms are
+ * not, since a browser reads them as an authority off the document's own origin.
+ * An admitted scheme carries whatever origin the host named.
+ */
+export function resolvedAssetHref(url: string): string | null {
+  const normalized = normalize(url);
+  if (
+    normalized === "" ||
+    normalized.startsWith("//") ||
+    AMBIGUOUS_SLASH.test(normalized)
+  ) {
+    return null;
+  }
+  const scheme = SCHEME.exec(normalized)?.[1];
+  if (scheme === undefined) {
+    return normalized;
+  }
+  return RESOLVED_SCHEMES.has(scheme.toLowerCase()) ? normalized : null;
+}

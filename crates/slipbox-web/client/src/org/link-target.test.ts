@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { followableHref } from "./link-target.js";
+import { followableHref, resolvedAssetHref } from "./link-target.js";
 
 describe("followableHref", () => {
   it("follows the schemes that navigate", () => {
@@ -56,5 +56,52 @@ describe("followableHref", () => {
     expect(followableHref("https://example.org/\ta")).toBe(
       "https://example.org/a",
     );
+  });
+});
+
+describe("resolvedAssetHref", () => {
+  it("serves an asset the host placed beside the document", () => {
+    expect(resolvedAssetHref("assets/diagram.png")).toBe("assets/diagram.png");
+    expect(resolvedAssetHref("./assets/diagram.png")).toBe("./assets/diagram.png");
+    expect(resolvedAssetHref("../shared/diagram.png")).toBe("../shared/diagram.png");
+    expect(resolvedAssetHref("/media/diagram.png")).toBe("/media/diagram.png");
+  });
+
+  it("serves an asset the host addressed by scheme", () => {
+    expect(resolvedAssetHref("https://example.org/a.png")).toBe(
+      "https://example.org/a.png",
+    );
+    expect(resolvedAssetHref("blob:http://localhost:4174/abc")).toBe(
+      "blob:http://localhost:4174/abc",
+    );
+  });
+
+  it("refuses a resolution that would execute or carry its own document", () => {
+    expect(resolvedAssetHref("javascript:alert(1)")).toBeNull();
+    expect(resolvedAssetHref("java\tscript:alert(1)")).toBeNull();
+    expect(resolvedAssetHref("  JaVaScRiPt:alert(1)")).toBeNull();
+    expect(resolvedAssetHref("data:text/html,<script>alert(1)</script>")).toBeNull();
+    expect(resolvedAssetHref("vbscript:msgbox(1)")).toBeNull();
+  });
+
+  it("refuses a resolution that leaves the document's own scheme behind", () => {
+    expect(resolvedAssetHref("//example.org/a.png")).toBeNull();
+    expect(resolvedAssetHref("  //example.org/a.png")).toBeNull();
+  });
+
+  it("refuses an authority a browser would read through backslashes", () => {
+    expect(resolvedAssetHref("\\\\example.org/plot.png")).toBeNull();
+    expect(resolvedAssetHref("/\\example.org/plot.png")).toBeNull();
+    expect(resolvedAssetHref("\\/example.org/plot.png")).toBeNull();
+    expect(resolvedAssetHref("\t\\\\example.org/plot.png")).toBeNull();
+    expect(resolvedAssetHref("/\t/example.org/plot.png")).toBeNull();
+    // Ambiguous even where it names no authority, so it is refused outright.
+    expect(resolvedAssetHref("media\\plot.png")).toBeNull();
+    expect(resolvedAssetHref("https://example.org\\@evil.example/a.png")).toBeNull();
+  });
+
+  it("refuses an empty resolution rather than emitting a self-link", () => {
+    expect(resolvedAssetHref("")).toBeNull();
+    expect(resolvedAssetHref("   ")).toBeNull();
   });
 });

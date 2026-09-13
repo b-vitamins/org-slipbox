@@ -1,9 +1,7 @@
-import { type Component, type JSX } from "solid-js";
+import { onCleanup, type Component, type JSX } from "solid-js";
 
 import { gestureCanHover } from "../dom/pointer.js";
-import { encodeStack } from "../reading/stack.js";
 import {
-  referenceOf,
   useNavigation,
   type GlanceGesture,
   type LinkTarget,
@@ -23,10 +21,6 @@ function isPointerPress(event: MouseEvent): boolean {
   return event.detail > 0;
 }
 
-export function grammarHref(target: LinkTarget): string {
-  return encodeStack([referenceOf(target)]);
-}
-
 export const GrammarLink: Component<{
   target: LinkTarget;
   class?: string;
@@ -34,6 +28,16 @@ export const GrammarLink: Component<{
   children: JSX.Element;
 }> = (props) => {
   const navigation = useNavigation();
+
+  const href = (): string | undefined => navigation.href(props.target) ?? undefined;
+
+  // A delegated click still reaches an element the host kept and put back in the
+  // page. Gestures on it report nothing, so it cannot speak for replaced content
+  // or another instance's preview.
+  let attached = true;
+  onCleanup(() => {
+    attached = false;
+  });
 
   // Click events omit pointer type, so retain it from the preceding pointer event.
   let pointerType: string | null = null;
@@ -74,7 +78,7 @@ export const GrammarLink: Component<{
   };
 
   const onClick = (event: MouseEvent): void => {
-    if (isBrowserGesture(event)) {
+    if (!attached || isBrowserGesture(event)) {
       return;
     }
     event.preventDefault();
@@ -87,18 +91,28 @@ export const GrammarLink: Component<{
   };
 
   const onHover = (event: MouseEvent): void => {
-    if (gestureCanHover(pointerType)) {
+    if (attached && gestureCanHover(pointerType)) {
       glance(event.currentTarget as HTMLElement, "hover");
     }
   };
 
   const onFocus = (event: FocusEvent): void => {
-    if (gestureCanHover(pointerType)) {
+    if (attached && gestureCanHover(pointerType)) {
       glance(event.currentTarget as HTMLElement, "focus");
     }
   };
 
   const onKeyDown = (event: KeyboardEvent): void => {
+    if (!attached) {
+      return;
+    }
+    // An anchor carrying no href gets no click synthesized from Enter, so an
+    // hrefless link activates explicitly.
+    if (event.key === "Enter" && href() === undefined) {
+      event.preventDefault();
+      commit(event.currentTarget as HTMLElement, event.altKey);
+      return;
+    }
     if (event.key !== "Escape" || !raised) {
       return;
     }
@@ -108,7 +122,7 @@ export const GrammarLink: Component<{
 
   // Synthetic hover/blur must not dismiss a touch-raised preview.
   const dismiss = (): void => {
-    if (gestureCanHover(pointerType)) {
+    if (attached && gestureCanHover(pointerType)) {
       clear();
     }
   };
@@ -117,7 +131,11 @@ export const GrammarLink: Component<{
     <a
       class={props.class}
       classList={props.classList}
-      href={grammarHref(props.target)}
+      href={href()}
+      // An anchor without an href is neither focusable nor a link to assistive
+      // technology, so a host that addresses notes without URLs still gets one.
+      role={href() === undefined ? "link" : undefined}
+      tabindex={href() === undefined ? 0 : undefined}
       onPointerDown={record}
       onPointerEnter={record}
       onClick={onClick}

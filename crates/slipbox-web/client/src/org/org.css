@@ -1,0 +1,204 @@
+/*
+ * Org body typography: the presentation of a rendered document, shared by the
+ * web reading column and the standalone document bundle.
+ *
+ * Every value resolves through the design tokens, which an entry point supplies
+ * by importing `styles/tokens.css`. Surfaces holding a document on another tone
+ * override `--code-surface`, `--code-raise`, `--math-surface` and
+ * `--math-surface-fade` rather than restating these rules.
+ */
+
+.org-document {
+  font-size: var(--text-size);
+  line-height: var(--text-line);
+}
+
+.org-paragraph {
+  margin: 0 0 1em;
+}
+
+.org-heading {
+  margin: 1.4em 0 0.5em;
+  font-weight: 600;
+}
+
+.org-document h2.org-heading {
+  font-size: var(--h2-size);
+  line-height: var(--h2-line);
+  font-weight: 400;
+}
+
+.org-list {
+  margin: 0 0 1em;
+  padding-left: 1.4em;
+}
+
+.org-list li {
+  margin: 0.2em 0;
+}
+
+.org-verbatim,
+.org-src,
+.org-example {
+  font-family: var(--font-mono);
+  font-size: var(--code-size);
+  line-height: var(--code-line);
+}
+
+/* Containers override these tones when rendered on a different surface. */
+.org-verbatim {
+  background: var(--code-surface, var(--paper));
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+}
+
+.org-src,
+.org-example {
+  margin: 0 0 1em;
+  background: var(--code-surface, var(--paper));
+  border-radius: 8px;
+}
+
+.org-quote {
+  margin: 0 0 1em;
+  padding-left: 16px;
+  border-left: 2px solid var(--muted-3);
+  color: var(--muted);
+}
+
+.org-quote > :last-child {
+  margin-bottom: 0;
+}
+
+.org-example {
+  padding: 12px 16px;
+  overflow-x: auto;
+}
+
+.org-src {
+  padding: 0;
+}
+
+.org-src__chrome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.org-src__lang {
+  font-family: var(--font-body);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.org-src__copy {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--link);
+  background: none;
+  border: none;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.org-src__copy:hover {
+  background: var(--code-raise, var(--surface));
+}
+
+.org-src__copy--failed {
+  color: var(--muted);
+}
+
+.org-src__code {
+  margin: 0;
+  padding: 12px 16px;
+  overflow-x: auto;
+}
+
+.org-table {
+  margin: 0 0 1em;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+
+.org-table th {
+  padding: 4px 12px;
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 2px solid var(--muted-3);
+}
+
+.org-table td {
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--muted-3);
+}
+
+.org-math--display {
+  margin: 1em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* Lea Verou's scrolling shadows: the cover gradients
+   * (background-attachment: local) sit against each edge and scroll away,
+   * unmasking the shadow gradients (attachment: scroll), so an edge shadow shows
+   * only while there is more equation to reveal on that side. Containers may
+   * override the surface pair when rendering on another tone. */
+  background:
+    linear-gradient(
+        to right,
+        var(--math-surface, var(--surface)) 30%,
+        var(--math-surface-fade, var(--surface-fade))
+      )
+      left center,
+    linear-gradient(
+        to left,
+        var(--math-surface, var(--surface)) 30%,
+        var(--math-surface-fade, var(--surface-fade))
+      )
+      right center,
+    radial-gradient(
+        farthest-side at 0 50%,
+        var(--edge-shadow),
+        var(--edge-shadow-fade)
+      )
+      left center,
+    radial-gradient(
+        farthest-side at 100% 50%,
+        var(--edge-shadow),
+        var(--edge-shadow-fade)
+      )
+      right center;
+  background-repeat: no-repeat;
+  background-size:
+    40px 100%,
+    40px 100%,
+    14px 100%,
+    14px 100%;
+  background-attachment: local, local, scroll, scroll;
+}
+
+/* Prose links need a non-color affordance; variants provide their own. */
+.org-link:not(.org-link--inert, .org-link--external) {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+}
+
+.org-link--external::after {
+  content: "↗";
+  font-size: 0.75em;
+  vertical-align: super;
+  margin-left: 0.1em;
+  color: var(--muted-2);
+}
+
+.org-link--inert {
+  text-decoration: underline dotted;
+  text-decoration-color: var(--muted-3);
+  text-underline-offset: 0.15em;
+}

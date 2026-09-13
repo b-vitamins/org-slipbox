@@ -1,7 +1,7 @@
 import { render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { GrammarLink, grammarHref } from "./GrammarLink.jsx";
+import { GrammarLink } from "./GrammarLink.jsx";
 import {
   NavigationProvider,
   referenceOf,
@@ -9,7 +9,6 @@ import {
   type LinkTarget,
   type Navigation,
 } from "./navigation.jsx";
-import { decodeStack } from "../reading/stack.js";
 
 function stubPointer(hoverless: boolean): void {
   vi.stubGlobal("matchMedia", (query: string) => ({
@@ -31,6 +30,7 @@ function spyNavigation(): {
   const goes: LinkTarget[] = [];
   return {
     navigation: {
+      href: (target) => `#${referenceOf(target)}`,
       glance: (request) => {
         const dropped = glances.at(-1);
         glances.push(request);
@@ -76,20 +76,39 @@ function pointerGesture(link: HTMLElement, type: string, pointerType: string): v
   link.dispatchEvent(event);
 }
 
-describe("grammarHref", () => {
-  it("emits the router's own URL for an id target, decodable back to it", () => {
-    const target: LinkTarget = { id: "abc-123", target: "id:abc-123" };
-    const href = grammarHref(target);
-
-    expect(href).toBe("?note=id%3Aabc-123");
-    expect(decodeStack(href)).toEqual([referenceOf(target)]);
+describe("GrammarLink addressing", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
-  it("emits the router's own URL for a raw-key target, decodable back to it", () => {
-    const target: LinkTarget = { id: null, target: "notes/a.org::0" };
-    const href = grammarHref(target);
+  it("carries the host's URL, so a cold load and a modifier-click reach it", () => {
+    stubPointer(false);
+    const link = renderLink(spyNavigation().navigation);
 
-    expect(decodeStack(href)).toEqual(["notes/a.org::0"]);
+    expect(link.getAttribute("href")).toBe("#id:abc-123");
+    expect(link.getAttribute("tabindex")).toBeNull();
+    expect(link.getAttribute("role")).toBeNull();
+  });
+
+  it("stays a focusable link where the host addresses notes without URLs", () => {
+    stubPointer(false);
+    const spy = spyNavigation();
+    const link = renderLink({ ...spy.navigation, href: () => null });
+
+    expect(link.hasAttribute("href")).toBe(false);
+    expect(link.getAttribute("role")).toBe("link");
+    expect(link.getAttribute("tabindex")).toBe("0");
+
+    // No browser synthesizes a click for an hrefless anchor.
+    link.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+    expect(spy.pins).toEqual([TARGET]);
+
+    link.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, altKey: true }),
+    );
+    expect(spy.goes).toEqual([TARGET]);
   });
 });
 

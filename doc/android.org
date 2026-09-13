@@ -227,6 +227,35 @@ No part of the application depends on a desktop daemon, a loopback HTTP server,
 or a running `slipbox web`. The reader is not a wrapper around the web client
 either: it bundles the document renderer, not the single-page application.
 
+** Reusable Document Bundle
+
+The standalone document artifact is built from =crates/slipbox-web/client=:
+
+#+begin_src sh
+npm ci
+npm run build:document
+npm run check:document-graph
+npm exec -- playwright install --with-deps chromium
+npm run test:e2e:document -- --workers=2
+#+end_src
+
+=dist-document/= contains =document.js=, =document.css=, local KaTeX fonts,
+=assets.json= with file sizes and SHA-256 hashes, and
+=THIRD-PARTY-NOTICES.txt=. =host.html= demonstrates mounting supplied Org source
+without the reading application or its API. Generated files are not committed.
+
+Link =document.css= and import =mountOrgDocument= from =document.js=. The host
+supplies =content=, =theme= and optional =href=, =onIntent= and =resolveAsset=
+functions; the returned handle exposes =update= and =dispose=. A theme, href
+or asset-policy update preserves preview origins. New source or heading level
+withdraws a standing preview before replacing its nodes; replacing an intent
+hook withdraws it through the old hook. Disposal leaves host-owned children
+alone and makes retained controls inert for document-owned actions.
+
+The bundle checks resolved asset schemes, not local origins: HTTP(S) and blob
+URLs are admitted. The Android content host must impose the local-only policy
+above. Native content-view integration and repository asset lookup remain unbuilt.
+
 * Reading Design
 
 Native Kotlin and Compose own navigation, the entry and search surfaces, sheets,

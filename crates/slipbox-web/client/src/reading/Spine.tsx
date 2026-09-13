@@ -20,9 +20,10 @@ import {
 
 import { scrollBehavior } from "../dom/reduced-motion.js";
 import { useDocumentTitle } from "../dom/document-title.js";
-import { referenceOf } from "../org/navigation.jsx";
+import { NavigationProvider, referenceOf } from "../org/navigation.jsx";
 import { createGlanceController } from "./glance-controller.js";
 import { GlancePreview } from "./GlancePreview.jsx";
+import { ADDRESSES_ONLY } from "./note-href.js";
 import { ReadingColumn } from "./ReadingColumn.jsx";
 import {
   columnTitle,
@@ -359,7 +360,11 @@ export const Spine: Component<{ stack: ReadingStack }> = (props) => {
           // Discard the latched boundary when the preview target changes.
           <Show when={referenceOf(request().target)} keyed>
             <ErrorBoundary fallback={(_error) => null}>
-              <GlancePreview request={request()} />
+              {/* A preview's own links are addresses only: the card is not a
+                  reading column, so a gesture inside it raises nothing. */}
+              <NavigationProvider navigation={ADDRESSES_ONLY}>
+                <GlancePreview request={request()} />
+              </NavigationProvider>
             </ErrorBoundary>
           </Show>
         )}
