@@ -10,8 +10,8 @@ publish = false
 
 [features]
 default = ["bundled-sqlite"]
-bundled-sqlite = ["slipbox-store/bundled-sqlite"]
-system-sqlite = ["slipbox-store/system-sqlite"]
+bundled-sqlite = ["slipbox-engine/bundled-sqlite", "slipbox-store/bundled-sqlite"]
+system-sqlite = ["slipbox-engine/system-sqlite", "slipbox-store/system-sqlite"]
 # Compile the built reading client into the binary so `slipbox web` ships a
 # self-contained reader. Off by default: a plain build needs no built client.
 embed-web-client = ["slipbox-web/embed-assets"]
@@ -49,11 +49,12 @@ serde.workspace = true
 serde_json.workspace = true
 slipbox-core = { path = "crates/slipbox-core" }
 slipbox-daemon-client = { path = "crates/slipbox-daemon-client" }
-slipbox-index = { path = "crates/slipbox-index" }
+slipbox-engine = { path = "crates/slipbox-engine", default-features = false }
+# The desktop service explicitly authorizes these helpers at construction.
+slipbox-index = { path = "crates/slipbox-index", features = ["desktop-decryptors"] }
 slipbox-rpc = { path = "crates/slipbox-rpc" }
 slipbox-store = { path = "crates/slipbox-store", default-features = false }
 slipbox-web = { path = "crates/slipbox-web" }
-slipbox-write = { path = "crates/slipbox-write" }
 tempfile.workspace = true
 
 [dev-dependencies]

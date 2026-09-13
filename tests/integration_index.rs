@@ -1,28 +1,17 @@
-#[path = "../src/occurrences_query.rs"]
-mod occurrences_query;
-#[path = "../src/reflinks_query.rs"]
-mod reflinks_query;
-mod root_path {
-    pub use slipbox::root_path::resolve_root_path_from_canonical_root;
-}
-#[path = "../src/text_query.rs"]
-mod text_query;
-#[path = "../src/unlinked_references_query.rs"]
-mod unlinked_references_query;
-
 use std::fs;
 use std::{thread, time::Duration};
 
 use anyhow::Result;
-use occurrences_query::query_occurrences;
-use reflinks_query::query_reflinks;
 use slipbox_core::{AnchorRecord, SearchNodesSort};
+use slipbox_engine::queries::{query_occurrences, query_reflinks, query_unlinked_references};
 use slipbox_index::{
-    DiscoveryPolicy, scan_path, scan_path_with_policy, scan_root, scan_root_with_policy,
+    DiscoveryPolicy, PlatformPolicy, scan_path, scan_path_with_policy, scan_root,
+    scan_root_with_policy,
 };
 use slipbox_store::Database;
 use tempfile::tempdir;
-use unlinked_references_query::query_unlinked_references;
+
+const PLATFORM: PlatformPolicy = PlatformPolicy::headless();
 
 #[test]
 fn indexes_nodes_searches_and_returns_backlinks() -> Result<()> {
@@ -398,7 +387,7 @@ fn reflinks_query_returns_structured_hits_and_skips_current_subtree() -> Result<
         .expect("expected source node");
 
     let source_anchor = AnchorRecord::from(source.clone());
-    let reflinks = query_reflinks(&database, &root, &source_anchor, 10)?;
+    let reflinks = query_reflinks(&database, &root, &source_anchor, 10, &PLATFORM)?;
     assert_eq!(reflinks.len(), 3);
 
     assert_eq!(reflinks[0].source_anchor.title, "Sibling heading");
@@ -452,7 +441,8 @@ fn unlinked_references_query_returns_title_and_alias_hits() -> Result<()> {
         .expect("expected project atlas node");
 
     let source_anchor = AnchorRecord::from(source.clone());
-    let unlinked_references = query_unlinked_references(&database, &root, &source_anchor, 10)?;
+    let unlinked_references =
+        query_unlinked_references(&database, &root, &source_anchor, 10, &PLATFORM)?;
     assert_eq!(unlinked_references.len(), 3);
 
     assert_eq!(
@@ -512,7 +502,8 @@ fn unlinked_references_query_supports_quoted_multi_word_aliases() -> Result<()> 
         .expect("expected project atlas node");
 
     let source_anchor = AnchorRecord::from(source.clone());
-    let unlinked_references = query_unlinked_references(&database, &root, &source_anchor, 10)?;
+    let unlinked_references =
+        query_unlinked_references(&database, &root, &source_anchor, 10, &PLATFORM)?;
     assert_eq!(unlinked_references.len(), 2);
 
     assert_eq!(
@@ -561,7 +552,8 @@ fn unlinked_references_query_preserves_short_alias_matches() -> Result<()> {
         .expect("expected artificial intelligence node");
 
     let source_anchor = AnchorRecord::from(source);
-    let unlinked_references = query_unlinked_references(&database, &root, &source_anchor, 10)?;
+    let unlinked_references =
+        query_unlinked_references(&database, &root, &source_anchor, 10, &PLATFORM)?;
     assert_eq!(unlinked_references.len(), 1);
     assert_eq!(unlinked_references[0].source_anchor.title, "Other");
     assert_eq!(unlinked_references[0].row, 3);
@@ -599,7 +591,8 @@ fn unlinked_references_query_names_the_note_a_mention_sits_in() -> Result<()> {
         .expect("expected the atlas note");
 
     let source_anchor = AnchorRecord::from(source);
-    let unlinked_references = query_unlinked_references(&database, &root, &source_anchor, 10)?;
+    let unlinked_references =
+        query_unlinked_references(&database, &root, &source_anchor, 10, &PLATFORM)?;
     assert_eq!(unlinked_references.len(), 1);
 
     let mention = &unlinked_references[0];
@@ -641,7 +634,8 @@ fn unlinked_references_query_passes_over_a_title_inside_a_link_target() -> Resul
         .expect("expected the atlas node");
 
     let source_anchor = AnchorRecord::from(source);
-    let unlinked_references = query_unlinked_references(&database, &root, &source_anchor, 10)?;
+    let unlinked_references =
+        query_unlinked_references(&database, &root, &source_anchor, 10, &PLATFORM)?;
     assert_eq!(
         unlinked_references
             .iter()
@@ -848,7 +842,7 @@ fn node_exclusion_keeps_text_queries_out_of_excluded_subtrees() -> Result<()> {
         .expect("target node should remain indexed");
 
     let target_anchor = AnchorRecord::from(target.clone());
-    let reflinks = query_reflinks(&database, &root, &target_anchor, 10)?;
+    let reflinks = query_reflinks(&database, &root, &target_anchor, 10, &PLATFORM)?;
     assert_eq!(reflinks.len(), 2);
     assert_eq!(reflinks[0].source_anchor.title, "Visible heading");
     assert_eq!(
@@ -862,7 +856,8 @@ fn node_exclusion_keeps_text_queries_out_of_excluded_subtrees() -> Result<()> {
     );
 
     let target_anchor = AnchorRecord::from(target.clone());
-    let unlinked_references = query_unlinked_references(&database, &root, &target_anchor, 10)?;
+    let unlinked_references =
+        query_unlinked_references(&database, &root, &target_anchor, 10, &PLATFORM)?;
     assert_eq!(unlinked_references.len(), 2);
     assert_eq!(
         unlinked_references[0].source_anchor.title,

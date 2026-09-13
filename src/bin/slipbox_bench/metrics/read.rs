@@ -10,11 +10,12 @@ use slipbox_core::{
     NodeFromIdParams, NodeRecord, SearchNodesParams, SearchNodesSort, SearchOccurrencesParams,
     UpdateNodeMetadataParams,
 };
-use slipbox_index::{DiscoveryPolicy, scan_path_with_policy, scan_root_with_policy};
+use slipbox_engine::queries::{query_occurrences, query_reflinks, query_unlinked_references};
+use slipbox_index::{
+    DiscoveryPolicy, PlatformPolicy, scan_path_with_policy, scan_root_with_policy,
+};
 use slipbox_store::Database;
 
-use crate::occurrences_query::query_occurrences;
-use crate::reflinks_query::query_reflinks;
 use crate::slipbox_bench::WorkbenchBench;
 use crate::slipbox_bench::constants::{
     AGENDA_END, AGENDA_START, CONTENT_QUERY, GLOSSARY_QUERY, GLOSSARY_TODAY,
@@ -25,7 +26,9 @@ use crate::slipbox_bench::profile::BenchmarkProfile;
 use crate::slipbox_bench::report::{
     TimingReport, elapsed_ms, measure_iterations, remove_sqlite_artifacts,
 };
-use crate::unlinked_references_query::query_unlinked_references;
+
+// Match the desktop service's source authority.
+const BENCH_PLATFORM: PlatformPolicy = PlatformPolicy::desktop();
 
 pub(crate) fn benchmark_full_index(
     profile: &BenchmarkProfile,
@@ -264,6 +267,7 @@ pub(crate) fn benchmark_reflinks(
         root,
         &source_anchor,
         profile.iterations.reflinks_limit,
+        &BENCH_PLATFORM,
     )
     .context("failed to fetch reflink sample")?;
     if sample.is_empty() {
@@ -275,6 +279,7 @@ pub(crate) fn benchmark_reflinks(
             root,
             &source_anchor,
             profile.iterations.reflinks_limit,
+            &BENCH_PLATFORM,
         )
         .context("failed to query reflinks")?;
         black_box(reflinks.len());
@@ -294,6 +299,7 @@ pub(crate) fn benchmark_unlinked_references(
         root,
         &node_anchor,
         profile.iterations.unlinked_references_limit,
+        &BENCH_PLATFORM,
     )
     .context("failed to query unlinked references")?;
     if sample.is_empty() {
@@ -306,6 +312,7 @@ pub(crate) fn benchmark_unlinked_references(
             root,
             &node_anchor,
             profile.iterations.unlinked_references_limit,
+            &BENCH_PLATFORM,
         )
         .context("failed to query unlinked references")?;
         black_box(unlinked_references.len());

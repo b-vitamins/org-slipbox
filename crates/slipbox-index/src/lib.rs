@@ -1,8 +1,10 @@
 mod discovery;
+mod platform;
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
+#[cfg(feature = "desktop-decryptors")]
 use std::process::Command;
 use std::time::UNIX_EPOCH;
 
@@ -12,6 +14,7 @@ use slipbox_core::{
 };
 
 pub use discovery::DiscoveryPolicy;
+pub use platform::{ExternalProgram, PlatformPolicy, UnsupportedCapability};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutlineNode {
@@ -22,26 +25,49 @@ pub struct OutlineNode {
     pub excluded: bool,
 }
 
+/// Scan `root` under the default discovery policy and the headless platform.
 pub fn scan_root(root: &Path) -> Result<Vec<IndexedFile>> {
     scan_root_with_policy(root, &DiscoveryPolicy::default())
 }
 
+/// Scan `root` under the headless platform.
 pub fn scan_root_with_policy(root: &Path, policy: &DiscoveryPolicy) -> Result<Vec<IndexedFile>> {
+    scan_root_with_platform(root, policy, &PlatformPolicy::headless())
+}
+
+/// Scan `root` under an explicit platform authority.
+pub fn scan_root_with_platform(
+    root: &Path,
+    policy: &DiscoveryPolicy,
+    platform: &PlatformPolicy,
+) -> Result<Vec<IndexedFile>> {
     policy
         .list_files(root)?
         .into_iter()
-        .map(|path| parse_path(root, &path))
+        .map(|path| parse_path(root, &path, platform))
         .collect()
 }
 
+/// Scan one file under the default discovery policy and the headless platform.
 pub fn scan_path(root: &Path, path: &Path) -> Result<IndexedFile> {
     scan_path_with_policy(root, path, &DiscoveryPolicy::default())
 }
 
+/// Scan one file under the headless platform.
 pub fn scan_path_with_policy(
     root: &Path,
     path: &Path,
     policy: &DiscoveryPolicy,
+) -> Result<IndexedFile> {
+    scan_path_with_platform(root, path, policy, &PlatformPolicy::headless())
+}
+
+/// Scan one file under an explicit platform authority.
+pub fn scan_path_with_platform(
+    root: &Path,
+    path: &Path,
+    policy: &DiscoveryPolicy,
+    platform: &PlatformPolicy,
 ) -> Result<IndexedFile> {
     if !policy.matches_path(root, path) {
         return Err(anyhow!(
@@ -49,7 +75,7 @@ pub fn scan_path_with_policy(
             path.display()
         ));
     }
-    parse_path(root, path)
+    parse_path(root, path, platform)
 }
 
 pub fn scan_source(file_path: &str, source: &str) -> IndexedFile {
@@ -61,8 +87,8 @@ pub fn scan_source_outline(file_path: &str, source: &str) -> Vec<OutlineNode> {
     parse_outline_nodes(file_path, &lines)
 }
 
-fn parse_path(root: &Path, path: &Path) -> Result<IndexedFile> {
-    let source = read_source(path)?;
+fn parse_path(root: &Path, path: &Path, platform: &PlatformPolicy) -> Result<IndexedFile> {
+    let source = read_source_with_platform(path, platform)?;
     let file_path = discovery::relative_path(root, path)
         .with_context(|| format!("{} is not under {}", path.display(), root.display()))?;
     let metadata =
@@ -275,20 +301,39 @@ fn parse_outline_nodes(file_path: &str, lines: &[&str]) -> Vec<OutlineNode> {
     outline_nodes
 }
 
+/// Read plain source text; encrypted envelopes fail with [`UnsupportedCapability`].
 pub fn read_source(path: &Path) -> Result<String> {
-    match discovery::envelope_extension(path).as_deref() {
-        Some("gpg") => read_encrypted_source(path, "gpg", &["--quiet", "--batch", "--decrypt"]),
-        Some("age") => read_age_source(path),
-        _ => fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display())),
+    read_source_with_platform(path, &PlatformPolicy::headless())
+}
+
+/// Read source text under explicit authority, refusing unauthorized decryptors.
+pub fn read_source_with_platform(path: &Path, platform: &PlatformPolicy) -> Result<String> {
+    match platform.authorize_source(path)? {
+        None => {
+            fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))
+        }
+        #[cfg(feature = "desktop-decryptors")]
+        Some(ExternalProgram::Gpg) => {
+            read_encrypted_source(path, "gpg", &["--quiet", "--batch", "--decrypt"])
+        }
+        #[cfg(feature = "desktop-decryptors")]
+        Some(ExternalProgram::Age) => read_age_source(path),
+        #[cfg(not(feature = "desktop-decryptors"))]
+        Some(program) => Err(anyhow!(
+            "reading {} needs the external program {program}, which this build does not include",
+            path.display()
+        )),
     }
 }
 
+#[cfg(feature = "desktop-decryptors")]
 fn read_age_source(path: &Path) -> Result<String> {
     read_encrypted_source(path, "age", &["--decrypt"])
         .or_else(|_| read_encrypted_source(path, "rage", &["--decrypt"]))
         .with_context(|| format!("failed to decrypt {}", path.display()))
 }
 
+#[cfg(feature = "desktop-decryptors")]
 fn read_encrypted_source(path: &Path, program: &str, args: &[&str]) -> Result<String> {
     let output = Command::new(program)
         .args(args)

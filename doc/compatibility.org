@@ -64,7 +64,7 @@ Coverage inventory:
   structural operations.
 - JSON-RPC method inventory: =crates/slipbox-rpc/src/operations.rs= has a unit
   test that locks every public operation method to its family, mutation class,
-  and freshness behavior, and =src/server/operations.rs= has one locking the
+  and freshness behavior. =crates/slipbox-engine/src/operations.rs= locks the
   handler table to that same inventory.
 - Web reading HTTP API: =tests/slipbox_web.rs= drives the surface over real
   HTTP against a spawned read-only daemon, covering every route, its refusals,
@@ -73,8 +73,8 @@ Coverage inventory:
   export/import/show, saved comparison execution, saved review diff/mark
   round-trips, workflow spec local inspection, workbench pack
   validate/import/export/show, and future-version rejection.
-- Rebuild survival: =src/server/handlers/query/tests.rs= covers exploration
-  artifacts, review runs, and workbench packs surviving a forced index
+- Rebuild survival: =crates/slipbox-engine/src/handlers/query/tests.rs= covers
+  exploration artifacts, review runs, and workbench packs surviving a forced index
   rebuild without becoming note, ref, search, or graph records.
 
 * Additive Evolution

@@ -1,0 +1,367 @@
+use std::path::{Path, PathBuf};
+
+use anyhow::{Result, anyhow};
+use slipbox_core::{
+    AnchorRecord, CaptureTemplatePreviewResult, NodeRecord, PreviewNodeRecord,
+    StructuralWriteAffectedFiles, StructuralWriteIndexRefreshStatus, StructuralWriteOperationKind,
+    StructuralWriteReport, StructuralWriteResult,
+};
+use slipbox_index::{DiscoveryPolicy, PlatformPolicy};
+use slipbox_rpc::JsonRpcError;
+use slipbox_store::Database;
+use slipbox_write::{CaptureOutcome, CapturePreviewOutcome, RegionRewriteOutcome, RewriteOutcome};
+
+use crate::root_path::resolve_root_path_from_canonical_root;
+use crate::rpc::{internal_error, not_found, scan_error};
+
+pub(crate) struct ServerState {
+    pub(super) root: PathBuf,
+    pub(super) db_path: PathBuf,
+    pub(super) workflow_dirs: Vec<PathBuf>,
+    pub(super) discovery: DiscoveryPolicy,
+    pub(super) platform: PlatformPolicy,
+    pub(super) database: Database,
+}
+
+impl ServerState {
+    #[cfg(test)]
+    pub(crate) fn new(
+        root: PathBuf,
+        db_path: PathBuf,
+        workflow_dirs: Vec<PathBuf>,
+        discovery: DiscoveryPolicy,
+    ) -> Result<Self> {
+        Self::with_platform(
+            root,
+            db_path,
+            workflow_dirs,
+            discovery,
+            PlatformPolicy::headless(),
+        )
+    }
+
+    pub(crate) fn with_platform(
+        root: PathBuf,
+        db_path: PathBuf,
+        workflow_dirs: Vec<PathBuf>,
+        discovery: DiscoveryPolicy,
+        platform: PlatformPolicy,
+    ) -> Result<Self> {
+        let database = Database::open(&db_path)?;
+        Ok(Self {
+            root,
+            db_path,
+            workflow_dirs,
+            discovery,
+            platform,
+            database,
+        })
+    }
+
+    pub(super) fn resolve_index_path(&self, file_path: &str) -> Result<(String, PathBuf)> {
+        let resolved = resolve_root_path_from_canonical_root(&self.root, Path::new(file_path))?;
+        Ok((resolved.relative_path, resolved.absolute_path))
+    }
+
+    pub(super) fn indexed_file_is_live(&self, file_path: &str) -> bool {
+        self.root.join(file_path).is_file()
+    }
+
+    pub(super) fn remove_indexed_file_path(
+        &mut self,
+        file_path: &str,
+        description: &str,
+    ) -> Result<(), JsonRpcError> {
+        self.database.remove_file_index(file_path).map_err(|error| {
+            internal_error(
+                error.context(format!("failed to remove {description} from SQLite index")),
+            )
+        })
+    }
+
+    pub(super) fn sync_path(&mut self, path: &Path) -> Result<(), JsonRpcError> {
+        let indexed_file = slipbox_index::scan_path_with_platform(
+            &self.root,
+            path,
+            &self.discovery,
+            &self.platform,
+        )
+        .map_err(|error| scan_error(error, &self.root, "failed to scan updated file"))?;
+        self.database
+            .sync_file_index(&indexed_file)
+            .map_err(|error| {
+                internal_error(error.context("failed to sync updated file into SQLite"))
+            })?;
+        Ok(())
+    }
+
+    pub(super) fn preview_capture(
+        &self,
+        outcome: &CapturePreviewOutcome,
+    ) -> Result<CaptureTemplatePreviewResult, JsonRpcError> {
+        let indexed = slipbox_index::scan_source(&outcome.relative_path, &outcome.content);
+        let node = indexed
+            .nodes
+            .into_iter()
+            .find(|candidate| candidate.node_key == outcome.node_key)
+            .map(PreviewNodeRecord::from)
+            .ok_or_else(|| {
+                internal_error(anyhow!(
+                    "captured preview node {} was not found in rendered output",
+                    outcome.node_key
+                ))
+            })?;
+        Ok(CaptureTemplatePreviewResult {
+            file_path: outcome.relative_path.clone(),
+            content: outcome.content.clone(),
+            preview_node: node,
+        })
+    }
+
+    pub(super) fn sync_region_rewrite(
+        &mut self,
+        outcome: &RegionRewriteOutcome,
+    ) -> Result<(), JsonRpcError> {
+        self.reconcile_paths(&outcome.changed_paths, &outcome.removed_paths)
+    }
+
+    pub(super) fn sync_paths(&mut self, paths: &[PathBuf]) -> Result<(), JsonRpcError> {
+        let mut indexed_files = Vec::with_capacity(paths.len());
+        for path in paths {
+            let indexed_file = slipbox_index::scan_path_with_platform(
+                &self.root,
+                path,
+                &self.discovery,
+                &self.platform,
+            )
+            .map_err(|error| scan_error(error, &self.root, "failed to scan updated file"))?;
+            indexed_files.push(indexed_file);
+        }
+        self.database
+            .sync_file_indexes(&indexed_files)
+            .map_err(|error| {
+                internal_error(error.context("failed to sync updated file into SQLite"))
+            })?;
+        Ok(())
+    }
+
+    fn remove_indexed_paths(
+        &mut self,
+        paths: &[PathBuf],
+        description: &str,
+    ) -> Result<(), JsonRpcError> {
+        for path in paths {
+            let relative_path = self.relative_root_path(path).map_err(|error| {
+                internal_error(error.context(format!("failed to resolve {description}")))
+            })?;
+            self.database
+                .remove_file_index(&relative_path)
+                .map_err(|error| {
+                    internal_error(
+                        error.context(format!("failed to remove {description} from SQLite index")),
+                    )
+                })?;
+        }
+        Ok(())
+    }
+
+    fn reconcile_paths(
+        &mut self,
+        changed_paths: &[PathBuf],
+        removed_paths: &[PathBuf],
+    ) -> Result<(), JsonRpcError> {
+        self.remove_indexed_paths(removed_paths, "removed file")?;
+        self.sync_paths(changed_paths)?;
+        Ok(())
+    }
+
+    pub(super) fn require_note(
+        &mut self,
+        node_key: &str,
+        description: &str,
+    ) -> Result<NodeRecord, JsonRpcError> {
+        self.database
+            .note_by_key(node_key)
+            .map_err(|error| {
+                internal_error(error.context(format!("failed to fetch {description}")))
+            })?
+            .ok_or_else(|| {
+                internal_error(anyhow!(
+                    "{description} {node_key} was not found after indexing"
+                ))
+            })
+    }
+
+    pub(super) fn require_note_by_id(
+        &mut self,
+        explicit_id: &str,
+        description: &str,
+    ) -> Result<NodeRecord, JsonRpcError> {
+        self.database
+            .node_from_id(explicit_id)
+            .map_err(|error| {
+                internal_error(error.context(format!("failed to fetch {description}")))
+            })?
+            .ok_or_else(|| {
+                internal_error(anyhow!(
+                    "{description} {explicit_id} was not found after indexing"
+                ))
+            })
+    }
+
+    pub(super) fn known_note(
+        &mut self,
+        node_key: &str,
+        description: &str,
+    ) -> Result<NodeRecord, JsonRpcError> {
+        self.database
+            .note_by_key(node_key)
+            .map_err(|error| {
+                internal_error(error.context(format!("failed to fetch {description}")))
+            })?
+            .ok_or_else(|| not_found(format!("unknown {description}: {node_key}")))
+    }
+
+    pub(super) fn known_note_for_node_or_anchor(
+        &mut self,
+        node_key: &str,
+        description: &str,
+    ) -> Result<NodeRecord, JsonRpcError> {
+        if let Some(note) = self.database.note_by_key(node_key).map_err(|error| {
+            internal_error(error.context(format!("failed to fetch {description}")))
+        })? {
+            return Ok(note);
+        }
+
+        let anchor = self.known_anchor(node_key, description)?;
+        self.database
+            .note_for_anchor(&anchor)
+            .map_err(|error| {
+                internal_error(
+                    error.context(format!("failed to resolve owner note for {description}")),
+                )
+            })?
+            .ok_or_else(|| {
+                internal_error(anyhow!(
+                    "owner note for {description} {node_key} was not found after indexing"
+                ))
+            })
+    }
+
+    pub(super) fn require_anchor(
+        &mut self,
+        node_key: &str,
+        description: &str,
+    ) -> Result<AnchorRecord, JsonRpcError> {
+        self.database
+            .anchor_by_key(node_key)
+            .map_err(|error| {
+                internal_error(error.context(format!("failed to fetch {description}")))
+            })?
+            .ok_or_else(|| {
+                internal_error(anyhow!(
+                    "{description} {node_key} was not found after indexing"
+                ))
+            })
+    }
+
+    pub(super) fn known_anchor(
+        &mut self,
+        node_key: &str,
+        description: &str,
+    ) -> Result<AnchorRecord, JsonRpcError> {
+        self.database
+            .anchor_by_key(node_key)
+            .map_err(|error| {
+                internal_error(error.context(format!("failed to fetch {description}")))
+            })?
+            .ok_or_else(|| not_found(format!("unknown {description}: {node_key}")))
+    }
+
+    pub(super) fn sync_capture(
+        &mut self,
+        outcome: &CaptureOutcome,
+        description: &str,
+    ) -> Result<NodeRecord, JsonRpcError> {
+        self.sync_path(&outcome.absolute_path)?;
+        self.require_note(&outcome.node_key, description)
+    }
+
+    pub(super) fn sync_capture_anchor(
+        &mut self,
+        outcome: &CaptureOutcome,
+        description: &str,
+    ) -> Result<AnchorRecord, JsonRpcError> {
+        self.sync_path(&outcome.absolute_path)?;
+        self.require_anchor(&outcome.node_key, description)
+    }
+
+    pub(super) fn sync_path_and_read_node(
+        &mut self,
+        path: &Path,
+        node_key: &str,
+        description: &str,
+    ) -> Result<NodeRecord, JsonRpcError> {
+        self.sync_path(path)?;
+        self.require_note(node_key, description)
+    }
+
+    pub(super) fn sync_rewrite(
+        &mut self,
+        outcome: &RewriteOutcome,
+        description: &str,
+    ) -> Result<NodeRecord, JsonRpcError> {
+        self.reconcile_paths(&outcome.changed_paths, &outcome.removed_paths)?;
+        self.require_note_by_id(&outcome.explicit_id, description)
+    }
+
+    pub(super) fn structural_affected_files(
+        &self,
+        changed_paths: &[PathBuf],
+        removed_paths: &[PathBuf],
+    ) -> Result<StructuralWriteAffectedFiles, JsonRpcError> {
+        Ok(StructuralWriteAffectedFiles {
+            changed_files: self.relative_root_paths(changed_paths, "changed file")?,
+            removed_files: self.relative_root_paths(removed_paths, "removed file")?,
+        })
+    }
+
+    pub(super) fn structural_report(
+        &self,
+        operation: StructuralWriteOperationKind,
+        affected_files: StructuralWriteAffectedFiles,
+        result: Option<StructuralWriteResult>,
+    ) -> Result<StructuralWriteReport, JsonRpcError> {
+        let report = StructuralWriteReport {
+            operation,
+            affected_files,
+            index_refresh: StructuralWriteIndexRefreshStatus::Refreshed,
+            result,
+        };
+        if let Some(error) = report.validation_error() {
+            return Err(internal_error(anyhow!(
+                "invalid structural write report: {error}"
+            )));
+        }
+        Ok(report)
+    }
+
+    fn relative_root_paths(
+        &self,
+        paths: &[PathBuf],
+        description: &str,
+    ) -> Result<Vec<String>, JsonRpcError> {
+        paths
+            .iter()
+            .map(|path| {
+                self.relative_root_path(path).map_err(|error| {
+                    internal_error(error.context(format!("failed to resolve {description}")))
+                })
+            })
+            .collect()
+    }
+
+    fn relative_root_path(&self, path: &Path) -> Result<String> {
+        Ok(resolve_root_path_from_canonical_root(&self.root, path)?.relative_path)
+    }
+}

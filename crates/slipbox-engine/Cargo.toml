@@ -1,0 +1,28 @@
+[package]
+name = "slipbox-engine"
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Headless slipbox service: execution state, operation dispatch and index-backed queries."
+
+[features]
+default = ["bundled-sqlite"]
+bundled-sqlite = ["slipbox-store/bundled-sqlite"]
+system-sqlite = ["slipbox-store/system-sqlite"]
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+slipbox-core = { path = "../slipbox-core" }
+slipbox-index = { path = "../slipbox-index" }
+slipbox-rpc = { path = "../slipbox-rpc" }
+slipbox-store = { path = "../slipbox-store", default-features = false }
+slipbox-write = { path = "../slipbox-write" }
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -11,6 +11,18 @@ The format follows Keep a Changelog, and this project follows SemVer.
   eligibility, read-only/native boundaries, coherent offline sync, private data,
   and delivery. Link its roadmap, model, and compatibility policy; the app is
   not yet shipped.
+- Add explicit external-program authority to `slipbox-index`. The default
+  platform policy refuses decryptors even when a build enables them; desktop
+  hosts opt in through `PlatformPolicy::desktop()` and `desktop-decryptors`.
+
+### Changed
+- Extract service state, operation dispatch and index-backed queries into
+  `slipbox-engine`. The root package keeps its desktop adapters and public
+  service constructor; CLI, JSON-RPC and web contracts are unchanged.
+- Make `slipbox-index` source-read and scan conveniences headless. Their
+  signatures stay intact, but encrypted-source callers must use the
+  `*_with_platform` variants with explicit desktop authority and enable
+  `desktop-decryptors`.
 
 ## [0.18.0] - 2026-09-12
 

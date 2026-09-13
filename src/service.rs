@@ -2,35 +2,50 @@
 
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use slipbox_index::DiscoveryPolicy;
-use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
+use slipbox_engine::service::SlipboxService as EngineService;
+use slipbox_engine::{DiscoveryPolicy, PlatformPolicy};
+use slipbox_rpc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 
-use crate::server::operations::operation_by_method;
-pub use crate::server::operations::{
+pub use slipbox_engine::service::{
     FreshnessBehavior, OperationDescriptor, OperationFamily, OperationMutation,
     operation_descriptor_by_method, operation_descriptors,
 };
-use crate::server::state::ServerState;
 
+/// A desktop embedding of the headless engine service.
 pub struct SlipboxService {
-    state: ServerState,
+    engine: EngineService,
 }
 
 impl SlipboxService {
+    /// Open a service with desktop authority for encrypted sources.
     pub fn new(
         root: PathBuf,
         db: PathBuf,
         workflow_dirs: Vec<PathBuf>,
         discovery: DiscoveryPolicy,
     ) -> Result<Self> {
-        let root = root
-            .canonicalize()
-            .with_context(|| format!("failed to canonicalize root {}", root.display()))?;
+        Self::with_platform(
+            root,
+            db,
+            workflow_dirs,
+            discovery,
+            PlatformPolicy::desktop(),
+        )
+    }
+
+    /// Open a service under an explicit platform authority.
+    pub fn with_platform(
+        root: PathBuf,
+        db: PathBuf,
+        workflow_dirs: Vec<PathBuf>,
+        discovery: DiscoveryPolicy,
+        platform: PlatformPolicy,
+    ) -> Result<Self> {
         Ok(Self {
-            state: ServerState::new(root, db, workflow_dirs, discovery)?,
+            engine: EngineService::with_platform(root, db, workflow_dirs, discovery, platform)?,
         })
     }
 
@@ -39,13 +54,7 @@ impl SlipboxService {
         method: &str,
         params: serde_json::Value,
     ) -> Result<serde_json::Value, JsonRpcError> {
-        let Some(operation) = operation_by_method(method) else {
-            return Err(JsonRpcError::new(JsonRpcErrorObject::method_not_found(
-                format!("unsupported method: {method}"),
-            )));
-        };
-
-        operation.invoke(&mut self.state, params)
+        self.engine.invoke_value(method, params)
     }
 
     pub fn invoke<P, R>(&mut self, method: &str, params: P) -> Result<R>
@@ -53,11 +62,12 @@ impl SlipboxService {
         P: Serialize,
         R: DeserializeOwned,
     {
-        let params = serde_json::to_value(params).context("failed to encode service request")?;
-        let value = self
-            .invoke_value(method, params)
-            .with_context(|| format!("service operation {method} failed"))?;
-        serde_json::from_value(value)
-            .with_context(|| format!("failed to decode service operation {method} result"))
+        self.engine.invoke(method, params)
+    }
+
+    /// Dispatch one decoded JSON-RPC request, refusing a mutating method when
+    /// `read_only`.
+    pub fn dispatch(&mut self, request: JsonRpcRequest, read_only: bool) -> JsonRpcResponse {
+        slipbox_engine::handle_request(&mut self.engine, request, read_only)
     }
 }

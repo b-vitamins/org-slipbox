@@ -641,6 +641,11 @@ publishing output.
 
 ## Development
 
+`slipbox-engine` is the headless service crate; the root package owns the desktop
+adapters. Headless services deny external programs by default, while
+`slipbox::service::SlipboxService::new` preserves desktop encrypted-source
+support. See [doc/model.org](doc/model.org) for the platform boundary.
+
 Use:
 
 ```bash

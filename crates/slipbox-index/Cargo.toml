@@ -6,6 +6,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+# Compile decryptors; execution still requires explicit desktop authority.
+desktop-decryptors = []
+
 [dependencies]
 anyhow.workspace = true
 regex.workspace = true

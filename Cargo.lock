@@ -512,6 +512,7 @@ dependencies = [
  "serde_json",
  "slipbox-core",
  "slipbox-daemon-client",
+ "slipbox-engine",
  "slipbox-index",
  "slipbox-rpc",
  "slipbox-store",
@@ -539,6 +540,23 @@ dependencies = [
  "slipbox-core",
  "slipbox-rpc",
  "thiserror",
+]
+
+[[package]]
+name = "slipbox-engine"
+version = "0.18.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "regex",
+ "serde",
+ "serde_json",
+ "slipbox-core",
+ "slipbox-index",
+ "slipbox-rpc",
+ "slipbox-store",
+ "slipbox-write",
+ "tempfile",
 ]
 
 [[package]]

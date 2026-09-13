@@ -26,8 +26,9 @@ promoted into separate public domains.
   internal data model.
 - Durable side stores live beside the database and remain separate from notes,
   search, refs, and graph identity.
-- The daemon owns parsing, indexing, querying, ranking, and file mutation.
-- Emacs and the CLI are two front-ends over the same daemon-owned model, and a
+- The headless Rust engine owns parsing, indexing, querying, ranking, and file
+  mutation. Desktop adapters expose it through the daemon.
+- Emacs and the CLI are two front-ends over the same engine-owned model, and a
   read-only web reader is a third front-end over Notes, Glossary, and the
   exploration lenses; it owns no new public bucket.
 - A planned read-only Android reader is a fourth front-end over the same model.
@@ -39,6 +40,20 @@ promoted into separate public domains.
 - JSON-RPC is the transport boundary; public commands and durable records stay
   task-shaped. Each RPC method carries a mutation class, so a read-only front-end
   is an allowlist over that classification, not a separate contract.
+
+** Engine And Platform Boundaries
+
+=slipbox-engine= owns service state, dispatch and query execution. The root
+=slipbox= package owns the CLI, stdio transport, web host and benchmark adapters;
+none is a dependency of the headless engine. Durable side stores remain outside
+SQLite, as described below.
+
+=DiscoveryPolicy= selects Org files; =PlatformPolicy= authorizes external
+programs. A headless policy refuses decryptors even when Cargo features compile
+them in. The engine constructor and index source-read/scan conveniences default
+to headless authority. The root service constructor selects desktop authority;
+other encrypted-source callers use =*_with_platform= with
+=PlatformPolicy::desktop()= and the =desktop-decryptors= feature.
 
 * Public Buckets
 
