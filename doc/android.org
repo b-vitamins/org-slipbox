@@ -88,6 +88,26 @@ A token never appears in a remote URL, in source configuration, in a log line,
 or in exported diagnostics. A credential is supplied to the Git transport as a
 credential at fetch time and is referred to by handle everywhere else.
 
+*** Catalog And Identity Transitions
+
+Source identities and scoped keys live in =slipbox-core=; =slipbox-sources=
+persists the ordered catalog and explicit selection in a version-1 JSON
+document, separate from the derived index. Selection does not imply readiness.
+Generic HTTPS sources carry no provider repository ID. GitHub IDs are bound to
+=github.com= on the default HTTPS port; a remote change requires an observation
+of the same repository under the existing authorization. The sync layer supplies
+that evidence. Catalog reconstruction trusts its caller, not repository lineage.
+
+Relabeling retains all state. Branch or folder changes retain identity and
+reading state but require a new generation. Reauthorization under another
+account retains identity alone. Sync and storage enforce those decisions.
+
+One writer owns each catalog path. Revision checks detect committed competing
+writes but do not serialize writers. Corrupt or unsupported documents are
+refused untouched. Same-directory rename commits a save; a subsequent
+=NotDurable= error reports the new revision and requires reload before retry.
+This catalog does not yet connect the Android shell to Git or authentication.
+
 ** One Active Corpus
 
 The reader may hold several configured sources but reads one corpus at a time.

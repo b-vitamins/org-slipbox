@@ -581,6 +581,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "slipbox-sources"
+version = "0.18.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "slipbox-core",
+ "slipbox-engine",
+ "slipbox-rpc",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "slipbox-store"
 version = "0.18.0"
 dependencies = [

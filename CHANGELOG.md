@@ -11,6 +11,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
   intents and asset resolution. It shares the web renderer and ships local
   KaTeX fonts, a hashed asset inventory and third-party notices independently
   of the reading application. Android integration remains unbuilt.
+- Persist explicit repository sources and an active selection in a versioned
+  catalog. Validate credential-free remotes, branches and notes folders; scope
+  note, file, asset and reading references by device-local source identity.
+  Provider-bound updates report which cached and reading state may be retained.
 - Document the planned Git-sourced Android reader in `doc/android.org`: source
   eligibility, read-only/native boundaries, coherent offline sync, private data,
   and delivery. Link its roadmap, model, and compatibility policy; the app is

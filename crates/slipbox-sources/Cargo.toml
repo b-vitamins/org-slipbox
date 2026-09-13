@@ -1,0 +1,19 @@
+[package]
+name = "slipbox-sources"
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Validated repository source configuration, explicit active selection and durable catalog persistence."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+slipbox-core = { path = "../slipbox-core" }
+thiserror.workspace = true
+
+[dev-dependencies]
+slipbox-engine = { path = "../slipbox-engine" }
+slipbox-rpc = { path = "../slipbox-rpc" }
+tempfile.workspace = true
