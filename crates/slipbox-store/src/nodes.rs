@@ -41,20 +41,12 @@ impl Database {
         let limit = limit.clamp(1, 200) as i64;
         let note_where = note_where("n");
         if let Some(fts_query) = build_fts_query(query) {
-            let sql = format!(
-                "SELECT {}
-                   FROM node_fts
-                   JOIN nodes AS n ON n.id = node_fts.rowid
-                  WHERE node_fts MATCH ?1
-                    AND {}
-                  ORDER BY {}
-                  LIMIT ?2",
-                anchor_select_columns("n"),
-                note_where,
-                search_nodes_order_by(sort.as_ref(), true)
-            );
+            let literal = relevance_literal_probe(query, sort.as_ref());
+            let sql = search_nodes_fts_sql(sort.as_ref(), Some(&note_where), literal.is_some());
+            let mut arguments: Vec<rusqlite::types::Value> = vec![fts_query.into(), limit.into()];
+            arguments.extend(literal.map(Into::into));
             let mut statement = self.connection.prepare(&sql)?;
-            let rows = statement.query_map(params![fts_query, limit], row_to_note)?;
+            let rows = statement.query_map(params_from_iter(arguments), row_to_note)?;
             rows.collect::<rusqlite::Result<Vec<_>>>()
                 .context("failed to read note search results")
         } else {
@@ -83,18 +75,12 @@ impl Database {
     ) -> Result<Vec<AnchorRecord>> {
         let limit = limit.clamp(1, 200) as i64;
         if let Some(fts_query) = build_fts_query(query) {
-            let sql = format!(
-                "SELECT {}
-                   FROM node_fts
-                   JOIN nodes AS n ON n.id = node_fts.rowid
-                  WHERE node_fts MATCH ?1
-                  ORDER BY {}
-                  LIMIT ?2",
-                anchor_select_columns("n"),
-                search_nodes_order_by(sort.as_ref(), true)
-            );
+            let literal = relevance_literal_probe(query, sort.as_ref());
+            let sql = search_nodes_fts_sql(sort.as_ref(), None, literal.is_some());
+            let mut arguments: Vec<rusqlite::types::Value> = vec![fts_query.into(), limit.into()];
+            arguments.extend(literal.map(Into::into));
             let mut statement = self.connection.prepare(&sql)?;
-            let rows = statement.query_map(params![fts_query, limit], row_to_anchor)?;
+            let rows = statement.query_map(params_from_iter(arguments), row_to_anchor)?;
             rows.collect::<rusqlite::Result<Vec<_>>>()
                 .context("failed to read anchor search results")
         } else {
@@ -452,7 +438,9 @@ impl Database {
     pub fn search_glossary(&self, query: &str, limit: usize) -> Result<GlossaryPage> {
         let limit = limit.clamp(1, 200) as i64;
         let filter = glossary_where("n");
-        if let Some(fts_query) = build_fts_query(query) {
+        if let (Some(fts_query), Some(probes)) =
+            (build_fts_query(query), build_fts_literal_probes(query))
+        {
             let total = self.count_glossary(
                 &format!(
                     "node_fts
@@ -462,18 +450,10 @@ impl Database {
                 ),
                 params![fts_query],
             )?;
-            let sql = format!(
-                "SELECT {}
-                   FROM node_fts
-                   JOIN nodes AS n ON n.id = node_fts.rowid
-                  WHERE node_fts MATCH ?1
-                    AND {filter}
-                  ORDER BY bm25(node_fts, 1.0, 0.3, 0.2, 0.7, 0.8, 0.4), n.file_path, n.line
-                  LIMIT ?2",
-                anchor_select_columns("n"),
-            );
+            let sql = search_glossary_sql(&filter);
             let mut statement = self.connection.prepare(&sql)?;
-            let rows = statement.query_map(params![fts_query, limit], row_to_note)?;
+            let rows =
+                statement.query_map(params![fts_query, limit, probes.naming], row_to_note)?;
             let terms = rows
                 .collect::<rusqlite::Result<Vec<_>>>()
                 .context("failed to read glossary search results")?;
@@ -503,63 +483,22 @@ impl Database {
     /// with a highlighted snippet per hit.
     pub fn search_node_content(&self, query: &str, limit: usize) -> Result<Vec<NodeContentHit>> {
         let limit = limit.clamp(1, 200) as i64;
-        let Some(fts_query) = build_fts_query(query) else {
+        let (Some(fts_query), Some(probes)) =
+            (build_fts_query(query), build_fts_literal_probes(query))
+        else {
             return Ok(Vec::new());
         };
-        // The phrase probe runs against `node_phrase_fts`, which is unstemmed and
-        // asks for exact terms; `node_content_fts` stems with `porter`, so a phrase
-        // there would match a merely related spelling. The probe is joined in, never
-        // filtered on.
+        // Literal probes use the unstemmed index; porter matches related spellings.
         let phrase_query = build_fts_phrase_query(query);
-        let (phrase_join, phrase_rank) = match phrase_query {
-            Some(_) => (
-                "LEFT JOIN (SELECT rowid
-                              FROM node_phrase_fts
-                             WHERE node_phrase_fts MATCH ?5) AS phrase
-                        ON phrase.rowid = node_content_fts.rowid",
-                "phrase.rowid IS NULL, ",
-            ),
-            None => ("", ""),
-        };
-        // The two equality tests below are the ones `idx_nodes_title_nocase` and
-        // `idx_aliases_alias_nocase` serve. `UNION` keeps them as separate indexed
-        // lookups; a single `OR` bridging `nodes` and `aliases` would reach neither
-        // index. NOCASE is ASCII only and does not reach the diacritics the FTS
-        // tokenizers strip.
         let headword_query = query.split_whitespace().collect::<Vec<_>>().join(" ");
-        // The snippet comes from the body column (index 2), wrapping matched runs in
-        // control characters that cannot occur in Org prose.
-        let sql = format!(
-            "SELECT {},
-                    snippet(node_content_fts, 2, char(2), char(3), '…', ?2)
-               FROM node_content_fts
-               JOIN nodes AS n ON n.id = node_content_fts.rowid
-               LEFT JOIN (SELECT id
-                            FROM nodes
-                           WHERE title = ?4 COLLATE NOCASE
-                           UNION
-                          SELECT nodes.id
-                            FROM nodes
-                            JOIN aliases ON aliases.node_key = nodes.node_key
-                           WHERE aliases.alias = ?4 COLLATE NOCASE) AS headword
-                       ON headword.id = node_content_fts.rowid
-               {}
-              WHERE node_content_fts MATCH ?1
-                AND {}
-              ORDER BY headword.id IS NULL, {}bm25(node_content_fts), n.file_path, n.line
-              LIMIT ?3",
-            anchor_select_columns("n"),
-            phrase_join,
-            note_where("n"),
-            phrase_rank,
-        );
-        // The phrase param is bound last so parameter numbering holds whether or not
-        // the query has a phrase to prefer.
+        let sql = search_node_content_sql(phrase_query.is_some());
         let mut arguments: Vec<rusqlite::types::Value> = vec![
             fts_query.into(),
             SNIPPET_TOKEN_BUDGET.into(),
             limit.into(),
             headword_query.into(),
+            probes.naming.into(),
+            probes.anywhere.into(),
         ];
         arguments.extend(phrase_query.map(Into::into));
         let mut statement = self.connection.prepare(&sql)?;
@@ -909,6 +848,108 @@ impl PointLookupAnchor {
     }
 }
 
+/// The metadata search statement. Parameters: 1 the stemmed match, 2 the limit,
+/// 3 the whole-term naming probe when `literal` is set.
+fn search_nodes_fts_sql(
+    sort: Option<&SearchNodesSort>,
+    filter: Option<&str>,
+    literal: bool,
+) -> String {
+    let filter = match filter {
+        Some(filter) => format!("AND {filter}"),
+        None => String::new(),
+    };
+    let (literal_with, literal_join, literal_rank) = match literal {
+        true => (
+            probe_with(&[probe_cte("naming", 3)]),
+            probe_join("naming", "node_fts.rowid"),
+            "naming.rowid IS NULL, ",
+        ),
+        false => (String::new(), String::new(), ""),
+    };
+    format!(
+        "{literal_with}SELECT {}
+           FROM node_fts
+           JOIN nodes AS n ON n.id = node_fts.rowid
+           {literal_join}
+          WHERE node_fts MATCH ?1
+            {filter}
+          ORDER BY {literal_rank}{}
+          LIMIT ?2",
+        anchor_select_columns("n"),
+        search_nodes_order_by(sort, true),
+    )
+}
+
+fn search_glossary_sql(filter: &str) -> String {
+    format!(
+        "{}SELECT {}
+           FROM node_fts
+           JOIN nodes AS n ON n.id = node_fts.rowid
+           {}
+          WHERE node_fts MATCH ?1
+            AND {filter}
+          ORDER BY naming.rowid IS NULL,
+                   bm25(node_fts, 1.0, 0.3, 0.2, 0.7, 0.8, 0.4),
+                   n.file_path,
+                   n.line
+          LIMIT ?2",
+        probe_with(&[probe_cte("naming", 3)]),
+        anchor_select_columns("n"),
+        probe_join("naming", "node_fts.rowid"),
+    )
+}
+
+/// Rank exact headwords, phrases, whole-term naming, whole-term content, BM25,
+/// then filing position. Ranking probes do not filter stemmed recall.
+fn search_node_content_sql(phrase: bool) -> String {
+    let mut probes = vec![probe_cte("naming", 5), probe_cte("anywhere", 6)];
+    let (phrase_join, phrase_rank) = match phrase {
+        true => {
+            probes.push(probe_cte("phrase", 7));
+            (
+                probe_join("phrase", "node_content_fts.rowid"),
+                "phrase.rowid IS NULL, ",
+            )
+        }
+        false => (String::new(), ""),
+    };
+    // UNION preserves indexed title/alias lookups; NOCASE folds ASCII only.
+    // Snippets use this node's body column (2) and control-character delimiters.
+    format!(
+        "{}SELECT {},
+                snippet(node_content_fts, 2, char(2), char(3), '…', ?2)
+           FROM node_content_fts
+           JOIN nodes AS n ON n.id = node_content_fts.rowid
+           LEFT JOIN (SELECT id
+                        FROM nodes
+                       WHERE title = ?4 COLLATE NOCASE
+                       UNION
+                      SELECT nodes.id
+                        FROM nodes
+                        JOIN aliases ON aliases.node_key = nodes.node_key
+                       WHERE aliases.alias = ?4 COLLATE NOCASE) AS headword
+                   ON headword.id = node_content_fts.rowid
+           {}
+           {}
+           {phrase_join}
+          WHERE node_content_fts MATCH ?1
+            AND {}
+          ORDER BY headword.id IS NULL,
+                   {phrase_rank}naming.rowid IS NULL,
+                   anywhere.rowid IS NULL,
+                   bm25(node_content_fts),
+                   n.file_path,
+                   n.line
+          LIMIT ?3",
+        probe_with(&probes),
+        anchor_select_columns("n"),
+        probe_join("naming", "node_content_fts.rowid"),
+        probe_join("anywhere", "node_content_fts.rowid"),
+        note_where("n"),
+    )
+}
+
 fn search_nodes_order_by(sort: Option<&SearchNodesSort>, using_fts: bool) -> &'static str {
     match sort {
         None | Some(SearchNodesSort::Relevance) if using_fts => {
@@ -1151,8 +1192,7 @@ fn fts_terms(query: &str) -> Vec<&str> {
         .collect()
 }
 
-/// Render terms as quoted FTS5 terms joined by `separator`, each a prefix term
-/// when `prefix` is set.
+/// Quote FTS5 terms and escape embedded quotes before adding optional prefixes.
 fn join_fts_terms(terms: &[&str], separator: &str, prefix: bool) -> String {
     let star = if prefix { "*" } else { "" };
     terms
@@ -1180,6 +1220,59 @@ fn build_fts_phrase_query(query: &str) -> Option<String> {
     } else {
         Some(join_fts_terms(&terms, " + ", false))
     }
+}
+
+const PHRASE_NAMING_COLUMNS: &str = "{title aliases}";
+
+/// Unstemmed, unordered conjunctions of whole query terms.
+struct LiteralProbes {
+    naming: String,
+    anywhere: String,
+}
+
+/// `Some` exactly when `build_fts_query` is, so probing changes what a search
+/// orders and never what it recalls.
+fn build_fts_literal_probes(query: &str) -> Option<LiteralProbes> {
+    let terms = fts_terms(query);
+    if terms.is_empty() {
+        return None;
+    }
+    let anywhere = join_fts_terms(&terms, " AND ", false);
+    Some(LiteralProbes {
+        naming: format!("{PHRASE_NAMING_COLUMNS} : ({anywhere})"),
+        anywhere,
+    })
+}
+
+fn relevance_literal_probe(query: &str, sort: Option<&SearchNodesSort>) -> Option<String> {
+    match sort {
+        None | Some(SearchNodesSort::Relevance) => {
+            build_fts_literal_probes(query).map(|probes| probes.naming)
+        }
+        Some(_) => None,
+    }
+}
+
+/// Materialize probe rowids once per statement, not once per candidate.
+fn probe_cte(alias: &str, parameter: usize) -> String {
+    format!(
+        "{alias} AS MATERIALIZED (SELECT rowid
+                                    FROM node_phrase_fts
+                                   WHERE node_phrase_fts MATCH ?{parameter})"
+    )
+}
+
+fn probe_with(probes: &[String]) -> String {
+    match probes.is_empty() {
+        true => String::new(),
+        false => format!("WITH {}\n", probes.join(",\n     ")),
+    }
+}
+
+/// Ranking evidence is joined, never filtered on: a probe reorders the candidates
+/// the stemmed match admitted without removing any of them.
+fn probe_join(alias: &str, rowid: &str) -> String {
+    format!("LEFT JOIN {alias} ON {alias}.rowid = {rowid}")
 }
 
 fn escape_like_pattern(input: &str) -> String {
@@ -1212,7 +1305,7 @@ fn parse_string_list(value: String) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
-    use slipbox_index::{DiscoveryPolicy, scan_root_with_policy};
+    use slipbox_index::{DiscoveryPolicy, scan_path_with_policy, scan_root_with_policy};
 
     use super::{DUE_POSITION_TAG, GlossaryPage, GlossaryPosition, TERM_POSITION_TAG};
     use crate::Database;
@@ -2178,6 +2271,111 @@ mod tests {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?.join("\n"))
     }
 
+    /// An EXPLAIN row with parent links for checking probe ancestry.
+    struct PlanNode {
+        id: i64,
+        parent: i64,
+        detail: String,
+    }
+
+    fn search_plan(
+        database: &crate::Database,
+        sql: &str,
+        arguments: &[&str],
+    ) -> Result<Vec<PlanNode>> {
+        let mut statement = database
+            .connection
+            .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))?;
+        let rows = statement.query_map(rusqlite::params_from_iter(arguments), |row| {
+            Ok(PlanNode {
+                id: row.get(0)?,
+                parent: row.get(1)?,
+                detail: row.get(3)?,
+            })
+        })?;
+        let plan = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        println!("--- {sql}\n-- arguments: {arguments:?}");
+        for node in &plan {
+            println!("{:>3} <- {:>3}  {}", node.id, node.parent, node.detail);
+        }
+        println!();
+        Ok(plan)
+    }
+
+    fn empty_arguments(parameters: usize) -> Vec<&'static str> {
+        vec![""; parameters]
+    }
+
+    fn details(plan: &[PlanNode]) -> Vec<&str> {
+        plan.iter().map(|node| node.detail.as_str()).collect()
+    }
+
+    /// FTS5 reports MATCH and rowid equality constraints as `M` and `=`.
+    fn fts_constraints(detail: &str) -> Option<&str> {
+        detail
+            .split_once("VIRTUAL TABLE INDEX 0:")
+            .and_then(|(_, constraints)| constraints.split_whitespace().next())
+    }
+
+    fn admitted_by_a_match(detail: &str) -> bool {
+        fts_constraints(detail).is_some_and(|constraints| constraints.contains('M'))
+    }
+
+    fn driven_by_an_outer_rowid(detail: &str) -> bool {
+        fts_constraints(detail).is_some_and(|constraints| constraints.contains('='))
+    }
+
+    fn full_text_reads(plan: &[PlanNode]) -> Vec<&PlanNode> {
+        plan.iter()
+            .filter(|node| node.detail.contains("_fts"))
+            .collect()
+    }
+
+    fn ancestors<'plan>(plan: &'plan [PlanNode], node: &PlanNode) -> Vec<&'plan PlanNode> {
+        let mut chain = Vec::new();
+        let mut parent = node.parent;
+        while let Some(next) = plan.iter().find(|candidate| candidate.id == parent) {
+            chain.push(next);
+            parent = next.parent;
+        }
+        chain
+    }
+
+    /// Check MATCH admission without rowid pushdown or correlated FTS ancestry.
+    /// Production probes must also pass `probe_materialized_once`.
+    fn full_text_reads_run_once(plan: &[PlanNode]) -> bool {
+        full_text_reads(plan).into_iter().all(|node| {
+            admitted_by_a_match(&node.detail)
+                && !driven_by_an_outer_rowid(&node.detail)
+                && ancestors(plan, node)
+                    .iter()
+                    .all(|ancestor| ancestor.detail.starts_with("MATERIALIZE "))
+        })
+    }
+
+    /// A statement-scope materialization containing one indexed FTS read.
+    fn probe_materialized_once(plan: &[PlanNode], alias: &str) -> bool {
+        let materialize = format!("MATERIALIZE {alias}");
+        plan.iter()
+            .filter(|node| node.detail == materialize && node.parent == 0)
+            .any(|root| {
+                let reads = full_text_reads(plan)
+                    .into_iter()
+                    .filter(|node| {
+                        ancestors(plan, node)
+                            .iter()
+                            .any(|ancestor| ancestor.id == root.id)
+                    })
+                    .collect::<Vec<_>>();
+                reads.len() == 1
+                    && reads.iter().all(|node| {
+                        node.detail.contains("node_phrase_fts")
+                            && admitted_by_a_match(&node.detail)
+                            && !driven_by_an_outer_rowid(&node.detail)
+                    })
+            })
+    }
+
     #[test]
     fn the_filing_ordinal_counts_from_one_over_every_note_the_index_holds() -> Result<()> {
         let (_workspace, database, _root) = indexed_database(&filing_fixture())?;
@@ -2307,6 +2505,782 @@ mod tests {
                 "the plan must not sort: {plan}"
             );
         }
+        Ok(())
+    }
+
+    fn literal_fixture() -> [(&'static str, &'static str); 4] {
+        [
+            (
+                "architecture.org",
+                "#+title: The transformer architecture and its attention blocks\n\nA sequence model assembled from stacked attention blocks.\n",
+            ),
+            (
+                "linear.org",
+                "#+title: Linear transformation\n\nA transformation transforms a vector space, one transformation composes with another transformation, and a transformation of a transformation transforms again.\n",
+            ),
+            (
+                "coordinates.org",
+                "#+title: Coordinate changes\n\nA change of coordinates transforms components: transforming twice transforms back, and each transformation of the basis transforms the matrix.\n",
+            ),
+            (
+                "sequences.org",
+                "#+title: Sequence models\n\nRecurrent nets came first; a transformer replaced them for long contexts.\n",
+            ),
+        ]
+    }
+
+    #[test]
+    fn content_search_prefers_a_whole_term_in_the_title_over_a_repeated_stem() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&literal_fixture())?;
+
+        let ranked = content_titles(&database.search_node_content("transformer", 20)?);
+        assert_eq!(
+            ranked.first().map(String::as_str),
+            Some("The transformer architecture and its attention blocks"),
+            "the title naming the whole term outranks every stem-only match: {ranked:?}"
+        );
+        assert_eq!(
+            ranked.get(1).map(String::as_str),
+            Some("Sequence models"),
+            "prose spelling the whole term outranks a stem-only match: {ranked:?}"
+        );
+        let mut stemmed = ranked[2..].to_vec();
+        stemmed.sort();
+        assert_eq!(
+            stemmed,
+            vec!["Coordinate changes", "Linear transformation"],
+            "stem-only matches keep their recall behind the literal ones"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn content_search_keeps_stem_recall_when_nothing_spells_the_term() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&literal_fixture())?;
+
+        let mut every = content_titles(&database.search_node_content("transforming", 20)?);
+        every.sort();
+        assert_eq!(
+            every,
+            vec![
+                "Coordinate changes",
+                "Linear transformation",
+                "Sequence models",
+                "The transformer architecture and its attention blocks",
+            ],
+            "a stemmed query still reaches every related spelling"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_whole_term_is_not_evidence_for_a_longer_word_containing_it() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            (
+                "longer.org",
+                "#+title: Transformer blocks in practice\n\nA stack of attention blocks.\n",
+            ),
+            (
+                "shorter.org",
+                "#+title: Transform of a linear map\n\nA change of basis written out.\n",
+            ),
+        ])?;
+
+        assert_eq!(
+            content_titles(&database.search_node_content("transform", 20)?)
+                .first()
+                .map(String::as_str),
+            Some("Transform of a linear map"),
+            "the query term is whole in one title and merely contained in the other"
+        );
+        assert_eq!(
+            content_titles(&database.search_node_content("transformer", 20)?)
+                .first()
+                .map(String::as_str),
+            Some("Transformer blocks in practice")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn content_search_prefers_a_whole_term_in_an_alias() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            (
+                "attention.org",
+                "#+title: Attention is all you need\n:PROPERTIES:\n:ROAM_ALIASES: \"Transformers and attention\"\n:END:\n\nA sequence model built from attention alone.\n",
+            ),
+            literal_fixture()[1],
+        ])?;
+
+        assert_eq!(
+            content_titles(&database.search_node_content("transformers", 20)?),
+            vec!["Attention is all you need", "Linear transformation"],
+            "an alias holding the whole term outranks a repeated stem, and neither note is the query's exact headword"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn content_search_mixes_a_whole_term_with_a_stemmed_one() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            literal_fixture()[0],
+            (
+                "attn.org",
+                "#+title: Attention and transformations\n\nAttention weights a transformation, and each transformation follows the transformations before it.\n",
+            ),
+        ])?;
+
+        assert_eq!(
+            content_titles(&database.search_node_content("transformer attention", 20)?),
+            vec![
+                "The transformer architecture and its attention blocks",
+                "Attention and transformations",
+            ],
+            "a query mixing a whole term with a stemmed one keeps both matches and prefers the literal title"
+        );
+        Ok(())
+    }
+
+    const CROWDED_WINNER: &str = "The transformer architecture in practice";
+
+    fn crowded_fixture() -> Vec<(String, String)> {
+        let mut fixture = (0..40)
+            .map(|index| {
+                (
+                    format!("distractor-{index:02}.org"),
+                    format!(
+                        "#+title: Transformation notes {index:02}\n\nA transformation transforms a transformation, transforming a transformation into another transformation.\n"
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+        fixture.push((
+            "zz-winner.org".to_owned(),
+            format!(
+                "#+title: {CROWDED_WINNER}\n\nA long discussion of stacked attention blocks that never repeats the word in its prose, wandering instead through residual streams, layer normalization, positional encodings, and the many other details a working implementation settles before it runs.\n"
+            ),
+        ));
+        fixture
+    }
+
+    fn crowded_database() -> Result<(tempfile::TempDir, crate::Database, std::path::PathBuf)> {
+        let fixture = crowded_fixture();
+        let files = fixture
+            .iter()
+            .map(|(name, body)| (name.as_str(), body.as_str()))
+            .collect::<Vec<_>>();
+        indexed_database(&files)
+    }
+
+    #[test]
+    fn content_search_reaches_a_literal_winner_the_relevance_order_buried() -> Result<()> {
+        let (_workspace, database, _root) = crowded_database()?;
+
+        assert_eq!(
+            content_titles(&database.search_node_content("transformer", 1)?),
+            vec![CROWDED_WINNER],
+            "the limit applies after the canonical ordering, so the one hit is the literal winner"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn one_statement_serves_a_broad_query_and_a_selective_one() -> Result<()> {
+        let (_workspace, database, _root) = crowded_database()?;
+
+        let broad = database.search_node_content("transformation", 5)?;
+        assert_eq!(broad.len(), 5, "a broad query stays bounded by its limit");
+        assert!(
+            content_titles(&broad)
+                .iter()
+                .all(|title| title.starts_with("Transformation notes")),
+            "the notes spelling the broad term out hold the page: {:?}",
+            content_titles(&broad)
+        );
+
+        assert_eq!(
+            content_titles(&database.search_node_content("residual", 5)?),
+            vec![CROWDED_WINNER],
+            "a selective term returns only the note carrying it"
+        );
+        assert_eq!(
+            content_titles(&database.search_node_content("transformer", 5)?)
+                .first()
+                .map(String::as_str),
+            Some(CROWDED_WINNER),
+            "the literal winner leads the page a common stem would have filled"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn every_search_statement_materializes_its_probes_at_statement_scope() -> Result<()> {
+        let (_workspace, database, _root) = crowded_database()?;
+        let note_where = super::note_where("n");
+
+        for (sql, parameters, probes) in [
+            (
+                super::search_node_content_sql(true),
+                7,
+                vec!["naming", "anywhere", "phrase"],
+            ),
+            (
+                super::search_node_content_sql(false),
+                6,
+                vec!["naming", "anywhere"],
+            ),
+            (
+                super::search_nodes_fts_sql(None, Some(&note_where), true),
+                3,
+                vec!["naming"],
+            ),
+            (
+                super::search_glossary_sql(&super::glossary_where("n")),
+                3,
+                vec!["naming"],
+            ),
+        ] {
+            let plan = search_plan(&database, &sql, &empty_arguments(parameters))?;
+            for alias in &probes {
+                assert!(
+                    probe_materialized_once(&plan, alias),
+                    "probe {alias} must be materialized once at statement scope: {:?}",
+                    details(&plan)
+                );
+                assert!(
+                    details(&plan).iter().any(|detail| {
+                        detail.starts_with(&format!("SEARCH {alias} "))
+                            && detail.contains("(rowid=?)")
+                    }),
+                    "probe {alias} must be read back by rowid: {:?}",
+                    details(&plan)
+                );
+            }
+            assert_eq!(
+                full_text_reads(&plan)
+                    .iter()
+                    .filter(|node| node.detail.contains("node_phrase_fts"))
+                    .count(),
+                probes.len(),
+                "the statement reads the probe table once per probe: {:?}",
+                details(&plan)
+            );
+            assert!(
+                full_text_reads_run_once(&plan),
+                "every full-text read must be an indexed MATCH evaluated once: {:?}",
+                details(&plan)
+            );
+            assert!(
+                details(&plan)
+                    .iter()
+                    .any(|detail| detail.contains("SEARCH n USING INTEGER PRIMARY KEY")),
+                "the matched rowid must resolve its node by primary key: {:?}",
+                details(&plan)
+            );
+            assert!(
+                !details(&plan)
+                    .iter()
+                    .any(|detail| detail.trim() == "SCAN n"),
+                "no statement may scan the notes table: {:?}",
+                details(&plan)
+            );
+            // LIMIT bounds the page, not the sort over admitted candidates.
+            assert!(
+                details(&plan)
+                    .iter()
+                    .any(|detail| detail.contains("USE TEMP B-TREE FOR ORDER BY")),
+                "candidate ordering is a sort over every admitted row: {:?}",
+                details(&plan)
+            );
+        }
+
+        let content_plan = search_plan(
+            &database,
+            &super::search_node_content_sql(true),
+            &empty_arguments(7),
+        )?;
+        assert!(
+            details(&content_plan)
+                .iter()
+                .any(|detail| detail.contains("idx_nodes_title_nocase"))
+                && details(&content_plan)
+                    .iter()
+                    .any(|detail| detail.contains("idx_aliases_alias_nocase")),
+            "the headword equality tests must reach their folded indexes: {:?}",
+            details(&content_plan)
+        );
+
+        let sorted_plan = search_plan(
+            &database,
+            &super::search_nodes_fts_sql(
+                Some(&slipbox_core::SearchNodesSort::Title),
+                Some(&note_where),
+                false,
+            ),
+            &empty_arguments(2),
+        )?;
+        assert!(
+            !details(&sorted_plan)
+                .iter()
+                .any(|detail| detail.contains("node_phrase_fts")),
+            "an explicit sort carries no probe at all: {:?}",
+            details(&sorted_plan)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_common_query_and_a_selective_one_are_admitted_the_same_way() -> Result<()> {
+        let (_workspace, database, _root) = crowded_database()?;
+        let sql = super::search_node_content_sql(false);
+        let budget = super::SNIPPET_TOKEN_BUDGET.to_string();
+
+        let mut plans = Vec::new();
+        for query in ["transformation", "residual"] {
+            let matched = super::build_fts_query(query).expect("a term to match");
+            let probes = super::build_fts_literal_probes(query).expect("a term to probe");
+            let plan = search_plan(
+                &database,
+                &sql,
+                &[
+                    &matched,
+                    &budget,
+                    "5",
+                    query,
+                    &probes.naming,
+                    &probes.anywhere,
+                ],
+            )?;
+            for alias in ["naming", "anywhere"] {
+                assert!(
+                    probe_materialized_once(&plan, alias),
+                    "probe {alias} must be materialized once for {query}: {:?}",
+                    details(&plan)
+                );
+            }
+            assert!(
+                full_text_reads_run_once(&plan),
+                "every full-text read must be an indexed MATCH evaluated once: {:?}",
+                details(&plan)
+            );
+            plans.push(details(&plan).join("\n"));
+        }
+
+        assert_eq!(
+            plans[0], plans[1],
+            "selectivity decides how many rows the MATCH admits, not how they are read"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_scanning_statement_reads_differently_from_the_search_statements() -> Result<()> {
+        let (_workspace, database, _root) = crowded_database()?;
+
+        let unconstrained = search_plan(&database, "SELECT rowid FROM node_phrase_fts", &[])?;
+        assert!(
+            !full_text_reads(&unconstrained).is_empty(),
+            "the control must reach the probe table: {:?}",
+            details(&unconstrained)
+        );
+        assert!(
+            !details(&unconstrained)
+                .iter()
+                .any(|detail| admitted_by_a_match(detail)),
+            "the control must show an unconstrained lookup: {:?}",
+            details(&unconstrained)
+        );
+        assert!(
+            !full_text_reads_run_once(&unconstrained),
+            "the one-shot check must reject an unconstrained lookup: {:?}",
+            details(&unconstrained)
+        );
+
+        let scanning = search_plan(
+            &database,
+            &format!(
+                "SELECT n.node_key
+                   FROM nodes AS n
+                  WHERE n.title LIKE ?1
+                    AND {}",
+                super::note_where("n")
+            ),
+            &["%transformer%"],
+        )?;
+        assert!(
+            details(&scanning)
+                .iter()
+                .any(|detail| detail.trim() == "SCAN n"),
+            "the control must scan the notes table: {:?}",
+            details(&scanning)
+        );
+        assert!(
+            !details(&scanning)
+                .iter()
+                .any(|detail| detail.contains("USING INTEGER PRIMARY KEY")),
+            "the control must not resolve by primary key: {:?}",
+            details(&scanning)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_repeated_full_text_lookup_reads_differently_from_a_materialized_probe() -> Result<()> {
+        let (_workspace, database, _root) = crowded_database()?;
+        let matched = super::build_fts_query("transformation").expect("a term to match");
+        let probes = super::build_fts_literal_probes("transformation").expect("a term to probe");
+
+        // `rowid + 0` keeps the correlation while denying FTS5 a rowid constraint, so
+        // the lookup repeats for every outer candidate with a MATCH and no `=`.
+        let correlated = search_plan(
+            &database,
+            "SELECT n.node_key
+               FROM node_content_fts
+               JOIN nodes AS n ON n.id = node_content_fts.rowid
+              WHERE node_content_fts MATCH ?1
+                AND EXISTS (SELECT 1
+                              FROM node_phrase_fts
+                             WHERE node_phrase_fts MATCH ?2
+                               AND node_phrase_fts.rowid + 0 = node_content_fts.rowid)",
+            &[&matched, &probes.naming],
+        )?;
+        let repeated = full_text_reads(&correlated)
+            .into_iter()
+            .find(|node| node.detail.contains("node_phrase_fts"))
+            .expect("the control reads the probe table");
+        assert!(
+            admitted_by_a_match(&repeated.detail) && !driven_by_an_outer_rowid(&repeated.detail),
+            "the control must keep a MATCH and no rowid constraint: {}",
+            repeated.detail
+        );
+        assert!(
+            ancestors(&correlated, repeated)
+                .iter()
+                .any(|ancestor| ancestor.detail.contains("CORRELATED")),
+            "the control must be driven by the outer query: {:?}",
+            details(&correlated)
+        );
+        assert!(
+            !full_text_reads_run_once(&correlated),
+            "the one-shot check must reject a correlated MATCH: {:?}",
+            details(&correlated)
+        );
+
+        // A flattened LEFT JOIN permits candidate-driven rowid lookups.
+        let inline = search_plan(
+            &database,
+            "SELECT n.node_key
+               FROM node_content_fts
+               JOIN nodes AS n ON n.id = node_content_fts.rowid
+               LEFT JOIN (SELECT rowid
+                            FROM node_phrase_fts
+                           WHERE node_phrase_fts MATCH ?2) AS naming
+                      ON naming.rowid = node_content_fts.rowid
+              WHERE node_content_fts MATCH ?1",
+            &[&matched, &probes.naming],
+        )?;
+        assert!(
+            full_text_reads(&inline)
+                .iter()
+                .any(|node| driven_by_an_outer_rowid(&node.detail)),
+            "the inline shape must show a pushed-down rowid: {:?}",
+            details(&inline)
+        );
+        assert!(
+            !full_text_reads_run_once(&inline),
+            "the one-shot check must reject the inline shape: {:?}",
+            details(&inline)
+        );
+        assert!(
+            !probe_materialized_once(&inline, "naming"),
+            "the inline shape materializes nothing: {:?}",
+            details(&inline)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn content_search_orders_equivalent_evidence_by_filing_position() -> Result<()> {
+        let note = |id: &str| {
+            format!(
+                "#+title: Transformer notes\n\nThe transformer is described here.\n\n* Later section\n:PROPERTIES:\n:ID: {id}\n:END:\n\nThe transformer is described here.\n"
+            )
+        };
+        let (first, second) = (note("first-heading"), note("second-heading"));
+        let (_workspace, database, _root) = indexed_database(&[
+            ("b-second.org", second.as_str()),
+            ("a-first.org", first.as_str()),
+        ])?;
+
+        let hits = database.search_node_content("transformer", 20)?;
+        assert_eq!(
+            content_titles(&hits),
+            vec![
+                "Transformer notes",
+                "Transformer notes",
+                "Later section",
+                "Later section"
+            ],
+            "the notes naming the term outrank the ones carrying it in prose alone"
+        );
+        assert_eq!(
+            hits.iter()
+                .map(|hit| hit.node.file_path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a-first.org", "b-second.org", "a-first.org", "b-second.org"],
+            "equivalent evidence orders by filing position"
+        );
+        Ok(())
+    }
+
+    fn metadata_literal_fixture() -> [(&'static str, &'static str); 2] {
+        [
+            (
+                "block.org",
+                "#+title: Transformer block in a deep network\n\nA layer of attention and a feed-forward map.\n",
+            ),
+            (
+                "transformations.org",
+                "#+title: Transformations\n#+filetags: :transformation:transforms:\n:PROPERTIES:\n:ROAM_ALIASES: \"transformation transforms\"\n:END:\n\nRepeated in the metadata rather than the prose.\n",
+            ),
+        ]
+    }
+
+    #[test]
+    fn metadata_search_prefers_a_whole_term_in_the_title() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&metadata_literal_fixture())?;
+
+        assert_eq!(
+            titles(&database.search_nodes("transformer", 20, None)?),
+            vec!["Transformer block in a deep network", "Transformations"],
+            "the title naming the whole term outranks a stem repeated across metadata columns"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn an_explicit_metadata_sort_keeps_its_own_order() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&metadata_literal_fixture())?;
+
+        assert_eq!(
+            titles(&database.search_nodes(
+                "transformer",
+                20,
+                Some(slipbox_core::SearchNodesSort::Title)
+            )?),
+            vec!["Transformations", "Transformer block in a deep network"],
+            "an explicit sort states the order and relevance evidence does not touch it"
+        );
+        assert_eq!(
+            titles(&database.search_nodes(
+                "transformer",
+                20,
+                Some(slipbox_core::SearchNodesSort::File)
+            )?),
+            vec!["Transformer block in a deep network", "Transformations"]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn glossary_search_prefers_a_headword_holding_the_whole_term() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            (
+                "block.org",
+                &term(
+                    "Transformer block in a deep network",
+                    "",
+                    "A layer of attention and a feed-forward map.",
+                ),
+            ),
+            (
+                "transformations.org",
+                "#+title: Transformations\n#+glossary: t\n#+filetags: :transformation:transforms:\n:PROPERTIES:\n:ROAM_ALIASES: \"transformation transforms\"\n:END:\n\nRepeated in the metadata rather than the prose.\n",
+            ),
+        ])?;
+
+        let page = database.search_glossary("transformer", 20)?;
+        assert_eq!(
+            page_titles(&page),
+            vec!["Transformer block in a deep network", "Transformations"],
+            "the headword naming the whole term outranks one merely sharing its stem"
+        );
+        assert_eq!(page.total, 2, "the probe orders the page, never filters it");
+        Ok(())
+    }
+
+    #[test]
+    fn whole_term_evidence_survives_a_derived_schema_rebuild() -> Result<()> {
+        let (_workspace, mut database, root) =
+            indexed_database(&[literal_fixture()[0], literal_fixture()[1]])?;
+
+        assert_eq!(
+            literal_first(&database)?.as_deref(),
+            Some("The transformer architecture and its attention blocks")
+        );
+
+        database
+            .connection
+            .execute_batch("PRAGMA user_version = 0;")?;
+        database.migrate()?;
+        assert!(
+            database.search_node_content("transformer", 20)?.is_empty(),
+            "a forced rebuild empties the probe index with the rest of the derived schema"
+        );
+
+        let files = scan_root_with_policy(&root, &DiscoveryPolicy::default())?;
+        database.sync_index(&files)?;
+        assert_eq!(
+            literal_first(&database)?.as_deref(),
+            Some("The transformer architecture and its attention blocks"),
+            "re-syncing from Org restores the evidence the rebuild dropped"
+        );
+        Ok(())
+    }
+
+    const NAMING_FILE: &str = "#+title: The transformer architecture and its attention blocks\n\nA sequence model assembled from stacked attention blocks.\n\n* Transformer residual streams\n:PROPERTIES:\n:ID: 6a26f38c-0000-4000-8000-000000000001\n:END:\n\nEach block adds to the stream it read.\n";
+    const NAMING_FILE_WITHOUT_THE_TERM: &str = "#+title: The attention architecture\n\nA sequence model assembled from stacked attention blocks that it transforms.\n";
+    const STEM_FILE: &str = "#+title: Linear transformation\n\nA transformation transforms a vector space, one transformation composes with another transformation, and a transformation of a transformation transforms again.\n";
+    const STEM_FILE_WITH_A_NAMING_ALIAS: &str = "#+title: Linear maps\n:PROPERTIES:\n:ROAM_ALIASES: \"Linear transformer maps\"\n:END:\n\nA transformation transforms a vector space, one transformation composes with another transformation.\n";
+
+    fn literal_first(database: &crate::Database) -> Result<Option<String>> {
+        let ranked = content_titles(&database.search_node_content("transformer", 20)?);
+        Ok(ranked.into_iter().next())
+    }
+
+    fn naming_evidence(database: &crate::Database, query: &str) -> Result<i64> {
+        let probes = super::build_fts_literal_probes(query).expect("a term to probe");
+        let count = database.connection.query_row(
+            "SELECT COUNT(*) FROM node_phrase_fts WHERE node_phrase_fts MATCH ?1",
+            [&probes.naming],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    fn orphaned_probe_rows(database: &crate::Database) -> Result<i64> {
+        let count = database.connection.query_row(
+            "SELECT COUNT(*)
+               FROM node_phrase_fts
+              WHERE rowid NOT IN (SELECT id FROM nodes)",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    fn indexed_paths(database: &crate::Database) -> Result<Vec<String>> {
+        let mut statement = database
+            .connection
+            .prepare("SELECT path FROM files ORDER BY path")?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        let paths = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(paths)
+    }
+
+    fn refresh_one_file(
+        database: &mut crate::Database,
+        root: &std::path::Path,
+        name: &str,
+    ) -> Result<()> {
+        let file = scan_path_with_policy(root, &root.join(name), &DiscoveryPolicy::default())?;
+        database.sync_file_index(&file)?;
+        Ok(())
+    }
+
+    #[test]
+    fn one_file_refreshed_alone_moves_its_whole_term_evidence() -> Result<()> {
+        let (_workspace, mut database, root) = indexed_database(&[
+            ("architecture.org", NAMING_FILE),
+            ("linear.org", STEM_FILE),
+            ("coordinates.org", literal_fixture()[2].1),
+        ])?;
+
+        assert_eq!(
+            naming_evidence(&database, "transformer")?,
+            2,
+            "the file and its heading both name the term"
+        );
+        let ranked = content_titles(&database.search_node_content("transformer", 20)?);
+        assert!(
+            ranked.contains(&"Transformer residual streams".to_owned())
+                && ranked
+                    .contains(&"The transformer architecture and its attention blocks".to_owned()),
+            "both naming nodes answer the search: {ranked:?}"
+        );
+
+        std::fs::write(root.join("architecture.org"), NAMING_FILE_WITHOUT_THE_TERM)?;
+        refresh_one_file(&mut database, &root, "architecture.org")?;
+
+        assert_eq!(
+            naming_evidence(&database, "transformer")?,
+            0,
+            "the evidence that file supplied is gone with the words that carried it"
+        );
+        let ranked = content_titles(&database.search_node_content("transformer", 20)?);
+        assert!(
+            ranked.contains(&"The attention architecture".to_owned()),
+            "the refreshed file reads back as it was written: {ranked:?}"
+        );
+        assert!(
+            !ranked
+                .iter()
+                .any(|title| title == "Transformer residual streams"),
+            "the heading the edit deleted does not linger: {ranked:?}"
+        );
+        assert!(
+            ranked.contains(&"Coordinate changes".to_owned()),
+            "a file the refresh did not name keeps its rows: {ranked:?}"
+        );
+
+        std::fs::write(root.join("ghost.org"), "#+title: Ghost transformer\n")?;
+        std::fs::write(root.join("linear.org"), STEM_FILE_WITH_A_NAMING_ALIAS)?;
+        refresh_one_file(&mut database, &root, "linear.org")?;
+
+        assert_eq!(naming_evidence(&database, "transformer")?, 1);
+        assert_eq!(
+            literal_first(&database)?.as_deref(),
+            Some("Linear maps"),
+            "an alias added to one file leads the ranking as soon as that file is refreshed"
+        );
+        assert_eq!(
+            indexed_paths(&database)?,
+            vec!["architecture.org", "coordinates.org", "linear.org"],
+            "refreshing one file imports no other, however discoverable"
+        );
+        assert!(
+            content_titles(&database.search_node_content("Ghost", 20)?).is_empty(),
+            "a file that was never indexed stays out of the results"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn removing_one_file_drops_its_whole_term_evidence() -> Result<()> {
+        let (_workspace, mut database, _root) = indexed_database(&[
+            ("architecture.org", NAMING_FILE),
+            ("coordinates.org", literal_fixture()[2].1),
+        ])?;
+        assert_eq!(naming_evidence(&database, "transformer")?, 2);
+
+        database.remove_file_index("architecture.org")?;
+
+        assert_eq!(
+            naming_evidence(&database, "transformer")?,
+            0,
+            "removing the file removes the rowids its probes matched"
+        );
+        assert_eq!(
+            orphaned_probe_rows(&database)?,
+            0,
+            "no probe row outlives the node it described"
+        );
+        assert_eq!(
+            content_titles(&database.search_node_content("transformer", 20)?),
+            vec!["Coordinate changes"],
+            "the file left indexed still answers the search"
+        );
+        assert_eq!(indexed_paths(&database)?, vec!["coordinates.org"]);
         Ok(())
     }
 }

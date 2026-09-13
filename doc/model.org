@@ -95,15 +95,20 @@ adding one never changes the behavior of the others.
 
 Node search answers "which note is this?" from its metadata. Occurrence search
 answers "where does this exact string appear?" across raw text. Note-content
-search answers "which notes are about this?" and ranks whole notes by body
-relevance, returning a highlighted excerpt per hit.
+search answers "which notes are about this?" with ranked notes and a highlighted
+excerpt per hit. Its order prefers exact title/alias equality, a spelled-out
+phrase, every usable term whole in the note's title or aliases, every usable
+term whole anywhere in the note, then BM25 and filing position. Unstemmed
+probes reorder stemmed candidates; they do not remove matches.
 
-Note-content search is a parallel path to node search, not a change to it.
-`node search` and its `node_fts` metadata index keep their exact matching
-behavior and result shape; `search content` adds a separate `node_content_fts`
-index over body text and a separate ranked, snippet-bearing result. The Emacs
-`org-slipbox-node-find` recall path and the `node search` CLI/RPC contract are
-unchanged.
+Node and glossary relevance search also prefer every usable query term whole
+in a title or alias. Explicit metadata sorts keep their stated order. These
+paths retain their separate indexes, recall and result shapes; occurrence
+search remains literal and location-grained.
+
+Queries admit candidates through indexed MATCH and lookups. Ordering costs
+work over the admitted candidates, which a common term can expand to the
+whole corpus; the result limit bounds the page, not all query work.
 
 * Demoted Concepts
 

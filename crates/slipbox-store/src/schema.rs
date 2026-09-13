@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::Database;
 
-const SCHEMA_VERSION: i32 = 23;
+const SCHEMA_VERSION: i32 = 24;
 
 impl Database {
     pub(crate) fn migrate(&self) -> Result<()> {
@@ -97,7 +97,9 @@ impl Database {
              );
 
              CREATE VIRTUAL TABLE IF NOT EXISTS node_phrase_fts USING fts5(
-               text,
+               title,
+               aliases,
+               body,
                tokenize='unicode61 remove_diacritics 2'
              );
 

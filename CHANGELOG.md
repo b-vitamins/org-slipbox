@@ -33,6 +33,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
   `*_with_platform` variants with explicit desktop authority and enable
   `desktop-decryptors`.
 
+### Fixed
+- Prefer literal title/alias matches over incidental stem matches in canonical
+  search. Note-content ranking prefers exact headwords and spelled-out phrases,
+  then every usable query term whole in a title or alias, then whole-term content;
+  stemmed recall and explicit metadata sorts are unchanged.
+
 ## [0.18.0] - 2026-09-12
 
 ### Added

@@ -522,16 +522,12 @@ fn insert_file_rows(transaction: &Transaction<'_>, file: &IndexedFile) -> Result
             params![row_id, node.title, node.aliases.join(" "), node.body],
         )?;
 
-        // The same text on the same rowid, tokenized without stemming, in one
-        // column: this is what a phrase is matched against. Columns are separated so
-        // a phrase cannot run from the end of one into the start of the next.
+        // Keep unstemmed text on content rowids, with separate columns for naming
+        // probes and phrase boundaries.
         transaction.execute(
-            "INSERT INTO node_phrase_fts (rowid, text)
-                 VALUES (?1, ?2)",
-            params![
-                row_id,
-                format!("{}\n{}\n{}", node.title, node.aliases.join("\n"), node.body)
-            ],
+            "INSERT INTO node_phrase_fts (rowid, title, aliases, body)
+                 VALUES (?1, ?2, ?3, ?4)",
+            params![row_id, node.title, node.aliases.join("\n"), node.body],
         )?;
 
         for reference in &node.refs {
