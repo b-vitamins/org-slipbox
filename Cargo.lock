@@ -285,6 +285,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
 
 [[package]]
+name = "jni-sys"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6377a88cb3910bee9b0fa88d4f42e1d2da8e79915598f65fb0c7ee14c878af2"
+dependencies = [
+ "jni-sys-macros",
+]
+
+[[package]]
+name = "jni-sys-macros"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38c0b942f458fe50cdac086d2f946512305e5631e720728f2a61aabcd47a6264"
+dependencies = [
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.91"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -520,6 +539,20 @@ dependencies = [
  "slipbox-write",
  "tempfile",
  "urlencoding",
+]
+
+[[package]]
+name = "slipbox-android"
+version = "0.18.0"
+dependencies = [
+ "anyhow",
+ "jni-sys",
+ "serde",
+ "serde_json",
+ "slipbox-core",
+ "slipbox-engine",
+ "slipbox-rpc",
+ "tempfile",
 ]
 
 [[package]]

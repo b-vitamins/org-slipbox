@@ -23,8 +23,11 @@ min-sdk = "23"
 target-sdk = "37"
 build-tools = "36.0.0"
 
-# Recorded only; this module does not compile native code.
+# The NDK supplies the compiler, archiver and linker that cross-compile the
+# native library, and the tools that inspect it. The Rust toolchain must carry
+# the Android target for every packaged ABI.
 ndk = "28.2.13676358"
+rust = "1.98.1"
 
 [libraries]
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity" }

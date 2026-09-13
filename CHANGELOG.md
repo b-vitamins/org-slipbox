@@ -15,6 +15,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
   catalog. Validate credential-free remotes, branches and notes folders; scope
   note, file, asset and reading references by device-local source identity.
   Provider-bound updates report which cached and reading state may be retained.
+- Package the headless Rust engine and bundled SQLite in the Android app for
+  arm64-v8a, qualified on 4KB and 16KB kernels. A private fixture probe checks
+  indexing, queries and durable reopening; reader wiring remains separate.
+  Build and binary-verification instructions are in `doc/android-native.org`.
 - Document the planned Git-sourced Android reader in `doc/android.org`: source
   eligibility, read-only/native boundaries, coherent offline sync, private data,
   and delivery. Link its roadmap, model, and compatibility policy; the app is

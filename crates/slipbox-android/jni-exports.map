@@ -1,0 +1,9 @@
+/* Linker version script for the Android shared library.
+   Only the JNI entry point is dynamically visible; bundled SQLite and engine
+   symbols stay local so no other library can bind to them. */
+{
+  global:
+    Java_io_github_b_1vitamins_slipbox_engine_SlipboxNativeEngine_nativeRunFixtureProbe;
+  local:
+    *;
+};

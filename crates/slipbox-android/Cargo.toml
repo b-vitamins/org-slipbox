@@ -1,0 +1,29 @@
+[package]
+name = "slipbox-android"
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Android native consumer of the headless slipbox engine, with bundled SQLite."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+anyhow.workspace = true
+# The only JNI surface is one entry point, so the raw upstream bindings are
+# enough; nothing here creates or attaches a JVM.
+jni-sys = "0.4.1"
+serde.workspace = true
+serde_json.workspace = true
+slipbox-core = { path = "../slipbox-core" }
+# Android has no linkable system SQLite, so the bundled amalgamation is required
+# rather than selectable: this crate declares no SQLite feature of its own.
+slipbox-engine = { path = "../slipbox-engine", default-features = false, features = [
+  "bundled-sqlite",
+] }
+slipbox-rpc = { path = "../slipbox-rpc" }
+
+[dev-dependencies]
+tempfile.workspace = true

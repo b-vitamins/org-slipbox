@@ -3,8 +3,10 @@
 * Scope
 
 The standalone Gradle build in =android/= provides the native Compose shell.
-It opens an empty Library and an About screen; notes, Git sources, credentials,
-and the Rust engine are not connected. See [[file:android.org][doc/android.org]] for the reader contract.
+It opens an empty Library and an About screen; notes, Git sources, and credentials
+are not connected. The build packages the Rust engine, which only a private
+fixture probe exercises; see [[file:android-native.org][doc/android-native.org]] for its cross-compilation,
+ABIs and device tests. See [[file:android.org][doc/android.org]] for the reader contract.
 Android remains unreleased; desktop and Emacs release metadata are independent.
 
 * Prerequisites
@@ -26,7 +28,8 @@ sdkmanager "emulator" "system-images;android-37.0;google_apis;arm64-v8a"
 The example system image is for an ARM64 host; choose the corresponding stable
 image for another host. API 37's package name is =platforms;android-37.0=.
 Use the installed =sdkmanager=; no self-downloading replacement CLI is required.
-No NDK is required until native compilation is introduced.
+The NDK and the Rust toolchain that cross-compile the engine are additional
+prerequisites, listed in [[file:android-native.org][doc/android-native.org]].
 
 * Qualified Toolchain
 
@@ -50,7 +53,8 @@ and SHA-256 in =android/gradle/wrapper/gradle-wrapper.properties=.
 | compileSdk/targetSdk  | 37            |
 | minSdk                | 23            |
 | SDK Build Tools       | 36.0.0        |
-| NDK, recorded only    | 28.2.13676358 |
+| NDK                   | 28.2.13676358 |
+| Rust toolchain        | 1.98.1        |
 
 Primary compatibility references, checked 2026-09-13:
 
@@ -86,9 +90,10 @@ Run all Gradle commands from =android/=:
 ./gradlew --no-daemon --max-workers=2 :app:lintDebug
 #+end_src
 
-Lint treats warnings as errors and checks dependencies and tests. Only the
+Lint treats warnings as errors and checks dependencies and tests. The
 newer-version advisories are disabled; publications do not invalidate the
-qualified pins.
+qualified pins. [[file:android-native.org][doc/android-native.org]] states the one further check the packaged
+ABIs disable.
 
 With =emulator= and =adb= on =PATH=, instrumented layout and Back tests use a
 managed emulator. Wait for =sys.boot_completed= before running the tests, and

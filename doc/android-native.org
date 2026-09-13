@@ -1,0 +1,172 @@
+#+title: org-slipbox Android Native Engine
+
+* Scope
+
+=crates/slipbox-android= links the headless engine and its bundled SQLite into one
+shared library and exports a single JNI entry point. That entry point runs a
+private fixture probe: it indexes a synthetic Org root in application-private
+storage, queries notes, sources and glossary terms, drops the service, reopens the
+same durable database and reports every result as JSON.
+
+The probe qualifies the packaged engine on a device. It is not the reader adapter.
+No engine handle, read-versus-maintenance API, credential path, Git source or note
+rendering exists in this library; [[file:android.org][doc/android.org]] states the reader contract those
+must satisfy. [[file:android-build.org][doc/android-build.org]] covers the Compose shell, pins and locks.
+
+* Supported ABIs
+
+| ABI       | Rust target           | Packaged | Qualified on              |
+|-----------+-----------------------+----------+---------------------------|
+| arm64-v8a | aarch64-linux-android | yes      | 4 KB and 16 KB page sizes |
+
+=android/app/build.gradle.kts= declares that set once. The cross-compilation task
+builds it, =defaultConfig.ndk.abiFilters= packages it, and
+=BuildConfig.QUALIFIED_ABIS= carries it into the tests that pin it. Every other
+ABI is excluded rather than shipped without an engine: an application that
+installs but cannot load its engine is worse than one that does not install.
+
+Qualifying another ABI requires a build, a load and a database result on that ABI.
+An arm64 result implies nothing about armeabi-v7a, x86_64 or riscv64. Lint's
+=ChromeOsAbiSupport= check asks for an x86_64 library and is disabled for that
+reason, alongside the two newer-publication advisories
+[[file:android-build.org][doc/android-build.org]] names. Every check that remains
+enabled runs with warnings as errors and aborts the build.
+
+* Tool pins
+
+| Input              | Value         | Declared in                         |
+|--------------------+---------------+-------------------------------------|
+| NDK                | 28.2.13676358 | =android/gradle/libs.versions.toml= |
+| Rust toolchain     | 1.98.1        | =android/gradle/libs.versions.toml= |
+| Compiler API level | =minSdk=, 23  | =android/gradle/libs.versions.toml= |
+| SDK build tools    | 36.0.0        | =android/gradle/libs.versions.toml= |
+| Workspace MSRV     | 1.85          | =Cargo.toml=                        |
+
+The NDK supplies the C compiler, archiver and linker for the ABI, sysroot and
+minimum API level, so the Rust code and the SQLite amalgamation observe one target.
+The pinned versions are the task's inputs; install locations and their contents
+are not, so replacing what is installed at an unchanged pin needs =clean= (see
+Generated outputs).
+
+* Prerequisites
+
+Beyond the SDK and JDK in [[file:android-build.org][doc/android-build.org]]:
+
+#+begin_src bash
+sdkmanager "ndk;28.2.13676358"
+rustup toolchain install 1.98.1 --target aarch64-linux-android
+#+end_src
+
+The build runs =cargo= from =PATH= under =RUSTUP_TOOLCHAIN=; no toolchain is
+installed and no global compiler or linker configuration is written. Select a
+different executable with =-Pslipbox.cargo=/path/to/cargo=. Standard variables
+apply: =JAVA_HOME=, =ANDROID_HOME= or =sdk.dir=, and =ANDROID_AVD_HOME= for a
+private emulator home.
+
+* Generated outputs
+
+| Path                                                                     | Contents                                    |
+|--------------------------------------------------------------------------+---------------------------------------------|
+| =app/build/rust-target/=                                                 | Cargo target directory for the Android ABIs |
+| =app/build/rust-target/<target>/release/libslipbox_android.so=           | unstripped library, the symbol evidence     |
+| =app/build/generated/rust/<variant>/jniLibs/<abi>/libslipbox_android.so= | what AGP packages for that variant          |
+| =app/build/outputs/apk/=                                                 | APKs, whose copy AGP strips                 |
+
+Nothing generated is committed and nothing is copied by hand. =clean= removes all
+of it, including the Cargo target directory: run it after replacing an installed
+NDK or Rust toolchain, since a pin that did not change invalidates nothing.
+
+* Build
+
+Run every Gradle command from =android/=:
+
+#+begin_src bash
+./gradlew --no-daemon --max-workers=2 --no-build-cache clean
+./gradlew --no-daemon --max-workers=2 --no-build-cache \
+  :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest
+./gradlew --no-daemon --max-workers=2 --no-build-cache \
+  :app:testDebugUnitTest :app:lintDebug
+#+end_src
+
+The build cache is disabled throughout: a qualification must produce the bytes it
+inspects rather than replay a recorded outcome.
+
+Both variants package the library the Cargo =release= profile builds, so the bytes
+a device exercises are the bytes a release carries. Only the JNI entry point is
+dynamically visible: =crates/slipbox-android/jni-exports.map= keeps the engine and
+SQLite symbols local. Libraries link with =-Wl,-z,max-page-size=16384=.
+
+* Verify the packaged libraries
+
+#+begin_src bash
+tools/verify-native-packaging.sh \
+  app/build/outputs/apk/debug/app-debug.apk \
+  app/build/outputs/apk/release/app-release-unsigned.apk
+#+end_src
+
+The script uses the pinned NDK and build tools on every native library an APK
+carries, including transitive ones such as =libandroidx.graphics.path.so=:
+
+- the engine present for every ABI the build declares, in every APK given, and no
+  ABI directory it does not declare;
+- =zipalign -c -P 16 4= on each APK;
+- =PT_LOAD= alignment of at least 16384 bytes, per
+  [[https://developer.android.com/guide/practices/page-sizes][Android's page-size guidance]];
+- at most one =PT_GNU_RELRO=, in a layout bionic can relocate on a 16 KB kernel. A
+  RELRO covering its whole =PT_LOAD= is exempt. A RELRO covering only a prefix is
+  judged by the alignment of its end address: 16 KB or more passes, 4 KB or 8 KB
+  selects the loader's 4 KB compatibility mode and leaves the rest of that segment
+  writable, and anything below 4 KB derives no bound at all. The RELRO =p_align=
+  carries no requirement of its own, and a RELRO beginning at no =PT_LOAD= address
+  is refused rather than judged;
+- ELF class, machine and object type against the ABI directory holding the library;
+- a stack segment that is not executable, and =BIND_NOW= on the engine library;
+- =NEEDED= entries limited to libraries the same ABI directory packages and to
+  platform libraries the declared =minSdk= already shipped, refusing the
+  platform's own =libsqlite3.so=;
+- the exported dynamic symbols, which are exactly the one JNI entry point;
+- debug sections, symbol tables and SHA-256 of every library;
+- the same SHA-256 for the engine library in every APK inspected;
+- the unstripped artifact of every declared ABI, which must define
+  =sqlite3_open_v2=, =sqlite3_libversion= and that same JNI entry point.
+
+Packaging keeps the NDK and release defaults: libraries are stored uncompressed
+and unextracted, AGP strips its packaged copy, and the unstripped artifact under
+=app/build/rust-target/= remains as symbol evidence for release tooling.
+
+=tools/verify-native-packaging-tests.sh= exercises those checks: synthetic segment
+and dependency cases through the same functions, and the script itself against
+copies of the built APKs with one engine entry removed. A verification that cannot
+fail is a failure here. It copies every APK it mutates and leaves each input
+byte-identical.
+
+* Fixture qualification
+
+The probe runs on a host through the crate's own tests, which state the expected
+index counts, query answers, reopen result, refusal diagnostics and cleanup:
+
+#+begin_src bash
+cargo test --locked --package slipbox-android
+#+end_src
+
+On a device the instrumented test loads the packaged library, runs the same probe
+through =SlipboxNativeEngine=, compares the recorded checks, refuses the main
+thread and confirms the loaded library is the stored APK entry. A 16 KB kernel
+must report its page size before the test runs; SQLite's own page size proves
+nothing about the kernel:
+
+#+begin_src bash
+adb shell getconf PAGESIZE
+./gradlew --no-daemon --max-workers=2 --no-build-cache :app:connectedDebugAndroidTest
+adb logcat -d -b crash -b main
+#+end_src
+
+Inspect the logcat output for load failures, FATAL exceptions and ANRs even when
+the test run reports success. A run that claims its workspace attempts to remove
+it on every ordinary path, the failing ones included, and records what the removal
+returned as =cleanup.workspace_removed=; the removal is never retried, a failed
+one names the path that survived, and the failure that preceded it keeps its own
+stage and detail beside that check. A run refused before the claim owns nothing
+and records no removal; a panicking run records none either, since its unwind
+attempts a removal without observing the outcome. The test asserts the recorded
+outcome and that the parent directory is empty afterwards.
