@@ -1,0 +1,157 @@
+#+title: org-slipbox Android Build
+
+* Scope
+
+The standalone Gradle build in =android/= provides the native Compose shell.
+It opens an empty Library and an About screen; notes, Git sources, credentials,
+and the Rust engine are not connected. See [[file:android.org][doc/android.org]] for the reader contract.
+Android remains unreleased; desktop and Emacs release metadata are independent.
+
+* Prerequisites
+
+- OpenJDK 21.0.11, selected through =JAVA_HOME=. The build checks this version.
+- An Android SDK selected through =ANDROID_HOME= or =sdk.dir= in the ignored
+  =android/local.properties=.
+- Accepted SDK licences, plus the platform and tools below. The emulator and
+  host-appropriate system image are needed only for instrumented tests.
+
+The SDK owner must review and accept the agreements using =sdkmanager --licenses=.
+No licence acceptance or machine-local configuration is committed.
+
+#+begin_src bash
+sdkmanager "platforms;android-37.0" "build-tools;36.0.0" "platform-tools"
+sdkmanager "emulator" "system-images;android-37.0;google_apis;arm64-v8a"
+#+end_src
+
+The example system image is for an ARM64 host; choose the corresponding stable
+image for another host. API 37's package name is =platforms;android-37.0=.
+Use the installed =sdkmanager=; no self-downloading replacement CLI is required.
+No NDK is required until native compilation is introduced.
+
+* Qualified Toolchain
+
+Pins are in =android/gradle/libs.versions.toml=, except Gradle's distribution URL
+and SHA-256 in =android/gradle/wrapper/gradle-wrapper.properties=.
+
+| Component             | Version       |
+|-----------------------+---------------|
+| Android Gradle plugin | 9.3.1         |
+| Gradle                | 9.7.0         |
+| Gradle runtime JDK    | 21.0.11       |
+| Java/Kotlin bytecode  | 17            |
+| Kotlin/Compose plugin | 2.4.20        |
+| Compose BOM           | 2026.09.00    |
+| activity-compose      | 1.13.0        |
+| Navigation 3          | 1.1.7         |
+| JUnit                 | 4.13.2        |
+| androidx.test runner  | 1.7.0         |
+| androidx.test junit   | 1.3.0         |
+| Espresso              | 3.7.0         |
+| compileSdk/targetSdk  | 37            |
+| minSdk                | 23            |
+| SDK Build Tools       | 36.0.0        |
+| NDK, recorded only    | 28.2.13676358 |
+
+Primary compatibility references, checked 2026-09-13:
+
+- [[https://kotlinlang.org/docs/gradle-configure-project.html][Kotlin's supported matrix]]: Kotlin 2.4.20 supports Gradle through 9.7.0 and
+  AGP through 9.3.1. These pins use that fully supported intersection.
+- [[https://developer.android.com/build/releases/agp-9-3-0-release-notes][AGP 9.3]]: API 37, Gradle minimum 9.5.0, build tools 36.0.0, and
+  NDK 28.2.13676358. Its lint defect on JDK 17 requires JDK 21 here.
+- [[https://developer.android.com/build/releases/agp-9-0-0-release-notes][AGP's KGP upgrade mechanism]]: declare raised Kotlin on the root =buildscript=
+  classpath. Built-in Kotlin stays enabled; =org.jetbrains.kotlin.android=
+  is not applied. AGP and Kotlin share that classloader.
+- [[https://developer.android.com/build/migrate-to-built-in-kotlin][Built-in Kotlin]] defaults =jvmTarget= to Java =targetCompatibility=.
+  No compiler toolchain is provisioned; compilation uses the selected runtime JDK.
+- [[https://dl.google.com/dl/android/maven2/androidx/compose/compose-bom/2026.09.00/compose-bom-2026.09.00.pom][Published Compose BOM]]: UI/foundation 1.12.1 and Material 3 1.4.0.
+  The Compose compiler plugin is aligned with Kotlin, independently of the BOM.
+- [[https://developer.android.com/jetpack/androidx/releases/navigation3][Navigation 3]], [[https://developer.android.com/jetpack/androidx/releases/activity][Activity]], and [[https://developer.android.com/jetpack/androidx/releases/test][AndroidX Test]] publish the pinned stable releases.
+- [[https://dl.google.com/android/repository/repository2-3.xml][SDK package inventory]] supplies the platform and tools. =minSdk= follows
+  dependency requirements; manifest merging enforces that floor.
+
+Compose's transitive Espresso 3.5.0 cannot inject input on API 37; the explicit
+3.7.0 test dependency aligns it with the test runner. Kotlin compiles in-process,
+inside the bounded Gradle heap, without a persistent compiler daemon.
+AGP retains Jetifier 1.0.0-beta10 in its published tool classpath; that inherited
+tool dependency is locked and verified, not an application or SDK preview choice.
+
+* Build And Test
+
+Run all Gradle commands from =android/=:
+
+#+begin_src bash
+./gradlew --no-daemon --max-workers=2 clean
+./gradlew --no-daemon --max-workers=2 :app:assembleDebug
+./gradlew --no-daemon --max-workers=2 :app:testDebugUnitTest
+./gradlew --no-daemon --max-workers=2 :app:lintDebug
+#+end_src
+
+Lint treats warnings as errors and checks dependencies and tests. Only the
+newer-version advisories are disabled; publications do not invalidate the
+qualified pins.
+
+With =emulator= and =adb= on =PATH=, instrumented layout and Back tests use a
+managed emulator. Wait for =sys.boot_completed= before running the tests, and
+stop the emulator even if a test fails:
+
+#+begin_src bash
+avdmanager create avd -n slipbox-37 \
+  -k "system-images;android-37.0;google_apis;arm64-v8a"
+emulator -avd slipbox-37 -no-snapshot-save -no-boot-anim &
+trap 'adb emu kill' EXIT
+adb wait-for-device
+until [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1 ]; do sleep 1; done
+./gradlew --no-daemon --max-workers=2 :app:connectedDebugAndroidTest
+#+end_src
+
+Dependency checksums and metadata are verified on normal builds. Strict lock
+state covers app configurations and both root/module buildscript classpaths.
+Missing lock state, a changed resolved graph, or unrecorded artifact checksums
+fail normal resolution. The generated files are:
+
+- =android/gradle/verification-metadata.xml=;
+- =android/app/gradle.lockfile=;
+- =android/buildscript-gradle.lockfile= and =android/app/buildscript-gradle.lockfile=;
+- =android/settings-gradle.lockfile= for settings resolution.
+
+See [[https://docs.gradle.org/current/userguide/dependency_locking.html][Gradle dependency locking]] and [[https://docs.gradle.org/current/userguide/dependency_verification.html][dependency verification]].
+
+* Install And Version Identity
+
+The debug ID is =io.github.b_vitamins.slipbox.debug=; the release ID is
+=io.github.b_vitamins.slipbox=. They can coexist and are pinned by tests.
+
+#+begin_src bash
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb shell am start -n \
+  io.github.b_vitamins.slipbox.debug/io.github.b_vitamins.slipbox.SlipboxActivity
+#+end_src
+
+=android/version.properties= determines =versionName= and =versionCode=.
+Development names include their stage and candidate, such as =0.19.0-dev.1=.
+Codes use fixed decimal windows; stage changes alone do not raise them.
+Raise =candidate= before distributing each artifact, including the final release.
+For example, candidate 7 can become =0.19.0= at candidate 8. Reset the candidate
+only when raising major, minor, or patch; resetting it at the same version
+would lower the upgrade code. Build/runtime derivations are compared by tests.
+
+Release builds are unsigned; production signing, CI, and release automation
+are not configured here. Signing remains an [[file:android.org::*Owner Prerequisites][owner prerequisite]].
+
+* Regenerate Dependencies
+
+Generate lock/checksum changes with Gradle, review the diff and artifact
+provenance, then repeat the ordinary clean build/tests without generation options:
+
+#+begin_src bash
+./gradlew --no-daemon --max-workers=2 \
+  --write-locks --write-verification-metadata sha256 \
+  :app:dependencies :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest \
+  :app:testDebugUnitTest :app:lintDebug
+#+end_src
+
+Generation records only resolved tasks: variant assembly reaches host-specific
+=aapt2=, while lint and instrumentation reach their own tools. Other build hosts
+may require additional published tool checksums. Generation appends metadata and
+is not a trust check: verify new artifacts before accepting their checksums.
+Never hand-edit generated lock state or use generation flags for normal builds.

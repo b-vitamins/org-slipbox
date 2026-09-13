@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 Ayan Das
+  SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<resources>
+    <color name="window_background">#FAFAFC</color>
+
+    <color name="ic_launcher_background">#FAFAFC</color>
+    <color name="ic_launcher_foreground">#333333</color>
+</resources>

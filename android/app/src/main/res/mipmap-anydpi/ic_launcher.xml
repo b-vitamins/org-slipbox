@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 Ayan Das
+  SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:fillColor="@color/ic_launcher_background"
+        android:pathData="M0,0 L108,0 L108,108 L0,108 Z" />
+
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M28.5,21 L79.5,21 A4.5,4.5 0 0,1 84,25.5 L84,82.5 A4.5,4.5 0 0,1 79.5,87 L28.5,87 A4.5,4.5 0 0,1 24,82.5 L24,25.5 A4.5,4.5 0 0,1 28.5,21 Z"
+        android:strokeColor="@color/ic_launcher_foreground"
+        android:strokeWidth="3" />
+
+    <path
+        android:pathData="M34.5,40.5 L73.5,40.5"
+        android:strokeColor="@color/ic_launcher_foreground"
+        android:strokeLineCap="round"
+        android:strokeWidth="3" />
+    <path
+        android:pathData="M34.5,54 L73.5,54"
+        android:strokeColor="@color/ic_launcher_foreground"
+        android:strokeLineCap="round"
+        android:strokeWidth="3" />
+    <path
+        android:pathData="M34.5,67.5 L60,67.5"
+        android:strokeColor="@color/ic_launcher_foreground"
+        android:strokeLineCap="round"
+        android:strokeWidth="3" />
+</vector>

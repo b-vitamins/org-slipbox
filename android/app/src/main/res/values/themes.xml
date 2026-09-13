@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 Ayan Das
+  SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<resources>
+    <style name="Theme.Slipbox" parent="android:Theme.DeviceDefault.Light.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+    </style>
+</resources>

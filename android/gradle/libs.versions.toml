@@ -1,0 +1,45 @@
+# Copyright (C) 2026 Ayan Das
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[versions]
+jdk = "21.0.11"
+agp = "9.3.1"
+
+kotlin = "2.4.20"
+
+compose-bom = "2026.09.00"
+
+androidx-activity = "1.13.0"
+androidx-navigation3 = "1.1.7"
+
+junit = "4.13.2"
+androidx-test-ext-junit = "1.3.0"
+androidx-test-runner = "1.7.0"
+
+androidx-test-espresso = "3.7.0"
+
+compile-sdk = "37"
+min-sdk = "23"
+target-sdk = "37"
+build-tools = "36.0.0"
+
+# Recorded only; this module does not compile native code.
+ndk = "28.2.13676358"
+
+[libraries]
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity" }
+
+compose-bom = { module = "androidx.compose:compose-bom", version.ref = "compose-bom" }
+compose-foundation = { module = "androidx.compose.foundation:foundation" }
+compose-material3 = { module = "androidx.compose.material3:material3" }
+compose-ui = { module = "androidx.compose.ui:ui" }
+compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
+compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
+
+androidx-navigation3-runtime = { module = "androidx.navigation3:navigation3-runtime", version.ref = "androidx-navigation3" }
+androidx-navigation3-ui = { module = "androidx.navigation3:navigation3-ui", version.ref = "androidx-navigation3" }
+
+junit = { module = "junit:junit", version.ref = "junit" }
+androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "androidx-test-ext-junit" }
+androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidx-test-runner" }
+androidx-test-espresso-core = { module = "androidx.test.espresso:espresso-core", version.ref = "androidx-test-espresso" }

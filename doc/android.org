@@ -7,11 +7,11 @@ reader: where its notes come from, what it may read, what it must never write,
 and which boundaries hold before any of it is built.
 
 None of it is shipped. `0.18.0` is the latest shipped release, and its released
-metadata and history remain authoritative. The Android application, its Git
-sync, its authorization flow, and its native adapter do not exist yet; this
-document constrains them in advance rather than reporting them. Toolchain pins,
-module layout, and the qualification runs that prove a real private fetch belong
-to the tracker rather than here.
+metadata and history remain authoritative. An unreleased Compose shell provides
+Library and About screens; it does not yet load notes. Git sync, authorization,
+and the native adapter remain unbuilt. This document constrains those capabilities
+in advance rather than reporting them. Build instructions and toolchain pins are
+in [[file:android-build.org][doc/android-build.org]]; private-fetch qualification belongs to the tracker.
 
 The public model is defined in [[file:model.org][doc/model.org]]. The reader
 adds no public bucket. It is a fourth front-end over the same Rust-owned model

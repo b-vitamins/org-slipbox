@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 Ayan Das
+  SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<resources>
+    <color name="window_background">#16161A</color>
+</resources>

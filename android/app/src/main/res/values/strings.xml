@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 Ayan Das
+  SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<resources>
+    <string name="app_name">Slipbox</string>
+
+    <string name="library_empty">Nothing to read yet.</string>
+
+    <string name="action_about">About</string>
+    <string name="action_back">Back</string>
+
+    <string name="about_title">About</string>
+    <string name="about_label_version">Version</string>
+    <string name="about_label_build">Build</string>
+    <string name="about_label_identifier">Identifier</string>
+    <string name="about_label_license">License</string>
+    <string name="about_license">GNU General Public License, version 3 or later</string>
+    <string name="about_development_build">A development build of the Android reader, not a
+        released version.</string>
+</resources>

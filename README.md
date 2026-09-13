@@ -62,6 +62,8 @@ than raw transport sprawl or a plugin runtime.
 - [doc/roadmap.org](doc/roadmap.org) maps near-term release bands.
 - [doc/android.org](doc/android.org) is the architecture and product contract
   for the planned Git-sourced Android reader, which is not yet shipped.
+- [doc/android-build.org](doc/android-build.org) covers the standalone Android
+  build under `android/`. Its unreleased Compose shell does not yet load notes.
 
 ## Installation
 

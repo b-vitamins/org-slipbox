@@ -14,6 +14,11 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Add explicit external-program authority to `slipbox-index`. The default
   platform policy refuses decryptors even when a build enables them; desktop
   hosts opt in through `PlatformPolicy::desktop()` and `desktop-decryptors`.
+- Add an unreleased native Android Compose shell with Library and About screens,
+  guarded/restorable navigation, accessible controls, and the web reading tokens.
+  Pin and verify its compatible toolchain and lock app and plugin dependencies;
+  contributor instructions are in `doc/android-build.org`. Notes, Git sources,
+  and native engine integration are not yet connected.
 
 ### Changed
 - Extract service state, operation dispatch and index-backed queries into
