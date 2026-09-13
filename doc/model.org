@@ -30,6 +30,12 @@ promoted into separate public domains.
 - Emacs and the CLI are two front-ends over the same daemon-owned model, and a
   read-only web reader is a third front-end over Notes, Glossary, and the
   exploration lenses; it owns no new public bucket.
+- A planned read-only Android reader is a fourth front-end over the same model.
+  It takes its corpus from a Git repository and indexes it on the device, so its
+  source configuration, sync state, and freshness belong to System; it owns no
+  new public bucket, and its bookmarks, reading trails, and preferences are
+  device-local reading state rather than a second authoritative corpus. The
+  contract is [[file:android.org][doc/android.org]].
 - JSON-RPC is the transport boundary; public commands and durable records stay
   task-shaped. Each RPC method carries a mutation class, so a read-only front-end
   is an allowlist over that classification, not a separate contract.

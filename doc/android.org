@@ -1,0 +1,450 @@
+#+title: org-slipbox Android Reader Contract
+
+* Purpose
+
+This document is the durable architecture and product contract for the Android
+reader: where its notes come from, what it may read, what it must never write,
+and which boundaries hold before any of it is built.
+
+None of it is shipped. `0.18.0` is the latest shipped release, and its released
+metadata and history remain authoritative. The Android application, its Git
+sync, its authorization flow, and its native adapter do not exist yet; this
+document constrains them in advance rather than reporting them. Toolchain pins,
+module layout, and the qualification runs that prove a real private fetch belong
+to the tracker rather than here.
+
+The public model is defined in [[file:model.org][doc/model.org]]. The reader
+adds no public bucket. It is a fourth front-end over the same Rust-owned model
+that Emacs, the CLI, and the read-only web reader already read.
+
+* Product Scope
+
+The reader is a native Android application that reads a slip-box carried by a
+Git repository, on the device, offline once a corpus is ready.
+
+It reads notes, unified note and glossary search, the glossary and the read-only
+facts of a term's review drawer, links and contextual previews, directed
+relations and explicit exploration, filing and outline context, repository-local
+images and attachments, and reading trails and bookmarks the device owns.
+
+These are non-goals, deliberately excluded rather than merely unbuilt:
+
+- note editing and capture
+- Git push, conflict resolution, and any write back to the repository
+- spaced-repetition grading and schedule write-back
+- embeddings, clustering, generated learning paths, and forced topical
+  collections
+- every private provider other than GitHub, and every SSH transport
+- a global or force-directed graph dashboard
+- a new public bucket
+
+* Sources
+
+** Supported Transports
+
+The first supported sources are public HTTPS Git repositories and private GitHub
+repositories the owner has authorized. Support is stated per transport rather
+than implied:
+
+| Source | Status |
+|--------+--------|
+| public HTTPS Git repository, any host | supported |
+| private GitHub repository, owner-authorized | supported |
+| private repository on another provider | deferred |
+| any SSH remote | deferred |
+| local device folder | deferred |
+
+A deferral is a gap in provider coverage, not in the model. The source model is
+provider-neutral: the provider is one field of a source record, GitHub is the
+first private provider implemented behind it, and adding a second provider must
+not require reshaping the record. The reader must not present a deferred
+transport as though it worked; it refuses one with the reason instead of failing
+later at fetch.
+
+** Source Identity
+
+A source is an explicit record, not a URL string:
+
+| Field | Meaning |
+|-------+---------|
+| local identity | a stable device-local identifier, minted once and never re-derived from the URL |
+| provider | the provider the source is reached through, where one is known |
+| repository identity | the provider's own identity for the repository, where one is available |
+| account identity | the authorizing account, where the source is private |
+| remote URL | the fetch URL, carrying no credential |
+| tracked branch | the one branch this source follows |
+| notes folder | the subtree inside the repository the slip-box lives in |
+| credential reference | a handle to a stored credential, never the credential itself |
+
+The local identity is what every derived row, cached asset, bookmark, and trail
+refers to, so renaming a repository, moving it between accounts, or changing its
+URL does not orphan reading state. A source's identity is not its URL. A changed
+URL is accepted only after verifying that it identifies the same repository;
+an unrelated repository reusing a URL is a new source, never an heir to the old
+source's cache or authorization. Changing the authorizing account requires
+explicit reauthorization without granting it the previous account's cache.
+
+A token never appears in a remote URL, in source configuration, in a log line,
+or in exported diagnostics. A credential is supplied to the Git transport as a
+credential at fetch time and is referred to by handle everywhere else.
+
+** One Active Corpus
+
+The reader may hold several configured sources but reads one corpus at a time.
+
+A note key is unique within a source, not across sources, so every derived row,
+cached asset, and piece of reading state is scoped by source identity: two
+sources holding the same file path or the same note ID are two distinct records,
+and neither overwrites, shadows, or merges with the other. Switching the active
+source changes which corpus answers a query; it does not migrate state between
+corpora.
+
+** Eligibility And Diagnostics
+
+Plain Org text is the initial supported note format. Everything else is an
+explicit policy with a diagnostic a reader can see, never a silent skip and
+never an implied capability:
+
+| Input | Policy |
+|-------+--------|
+| plain Org text | indexed |
+| encrypted Org (`.org.gpg`, `.org.age`) | ineligible on Android and reported as such. The desktop index reads these by invoking an external decryptor; the reader executes no subprocess, so it cannot |
+| an encoding the parser does not accept | ineligible and reported, rather than indexed as replacement characters |
+| a file past the size bound | ineligible and reported |
+| a Git submodule | not initialized; its contents are absent and the source says so |
+| an LFS pointer | not resolved; a pointer is not the file it names, and an unresolved asset reports as missing rather than rendering as its pointer text |
+| an external filter, a clean or smudge driver, or any `.gitattributes` filter | not run |
+| a repository hook or credential helper the fetch would otherwise execute | not run |
+| a path escaping the notes folder, or an absolute or symlinked path leaving it | rejected before it is read |
+
+Two rules stand behind that table. The reader executes nothing the repository
+supplies: no subprocess, no hook, no filter, no credential helper, no external
+decryptor. And a corpus is never reported ready while a file it should hold is
+missing for a reason no diagnostic names; an incomplete import fails visibly
+instead of publishing partial data as a whole corpus.
+
+* The Read-Only Boundary
+
+Org files stay the source of truth. Repository-to-device sync is one-way: the
+reader fetches, and nothing it does reaches the repository or the notes in it.
+
+| State | Owner | On Android |
+|-------+-------+------------|
+| note text, titles, aliases, note metadata | Org files in the repository | read-only |
+| glossary definitions, the `#+glossary:` marker, and the `GLOSSARY_STATUS` and `SR_*` drawer keys | Org files in the repository | read-only; a schedule is displayed as a fact, never graded or rescheduled |
+| relations, refs, tags, planning dates | Org files in the repository | read-only, through the derived index |
+| the derived index and cached assets | the device | rebuildable from fetched source at any time |
+| bookmarks, reading trails, reading preferences | the device | durable user reading state, separate from source configuration, credentials, and rebuildable caches |
+
+Device-owned reading state is not a second authoritative corpus and not an Org
+write. It refers to notes by key and source identity and holds no note content
+of its own, so it survives an index rebuild, a re-clone, and a fetch that
+rewrites history. What it can lose is a reference to a note the repository
+deleted, and that is reported as unavailable rather than silently dropped.
+
+Source configuration belongs to System. It is runtime configuration beside the
+root, the database, and the daemon, in the bucket that already owns those, not a
+new public bucket. Images and attachments belong to the note source they are
+fetched with: they are not workbench pack Assets, which are declarative workflow
+data. A glossary term's review drawer belongs to Glossary: it is study state,
+not a Reviews record, which is corpus-maintenance evidence.
+
+* Engine And Native Boundary
+
+Parsing, indexing, ranking, and query execution stay in Rust. The reader reuses
+the shipped engine rather than reimplementing its semantics, so a search, a
+ranking, a backlink, and a lens answer on the device the way they answer in
+Emacs, the CLI, and the web reader.
+
+** Crate Ownership
+
+Domain types stay in `slipbox-core`. Transport DTOs stay in `slipbox-rpc`. The
+Android adapter is a new consumer of both and introduces no dependency from
+either back toward itself, so no crate cycle appears and no existing surface
+moves. JSON-RPC over stdio remains the default transport boundary: the CLI, the
+Emacs package, and the web reader keep the transport and payloads they have, and
+none of their behavior changes because a mobile caller exists.
+
+** The Adapter Contract
+
+The device reaches the engine through one narrow adapter rather than a
+scattering of native entry points:
+
+- it is versioned, so a native library and the application code that loads it
+  can disagree and say so instead of misreading each other's payloads
+- it is contract-tested, with tests locking its operation inventory, payload
+  shapes, and refusals the way the JSON-RPC operation inventory is locked today
+- it carries named operations, not a general-purpose evaluator: an operation the
+  contract does not name cannot be reached from the device
+- it holds no unmanaged process-global service. Engine state has an explicit
+  owner with an explicit lifetime, so a configuration change, a source switch,
+  or a rebuild has a defined effect rather than whatever a static singleton
+  happens to be holding
+
+** Capabilities
+
+Read-only is machine-checkable on the device as it is on the web surface, and it
+is two capabilities rather than one:
+
+| Capability | Admits | Held by |
+|------------+--------+---------|
+| reading | allowlisted operations classified read-only | the native reading UI, never the document view |
+| index maintenance | the dedicated file-level index update and removal operations the derived index needs | the internal sync and rebuild path alone |
+
+The reading capability is an allowlist over the mutation classification the
+engine already carries, not a second contract. No path a note's content can
+influence holds the maintenance capability, and the document view holds no
+capability at all: it renders what it is handed and cannot originate a call.
+
+** Interactive Cost
+
+Interactive corpus queries stay index-backed and sublinear in corpus size, the
+standard the other front-ends already hold. Parsing, indexing, cloning,
+fetching, and rebuilding are background or explicitly requested work. None of
+them sit on a scroll, a keystroke, or a redisplay path.
+
+* Document Presentation
+
+A note's document is drawn by the Org presentation renderer this repository
+already ships with the reading client, bundled into the application together
+with its KaTeX math typesetting and its stylesheet. Display parsing is not
+rewritten: the reader adds no Kotlin Org parser, no second inline grammar, and
+no second corpus ranker.
+
+The renderer runs in an isolated local content view:
+
+- every asset it loads is local, from the application package or from
+  device-private storage that the active source's fetch wrote
+- it loads nothing over the network and executes nothing fetched remotely
+- it is served from a local origin the network cannot answer for, rather than
+  from `file://` paths with filesystem access enabled
+- content a note supplies is data: raw HTML and JavaScript carried in a note are
+  not executed
+- it has no scripted bridge to the adapter, the file system, or the credential
+  store
+
+No part of the application depends on a desktop daemon, a loopback HTTP server,
+or a running `slipbox web`. The reader is not a wrapper around the web client
+either: it bundles the document renderer, not the single-page application.
+
+* Reading Design
+
+Native Kotlin and Compose own navigation, the entry and search surfaces, sheets,
+settings, and application chrome. What they present is the reading language the
+web surface established, carried onto the device, not a stock dashboard laid
+over the same data.
+
+What carries is that language, not a fixed layout. The stacked column spine is
+one expression of it at desktop width; the device may reach a note by another
+gesture, provided the note itself still reads the same.
+
+Preserved: restrained typography and its type scale, the palette and its
+light/dark pairs, hairline rules rather than boxes and shadows, the reading
+measure, proportional glyph metrics in prose with figures aligned only where
+they stand in a column, and detail that reveals itself in context instead of
+standing permanently on screen.
+
+Adapted: the surface scopes itself by the space and input it actually has, never
+by device class. It follows the available width and the visible viewport, the
+pointer's precision, the platform's text scaling, the platform's light or dark
+preference, and a reduced-motion preference. Every control a finger can reach
+clears the platform's minimum touch target.
+
+Reduced: a control states itself once. Where the web surface shows a glyph and
+its label together, the device keeps one visible statement and keeps the
+accessible name, so a reader on an assistive technology is still told what the
+control does.
+
+* Synchronization And Freshness
+
+** Git Is The Protocol
+
+Clone and fetch go through a real Git implementation. The reader speaks Git, not
+a provider's REST surface: there is no bespoke per-provider file-listing,
+compare, or change-feed protocol, and so nothing to reimplement when a second
+provider arrives.
+
+A change set is derived from Git objects by comparing the previously indexed
+revision to the newly fetched one. It distinguishes additions, modifications,
+deletions, renames, asset changes, and the case where the tracked branch's
+history was rewritten so the indexed revision is no longer an ancestor. A
+rewritten history is a legitimate update to follow, not a corrupt state.
+
+** Incremental Indexing
+
+Only the Org files a change set names are parsed and indexed. A changed file
+goes through the dedicated file-level index update, and a deleted or
+renamed-away file goes through the dedicated removal. Neither is routed through
+full-root prune logic, which exists for a whole-root scan and would read a
+single-file update as a statement about the entire corpus.
+
+A full re-scan is reserved for a first import, an incompatible index schema,
+recovery requiring reindexing, a rewritten history the reader declines to walk,
+and an explicit rebuild. The reason is surfaced rather than disguised as an
+incremental update.
+
+** Generations
+
+Fetched is not readable. The reader tracks two revisions separately:
+
+| Revision | Meaning |
+|----------+---------|
+| fetched | the newest revision the device holds Git objects for |
+| ready | the revision the index and cached assets coherently answer for |
+
+A reading generation binds source bytes, index answers, and assets for one
+revision of one source. Everything a reader sees comes from the same generation:
+a note's title, body, relations, filing position, excerpts, and images are never
+assembled from two commits or two sources. A generation becomes readable only
+once its indexing is complete and verified.
+
+** Activation And Recovery
+
+Only a verified ready generation is published. Until one exists the reader has
+nothing to show and says so; a first import never presents partially indexed
+data as a corpus.
+
+- a reader already reading a generation keeps reading it while a newer one is
+  built. Its outstanding requests and document assets retain that generation
+  until released; activation cannot retarget an old request or an asset URL
+- activation is explicit and ordered, so a source switch or a configuration
+  change has one defined winner rather than two writers racing for the active
+  slot
+- an interrupted import or rebuild, corruption in a candidate generation,
+  revoked or expired authorization, and low device storage each leave the last
+  good readable generation in place
+- corruption in the active generation triggers validation and recovery from a
+  retained verified generation or fetched source. If none is readable, the
+  reader reports unavailability; it never serves known corrupt data as ready
+- a failure states what failed and what is still readable, rather than clearing
+  the corpus to reach a clean state
+
+** Refresh
+
+Refresh is requested manually, at startup, and in the background, and requests
+coalesce per source: concurrent triggers for one source produce one fetch rather
+than one fetch each.
+
+Background refresh is deferrable work scheduled through WorkManager, under the
+platform's constraints on network, battery, and idle state. Execution can be
+delayed or stopped by those constraints and system limits. It is best-effort: a
+push to the repository does not appear on the device at a predictable moment,
+and the reader must not present background freshness as immediate. What is on
+the device reads without a network, without a valid token, and without a
+completed refresh, and a restored reading position resolves against the ready
+generation instead of waiting for one.
+
+* Authorization And Private Data
+
+** Private GitHub
+
+Private GitHub access uses a GitHub App the owner registers and installs, with
+least privilege:
+
+- read access to repository contents, and no permission granted by default that
+  the reader does not need
+- installed on selected repositories rather than on every repository an account
+  can reach
+- authorized from the device through the system browser using the device
+  authorization flow, so credentials are entered on GitHub's own pages in the
+  browser and never in the application
+
+The device flow identifies the App by its client identifier and needs no client
+secret, and a user token the flow issued is renewed without one. That property
+is what the mobile flow depends on: the App's private key and client secret stay
+with the owner and never ship inside the package. Consequently:
+
+- no App private key or client secret is embedded in the application
+- no broad private-repository permission is requested by default
+- a personal access token is not part of the ordinary mobile flow
+
+The App enables expiring user tokens. An issued user token expires, and is
+renewed with a single-use refresh token that itself expires, so the reader
+treats renewal as routine and re-runs device authorization when renewal is no
+longer possible.
+
+Whether a real clone and fetch succeed end to end against a selected private
+repository is a qualification requirement, not something this document
+establishes. Until that is demonstrated on a device, the private path is
+specified rather than proven.
+
+The protocol references are GitHub's
+[[https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app][user-token and device-flow documentation]]
+and [[https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/refreshing-user-access-tokens][user-token refresh contract]].
+
+** Storage
+
+- a credential is stored encrypted under a key held by the platform keystore, so
+  the key material does not leave the keystore and the stored bytes are useless
+  without it
+- fetched private note content, the derived index, and cached assets stay in
+  application-private storage, never in shared or world-readable storage
+- credentials and private corpus data are excluded from cloud backup and from
+  device-to-device transfer explicitly, in each rule set that governs them,
+  including the older rule format that platform versions predating the split
+  still read. A single permissive-or-not backup flag is not the mechanism:
+  turning backup off does not reliably turn transfer off. The rule formats are
+  defined in [[https://developer.android.com/identity/data/autobackup][Android's backup and transfer documentation]]
+
+** Expiry, Isolation, And Disconnect
+
+Token expiry is not data loss. An expired or revoked credential stops fetching;
+it does not delete a verified ready generation, so the corpus stays readable
+offline while the reader re-authorizes.
+
+A source's credential, corpus, index, assets, and reading state belong to that
+source and its authorizing account. Nothing crosses between them, and
+authorizing a second account grants it no access to the first's cache.
+
+Disconnecting a source is explicit about its consequences: it removes the stored
+credential and stops fetching. Removing the cache removes the corpus, its index,
+its assets, and the reading state scoped to it, and that is stated before it
+happens rather than discovered afterward.
+
+* Owner Prerequisites
+
+Two prerequisites belong to the project owner and cannot be satisfied by code in
+this repository:
+
+- GitHub App registration and installation policy. The App is registered under
+  the owner's account with the device flow and expiring user tokens enabled,
+  contents-read permission requested, and selected-repository installation. Any
+  client secret or private key remains with the owner. The installation policy,
+  not the application, decides which repositories an installation can reach.
+- Release signing. The application's signing identity is generated and held by
+  the owner, provisioned to release automation as a secret, and used only there.
+
+No private key, client secret, or signing keystore is committed to this
+repository. Public signing certificates and fingerprints are not secrets.
+
+* Delivery
+
+Android extends the established release process rather than replacing it:
+
+- a release publishes a signed, installable APK alongside the existing desktop
+  archives, with checksums published for it as for them
+- installation on a clean device and upgrade over a previously installed version
+  are both verified before a release is accepted
+- release metadata stays aligned across package versions, the changelog, and the
+  README, through the same release metadata gate
+- the existing gates hold: a verified signed tag, a green default branch, and
+  the release automation that already publishes the desktop artifacts
+
+Existing desktop releases stay intact and keep their contents. Shipping an
+Android reader is not a `1.0` claim and not a statement of stable-platform
+finality; the pre-`1.0` discipline in
+[[file:compatibility.org][doc/compatibility.org]] continues to apply.
+
+* Placement In The Model
+
+The reader owns no new public bucket. Its surfaces map onto the existing ones:
+
+| Reader surface | Bucket |
+|----------------+--------|
+| notes, titles, aliases, outline and filing context, note lookup | Notes |
+| links, backlinks, forward links, unlinked mentions, refs, tags, ranked content search | Relations |
+| the exploration lenses, read-only | Explorations |
+| glossary terms, definitions, due selection, displayed review facts | Glossary |
+| source configuration, sync state, freshness, generations, diagnostics | System |
+
+Reviews and Assets get no mobile surface, matching the web reader's boundary.

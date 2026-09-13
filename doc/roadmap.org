@@ -219,6 +219,54 @@ Exit signal:
 - spaced-repetition grade writeback and any global or force-directed graph
   remain deferred
 
+* 0.19.x: Git-Sourced Android Reader
+
+Theme: read a slip-box on Android. A native reader takes its corpus from a Git
+repository rather than from a desktop daemon, indexes it on the device, and
+mobilizes the reading language the web surface established instead of
+redesigning it.
+
+The contract is [[file:android.org][doc/android.org]].
+
+Focus:
+
+- public HTTPS Git repositories and owner-authorized private GitHub repositories
+  as the first sources, behind a provider-neutral source model that leaves other
+  private providers and SSH deferred rather than implied
+- the Rust engine reused through one narrow versioned, contract-tested native
+  adapter, with domain types still in `slipbox-core`, transport DTOs still in
+  `slipbox-rpc`, and the existing CLI, Emacs, and web behavior unchanged
+- the shipped Org presentation renderer bundled in an isolated local content
+  view, with no desktop daemon, loopback server, or remote executable asset on
+  the device
+- Org still authoritative and sync one-way: notes, glossary definitions, and
+  review drawers read-only on the device, with bookmarks, reading trails, and
+  preferences kept separately from the rebuildable index
+- explicit source identity and freshness: a fetched revision distinct from a
+  ready one, changed files indexed through the dedicated file-level updates, and
+  a coherent readable generation published only once it is verified
+- private access through an owner-provisioned least-privilege GitHub App and a
+  system-browser device authorization flow, with no App private key or client
+  secret in the package and no PAT in the ordinary flow
+
+Exit signal:
+
+- a public and a private repository both reach a readable offline corpus on a
+  device, and a real private clone and fetch are demonstrated, not assumed
+- an update fetch parses only what changed, and a failed import, rebuild, or
+  fetch leaves the last good generation readable. Corrupt data is never served
+  as ready; recovery states explicitly what remains readable
+- no UI or document path can reach a mutating operation, and no note-supplied
+  content is executed
+- a signed package installs on a clean device and upgrades over a previous
+  version, release metadata stays aligned, and the existing signed-tag and
+  green-default-branch gates hold with the desktop releases intact
+- no new public bucket is added: the reader is a fourth front-end over the same
+  Rust-owned model, and Reviews and Assets get no mobile surface
+- editing, capture, Git push, conflict resolution, grade write-back, generated
+  learning paths, all remaining private providers and SSH, and any global graph
+  dashboard remain deferred
+
 * 1.0.x: Stability Line
 
 Theme: make the public surface dependable enough for ordinary users,

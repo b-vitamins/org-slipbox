@@ -21,6 +21,9 @@ The public model is defined in [[file:model.org][doc/model.org]].
 | JSON-RPC method names | Compatibility-sensitive | Keep method names stable. Replacements require a deprecation period or a documented break before `1.0`. |
 | JSON-RPC params/results | Compatibility-sensitive | Add optional params and result fields where possible. Required-param, enum, or wrapper changes require migration notes and tests. |
 | Web reading HTTP API | Internal to the reading surface | The client that consumes it is built and shipped from this repository, so routes and payloads may change with it. A payload field may be absent where a daemon predates it, so a client reads an absent field as unknown rather than as a fault. Scripts should use the CLI or JSON-RPC contracts. |
+| Android native adapter | Internal to the application, planned | Both sides ship from this repository, so its operation inventory and payloads may change with them. It carries an explicit version, so a native library and the application code loading it refuse a mismatch instead of misreading each other. Scripts should use the CLI or JSON-RPC contracts. |
+| Android source configuration | Device-local System configuration, planned | A source is a record with stable local identity, not a URL, so a repository can be renamed or moved without orphaning what refers to it. A credential is referenced by handle and never held in a source URL, a log line, or exported diagnostics. |
+| Android local reading state | Device-local durable records, planned | Bookmarks, trails, and preferences are keyed by source identity and note key, hold no note content, and survive an index rebuild or re-clone. A reference to a note the corpus no longer holds reads as unavailable rather than as a fault. |
 | Durable exploration artifacts | Durable public records | Validate on load. Add fields with defaults where possible. Incompatible format changes require migration guidance. |
 | Durable review runs | Durable public records | Validate on load. Finding status, diff, and remediation evidence shapes are compatibility-sensitive. |
 | Workbench packs | Durable public records | Compatibility version `1` is supported. Future versions are rejected before typed parsing. |
@@ -35,6 +38,10 @@ The public model is defined in [[file:model.org][doc/model.org]].
 | Derived SQLite schema | Internal | The index may migrate or rebuild. Scripts should use CLI/RPC contracts rather than tables. |
 | Rust module layout | Internal except public crates | Public reexports should remain stable during refactors. Private module paths may change. |
 | Emacs Lisp interactive commands | User-facing | Preserve command names and ordinary interactive behavior unless a deprecation is documented. |
+
+Rows marked planned describe surfaces this policy will govern once they exist.
+They are not shipped and carry no compatibility claim yet; their contract is
+[[file:android.org][doc/android.org]].
 
 * 0.15.0 Contract Audit
 

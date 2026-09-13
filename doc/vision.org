@@ -54,7 +54,10 @@ Each surface may present the model differently, but semantic ownership should
 stay the same. The dedicated Emacs buffer is the richest interactive cockpit.
 The CLI is the task-shaped headless surface. A read-only web reader is a third
 front-end over Notes, Glossary, and the exploration lenses; it reads through the
-same daemon and adds no public bucket of its own.
+same daemon and adds no public bucket of its own. A planned read-only Android
+reader is a fourth: it carries the same engine and the same reading language
+onto a device, sourced from a Git repository rather than a local root, and adds
+no public bucket either. See [[file:android.org][doc/android.org]].
 
 * Architecture
 
@@ -63,6 +66,9 @@ same daemon and adds no public bucket of its own.
 - Daemon-backed automation goes through `slipbox serve`.
 - The web reader bridges HTTP to a spawned read-only `slipbox serve`; it never
   mutates notes and binds localhost only.
+- The planned Android reader reaches the same engine through one narrow
+  versioned native adapter instead of a daemon on the device; it never mutates
+  notes and executes nothing the repository supplies.
 - File-level updates stay incremental and explicit.
 - Public durable records live outside the derived SQLite index.
 - Persistent UI paths stay cheap; explicit cockpit and headless commands own

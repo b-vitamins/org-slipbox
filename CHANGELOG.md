@@ -6,6 +6,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
 
 ## [Unreleased]
 
+### Added
+- Document the planned Git-sourced Android reader in `doc/android.org`: source
+  eligibility, read-only/native boundaries, coherent offline sync, private data,
+  and delivery. Link its roadmap, model, and compatibility policy; the app is
+  not yet shipped.
+
 ## [0.18.0] - 2026-09-12
 
 ### Added
