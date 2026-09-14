@@ -7,6 +7,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Add a source/account-scoped Android credential vault using platform Keystore
+  keys and AES-GCM, with fallible replacement, local reauthorization and private
+  no-backup paths. Verify packaged backup/transfer exclusions with synthetic
+  payloads; Git authorization and reader wiring remain separate.
 - Add a reusable Org document bundle with explicit content, theme, navigation
   intents and asset resolution. It shares the web renderer and ships local
   KaTeX fonts, a hashed asset inventory and third-party notices independently

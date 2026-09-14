@@ -435,6 +435,14 @@ and [[https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a
   turning backup off does not reliably turn transfer off. The rule formats are
   defined in [[https://developer.android.com/identity/data/autobackup][Android's backup and transfer documentation]]
 
+The credential vault uses platform Keystore keys and AES-GCM with authenticated
+source, provider, account and credential-reference scope. Local reauthorization
+retains previous keys until replacement commits and reports cleanup failures
+separately. Storage checks refuse links below the trusted private root; scoped
+removal does not follow them. Temporary plaintext byte arrays are cleared, not
+Kotlin strings. Hardware backing is platform-dependent, and no power-loss or
+compromised-process protection is claimed.
+
 ** Expiry, Isolation, And Disconnect
 
 Token expiry is not data loss. An expired or revoked credential stops fetching;
