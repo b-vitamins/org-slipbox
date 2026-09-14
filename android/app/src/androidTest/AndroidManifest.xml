@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 Ayan Das
+  SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- AGP supplies the configured runner name to the first instrumentation. -->
+    <instrumentation
+        android:name="androidx.test.runner.AndroidJUnitRunner"
+        android:targetPackage="io.github.b_vitamins.slipbox.debug" />
+
+    <!-- Live consent runs only when this instrumentation is explicitly named. -->
+    <instrumentation
+        android:name="io.github.b_vitamins.slipbox.auth.manual.LiveAuthorizationJourney"
+        android:targetPackage="io.github.b_vitamins.slipbox.debug" />
+
+</manifest>

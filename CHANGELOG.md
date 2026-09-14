@@ -15,8 +15,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
   explicit source-transition policies and shared system/predictive Back handling.
   Navigation exposes only implemented destinations; reader wiring remains separate.
 - Add GitHub App device authorization with browser handoff, cancellable polling,
-  verified accounts and scoped credential storage. The shared public registration
-  and real owner-consent check remain pending; see `doc/android-auth.org`.
+  verified accounts and scoped credential storage, using the project's public
+  registration. See `doc/android-auth.org`.
 - Add Android CI build, unit, lint and native packaging checks, with a required
   native device-smoke gate on standard hosted Ubuntu x64. Package the x86_64
   engine alongside ARM64; hosted runtime qualification remains pending until

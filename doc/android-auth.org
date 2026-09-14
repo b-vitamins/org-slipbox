@@ -90,3 +90,42 @@ before qualification is complete. Automated tests use synthetic transports and
 credentials; they do not perform or silently skip real consent. The manual
 record states grant outcome, identity match, vault handoff and cancellation,
 without archived codes, tokens or account-identifying screenshots.
+
+* Manual Qualification
+
+Real consent is a manual journey, not a test case. =LiveAuthorizationJourney= is
+an instrumentation of its own, so no connected suite and no credential-free CI
+reaches a step that waits for a person. It runs when it is named:
+
+#+begin_src bash
+android/tools/auth-smoke/live-auth.sh cancel OUTPUT_DIR
+android/tools/auth-smoke/live-auth.sh grant OUTPUT_DIR EXPECTED_ACCOUNT
+#+end_src
+
+The launcher installs the assembled debug and instrumentation builds on one
+attached device and starts the journey with =am instrument -w=, supplying:
+
+| Argument | Meaning |
+|----------+---------|
+| =stage= | =cancel= withdraws one real code request; =grant= asks for consent |
+| =resultDir= | absolute device directory for this run's outcome |
+| =expectedAccount= | numeric account a grant must match; =grant= only |
+| =consentSeconds= | approval window, within one code's lifetime |
+
+A missing or unusable argument fails by argument name without repeating what was
+supplied. =ADB=, =SERIAL=, =APP_ID=, =TEST_ID=, =CONSENT_SECONDS= and =RUN_LIMIT=
+select the tool, device, installed identities, window and deadline; starting and
+stopping a device belongs to the caller.
+
+A grant shows the verification code on the device screen alone. Enter it at
+GitHub's verification page and approve; an unapproved window lapses into a
+withdrawal rather than outliving the code. The run then checks the verified
+account against the expected one, requires installation access on selected
+repositories, keeps and reads back the credential in a namespace of its own,
+withdraws a second request before approval, and removes what it made.
+
+=live-auth.json= in =resultDir= is collected, then removed from the device. It
+carries the stage and that run's outcomes: grant, identity match, selected
+installation, vault handoff and readback, cancellation, owned cleanup and pass.
+No code, token, account, repository or path is reported, and no screenshot, UI
+dump or logcat is taken.
