@@ -304,6 +304,20 @@ its label together, the device keeps one visible statement and keeps the
 accessible name, so a reader on an assistive technology is still told what the
 control does.
 
+** Navigation
+
+Routes carry source, generation and note/glossary identity rather than resolving
+keys against an active source. Saved entries retain search and reading position;
+restoration binds them to the source's ready generation and drops unavailable
+entries independently. Source switches discard reads from other corpora; source
+removal also discards configuration entries naming it.
+
+One native history handles destination callbacks, system Back and predictive
+Back. Presented sheets dismiss before the destination; cancelled gestures leave
+history unchanged and root Back belongs to the platform. Position/search updates
+to the current place retain its presentation. Only registered destinations are
+reachable; the current production build still presents Library and About.
+
 * Synchronization And Freshness
 
 ** Git Is The Protocol

@@ -7,6 +7,9 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Add source-aware Android routes with restorable search and reading positions,
+  explicit source-transition policies and shared system/predictive Back handling.
+  Navigation exposes only implemented destinations; reader wiring remains separate.
 - Add GitHub App device authorization with browser handoff, cancellable polling,
   verified accounts and scoped credential storage. The shared public registration
   and real owner-consent check remain pending; see `doc/android-auth.org`.

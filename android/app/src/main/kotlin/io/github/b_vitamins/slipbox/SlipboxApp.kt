@@ -6,48 +6,36 @@
 package io.github.b_vitamins.slipbox
 
 import androidx.compose.runtime.Composable
-import androidx.navigation3.runtime.NavEntry
-import androidx.navigation3.ui.NavDisplay
-import io.github.b_vitamins.slipbox.navigation.SlipboxDestination
-import io.github.b_vitamins.slipbox.navigation.popDestination
-import io.github.b_vitamins.slipbox.navigation.pushDestination
-import io.github.b_vitamins.slipbox.navigation.rememberSlipboxBackStack
+import androidx.compose.runtime.remember
+import io.github.b_vitamins.slipbox.navigation.SlipboxDestinations
+import io.github.b_vitamins.slipbox.navigation.SlipboxNavigation
+import io.github.b_vitamins.slipbox.navigation.SlipboxRoute
+import io.github.b_vitamins.slipbox.navigation.SlipboxSurface
+import io.github.b_vitamins.slipbox.navigation.slipboxDestinations
 import io.github.b_vitamins.slipbox.ui.AboutScreen
 import io.github.b_vitamins.slipbox.ui.LibraryScreen
+import io.github.b_vitamins.slipbox.ui.settings.ReadingSettings
 import io.github.b_vitamins.slipbox.ui.settings.rememberReadingSettings
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxMotion
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxTheme
-import io.github.b_vitamins.slipbox.ui.theme.SlipboxTransitions
 import io.github.b_vitamins.slipbox.ui.theme.rememberPlatformMotionScale
 
 @Composable
 fun SlipboxApp() {
-    val backStack = rememberSlipboxBackStack()
     val settings = rememberReadingSettings()
+    val destinations = remember(settings) { productionDestinations(settings) }
     val motion = SlipboxMotion(rememberPlatformMotionScale(), settings.preferences.reduceMotion)
     SlipboxTheme(appearance = settings.preferences.appearance) {
-        NavDisplay(
-            backStack = backStack,
-            onBack = { backStack.popDestination() },
-            transitionSpec = SlipboxTransitions.exchange(motion),
-            popTransitionSpec = SlipboxTransitions.exchange(motion),
-            predictivePopTransitionSpec = SlipboxTransitions.draggedExchange(motion),
-            entryProvider = { destination ->
-                NavEntry(destination) { key ->
-                    when (key) {
-                        is SlipboxDestination.Library ->
-                            LibraryScreen(
-                                onOpenAbout = { backStack.pushDestination(SlipboxDestination.About) },
-                            )
-
-                        is SlipboxDestination.About ->
-                            AboutScreen(
-                                onBack = { backStack.popDestination() },
-                                settings = settings,
-                            )
-                    }
-                }
-            },
-        )
+        SlipboxNavigation(destinations = destinations, motion = motion)
     }
 }
+
+private fun productionDestinations(settings: ReadingSettings): SlipboxDestinations =
+    slipboxDestinations {
+        surface(SlipboxSurface.Library) { _, backStack ->
+            LibraryScreen(onOpenAbout = { backStack.open(SlipboxRoute.About) })
+        }
+        surface(SlipboxSurface.About) { _, backStack ->
+            AboutScreen(onBack = { backStack.back() }, settings = settings)
+        }
+    }
