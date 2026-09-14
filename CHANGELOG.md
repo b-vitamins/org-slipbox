@@ -7,6 +7,9 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Add Android CI build, unit, lint and native packaging checks, with a required
+  configurable ARM64 device-smoke gate. Hosted device qualification awaits a
+  provisioned runner; see `doc/android-ci.org`.
 - Carry the web reading palette, typography and restrained controls into Compose,
   with contextual appearance preferences and platform-aware font scaling and
   reduced motion. Export per-mount document presentation inputs; the production

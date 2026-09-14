@@ -1,0 +1,93 @@
+#+title: org-slipbox Android Continuous Integration
+
+* Jobs
+
+The =ci= workflow adds =android= and =android-device= alongside the Rust, Elisp
+and web checks. Releases reuse it through =workflow_call= without inputs.
+See [[file:android-build.org][Android build instructions]] and [[file:android-native.org][native packaging]].
+
+=android= runs on =ubuntu-latest= and checks:
+
+- debug, instrumentation and unsigned release assembly;
+- unit tests and lint;
+- native packaging and private-storage exclusions;
+- provisioning and device-gate shell tests.
+
+It uploads lint and unit-test reports and records APK digests. Gradle uses
+=--no-daemon --max-workers=2 --no-build-cache=. The dependency cache contains
+Gradle modules, wrapper distributions and Cargo inputs, not build outputs.
+
+=android-device= installs and launches the debug APK on one ARM64 emulator.
+It runs =NativeEngineProbeTest= and =EngineAdapterTest=, requires every declared
+case to execute without skips, and checks logcat for crashes and hangs.
+Diagnostics include the APK digest, device ABI, page size, API level, launch
+output and instrumentation results. The script bounds waits and cleans up the
+emulator and adb server it started; it refuses occupied ports.
+
+* Inputs
+
+=android/tools/ci/inputs.sh= reads the toolchain catalog, Gradle wrapper and
+qualified ABI declaration rather than maintaining separate CI versions.
+
+#+begin_src bash
+android/tools/ci/inputs.sh
+android/tools/ci/inputs.sh --packages
+android/tools/ci/inputs.sh --install --print
+android/tools/ci/inputs.sh --install
+#+end_src
+
+Installation requires SDK command-line tools under =ANDROID_HOME= (or
+=ANDROID_SDK_ROOT=) and =rustup= on =PATH=. It installs the selected SDK packages
+and pinned Rust toolchain/targets, accepting package licence prompts.
+=--print= previews the commands without installing anything.
+
+* Device Runner
+
+Set the repository variable =ANDROID_DEVICE_RUNNER= to a qualified runner
+label. Without it, the device job fails with a configuration error rather than
+silently skipping the native gate. This setting is infrastructure for CI, not
+an app-user prerequisite.
+
+The runner needs:
+
+- an ARM64 host with working acceleration for the qualified ARM64 system image;
+- SDK command-line tools, =rustup= and access to the build dependency endpoints;
+- disk space for the SDK, NDK, emulator image and build;
+- an isolated environment without personal notes or signing credentials.
+
+Qualify both the build and emulator path on the chosen runner before relying
+on it. The existing local macOS device run does not establish hosted CI support.
+GitHub does not officially support nested virtualization on hosted runners;
+a published software inventory alone does not establish emulator compatibility.
+See [[https://docs.github.com/en/actions/concepts/runners/github-hosted-runners][GitHub-hosted runners]] and [[https://developer.android.com/studio/run/emulator-acceleration][Android emulator acceleration]].
+
+For a self-hosted runner, do not admit untrusted pull-request code onto a
+personal working machine. No GitHub App registration, PAT, private corpus or
+release signing secret is needed by these jobs. Hosted device qualification
+remains pending until the configured runner completes the workflow.
+
+* Local Checks
+
+From =android/=, after provisioning the SDK and toolchain:
+
+#+begin_src bash
+./gradlew --no-daemon --max-workers=2 --no-build-cache \
+  :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease \
+  :app:testDebugUnitTest :app:lintDebug
+tools/verify-native-packaging.sh \
+  app/build/outputs/apk/debug/app-debug.apk \
+  app/build/outputs/apk/release/app-release-unsigned.apk
+tools/verify-private-storage.sh \
+  app/build/outputs/apk/debug/app-debug.apk \
+  app/build/outputs/apk/release/app-release-unsigned.apk
+tools/ci/inputs-tests.sh
+tools/ci/verify-device-smoke-tests.sh
+tools/ci/verify-device-smoke.sh --page-size 4096
+#+end_src
+
+The device script requires Bash for process-group deadlines. It accepts
+=DEVICE_SMOKE_ADB=, =DEVICE_SMOKE_EMULATOR=,
+=DEVICE_SMOKE_AVDMANAGER=, =DEVICE_SMOKE_AAPT2= and =DEVICE_SMOKE_GRADLEW=
+tool overrides. =DEVICE_SMOKE_SERVER_PORT= and =DEVICE_SMOKE_CONSOLE_PORT=
+isolate parallel runs; =DEVICE_SMOKE_RESULTS= selects the results tree.
+=DEVICE_SMOKE_*_LIMIT= variables bound individual stages.

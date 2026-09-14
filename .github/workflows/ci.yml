@@ -125,3 +125,158 @@ jobs:
 
       - name: Run reading-client end-to-end tests
         run: make test-e2e
+
+  android:
+    name: android
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Declare Android build inputs
+        id: inputs
+        run: |
+          set -eu
+          android/tools/ci/inputs.sh --github-output "$GITHUB_OUTPUT" >"$RUNNER_TEMP/inputs.txt"
+          {
+            echo '### Declared Android build inputs'
+            echo '```'
+            cat "$RUNNER_TEMP/inputs.txt"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Install the pinned JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ steps.inputs.outputs.jdk }}
+
+      # Cache dependencies, not build outputs.
+      - name: Cache Android dependency inputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: >-
+            android-inputs-${{ runner.os }}-${{ hashFiles('android/gradle/libs.versions.toml',
+            'android/gradle/wrapper/gradle-wrapper.properties',
+            'android/gradle/verification-metadata.xml', 'android/**/*.lockfile', 'Cargo.lock') }}
+          restore-keys: android-inputs-${{ runner.os }}-
+
+      - name: Provision the pinned SDK packages and Rust target
+        run: android/tools/ci/inputs.sh --install
+
+      - name: Assemble the debug, instrumentation and release APKs
+        run: >-
+          android/gradlew --no-daemon --max-workers=2 --no-build-cache -p android
+          assembleDebug assembleDebugAndroidTest assembleRelease
+
+      - name: Run unit tests
+        run: >-
+          android/gradlew --no-daemon --max-workers=2 --no-build-cache -p android
+          testDebugUnitTest
+
+      - name: Run lint
+        run: >-
+          android/gradlew --no-daemon --max-workers=2 --no-build-cache -p android
+          lintDebug
+
+      - name: Verify the packaged native engine
+        run: >-
+          android/tools/verify-native-packaging.sh
+          android/app/build/outputs/apk/debug/app-debug.apk
+          android/app/build/outputs/apk/release/app-release-unsigned.apk
+
+      - name: Verify the packaged private-storage policy
+        run: >-
+          android/tools/verify-private-storage.sh
+          android/app/build/outputs/apk/debug/app-debug.apk
+          android/app/build/outputs/apk/release/app-release-unsigned.apk
+
+      - name: Check provisioning and device gates
+        run: |
+          android/tools/ci/inputs-tests.sh
+          android/tools/ci/verify-device-smoke-tests.sh
+
+      - name: Record the application APK digests
+        if: always()
+        run: |
+          set -eu
+          {
+            echo '### Application APK digests'
+            echo '```'
+            sha256sum android/app/build/outputs/apk/*/*.apk || true
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Android reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-reports
+          path: |
+            android/app/build/reports/lint-results-debug.html
+            android/app/build/reports/lint-results-debug.xml
+            android/app/build/reports/tests/testDebugUnitTest
+            android/app/build/test-results/testDebugUnitTest
+          if-no-files-found: warn
+
+  android-device:
+    name: android-device
+    needs: android
+    # The fallback reports missing configuration; it never runs the emulator.
+    runs-on: ${{ vars.ANDROID_DEVICE_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 90
+
+    env:
+      DEVICE_SMOKE_SERVER_PORT: "5037"
+      DEVICE_SMOKE_CONSOLE_PORT: "5554"
+
+    steps:
+      - name: Require a configured device runner
+        env:
+          ANDROID_DEVICE_RUNNER: ${{ vars.ANDROID_DEVICE_RUNNER }}
+        run: |
+          if [ -z "$ANDROID_DEVICE_RUNNER" ]; then
+            echo "::error::Set ANDROID_DEVICE_RUNNER to a qualified ARM64 runner. See doc/android-ci.org."
+            exit 1
+          fi
+
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Declare Android build inputs
+        id: inputs
+        run: android/tools/ci/inputs.sh --github-output "$GITHUB_OUTPUT"
+
+      - name: Install the pinned JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ steps.inputs.outputs.jdk }}
+
+      - name: Provision the pinned SDK packages, emulator and system image
+        run: >-
+          android/tools/ci/inputs.sh --install emulator
+          '${{ steps.inputs.outputs.system_image }}'
+
+      - name: Assemble the APKs under test
+        run: >-
+          android/gradlew --no-daemon --max-workers=2 --no-build-cache -p android
+          assembleDebug assembleDebugAndroidTest
+
+      - name: Boot one emulator and run the engine suites on it
+        run: android/tools/ci/verify-device-smoke.sh
+
+      - name: Upload device diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-device-smoke
+          path: android/app/build/reports/device-smoke
+          if-no-files-found: warn

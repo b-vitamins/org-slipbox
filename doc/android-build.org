@@ -140,8 +140,11 @@ For example, candidate 7 can become =0.19.0= at candidate 8. Reset the candidate
 only when raising major, minor, or patch; resetting it at the same version
 would lower the upgrade code. Build/runtime derivations are compared by tests.
 
-Release builds are unsigned; production signing, CI, and release automation
-are not configured here. Signing remains an [[file:android.org::*Owner Prerequisites][owner prerequisite]].
+Release builds are unsigned; production signing and release automation are not
+configured here. Signing remains an [[file:android.org::*Owner Prerequisites][owner prerequisite]].
+The CI workflow declares build, unit, lint and packaging checks from these pins,
+plus a required device gate. See [[file:android-ci.org][doc/android-ci.org]] for runner provisioning;
+the hosted device run is not yet qualified.
 
 * Regenerate Dependencies
 
