@@ -489,18 +489,17 @@ impl Database {
             return Ok(Vec::new());
         };
         // Literal probes use the unstemmed index; porter matches related spellings.
-        let phrase_query = build_fts_phrase_query(query);
         let headword_query = query.split_whitespace().collect::<Vec<_>>().join(" ");
-        let sql = search_node_content_sql(phrase_query.is_some());
-        let mut arguments: Vec<rusqlite::types::Value> = vec![
-            fts_query.into(),
-            SNIPPET_TOKEN_BUDGET.into(),
-            limit.into(),
-            headword_query.into(),
-            probes.naming.into(),
-            probes.anywhere.into(),
-        ];
-        arguments.extend(phrase_query.map(Into::into));
+        let ranking = self.content_ranking(
+            &fts_query,
+            headword_query,
+            build_fts_phrase_query(query),
+            probes,
+        )?;
+        let sql = search_node_content_sql(&ranking);
+        let mut arguments: Vec<rusqlite::types::Value> =
+            vec![fts_query.into(), SNIPPET_TOKEN_BUDGET.into(), limit.into()];
+        arguments.extend(ranking.into_tier_queries().map(Into::into));
         let mut statement = self.connection.prepare(&sql)?;
         let rows = statement.query_map(params_from_iter(arguments), |row| {
             let node = row_to_note(row)?;
@@ -512,6 +511,50 @@ impl Database {
         })?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .context("failed to read note content search results")
+    }
+
+    // Whole-term probe sets are subsets of the stemmed pool, so equal counts
+    // make their ranking keys constant.
+    fn content_ranking(
+        &self,
+        fts_query: &str,
+        headword_query: String,
+        phrase_query: Option<String>,
+        probes: LiteralProbes,
+    ) -> Result<ContentRanking> {
+        let pool = self.match_count("node_content_fts", fts_query)?;
+        let mut kept = Vec::new();
+        for (alias, probe) in phrase_query
+            .map(|phrase| ("phrase", phrase))
+            .into_iter()
+            .chain([("naming", probes.naming), ("anywhere", probes.anywhere)])
+        {
+            let matched = self.match_count("node_phrase_fts", &probe)?;
+            if matched > 0 && matched < pool {
+                kept.push((alias, probe));
+            }
+        }
+        let headword = self
+            .headword_exists(&headword_query)?
+            .then_some(headword_query);
+        Ok(ContentRanking {
+            headword,
+            probes: kept,
+        })
+    }
+
+    fn match_count(&self, table: &str, query: &str) -> Result<i64> {
+        let sql = format!("SELECT count(*) FROM {table} WHERE {table} MATCH ?1");
+        Ok(self
+            .connection
+            .query_row(&sql, params![query], |row| row.get(0))?)
+    }
+
+    fn headword_exists(&self, headword: &str) -> Result<bool> {
+        let sql = format!("SELECT EXISTS({})", headword_set(1));
+        Ok(self
+            .connection
+            .query_row(&sql, params![headword], |row| row.get(0))?)
     }
 
     /// Return one due-order glossary page, optionally filtered by headword or alias.
@@ -900,53 +943,74 @@ fn search_glossary_sql(filter: &str) -> String {
     )
 }
 
-/// Rank exact headwords, phrases, whole-term naming, whole-term content, BM25,
-/// then filing position. Ranking probes do not filter stemmed recall.
-fn search_node_content_sql(phrase: bool) -> String {
-    let mut probes = vec![probe_cte("naming", 5), probe_cte("anywhere", 6)];
-    let (phrase_join, phrase_rank) = match phrase {
-        true => {
-            probes.push(probe_cte("phrase", 7));
-            (
-                probe_join("phrase", "node_content_fts.rowid"),
-                "phrase.rowid IS NULL, ",
-            )
-        }
-        false => (String::new(), ""),
-    };
-    // UNION preserves indexed title/alias lookups; NOCASE folds ASCII only.
+/// Literal tiers that distinguish the stemmed candidates, in ranking order.
+struct ContentRanking {
+    headword: Option<String>,
+    probes: Vec<(&'static str, String)>,
+}
+
+impl ContentRanking {
+    fn into_tier_queries(self) -> impl Iterator<Item = String> {
+        self.headword
+            .into_iter()
+            .chain(self.probes.into_iter().map(|(_, probe)| probe))
+    }
+}
+
+const CONTENT_TIER_PARAMETER: usize = 4;
+
+/// UNION preserves the indexed title and alias lookups; NOCASE folds ASCII only.
+fn headword_set(parameter: usize) -> String {
+    format!(
+        "SELECT id
+           FROM nodes
+          WHERE title = ?{parameter} COLLATE NOCASE
+          UNION
+         SELECT nodes.id
+           FROM nodes
+           JOIN aliases ON aliases.node_key = nodes.node_key
+          WHERE aliases.alias = ?{parameter} COLLATE NOCASE"
+    )
+}
+
+/// Rank the surviving literal tiers, then BM25, then filing position. Ranking
+/// probes do not filter stemmed recall.
+fn search_node_content_sql(ranking: &ContentRanking) -> String {
+    let mut parameter = CONTENT_TIER_PARAMETER;
+    let mut ctes = Vec::new();
+    let mut joins = Vec::new();
+    let mut order = Vec::new();
+    if ranking.headword.is_some() {
+        joins.push(format!(
+            "LEFT JOIN ({}) AS headword ON headword.id = node_content_fts.rowid",
+            headword_set(parameter)
+        ));
+        order.push("headword.id IS NULL".to_owned());
+        parameter += 1;
+    }
+    for (alias, _) in &ranking.probes {
+        ctes.push(probe_cte(alias, parameter));
+        joins.push(probe_join(alias, "node_content_fts.rowid"));
+        order.push(format!("{alias}.rowid IS NULL"));
+        parameter += 1;
+    }
+    order.extend(["bm25(node_content_fts)", "n.file_path", "n.line"].map(str::to_owned));
     // Snippets use this node's body column (2) and control-character delimiters.
     format!(
         "{}SELECT {},
                 snippet(node_content_fts, 2, char(2), char(3), '…', ?2)
            FROM node_content_fts
            JOIN nodes AS n ON n.id = node_content_fts.rowid
-           LEFT JOIN (SELECT id
-                        FROM nodes
-                       WHERE title = ?4 COLLATE NOCASE
-                       UNION
-                      SELECT nodes.id
-                        FROM nodes
-                        JOIN aliases ON aliases.node_key = nodes.node_key
-                       WHERE aliases.alias = ?4 COLLATE NOCASE) AS headword
-                   ON headword.id = node_content_fts.rowid
            {}
-           {}
-           {phrase_join}
           WHERE node_content_fts MATCH ?1
             AND {}
-          ORDER BY headword.id IS NULL,
-                   {phrase_rank}naming.rowid IS NULL,
-                   anywhere.rowid IS NULL,
-                   bm25(node_content_fts),
-                   n.file_path,
-                   n.line
+          ORDER BY {}
           LIMIT ?3",
-        probe_with(&probes),
+        probe_with(&ctes),
         anchor_select_columns("n"),
-        probe_join("naming", "node_content_fts.rowid"),
-        probe_join("anywhere", "node_content_fts.rowid"),
+        joins.join("\n           "),
         note_where("n"),
+        order.join(",\n                   "),
     )
 }
 
@@ -2306,6 +2370,19 @@ mod tests {
         vec![""; parameters]
     }
 
+    fn every_content_tier(phrase: bool) -> super::ContentRanking {
+        let mut probes = match phrase {
+            true => vec![("phrase", String::new())],
+            false => Vec::new(),
+        };
+        probes.push(("naming", String::new()));
+        probes.push(("anywhere", String::new()));
+        super::ContentRanking {
+            headword: Some(String::new()),
+            probes,
+        }
+    }
+
     fn details(plan: &[PlanNode]) -> Vec<&str> {
         plan.iter().map(|node| node.detail.as_str()).collect()
     }
@@ -2713,6 +2790,104 @@ mod tests {
         Ok(())
     }
 
+    fn suffix_fixture() -> Vec<(String, String)> {
+        let mut fixture = (0..5)
+            .map(|index| {
+                (
+                    format!("note-{index:02}.org"),
+                    format!(
+                        "#+title: Measurement {index:02}\n\nThe latency budget and the throughput it allows.\n"
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+        fixture.push((
+            "note-05.org".to_owned(),
+            "#+title: Measurement 05\n\nThe latency budget and the throughputs it allows.\n"
+                .to_owned(),
+        ));
+        fixture
+    }
+
+    fn chosen_ranking(database: &crate::Database, query: &str) -> Result<super::ContentRanking> {
+        database.content_ranking(
+            &super::build_fts_query(query).expect("a term to match"),
+            query.split_whitespace().collect::<Vec<_>>().join(" "),
+            super::build_fts_phrase_query(query),
+            super::build_fts_literal_probes(query).expect("a term to probe"),
+        )
+    }
+
+    fn fully_probed_titles(
+        database: &crate::Database,
+        query: &str,
+        limit: i64,
+    ) -> Result<Vec<String>> {
+        let phrase = super::build_fts_phrase_query(query);
+        let probes = super::build_fts_literal_probes(query).expect("a term to probe");
+        let sql = super::search_node_content_sql(&every_content_tier(phrase.is_some()));
+        let mut arguments: Vec<rusqlite::types::Value> = vec![
+            super::build_fts_query(query)
+                .expect("a term to match")
+                .into(),
+            super::SNIPPET_TOKEN_BUDGET.into(),
+            limit.into(),
+            query
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .into(),
+        ];
+        arguments.extend(phrase.map(Into::into));
+        arguments.push(probes.naming.into());
+        arguments.push(probes.anywhere.into());
+        let mut statement = database.connection.prepare(&sql)?;
+        let rows = statement.query_map(rusqlite::params_from_iter(arguments), |row| row.get(3))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    #[test]
+    fn a_literal_tier_every_candidate_shares_leaves_the_page_unchanged() -> Result<()> {
+        let fixture = suffix_fixture();
+        let files = fixture
+            .iter()
+            .map(|(name, body)| (name.as_str(), body.as_str()))
+            .collect::<Vec<_>>();
+        let (_workspace, database, _root) = indexed_database(&files)?;
+
+        let unanimous = chosen_ranking(&database, "latency")?;
+        assert!(
+            unanimous.headword.is_none() && unanimous.probes.is_empty(),
+            "a term every candidate spells out needs no literal tier"
+        );
+        assert!(
+            !super::search_node_content_sql(&unanimous).contains("node_phrase_fts"),
+            "an inert tier leaves no probe read in the statement"
+        );
+        assert_eq!(
+            content_titles(&database.search_node_content("latency", 10)?),
+            fully_probed_titles(&database, "latency", 10)?,
+            "the page matches the always-probed statement it replaces"
+        );
+
+        let discriminating = chosen_ranking(&database, "throughput")?;
+        assert_eq!(
+            discriminating
+                .probes
+                .iter()
+                .map(|(alias, _)| *alias)
+                .collect::<Vec<_>>(),
+            vec!["anywhere"],
+            "a stem admitting more than the term spells keeps its whole-term content tier"
+        );
+        assert_eq!(
+            content_titles(&database.search_node_content("throughput", 10)?),
+            fully_probed_titles(&database, "throughput", 10)?,
+            "a tier that still discriminates ranks exactly as it did"
+        );
+        Ok(())
+    }
+
     #[test]
     fn every_search_statement_materializes_its_probes_at_statement_scope() -> Result<()> {
         let (_workspace, database, _root) = crowded_database()?;
@@ -2720,14 +2895,22 @@ mod tests {
 
         for (sql, parameters, probes) in [
             (
-                super::search_node_content_sql(true),
+                super::search_node_content_sql(&every_content_tier(true)),
                 7,
                 vec!["naming", "anywhere", "phrase"],
             ),
             (
-                super::search_node_content_sql(false),
+                super::search_node_content_sql(&every_content_tier(false)),
                 6,
                 vec!["naming", "anywhere"],
+            ),
+            (
+                super::search_node_content_sql(&super::ContentRanking {
+                    headword: None,
+                    probes: Vec::new(),
+                }),
+                3,
+                vec![],
             ),
             (
                 super::search_nodes_fts_sql(None, Some(&note_where), true),
@@ -2796,7 +2979,7 @@ mod tests {
 
         let content_plan = search_plan(
             &database,
-            &super::search_node_content_sql(true),
+            &super::search_node_content_sql(&every_content_tier(true)),
             &empty_arguments(7),
         )?;
         assert!(
@@ -2832,7 +3015,7 @@ mod tests {
     #[test]
     fn a_common_query_and_a_selective_one_are_admitted_the_same_way() -> Result<()> {
         let (_workspace, database, _root) = crowded_database()?;
-        let sql = super::search_node_content_sql(false);
+        let sql = super::search_node_content_sql(&every_content_tier(false));
         let budget = super::SNIPPET_TOKEN_BUDGET.to_string();
 
         let mut plans = Vec::new();

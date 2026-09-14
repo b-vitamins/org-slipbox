@@ -69,6 +69,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
   `desktop-decryptors`.
 
 ### Fixed
+- Omit constant literal-ranking tiers from note-content search, reducing query
+  work without changing recall, ranking preferences or snippets.
 - Prefer literal title/alias matches over incidental stem matches in canonical
   search. Note-content ranking prefers exact headwords and spelled-out phrases,
   then every usable query term whole in a title or alias, then whole-term content;
