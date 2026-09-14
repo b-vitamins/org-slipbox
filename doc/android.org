@@ -10,7 +10,8 @@ None of it is shipped. `0.18.0` is the latest shipped release, and its released
 metadata and history remain authoritative. An unreleased Compose shell provides
 Library and About screens; it does not yet load notes. The native adapter and
 document host are implemented independently. Git sync and reader wiring remain
-unbuilt; authorization awaits the shared App registration and real owner consent.
+unbuilt. GitHub authorization is qualified independently; private clone and fetch
+remain unproven.
 Build instructions and toolchain pins are
 in [[file:android-build.org][doc/android-build.org]]; private-fetch qualification belongs to the tracker.
 
