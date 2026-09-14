@@ -1,0 +1,92 @@
+#+title: org-slipbox Android GitHub Authorization
+
+* Contract
+
+Slipbox uses one project-owned public GitHub App. Users authorize in the system
+browser and install it on selected repositories; they do not register an App,
+provide a PAT, configure a client ID or run a server. Anonymous public HTTPS
+sources remain independent.
+
+The authorization component returns the verified account, installation access
+and credential. Token renewal, repository selection and connection navigation
+are separate responsibilities. See [[file:android.org][the reader contract]] and
+[[file:android-build.org][build instructions]].
+
+* Public Configuration
+
+=android/github-app.properties= supplies =clientId= and =installationUrl=,
+packaged as =GITHUB_CLIENT_ID= and =GITHUB_INSTALLATION_URL=. These are public
+values, not credentials. An empty client ID leaves clean builds usable and
+authorization unavailable; an absent installation URL removes the install offer.
+
+A development build can override the client ID:
+
+#+begin_src bash
+./gradlew :app:assembleDebug -Pslipbox.githubClientId=<public-client-id>
+#+end_src
+
+Configuration rejects credential-like prefixes, excessive length and non-HTTPS
+installation URLs without repeating the supplied value. No client secret,
+private key or PAT is packaged.
+
+* Device Flow
+
+| Request | Endpoint |
+|---------+----------|
+| Device code | =POST https://github.com/login/device/code= |
+| Token polling | =POST https://github.com/login/oauth/access_token= |
+| Verified account | =GET https://api.github.com/user= |
+| Installation access | =GET https://api.github.com/user/installations= |
+
+The device grant sends the client ID and device code without a secret or OAuth
+repository scope. Polling respects GitHub's interval; =slow_down= adds five
+seconds. Denial, expiry and service faults produce typed outcomes. The stored
+token expiry is dated at the token response, before account verification.
+
+Browser return alone does not settle authorization. Replacement, cancellation,
+lifecycle destruction and composition disposal withdraw the active attempt.
+An in-flight exchange is bounded by its transport deadline; withdrawn attempts
+drop queued callbacks.
+
+HTTPS exchanges run off the UI thread, without redirects or unbounded response
+bodies. Diagnostics use closed error values and exception classes, not response
+bodies or exception messages. Temporary codes are not saved in navigation state;
+diagnostic representations redact codes and credentials.
+
+* Result And Storage
+
+=GithubAuthorization= contains =VerifiedAccount=, =InstallationAccess= and
+=StoredCredential=. Account identity comes from GitHub; its stable numeric ID
+scopes credentials and its renameable login is display-only. Authorization and
+repository installation are distinct, so an account with no installation is
+reported honestly.
+
+=AuthorizationVault.keep= uses the asynchronous vault under:
+
+#+begin_src text
+VaultScope(sourceId, "github.com", account.id, credentialRef)
+#+end_src
+
+Vault creation, replacement and closure remain off the UI thread. The recipient
+receives one result, and the vault closes after delivery.
+
+* Owner Setup
+
+Register [[https://github.com/settings/apps/new][one public GitHub App]] for the project:
+
+1. Use the project homepage, =https://github.com/b-vitamins/org-slipbox=.
+2. Enable Device Flow and expiring user authorization tokens.
+3. Leave callback/setup URLs empty, authorization during installation unchecked,
+   and webhook Active unchecked.
+4. Request Contents read-only and required Metadata read-only; no other permissions.
+5. Allow installation on Any account.
+6. Add the public Client ID and
+   =https://github.com/apps/<app-slug>/installations/new= to the configuration.
+
+See [[https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app][registration settings]] and [[https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app][GitHub App device authorization]].
+
+A real grant still needs owner browser consent against a scratch repository
+before qualification is complete. Automated tests use synthetic transports and
+credentials; they do not perform or silently skip real consent. The manual
+record states grant outcome, identity match, vault handoff and cancellation,
+without archived codes, tokens or account-identifying screenshots.

@@ -7,6 +7,9 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Add GitHub App device authorization with browser handoff, cancellable polling,
+  verified accounts and scoped credential storage. The shared public registration
+  and real owner-consent check remain pending; see `doc/android-auth.org`.
 - Add Android CI build, unit, lint and native packaging checks, with a required
   configurable ARM64 device-smoke gate. Hosted device qualification awaits a
   provisioned runner; see `doc/android-ci.org`.

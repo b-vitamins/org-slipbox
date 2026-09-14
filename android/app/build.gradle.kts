@@ -68,6 +68,54 @@ val derivedVersionName =
         "$versionMajor.$versionMinor.$versionPatch-$versionStage.$versionCandidate"
     }
 
+// Empty public configuration leaves authorization unavailable.
+val githubAppProperties =
+    Properties().apply {
+        providers
+            .fileContents(rootProject.layout.projectDirectory.file("github-app.properties"))
+            .asText
+            .orNull
+            ?.let { load(it.reader()) }
+    }
+
+val credentialTokenPrefixes = listOf("ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_")
+
+val githubConfigurationLimit = 128
+
+// Validation errors must not repeat the configured value.
+fun publicConfiguration(origin: String, declared: String?): String {
+    val value = declared?.trim().orEmpty()
+    require(credentialTokenPrefixes.none { value.startsWith(it) }) {
+        "$origin is spelled like a GitHub credential; only public configuration belongs in a build"
+    }
+    require(value.length <= githubConfigurationLimit) {
+        "$origin is longer than $githubConfigurationLimit characters"
+    }
+    return value
+}
+
+val githubClientId =
+    providers.gradleProperty("slipbox.githubClientId").orNull.let { overridden ->
+        if (overridden == null) {
+            publicConfiguration(
+                "android/github-app.properties clientId",
+                githubAppProperties.getProperty("clientId"),
+            )
+        } else {
+            publicConfiguration("-Pslipbox.githubClientId", overridden)
+        }
+    }
+
+val githubInstallationUrl =
+    publicConfiguration(
+        "android/github-app.properties installationUrl",
+        githubAppProperties.getProperty("installationUrl"),
+    ).also {
+        require(it.isEmpty() || it.startsWith("https://")) {
+            "android/github-app.properties installationUrl must be an https address"
+        }
+    }
+
 val qualifiedAbis = mapOf("arm64-v8a" to "aarch64-linux-android")
 
 val rustWorkspaceDirectory = rootProject.layout.projectDirectory.dir("..")
@@ -120,6 +168,8 @@ android {
         buildConfigField("int", "VERSION_CANDIDATE", "$versionCandidate")
         buildConfigField("String", "VERSION_STAGE", "\"$versionStage\"")
         buildConfigField("String", "QUALIFIED_ABIS", "\"${qualifiedAbis.keys.joinToString(",")}\"")
+        buildConfigField("String", "GITHUB_CLIENT_ID", "\"$githubClientId\"")
+        buildConfigField("String", "GITHUB_INSTALLATION_URL", "\"$githubInstallationUrl\"")
     }
 
     packaging {

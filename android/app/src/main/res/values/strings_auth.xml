@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 Ayan Das
+  SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<resources>
+    <string name="auth_requesting">Contacting GitHub.</string>
+    <string name="auth_code_name">Verification code</string>
+    <string name="auth_verification_instruction">Enter it at %1$s to authorize Slipbox.</string>
+    <string name="auth_action_open">Open GitHub</string>
+    <string name="auth_action_cancel">Cancel</string>
+    <string name="auth_action_retry">Try again</string>
+    <string name="auth_action_install">Install on GitHub</string>
+    <string name="auth_browser_unavailable">No browser opened the page.</string>
+    <string name="auth_authorized">Authorized as %1$s.</string>
+    <string name="auth_not_installed">Slipbox is not installed on a repository of this account.</string>
+    <string name="auth_declined">The authorization was declined on GitHub.</string>
+    <string name="auth_expired">The code expired before it was entered.</string>
+    <string name="auth_unreachable">GitHub could not be reached.</string>
+    <string name="auth_refused">GitHub refused this authorization.</string>
+    <string name="auth_unavailable">GitHub did not complete the authorization.</string>
+    <string name="auth_unconfigured">This build carries no GitHub authorization.</string>
+</resources>
