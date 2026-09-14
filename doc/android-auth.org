@@ -70,6 +70,25 @@ VaultScope(sourceId, "github.com", account.id, credentialRef)
 Vault creation, replacement and closure remain off the UI thread. The recipient
 receives one result, and the vault closes after delivery.
 
+* Renewal
+
+=CredentialRenewalOwner= supplies a credential for one source, verified account
+and credential reference. Calls block and must run off main. Access within one
+minute of expiry is refreshed using the public client ID and device-flow refresh
+grant; expiry is dated at the response. Non-expiring access is reused as stored.
+
+Callers of one owner serialize re-read, exchange and vault replacement. The vault
+lease excludes competing owners of the same record. Success follows commit;
+closing suppresses delivery without discarding a rotation already in progress.
+An uncertain or failed replacement returns =Uncommitted=. That owner then
+re-reads the record without replaying the consumed refresh token.
+
+Transient faults and required reauthorization retain offline data. Disconnect
+removes the scoped credential and keys; =removeCache()= separately removes the
+account's checkout, index, assets and reading state. Diagnostics omit credentials,
+response bodies and exception messages. A transport fault does not establish
+whether GitHub consumed the refresh token.
+
 * Owner Setup
 
 Register [[https://github.com/settings/apps/new][one public GitHub App]] for the project:

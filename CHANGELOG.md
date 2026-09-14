@@ -7,6 +7,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Renew expiring GitHub device-flow credentials through the scoped vault, with
+  serialized rotation and offline cache retained on authorization failure.
 - Embed the bundled Org renderer in an isolated Android content view, with
   explicit presentation, validated navigation intents and source-bound local
   assets. Package verified renderer bytes and fonts in both APK variants;
