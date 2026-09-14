@@ -1,6 +1,8 @@
 // Copyright (C) 2026 Ayan Das
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import groovy.json.JsonSlurper
+import java.security.MessageDigest
 import java.util.Properties
 import javax.inject.Inject
 
@@ -121,6 +123,9 @@ val qualifiedAbis = mapOf("arm64-v8a" to "aarch64-linux-android")
 val rustWorkspaceDirectory = rootProject.layout.projectDirectory.dir("..")
 val rustCrateDirectory = rustWorkspaceDirectory.dir("crates/slipbox-android")
 
+val webClientDirectory = rustWorkspaceDirectory.dir("crates/slipbox-web/client")
+val documentAssetDirectory = "document"
+
 // The Cargo closure of the packaged library: no other crate can change its bytes.
 val rustClosure =
     listOf(
@@ -231,6 +236,7 @@ dependencies {
 
     implementation(libs.androidx.lifecycle.common)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.androidx.webkit)
 
     testImplementation(libs.junit)
 
@@ -425,5 +431,187 @@ androidComponents {
         requireNotNull(variant.sources.jniLibs) {
             "the ${variant.name} variant has no jniLibs source directory"
         }.addGeneratedSourceDirectory(cross, CargoAndroidLibrary::outputDirectory)
+    }
+}
+
+/** Builds and verifies the standalone renderer; the app supplies its own host page. */
+abstract class DocumentBundle
+    @Inject
+    constructor(
+        private val exec: ExecOperations,
+        private val files: FileSystemOperations,
+    ) : DefaultTask() {
+        @get:InputFile
+        @get:PathSensitive(PathSensitivity.NONE)
+        abstract val packageManifest: RegularFileProperty
+
+        @get:InputFile
+        @get:PathSensitive(PathSensitivity.NONE)
+        abstract val packageLock: RegularFileProperty
+
+        @get:InputFiles
+        @get:PathSensitive(PathSensitivity.RELATIVE)
+        abstract val bundleSources: ConfigurableFileCollection
+
+        @get:Input
+        abstract val npmExecutable: Property<String>
+
+        @get:Internal
+        abstract val clientDirectory: DirectoryProperty
+
+        @get:OutputDirectory
+        abstract val outputDirectory: DirectoryProperty
+
+        @TaskAction
+        fun publish() {
+            val client = clientDirectory.get().asFile
+            install(client)
+            exec.exec {
+                executable = npmExecutable.get()
+                args("run", "build:document")
+                workingDir = client
+            }
+            val distribution = File(client, "dist-document")
+            val staged = verify(distribution)
+            files.sync {
+                from(distribution) { include(staged) }
+                into(outputDirectory)
+            }
+        }
+
+        private fun install(client: File) {
+            val stamp = File(client, "node_modules/$INSTALL_STAMP")
+            val revision = digestOf(packageLock.get().asFile)
+            if (stamp.isFile && stamp.readText().trim() == revision) {
+                return
+            }
+            exec.exec {
+                executable = npmExecutable.get()
+                args("ci", "--no-audit", "--no-fund")
+                workingDir = client
+            }
+            stamp.parentFile.mkdirs()
+            stamp.writeText(revision)
+        }
+
+        private fun verify(distribution: File): List<String> {
+            val inventoryFile = File(distribution, INVENTORY)
+            check(inventoryFile.isFile) { "the document bundle published no $INVENTORY" }
+            val inventory = JsonSlurper().parse(inventoryFile)
+            check(inventory is Map<*, *>) { "$INVENTORY is not a JSON object" }
+            val entry = inventory["entry"] as? String
+            val stylesheet = inventory["stylesheet"] as? String
+            val host = inventory["host"] as? String
+            check(entry != null && stylesheet != null && host != null) {
+                "$INVENTORY names no entry, stylesheet and host page"
+            }
+            val listed = inventory["files"]
+            check(listed is List<*>) { "$INVENTORY inventories no files" }
+
+            val declared = linkedMapOf<String, Pair<Long, String>>()
+            for (item in listed) {
+                check(item is Map<*, *>) { "$INVENTORY has a malformed entry: $item" }
+                val path = item["path"] as? String
+                val bytes = (item["bytes"] as? Number)?.toLong()
+                val sha256 = item["sha256"] as? String
+                check(path != null && bytes != null && sha256 != null) {
+                    "$INVENTORY has an incomplete entry: $item"
+                }
+                declared[path] = bytes to sha256
+            }
+            for (required in listOf(entry, stylesheet, host)) {
+                check(required in declared) { "$INVENTORY names $required without inventorying it" }
+            }
+
+            // The inventory hashes every output except itself.
+            val emitted =
+                distribution
+                    .walkTopDown()
+                    .filter { it.isFile }
+                    .map { it.relativeTo(distribution).invariantSeparatorsPath }
+                    .filterNot { it == INVENTORY }
+                    .toSortedSet()
+            check(emitted == declared.keys.toSortedSet()) {
+                "the document bundle emitted ${emitted - declared.keys} and inventoried " +
+                    "${declared.keys - emitted} instead"
+            }
+            for ((path, expected) in declared) {
+                val file = File(distribution, path)
+                val (bytes, sha256) = expected
+                check(file.length() == bytes) {
+                    "$path is ${file.length()} bytes, not the inventoried $bytes"
+                }
+                val digest = digestOf(file)
+                check(digest == sha256) { "$path hashes to $digest, not the inventoried $sha256" }
+            }
+            return (declared.keys - host).toList() + INVENTORY
+        }
+
+        private fun digestOf(file: File): String =
+            MessageDigest
+                .getInstance("SHA-256")
+                .digest(file.readBytes())
+                .joinToString("") { "%02x".format(it) }
+
+        private companion object {
+            const val INSTALL_STAMP = ".slipbox-document-install"
+            const val INVENTORY = "assets.json"
+        }
+    }
+
+abstract class StageDocumentAssets
+    @Inject
+    constructor(
+        private val files: FileSystemOperations,
+    ) : DefaultTask() {
+        @get:InputDirectory
+        @get:PathSensitive(PathSensitivity.RELATIVE)
+        abstract val bundleDirectory: DirectoryProperty
+
+        @get:Input
+        abstract val assetDirectory: Property<String>
+
+        @get:OutputDirectory
+        abstract val outputDirectory: DirectoryProperty
+
+        @TaskAction
+        fun stage() {
+            files.sync {
+                from(bundleDirectory)
+                into(outputDirectory.dir(assetDirectory))
+            }
+        }
+    }
+
+val documentBundle =
+    tasks.register<DocumentBundle>("documentBundle") {
+        description = "Publishes the standalone Org document bundle the content host serves."
+        clientDirectory.set(webClientDirectory)
+        packageManifest.set(webClientDirectory.file("package.json"))
+        packageLock.set(webClientDirectory.file("package-lock.json"))
+        bundleSources.from(
+            webClientDirectory.dir("src"),
+            webClientDirectory.file("scripts/build-document.mjs"),
+            webClientDirectory.file("vite.document.config.ts"),
+            webClientDirectory.file("tsconfig.json"),
+        )
+        npmExecutable.set(providers.gradleProperty("slipbox.npm").orElse("npm"))
+        outputDirectory.set(layout.buildDirectory.dir("document-bundle"))
+    }
+
+androidComponents {
+    onVariants { variant ->
+        val stage =
+            tasks.register<StageDocumentAssets>(
+                "stageDocumentAssets${variant.name.replaceFirstChar(Char::uppercaseChar)}",
+            ) {
+                description = "Stages the document bundle into the ${variant.name} variant's assets."
+                bundleDirectory.set(documentBundle.flatMap { it.outputDirectory })
+                assetDirectory.set(documentAssetDirectory)
+            }
+
+        requireNotNull(variant.sources.assets) {
+            "the ${variant.name} variant has no assets source directory"
+        }.addGeneratedSourceDirectory(stage, StageDocumentAssets::outputDirectory)
     }
 }

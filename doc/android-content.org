@@ -1,0 +1,101 @@
+#+title: org-slipbox Android Document Content View
+
+* Scope
+
+=DocumentContentView= embeds the standalone Org renderer in a Compose-hosted
+WebView. It accepts Org text and explicit presentation inputs, reports navigation
+intents and resolves source-bound assets. Native screens own destinations,
+previews and repository access; the content view owns none of them.
+
+The application bundles the renderer, not the web client. No desktop daemon,
+loopback server or downloaded renderer is needed. The reader contract is in
+[[file:android.org][android.org]]; build instructions are in [[file:android-build.org][android-build.org]].
+
+* Packaging
+
+=:app:documentBundle= installs the web client's locked npm dependencies and runs
+=build:document=. It verifies emitted names, lengths and SHA-256 digests against
+=assets.json=, then excludes the demonstration =host.html=. Each
+=stageDocumentAssets<Variant>= task registers the verified tree as generated APK
+assets. Generated JavaScript, styles and fonts are not committed.
+
+| APK asset                      | Origin                              |
+|--------------------------------+-------------------------------------|
+| =index.html=, =host.js=, =host.css= | application-controlled host      |
+| =document.js=, =document.css=   | shared standalone renderer          |
+| =assets/KaTeX_*=               | bundled math fonts                  |
+| =assets.json=, =THIRD-PARTY-NOTICES.txt= | build inventory and licences |
+
+* Local-content boundary
+
+=WebViewAssetLoader= serves HTTPS at =appassets.androidplatform.net=. The
+=/bundle/= handler serves only packaged document files. The =/asset/= handler
+serves resolver-provided bytes under the live mount token. Every loader miss,
+foreign-origin request and non-GET request receives an empty =404=, never a null
+response that could fall through to the network. HTML subresources and all
+navigation are refused. Responses use =nosniff= and =no-store=.
+
+Network loads, file/content access, file-URL cross-origin permissions, DOM
+storage, geolocation and window opening are disabled. Mixed content is refused;
+WebView debugging follows the application's debuggable flag. JavaScript remains
+enabled for the trusted bundled renderer, not for note-supplied scripts.
+
+The host's Content-Security-Policy admits local scripts, styles, fonts and
+images, with no connections, forms, frames or base-URL changes. Inline styles
+support presentation variables and KaTeX error output; inline scripts are
+forbidden. Org text crosses as escaped JSON and is parsed as data. Math uses
+the shared renderer's untrusted KaTeX options and semantic MathML output.
+
+* Caller interface
+
+#+begin_src kotlin
+DocumentContentView(
+    source = DocumentSource(id, generation, org, baseLevel = 2),
+    presentation = presentation,
+    onIntent = { intent -> /* application navigation */ },
+    resolveAsset = DocumentAssetResolver { binding, target -> /* bytes or null */ },
+)
+#+end_src
+
+The caller supplies a source-scoped document identity and content generation,
+not a bare note key shared across repositories. The view issues its own opaque
+mount token. Any source-field change retires that token; presentation-only
+changes retain it. Callback and resolver replacements use their latest values
+without rebuilding the view.
+
+| Intent    | Payload          | Caller action                     |
+|-----------+------------------+-----------------------------------|
+| =Glance=  | link and gesture | open a contextual preview         |
+| =Pin=     | link             | open beside its origin            |
+| =Go=      | link             | open as a fresh root              |
+| =Dismiss= | none             | withdraw the standing preview     |
+
+The =slipboxDocument= message channel validates origin, main frame, live token
+and payload shape before delivering an intent. Unknown fields, verbs and
+gestures are refused; messages are bounded to 4096 characters. Diagnostics name
+the failed check, never the note-derived payload. No native evaluator, RPC
+dispatcher, engine or credential object is exposed. A WebView without the typed
+message-listener feature renders without navigation callbacks.
+
+Asset lookup receives =DocumentBinding= and the verbatim Org target, such as
+=file:diagram.png=, on the loader thread. The host rejects invalid token/path
+segments and stale mounts. The resolver must enforce repository containment and
+interpret the target relative to the bound document; it must never use the
+currently selected source instead. An in-flight lookup retains its captured
+binding. Null results and refused MIME types return =404=. PNG, JPEG, GIF, WebP
+and plain text are admitted; executable formats, including HTML and SVG, are not.
+
+* Presentation and lifetime
+
+=DocumentPresentation= supplies per-mount theme, typography, geometry and motion.
+The host applies its CSS variables and fixes =textZoom= at 100: Android font
+scaling is already incorporated, including nonlinear large-text scaling.
+Presentation updates preserve document nodes, scroll, focus and previews.
+Source changes use the renderer's =update= contract and withdraw old previews.
+Disposal retires the token, invokes renderer teardown and destroys the WebView;
+the caller withdraws its own preview when removing the content view.
+
+AndroidX WebKit is pinned to =1.15.0= to retain API 23 compatibility; newer lines
+require API 24. Dependency locks and checksums are generated by Gradle.
+JVM and packaged-WebView tests cover the channel, escaping, settings, offline
+bundle inventory, scoped assets, lifecycle and readable light/dark presentation.

@@ -8,9 +8,10 @@ and which boundaries hold before any of it is built.
 
 None of it is shipped. `0.18.0` is the latest shipped release, and its released
 metadata and history remain authoritative. An unreleased Compose shell provides
-Library and About screens; it does not yet load notes. Git sync, authorization,
-and the native adapter remain unbuilt. This document constrains those capabilities
-in advance rather than reporting them. Build instructions and toolchain pins are
+Library and About screens; it does not yet load notes. The native adapter and
+document host are implemented independently. Git sync and reader wiring remain
+unbuilt; authorization awaits the shared App registration and real owner consent.
+Build instructions and toolchain pins are
 in [[file:android-build.org][doc/android-build.org]]; private-fetch qualification belongs to the tracker.
 
 The public model is defined in [[file:model.org][doc/model.org]]. The reader
@@ -273,8 +274,9 @@ hook withdraws it through the old hook. Disposal leaves host-owned children
 alone and makes retained controls inert for document-owned actions.
 
 The bundle checks resolved asset schemes, not local origins: HTTP(S) and blob
-URLs are admitted. The Android content host must impose the local-only policy
-above. Native content-view integration and repository asset lookup remain unbuilt.
+URLs are admitted. The Android content host imposes the local-only policy above
+and exposes only validated navigation intents and source-bound asset lookup;
+see [[file:android-content.org][android-content.org]]. Reader wiring and repository asset storage remain unbuilt.
 
 * Reading Design
 

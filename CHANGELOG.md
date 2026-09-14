@@ -7,6 +7,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Embed the bundled Org renderer in an isolated Android content view, with
+  explicit presentation, validated navigation intents and source-bound local
+  assets. Package verified renderer bytes and fonts in both APK variants;
+  reader-screen wiring remains separate. See `doc/android-content.org`.
 - Add source-aware Android routes with restorable search and reading positions,
   explicit source-transition policies and shared system/predictive Back handling.
   Navigation exposes only implemented destinations; reader wiring remains separate.
@@ -31,7 +35,7 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Add a reusable Org document bundle with explicit content, theme, navigation
   intents and asset resolution. It shares the web renderer and ships local
   KaTeX fonts, a hashed asset inventory and third-party notices independently
-  of the reading application. Android integration remains unbuilt.
+  of the reading application; the Android content host reuses the same artifact.
 - Persist explicit repository sources and an active selection in a versioned
   catalog. Validate credential-free remotes, branches and notes folders; scope
   note, file, asset and reading references by device-local source identity.
