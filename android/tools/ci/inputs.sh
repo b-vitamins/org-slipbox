@@ -51,8 +51,20 @@ platform_api() {
     echo "android-$(pin compile-sdk).0"
 }
 
+# Hardware acceleration requires a guest ABI matching its host architecture.
+host_abi() {
+    case $(uname -m) in
+    arm64 | aarch64) echo arm64-v8a ;;
+    x86_64 | amd64) echo x86_64 ;;
+    *) abort "$(uname -m) hosts no accelerated Android emulator" ;;
+    esac
+}
+
 system_image() {
-    echo "system-images;$(platform_api);google_apis;$(declared_abi_targets | head -n 1 | cut -d: -f1)"
+    host=$(host_abi)
+    declared_abi_targets | grep -q "^$host:" ||
+        abort "$BUILD_SCRIPT does not qualify $host, the accelerated ABI of this host"
+    echo "system-images;$(platform_api);google_apis;$host"
 }
 
 declared_abi_targets() {
@@ -78,6 +90,8 @@ words_of() {
 pins() {
     abi_targets=$(declared_abi_targets)
     [ -n "$abi_targets" ] || abort "$BUILD_SCRIPT declares no qualified ABI"
+    # Read before any output: a step output must not carry an empty image.
+    image=$(system_image)
     echo "jdk=$(pin jdk)"
     echo "gradle=$(gradle_version)"
     echo "gradle_sha256=$(wrapper_property distributionSha256Sum)"
@@ -92,7 +106,7 @@ pins() {
     echo "target_sdk=$(pin target-sdk)"
     echo "abis=$(words_of "$(echo "$abi_targets" | cut -d: -f1)")"
     echo "rust_targets=$(words_of "$(echo "$abi_targets" | cut -d: -f2)")"
-    echo "system_image=$(system_image)"
+    echo "system_image=$image"
 }
 
 packages() {
@@ -190,7 +204,8 @@ main() {
     case $action in
     pins)
         if [ -n "$output" ]; then
-            pins | tee -a "$output"
+            values=$(pins)
+            printf '%s\n' "$values" | tee -a "$output"
         else
             pins
         fi

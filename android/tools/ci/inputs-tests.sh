@@ -44,6 +44,12 @@ catalog_version() {
         head -n 1 | tr -d '" ' | cut -d= -f2
 }
 
+# Restates the ABI declaration without the reader's own parser.
+declared_entries() {
+    sed -n '/^val qualifiedAbis = mapOf($/,/^)$/ s/^ *"\([^"]*\)" to "\([^"]*\)",$/\1:\2/p' \
+        "$MODULE/app/build.gradle.kts"
+}
+
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT INT TERM
 
@@ -72,16 +78,21 @@ check "gradle_sha256 is a sha256 digest" 1 \
 check "the platform is minor 0 of the compiled API" "android-$(emitted compile_sdk).0" \
     "$(emitted platform)"
 check "abis are the qualified ABIs of the build script" \
-    "$(sed -n 's/^val qualifiedAbis = mapOf(\(.*\))$/\1/p' "$MODULE/app/build.gradle.kts" |
-        sed 's/" to "[^"]*"/"/g' | tr -d '"' | sed 's/, */ /g')" \
+    "$(declared_entries | cut -d: -f1 | tr '\n' ' ' | sed 's/ $//')" \
     "$(emitted abis)"
 check "rust_targets are the targets those ABIs map to" \
-    "$(sed -n 's/^val qualifiedAbis = mapOf(\(.*\))$/\1/p' "$MODULE/app/build.gradle.kts" |
-        sed 's/"[^"]*" to //g' | tr -d '"' | sed 's/, */ /g')" \
+    "$(declared_entries | cut -d: -f2 | tr '\n' ' ' | sed 's/ $//')" \
     "$(emitted rust_targets)"
-check "the system image is the compiled platform for a qualified ABI" \
-    "system-images;$(emitted platform);google_apis;$(emitted abis | cut -d' ' -f1)" \
+case $(uname -m) in
+arm64 | aarch64) accelerated=arm64-v8a ;;
+x86_64 | amd64) accelerated=x86_64 ;;
+*) accelerated="" ;;
+esac
+check "the system image is the compiled platform for this host's accelerated ABI" \
+    "system-images;$(emitted platform);google_apis;$accelerated" \
     "$(emitted system_image)"
+check "the image ABI is one the build script qualifies" 1 \
+    "$(emitted abis | tr ' ' '\n' | grep -cx "$accelerated" || true)"
 check "one Rust target is declared per qualified ABI" \
     "$(emitted abis | wc -w | tr -d ' ')" "$(emitted rust_targets | wc -w | tr -d ' ')"
 
@@ -90,14 +101,28 @@ status=0
 check "an undeclared input fails the read" 1 "$status"
 check "the undeclared input is named" 1 "$(grep -c 'declares no no-such-input' "$work/pin.err" || true)"
 
+mkdir "$work/unhosted"
+printf '#!/bin/sh\necho riscv64\n' >"$work/unhosted/uname"
+chmod +x "$work/unhosted/uname"
+status=0
+env PATH="$work/unhosted:$PATH" sh "$INPUTS" >"$work/run.log" 2>&1 || status=$?
+check "a host with no accelerated emulator fails the read" 1 "$status"
+check "the unhosted architecture is named" 1 \
+    "$(grep -c 'riscv64 hosts no accelerated Android emulator' "$work/run.log" || true)"
+
 echo 'kept' >"$work/github-output"
+status=0
+env PATH="$work/unhosted:$PATH" sh "$INPUTS" --github-output "$work/github-output" \
+    >"$work/run.log" 2>&1 || status=$?
+check "a failed input read fails the step-output command" 1 "$status"
+check "a failed input read leaves step outputs unchanged" kept "$(cat "$work/github-output")"
 run "the pinned inputs append to a step output file" 0 --github-output "$work/github-output"
 check "the step output file keeps what it already held" kept "$(head -n 1 "$work/github-output")"
 check "the appended lines are the emitted lines" "$(cat "$work/pins")" \
     "$(tail -n +2 "$work/github-output")"
 check "the appended lines are also reported" "$(cat "$work/pins")" "$(cat "$work/run.log")"
 
-image="system-images;$(emitted platform);google_apis;$(emitted abis)"
+image=$(emitted system_image)
 sh "$INPUTS" --packages emulator "$image" >"$work/packages"
 check "the packages are the pinned SDK inputs and the extras given" \
     "platforms;$(emitted platform) build-tools;$(emitted build_tools) ndk;$(emitted ndk) platform-tools emulator $image" \
@@ -142,8 +167,11 @@ check "the install plan is reported" 0 "$status"
 check "the plan accepts the licences of the packages it names" \
     "yes | $work/sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=$work/sdk platforms;$(emitted platform) build-tools;$(emitted build_tools) ndk;$(emitted ndk) platform-tools emulator" \
     "$(head -n 1 "$work/plan")"
+# One flag per target: words after a single --target would name toolchains.
+target_flags=$(emitted rust_targets | tr ' ' '\n' | sed 's/^/--target /' |
+    tr '\n' ' ' | sed 's/ $//')
 check "the plan installs the pinned toolchain with every target" \
-    "rustup toolchain install $(emitted rust) --profile minimal --target $(emitted rust_targets)" \
+    "rustup toolchain install $(emitted rust) --profile minimal $target_flags" \
     "$(tail -n 1 "$work/plan")"
 check "the plan runs no installer" "0 0" \
     "$(ls "$SDK_RECORD" 2>/dev/null | wc -l | tr -d ' ') $(ls "$RUSTUP_RECORD" 2>/dev/null | wc -l | tr -d ' ')"
@@ -158,7 +186,7 @@ check "the SDK installs exactly the packages the plan named" \
 check "the SDK is answered rather than left prompting" "y y y" \
     "$(tr '\n' ' ' <"$SDK_RECORD.answers" | sed 's/ $//')"
 check "the toolchain install carries the pin and the targets" \
-    "toolchain install $(emitted rust) --profile minimal --target $(emitted rust_targets)" \
+    "toolchain install $(emitted rust) --profile minimal $target_flags" \
     "$(tr '\n' ' ' <"$RUSTUP_RECORD" | sed 's/ $//')"
 
 status=0

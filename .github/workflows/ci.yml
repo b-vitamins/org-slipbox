@@ -229,8 +229,7 @@ jobs:
   android-device:
     name: android-device
     needs: android
-    # The fallback reports missing configuration; it never runs the emulator.
-    runs-on: ${{ vars.ANDROID_DEVICE_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
 
     env:
@@ -238,15 +237,6 @@ jobs:
       DEVICE_SMOKE_CONSOLE_PORT: "5554"
 
     steps:
-      - name: Require a configured device runner
-        env:
-          ANDROID_DEVICE_RUNNER: ${{ vars.ANDROID_DEVICE_RUNNER }}
-        run: |
-          if [ -z "$ANDROID_DEVICE_RUNNER" ]; then
-            echo "::error::Set ANDROID_DEVICE_RUNNER to a qualified ARM64 runner. See doc/android-ci.org."
-            exit 1
-          fi
-
       - name: Check out source
         uses: actions/checkout@v4
 
@@ -264,6 +254,19 @@ jobs:
         run: >-
           android/tools/ci/inputs.sh --install emulator
           '${{ steps.inputs.outputs.system_image }}'
+
+      - name: Confirm emulator acceleration
+        run: |
+          set -eu
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          [ -w /dev/kvm ] || {
+            echo "::error::/dev/kvm is not writable, so no accelerated emulator can boot"
+            exit 1
+          }
+          "$ANDROID_HOME/emulator/emulator" -accel-check
 
       - name: Assemble the APKs under test
         run: >-

@@ -71,9 +71,10 @@ when present; already-running callbacks are not interrupted.
 
 * Supported ABIs
 
-| ABI       | Rust target           | Packaged | Qualified on              |
-|-----------+-----------------------+----------+---------------------------|
-| arm64-v8a | aarch64-linux-android | yes      | 4 KB and 16 KB page sizes |
+| ABI       | Rust target           | Packaged | Qualified on                  |
+|-----------+-----------------------+----------+-------------------------------|
+| arm64-v8a | aarch64-linux-android | yes      | 4 KB and 16 KB page sizes     |
+| x86_64    | x86_64-linux-android  | yes      | pending: hosted 4 KB emulator |
 
 =android/app/build.gradle.kts= declares that set once. The cross-compilation task
 builds it, =defaultConfig.ndk.abiFilters= packages it, and
@@ -81,10 +82,13 @@ builds it, =defaultConfig.ndk.abiFilters= packages it, and
 ABI is excluded rather than shipped without an engine: an application that
 installs but cannot load its engine is worse than one that does not install.
 
-Qualifying another ABI requires a build, a load and a database result on that ABI.
-An arm64 result implies nothing about armeabi-v7a, x86_64 or riscv64. Lint's
-=ChromeOsAbiSupport= check asks for an x86_64 library and is disabled for that
-reason, alongside the two newer-publication advisories
+Qualifying an ABI requires a build, a load and a database result on that ABI, so
+the x86_64 row stays pending until the hosted emulator gate passes on master
+([[file:android-ci.org][doc/android-ci.org]]). Neither result implies anything
+about armeabi-v7a or riscv64, and the x86_64 emulator's 4 KB kernel implies
+nothing about 16 KB. Lint's =ChromeOsAbiSupport= check reads the =abiFilters=
+expression literally, so it cannot see the x86_64 library this build packages and
+is disabled alongside the two newer-publication advisories
 [[file:android-build.org][doc/android-build.org]] names. Every check that remains
 enabled runs with warnings as errors and aborts the build.
 
@@ -110,7 +114,8 @@ Beyond the SDK and JDK in [[file:android-build.org][doc/android-build.org]]:
 
 #+begin_src bash
 sdkmanager "ndk;28.2.13676358"
-rustup toolchain install 1.98.1 --target aarch64-linux-android
+rustup toolchain install 1.98.1 \
+  --target aarch64-linux-android --target x86_64-linux-android
 #+end_src
 
 The build runs =cargo= from =PATH= under =RUSTUP_TOOLCHAIN=; no toolchain is

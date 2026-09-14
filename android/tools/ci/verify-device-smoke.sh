@@ -437,8 +437,9 @@ abi=$value
 ask getprop ro.build.version.sdk || fail "$SERIAL did not answer its API level"
 api=$value
 echo "### $SERIAL abi $abi page size $page_size api $api"
-echo "$qualified_abis" | grep -qx "$abi" ||
-    fail "$SERIAL runs $abi, which the APK does not qualify"
+# The image ABI was qualified before boot; equality also refuses a reused AVD.
+[ "$abi" = "$image_abi" ] ||
+    fail "$SERIAL runs $abi, not the $image_abi its system image implements"
 [ -z "$expected_page_size" ] || [ "$page_size" = "$expected_page_size" ] ||
     fail "$SERIAL reports page size $page_size, not $expected_page_size"
 [ "$api" -ge "$(pin min-sdk)" ] ||

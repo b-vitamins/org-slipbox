@@ -17,13 +17,13 @@ class NativeLibraryPackagingTest {
 
     @Test
     fun theQualifiedAbisAreTheOnesThisReleasePackages() {
-        assertEquals(listOf("arm64-v8a"), BuildConfig.QUALIFIED_ABIS.split(","))
+        assertEquals(listOf("arm64-v8a", "x86_64"), BuildConfig.QUALIFIED_ABIS.split(","))
     }
 
     @Test
     fun noAbiIsPackagedBeforeItIsQualified() {
         val qualified = BuildConfig.QUALIFIED_ABIS.split(",")
-        for (abi in listOf("armeabi-v7a", "x86", "x86_64", "riscv64")) {
+        for (abi in listOf("armeabi-v7a", "x86", "riscv64")) {
             assertTrue("$abi is packaged without a qualifying run", abi !in qualified)
         }
     }
@@ -34,6 +34,10 @@ class NativeLibraryPackagingTest {
         assertEquals(
             "lib/arm64-v8a/libslipbox_android.so",
             SlipboxNativeEngine.libraryEntry("arm64-v8a"),
+        )
+        assertEquals(
+            "lib/x86_64/libslipbox_android.so",
+            SlipboxNativeEngine.libraryEntry("x86_64"),
         )
     }
 

@@ -17,17 +17,20 @@ It uploads lint and unit-test reports and records APK digests. Gradle uses
 =--no-daemon --max-workers=2 --no-build-cache=. The dependency cache contains
 Gradle modules, wrapper distributions and Cargo inputs, not build outputs.
 
-=android-device= installs and launches the debug APK on one ARM64 emulator.
-It runs =NativeEngineProbeTest= and =EngineAdapterTest=, requires every declared
-case to execute without skips, and checks logcat for crashes and hangs.
+=android-device= installs and launches the debug APK on one accelerated x86_64
+emulator. It runs =NativeEngineProbeTest= and =EngineAdapterTest=, requires every
+declared case to execute without skips, and checks logcat for crashes and hangs.
 Diagnostics include the APK digest, device ABI, page size, API level, launch
 output and instrumentation results. The script bounds waits and cleans up the
-emulator and adb server it started; it refuses occupied ports.
+emulator and adb server it started; it refuses occupied ports and a device whose
+ABI is not the one its system image implements.
 
 * Inputs
 
 =android/tools/ci/inputs.sh= reads the toolchain catalog, Gradle wrapper and
-qualified ABI declaration rather than maintaining separate CI versions.
+qualified ABI declaration rather than maintaining separate CI versions. The
+emulator image it names is the pinned platform for the qualified ABI of the host
+architecture, since an accelerated emulator implements its own host.
 
 #+begin_src bash
 android/tools/ci/inputs.sh
@@ -41,30 +44,29 @@ Installation requires SDK command-line tools under =ANDROID_HOME= (or
 and pinned Rust toolchain/targets, accepting package licence prompts.
 =--print= previews the commands without installing anything.
 
-* Device Runner
+* Device Gate
 
-Set the repository variable =ANDROID_DEVICE_RUNNER= to a qualified runner
-label. Without it, the device job fails with a configuration error rather than
-silently skipping the native gate. This setting is infrastructure for CI, not
-an app-user prerequisite.
+The gate runs on the standard GitHub-hosted =ubuntu-24.04= x64 runner. No
+repository variable or self-hosted runner is required. CI uses no GitHub App
+credentials, private corpus or release signing secrets.
 
-The runner needs:
+The job grants access to =/dev/kvm= and confirms acceleration with
+=emulator -accel-check= before any boot. An
+accelerated emulator implements its host's architecture, which is why the image
+is derived rather than configured: =inputs.sh= reads =uname -m=, refuses a host
+architecture the build does not qualify, and names the pinned platform for that
+ABI. The device gate then refuses a device that is not that image's ABI.
 
-- an ARM64 host with working acceleration for the qualified ARM64 system image;
-- SDK command-line tools, =rustup= and access to the build dependency endpoints;
-- disk space for the SDK, NDK, emulator image and build;
-- an isolated environment without personal notes or signing credentials.
+The job installs the pinned SDK packages, emulator, image, Rust toolchain and
+every declared target rather than relying on preinstalled versions.
 
-Qualify both the build and emulator path on the chosen runner before relying
-on it. The existing local macOS device run does not establish hosted CI support.
-GitHub does not officially support nested virtualization on hosted runners;
-a published software inventory alone does not establish emulator compatibility.
-See [[https://docs.github.com/en/actions/concepts/runners/github-hosted-runners][GitHub-hosted runners]] and [[https://developer.android.com/studio/run/emulator-acceleration][Android emulator acceleration]].
+An x86_64 emulator run qualifies loading and querying the packaged x86_64 engine
+on a 4 KB kernel. It is neither ARM64 device qualification nor 16 KB-kernel
+qualification: those remain the local ARM64 device run's evidence, and a clean
+cross-build alone qualifies no runtime.
+See [[https://docs.github.com/en/actions/reference/runners/github-hosted-runners][GitHub-hosted runners]] and [[https://developer.android.com/studio/run/emulator-acceleration][Android emulator acceleration]].
 
-For a self-hosted runner, do not admit untrusted pull-request code onto a
-personal working machine. No GitHub App registration, PAT, private corpus or
-release signing secret is needed by these jobs. Hosted device qualification
-remains pending until the configured runner completes the workflow.
+The hosted device run remains pending until it passes on reviewed master.
 
 * Local Checks
 

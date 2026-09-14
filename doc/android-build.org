@@ -92,8 +92,8 @@ Run all Gradle commands from =android/=:
 
 Lint treats warnings as errors and checks dependencies and tests. The
 newer-version advisories are disabled; publications do not invalidate the
-qualified pins. [[file:android-native.org][doc/android-native.org]] states the one further check the packaged
-ABIs disable.
+qualified pins. [[file:android-native.org][doc/android-native.org]] states the one further check the ABI
+declaration disables.
 
 With =emulator= and =adb= on =PATH=, instrumented layout and Back tests use a
 managed emulator. Wait for =sys.boot_completed= before running the tests, and
@@ -143,8 +143,8 @@ would lower the upgrade code. Build/runtime derivations are compared by tests.
 Release builds are unsigned; production signing and release automation are not
 configured here. Signing remains an [[file:android.org::*Owner Prerequisites][owner prerequisite]].
 The CI workflow declares build, unit, lint and packaging checks from these pins,
-plus a required device gate. See [[file:android-ci.org][doc/android-ci.org]] for runner provisioning;
-the hosted device run is not yet qualified.
+plus a required device gate on a standard hosted runner. See [[file:android-ci.org][doc/android-ci.org]];
+that hosted run is pending until it passes on master.
 
 * Regenerate Dependencies
 

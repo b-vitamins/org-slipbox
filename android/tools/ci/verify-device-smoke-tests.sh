@@ -349,20 +349,31 @@ check "the page size mismatch is reported" 1 \
 reset
 echo x86_64 >"$fixture/abi"
 smoke
-check "a device on an unqualified ABI fails the gate" 1 "$status"
-check "the unqualified device ABI is reported" 1 \
-    "$(reported '^FAIL .* runs x86_64, which the APK does not qualify$')"
+check "a device that is not its image's ABI fails the gate" 1 "$status"
+check "the mismatched device ABI is reported" 1 \
+    "$(reported '^FAIL .* runs x86_64, not the arm64-v8a its system image implements$')"
 
 reset
 smoke_image=$image
-image="system-images;android-37.0;google_apis;x86_64"
+image="system-images;android-37.0;google_apis;riscv64"
 smoke
 image=$smoke_image
 check "an unqualified system image is refused" 1 "$status"
 check "the unqualified image is refused before any emulator starts" "started none" \
     "$(emulator_stopped)"
 check "the unqualified image is named" 1 \
-    "$(reported '^FAIL .*x86_64, which the APK does not qualify$')"
+    "$(reported '^FAIL .*riscv64, which the APK does not qualify$')"
+
+# The hosted runner selects this pair; the local ARM64 device run selects the other.
+reset
+echo x86_64 >"$fixture/abi"
+smoke_image=$image
+image="system-images;android-37.0;google_apis;x86_64"
+smoke --page-size 4096
+image=$smoke_image
+check "the qualified x86_64 image and device pass the same gate" 0 "$status"
+check "the x86_64 run reports the device it qualified" 1 \
+    "$(reported "^### $serial abi x86_64 page size 4096 api 37\$")"
 
 reset
 printf 'Status: 0\nError: Activity not started, unable to resolve Intent\n' >"$fixture/am-start"

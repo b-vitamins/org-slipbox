@@ -152,7 +152,8 @@ echo "ARTIFACTS the unstripped engine evidence a release needs"
 
 failures=0
 inspect_artifacts "$work/absent-artifacts" >"$work/report" 2>&1
-check "an absent artifact directory fails instead of passing silently" 1 "$failures"
+check "an absent artifact directory fails once per declared ABI" \
+    "$(echo "$declared_abis" | wc -w | tr -d ' ')" "$failures"
 check "the absent artifact is named" 1 \
     "$(grep -c "no unstripped $ENGINE_LIBRARY for $primary_abi" "$work/report" || true)"
 

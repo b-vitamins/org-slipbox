@@ -118,7 +118,10 @@ val githubInstallationUrl =
         }
     }
 
-val qualifiedAbis = mapOf("arm64-v8a" to "aarch64-linux-android")
+val qualifiedAbis = mapOf(
+    "arm64-v8a" to "aarch64-linux-android",
+    "x86_64" to "x86_64-linux-android",
+)
 
 val rustWorkspaceDirectory = rootProject.layout.projectDirectory.dir("..")
 val rustCrateDirectory = rustWorkspaceDirectory.dir("crates/slipbox-android")
@@ -213,8 +216,8 @@ android {
         // A newer publication does not invalidate this qualified, pinned stack.
         disable += setOf("AndroidGradlePluginVersion", "GradleDependency")
 
-        // An unqualified ABI is worse than an absent one: an x86_64 library no
-        // run has loaded would install and fail at the first native call.
+        // ChromeOsAbiSupport reads the abiFilters expression literally, so it
+        // cannot see the x86_64 ABI this build declares once and packages.
         disable += "ChromeOsAbiSupport"
     }
 }
