@@ -1,0 +1,82 @@
+#+title: org-slipbox Android GitHub Discovery
+
+* Contract
+
+Discovery uses an existing [[file:android-auth.org][GitHub authorization]] to return a
+confirmed repository, branch and notes folder. Authorization, renewal, connection
+navigation, Git transport and catalog activation remain separate responsibilities.
+An expired token is returned to the caller for renewal.
+
+* Provider Transport
+
+| Step | Request |
+|------+---------|
+| Installations | =GET /user/installations= |
+| Repositories | =GET /user/installations/{installation}/repositories= |
+| Branches | =GET /repos/{owner}/{repository}/branches= |
+| Branch | =GET /repos/{owner}/{repository}/branches/{branch}= |
+| Folder | =GET /repos/{owner}/{repository}/git/trees/{sha}= |
+
+App user-token access lists the intersection of user and App permissions, rather
+than the account-wide =/user/repos= inventory. Requests use
+=Accept: application/vnd.github+json= and =X-GitHub-Api-Version: 2022-11-28=.
+Bearer credentials go only to parsed =https://api.github.com= on the default
+port. Redirects are refused and response bodies are bounded.
+
+Pages use =per_page=100=. A =Link= header's next destination must retain the
+pinned origin and endpoint. Each listing stops at 4000 entries or 40 pages and
+checks cancellation between requests.
+
+| Completeness | Meaning |
+|--------------+---------|
+| =Complete= | no further provider page |
+| =ProviderTruncated= | GitHub truncated the tree |
+| =LocallyCapped= | a local traversal bound was reached |
+
+An empty complete listing is distinct from refusal or incomplete results.
+Missing installations and selected-only installations showing no repositories
+report access restrictions. Unrestricted installations without repositories,
+repositories without branches and empty folders return empty listings.
+
+* Folders And Selection
+
+Folder browsing reads non-recursive trees at a verified branch commit, one read
+per path segment. Symlinks, submodules and files are listed but cannot be
+traversed as folders. A name missing from a truncated tree is incomplete, not
+absent.
+
+=confirm(GithubSelectionRequest)= revalidates account, installation and repository
+IDs, branch and folder against current access. Identifier matching permits
+repository renames. A foreign-account selection is refused before I/O.
+=ConfirmedGithubSelection= includes those IDs, owner account/name, repository
+name, =https://github.com/{owner}/{repository}.git=, branch and canonical notes
+folder. The caller supplies local source identity; it is not derived from a URL.
+
+Refusals expose a stage and closed reason, not bodies, header text, supplied
+values or exception messages. Recovery may request renewal, installation,
+organization approval, a rate-limit wait or reselection. Browser recovery URLs
+are credential-free =github.com= pages. A =404= reports absent or invisible
+without claiming which.
+
+* Manual Qualification
+
+Real provider discovery is separate, explicitly named instrumentation; ordinary
+connected tests and credential-free CI do not wait for browser consent.
+
+#+begin_src bash
+android/tools/github-smoke/live-github.sh OUTPUT_DIR ACCOUNT OWNER/REPOSITORY BRANCH [FOLDER]
+#+end_src
+
+Assemble debug and androidTest APKs first. The caller owns the attached device;
+=ADB=, =SERIAL=, =APP_ID=, =TEST_ID=, =CONSENT_SECONDS= and =RUN_LIMIT= select the
+tool, installed identities and deadlines. An absent folder selects the root.
+
+The code appears only on the device screen. After approval the journey requires
+the expected account, discovers the scratch repository through its installation,
+lists branches and folder, confirms selection and refuses foreign account and
+unreachable repository selections. It performs no repository writes and disposes
+the in-memory grant.
+
+The collected =live-github.json= contains outcome flags only; its device copy is
+removed. No account, repository, branch, path, code or token is reported. No
+screenshots, UI dumps or logcat are collected.

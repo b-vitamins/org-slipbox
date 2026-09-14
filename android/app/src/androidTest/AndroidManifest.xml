@@ -15,4 +15,9 @@
         android:name="io.github.b_vitamins.slipbox.auth.manual.LiveAuthorizationJourney"
         android:targetPackage="io.github.b_vitamins.slipbox.debug" />
 
+    <!-- Explicit invocation only; not part of the connected test suite. -->
+    <instrumentation
+        android:name="io.github.b_vitamins.slipbox.github.manual.LiveProviderJourney"
+        android:targetPackage="io.github.b_vitamins.slipbox.debug" />
+
 </manifest>

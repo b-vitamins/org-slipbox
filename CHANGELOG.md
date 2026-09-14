@@ -7,6 +7,9 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Discover authorized GitHub repositories, branches and folders through App
+  user-token access, with complete pagination and revalidated source selections.
+  See `doc/android-github.org`.
 - Renew expiring GitHub device-flow credentials through the scoped vault, with
   serialized rotation and offline cache retained on authorization failure.
 - Embed the bundled Org renderer in an isolated Android content view, with
