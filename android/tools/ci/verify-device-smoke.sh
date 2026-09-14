@@ -117,8 +117,9 @@ for tool in "$ADB" "$EMULATOR" "$AVDMANAGER" "$AAPT2" "$GRADLEW"; do
 done
 
 avd_home=${ANDROID_AVD_HOME:-${ANDROID_USER_HOME:-$HOME/.android}/avd}
+export ANDROID_AVD_HOME="$avd_home"
 
-mkdir -p "$out"
+mkdir -p "$out" "$avd_home"
 WORK=$(mktemp -d)
 
 owned_server=0

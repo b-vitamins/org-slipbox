@@ -129,6 +129,7 @@ cat >"$work/bin/emulator" <<'MOCK'
 set -eu
 echo "mock emulator: $*"
 echo $$ >"$FIXTURE/emulator.pid"
+echo "${ANDROID_AVD_HOME:-}" >"$FIXTURE/emulator-avd-home"
 if [ ! -f "$FIXTURE/never-boots" ]; then
     (
         sleep 1
@@ -156,7 +157,9 @@ while [ $# -gt 0 ]; do
     esac
 done
 cat >/dev/null
-[ -z "$name" ] || touch "$ANDROID_AVD_HOME/$name.ini"
+fixture_avd_dir=${ANDROID_AVD_HOME:-$ANDROID_USER_HOME/avd}
+mkdir -p "$fixture_avd_dir"
+[ -z "$name" ] || touch "$fixture_avd_dir/$name.ini"
 MOCK
 
 cat >"$work/bin/aapt2" <<'MOCK'
@@ -247,7 +250,8 @@ reset() {
 
 smoke() {
     status=0
-    env ANDROID_HOME="$work/sdk" ANDROID_AVD_HOME="$avd_home" FIXTURE="$fixture" \
+    env ANDROID_HOME="$work/sdk" ANDROID_USER_HOME="$work/android-user" \
+        ANDROID_AVD_HOME="${fixture_avd_home-$avd_home}" FIXTURE="$fixture" \
         RESULTS_DIR="$results" \
         DEVICE_SMOKE_ADB="$work/bin/adb" DEVICE_SMOKE_EMULATOR="$work/bin/emulator" \
         DEVICE_SMOKE_AVDMANAGER="$work/bin/avdmanager" DEVICE_SMOKE_AAPT2="$work/bin/aapt2" \
@@ -422,6 +426,14 @@ check "a missing AVD is created from the qualified image" 0 "$status"
 check "the AVD is created with the name and image the gate was given" "$avd $image" \
     "$(awk '$0 == "-n" { getline name } $0 == "-k" { getline package } END { print name, package }' \
         "$fixture/avdmanager-record")"
+
+reset
+fixture_avd_home=""
+smoke
+unset fixture_avd_home
+check "SDK preferences can supply the AVD directory" 0 "$status"
+check "the emulator receives the directory used for AVD creation" "$work/android-user/avd" \
+    "$(cat "$fixture/emulator-avd-home")"
 
 reset
 smoke --apk "$work/apk/absent.apk"
