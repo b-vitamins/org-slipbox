@@ -144,7 +144,7 @@ set -eu
 : >"$FIXTURE/avdmanager-record"
 name=""
 for argument in "$@"; do
-    echo "$argument" >>"$FIXTURE/avdmanager-record"
+    printf '%s\n' "$argument" >>"$FIXTURE/avdmanager-record"
 done
 while [ $# -gt 0 ]; do
     case $1 in
