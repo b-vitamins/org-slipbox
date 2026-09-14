@@ -14,15 +14,24 @@ import io.github.b_vitamins.slipbox.navigation.pushDestination
 import io.github.b_vitamins.slipbox.navigation.rememberSlipboxBackStack
 import io.github.b_vitamins.slipbox.ui.AboutScreen
 import io.github.b_vitamins.slipbox.ui.LibraryScreen
+import io.github.b_vitamins.slipbox.ui.settings.rememberReadingSettings
+import io.github.b_vitamins.slipbox.ui.theme.SlipboxMotion
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxTheme
+import io.github.b_vitamins.slipbox.ui.theme.SlipboxTransitions
+import io.github.b_vitamins.slipbox.ui.theme.rememberPlatformMotionScale
 
 @Composable
 fun SlipboxApp() {
     val backStack = rememberSlipboxBackStack()
-    SlipboxTheme {
+    val settings = rememberReadingSettings()
+    val motion = SlipboxMotion(rememberPlatformMotionScale(), settings.preferences.reduceMotion)
+    SlipboxTheme(appearance = settings.preferences.appearance) {
         NavDisplay(
             backStack = backStack,
             onBack = { backStack.popDestination() },
+            transitionSpec = SlipboxTransitions.exchange(motion),
+            popTransitionSpec = SlipboxTransitions.exchange(motion),
+            predictivePopTransitionSpec = SlipboxTransitions.draggedExchange(motion),
             entryProvider = { destination ->
                 NavEntry(destination) { key ->
                     when (key) {
@@ -32,7 +41,10 @@ fun SlipboxApp() {
                             )
 
                         is SlipboxDestination.About ->
-                            AboutScreen(onBack = { backStack.popDestination() })
+                            AboutScreen(
+                                onBack = { backStack.popDestination() },
+                                settings = settings,
+                            )
                     }
                 }
             },

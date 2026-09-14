@@ -7,6 +7,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Carry the web reading palette, typography and restrained controls into Compose,
+  with contextual appearance preferences and platform-aware font scaling and
+  reduced motion. Export per-mount document presentation inputs; the production
+  Android document host remains separate.
 - Add a versioned Android JNI adapter with typed read and internal maintenance
   operations bound to explicit source generations. Serialize session work on
   background lanes and retain lifecycle/disposal outcomes; Kotlin/Rust contract
