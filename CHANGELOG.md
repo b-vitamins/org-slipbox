@@ -7,6 +7,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Add a versioned Android JNI adapter with typed read and internal maintenance
+  operations bound to explicit source generations. Serialize session work on
+  background lanes and retain lifecycle/disposal outcomes; Kotlin/Rust contract
+  tests and packaged-device journeys cover the boundary.
 - Add a source/account-scoped Android credential vault using platform Keystore
   keys and AES-GCM, with fallible replacement, local reauthorization and private
   no-backup paths. Verify packaged backup/transfer exclusions with synthetic

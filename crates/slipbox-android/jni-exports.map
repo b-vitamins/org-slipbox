@@ -1,8 +1,14 @@
 /* Linker version script for the Android shared library.
-   Only the JNI entry point is dynamically visible; bundled SQLite and engine
+   Only the JNI entry points are dynamically visible; bundled SQLite and engine
    symbols stay local so no other library can bind to them. */
 {
   global:
+    Java_io_github_b_1vitamins_slipbox_engine_SlipboxNativeEngine_nativeAdapterContract;
+    Java_io_github_b_1vitamins_slipbox_engine_SlipboxNativeEngine_nativeOpenReadSession;
+    Java_io_github_b_1vitamins_slipbox_engine_SlipboxNativeEngine_nativeOpenMaintenanceSession;
+    Java_io_github_b_1vitamins_slipbox_engine_SlipboxNativeEngine_nativeReadSession;
+    Java_io_github_b_1vitamins_slipbox_engine_SlipboxNativeEngine_nativeMaintainSession;
+    Java_io_github_b_1vitamins_slipbox_engine_SlipboxNativeEngine_nativeCloseSession;
     Java_io_github_b_1vitamins_slipbox_engine_SlipboxNativeEngine_nativeRunFixtureProbe;
   local:
     *;

@@ -3,15 +3,71 @@
 * Scope
 
 =crates/slipbox-android= links the headless engine and its bundled SQLite into one
-shared library and exports a single JNI entry point. That entry point runs a
-private fixture probe: it indexes a synthetic Org root in application-private
-storage, queries notes, sources and glossary terms, drops the service, reopens the
-same durable database and reports every result as JSON.
+shared library and exports a versioned JNI adapter: a declared contract, a reading
+capability, an internal maintenance capability, and the fixture probe that
+qualifies the packaged engine on a device. The probe indexes a synthetic Org root
+in application-private storage, queries notes, sources and glossary terms, drops
+the service, reopens the same durable database and reports every result as JSON.
 
-The probe qualifies the packaged engine on a device. It is not the reader adapter.
-No engine handle, read-versus-maintenance API, credential path, Git source or note
-rendering exists in this library; [[file:android.org][doc/android.org]] states the reader contract those
-must satisfy. [[file:android-build.org][doc/android-build.org]] covers the Compose shell, pins and locks.
+No credential path, Git source or note rendering exists in this library;
+[[file:android.org][doc/android.org]] states the reader contract those must satisfy.
+[[file:android-build.org][doc/android-build.org]] covers the Compose shell, pins and locks.
+
+* Adapter contract
+
+=nativeAdapterContract= takes no argument and answers with the declared protocol
+version, the operation vocabulary and every limit. The five session entry points
+each take one JSON request document in a UTF-8 =byte[]= and answer with one JSON
+document; =nativeRunFixtureProbe= takes the bytes of an application-private parent
+directory instead. =SlipboxEngineHost= refuses a library whose declaration differs
+from the Kotlin mirror under
+=android/app/src/main/kotlin/io/github/b_vitamins/slipbox/engine/=. Shared JSON
+fixtures under =android/app/src/{test,androidTest}/resources/engine/= hold both
+sides to the same documents. A document that is malformed, oversized, of another
+protocol version or outside the vocabulary is refused with a closed token, never
+answered in part. Both sides reject duplicate decoded object keys before typed
+parsing, including escaped-equivalent names.
+
+| Capability  | Opened by                      | Admits                        |
+|-------------+--------------------------------+-------------------------------|
+| read        | =nativeOpenReadSession=        | thirteen read-only operations |
+| maintenance | =nativeOpenMaintenanceSession= | =index= and =indexFile=       |
+
+Reading covers status, bounded node and content search, node lookup by identifier
+and by key, complete node source, glossary listing, search and lookup, backward
+and forward links, and one live exploration; a test holds that inventory to the
+engine's own =OperationMutation::ReadOnly= judgement. Maintenance admits initial
+fixture indexing and one file's update or removal. Capture, grading, Org and
+durable writes, external programs and every unknown operation are refused through
+both capabilities, and no reading session reaches maintenance.
+
+A session is opened for one source identity, one generation binding and one
+explicit root and database, retains them until it is retired, and refuses a
+request whose binding names anything else. A handle is an index into an owned
+table with checked identity, never a pointer: it is allocated in ascending order,
+is never reused, and a retired handle is distinguished from one never allocated.
+
+| Limit                   | Value   | Governs                                     |
+|-------------------------+---------+---------------------------------------------|
+| =max_request_bytes=     |   65536 | the request array, bounded before reading   |
+| =max_response_bytes=    | 4194304 | the answer, bounded as written and as read  |
+| =max_page_entries=      |     200 | one search or listing page                  |
+| =max_relation_entries=  |    1000 | one direction of links                      |
+| =max_note_source_lines= |    1000 | one note's source, which stays complete     |
+| =max_context_lines=     |     200 | context around a node's source              |
+| =max_path_bytes=        |    4096 | each path a session is opened for           |
+| =max_open_sessions=     |       8 | sessions one process holds at once          |
+| =max_queued_requests=   |      32 | calls admitted to one owner's lane          |
+
+A host reads the contract once on the thread that constructs it; every request
+after that crosses one background lane per owner, so the library is called one call
+at a time and no request is made on the main thread. Disposal refuses further work
+at once, retires each session behind the work already admitted, reports the outcome
+of every retirement it attempted and delivers no further callback, without blocking
+the caller. Repeated session retirements share one task; failed or unknown outcomes
+remain held for disposal to report. Cancellation does not interrupt a started
+native call. Callback failures use safe categories, preserving a primary failure
+when present; already-running callbacks are not interrupted.
 
 * Supported ABIs
 
@@ -92,9 +148,9 @@ The build cache is disabled throughout: a qualification must produce the bytes i
 inspects rather than replay a recorded outcome.
 
 Both variants package the library the Cargo =release= profile builds, so the bytes
-a device exercises are the bytes a release carries. Only the JNI entry point is
-dynamically visible: =crates/slipbox-android/jni-exports.map= keeps the engine and
-SQLite symbols local. Libraries link with =-Wl,-z,max-page-size=16384=.
+a device exercises are the bytes a release carries. Only the seven JNI entry points
+are dynamically visible: =crates/slipbox-android/jni-exports.map= keeps the engine
+and SQLite symbols local. Libraries link with =-Wl,-z,max-page-size=16384=.
 
 * Verify the packaged libraries
 
@@ -124,21 +180,38 @@ carries, including transitive ones such as =libandroidx.graphics.path.so=:
 - =NEEDED= entries limited to libraries the same ABI directory packages and to
   platform libraries the declared =minSdk= already shipped, refusing the
   platform's own =libsqlite3.so=;
-- the exported dynamic symbols, which are exactly the one JNI entry point;
+- the exported dynamic symbols, which are exactly the JNI inventory the script
+  declares: a missing one and an extra one are both named, so they cannot cancel
+  out;
 - debug sections, symbol tables and SHA-256 of every library;
 - the same SHA-256 for the engine library in every APK inspected;
 - the unstripped artifact of every declared ABI, which must define
-  =sqlite3_open_v2=, =sqlite3_libversion= and that same JNI entry point.
+  =sqlite3_open_v2=, =sqlite3_libversion= and every symbol of that inventory.
 
 Packaging keeps the NDK and release defaults: libraries are stored uncompressed
 and unextracted, AGP strips its packaged copy, and the unstripped artifact under
 =app/build/rust-target/= remains as symbol evidence for release tooling.
 
 =tools/verify-native-packaging-tests.sh= exercises those checks: synthetic segment
-and dependency cases through the same functions, and the script itself against
-copies of the built APKs with one engine entry removed. A verification that cannot
-fail is a failure here. It copies every APK it mutates and leaves each input
-byte-identical.
+and dependency cases through the same functions, libraries linked for the primary
+ABI that export the inventory, one symbol too few and one too many, and the script
+itself against copies of the built APKs with one engine entry removed. A
+verification that cannot fail is a failure here. It copies every APK it mutates and
+leaves each input byte-identical.
+
+* Adapter qualification
+
+The Rust half is covered by =crates/slipbox-android/tests= and
+=crates/slipbox-rpc/tests=, the Kotlin mirror by =:app:testDebugUnitTest= against a
+fake library. Neither proves JNI, threading or device loading, so
+=EngineAdapterTest= runs the same contract through the packaged library on a
+device: the canonical typed answer of every read operation, one file refreshed and
+one removed on demand, binding and handle isolation, every session slot and the one
+beyond them, retirement and repeated closure, malformed, oversized and null
+documents at every exported entry, a refusal that repeats nothing of the request,
+denial through both capabilities, a call submitted from the main thread, saturation
+and cancellation churn on the lane, and disposal through a real =LifecycleRegistry=
+that retires every session without blocking the main thread.
 
 * Fixture qualification
 

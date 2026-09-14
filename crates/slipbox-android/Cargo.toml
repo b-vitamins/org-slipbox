@@ -12,8 +12,8 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 anyhow.workspace = true
-# The only JNI surface is one entry point, so the raw upstream bindings are
-# enough; nothing here creates or attaches a JVM.
+# The JNI surface is a fixed set of exported functions, so the raw upstream
+# bindings are enough; nothing here creates or attaches a JVM.
 jni-sys = "0.4.1"
 serde.workspace = true
 serde_json.workspace = true

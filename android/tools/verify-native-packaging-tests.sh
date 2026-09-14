@@ -171,6 +171,70 @@ check "a stripped engine is not accepted as unstripped symbol evidence" yes \
 check "the missing SQLite symbol is named" 1 \
     "$(grep -c 'defines no sqlite3_open_v2' "$work/report" || true)"
 
+echo "EXPORTS the closed JNI inventory the engine must carry"
+
+dropped=$(echo "$JNI_SYMBOLS" | grep . | tail -1)
+short=$(echo "$JNI_SYMBOLS" | grep . | grep -v "^$dropped\$")
+invented="Java_io_github_b_1vitamins_slipbox_engine_SlipboxNativeEngine_nativeInvented"
+
+check "the declared inventory raises no objection against itself" "" \
+    "$(export_objection "$JNI_SYMBOLS" "$JNI_SYMBOLS")"
+check "a list short of one symbol names the one it lacks" 1 \
+    "$(export_objection "$short" "$JNI_SYMBOLS" | grep -c "missing $dropped" || true)"
+check "a list carrying one symbol too many names it" 1 \
+    "$(export_objection "$JNI_SYMBOLS$invented" "$JNI_SYMBOLS" | grep -c "extra $invented" || true)"
+check "the single-symbol assumption no longer passes" 1 \
+    "$(export_objection "$(echo "$JNI_SYMBOLS" | grep nativeRunFixtureProbe)" "$JNI_SYMBOLS" |
+        grep -c 'missing .*nativeAdapterContract' || true)"
+
+# Real libraries, linked here with the same page size and RELRO the engine uses:
+# the checks above are only worth what they say about an actual ELF.
+[ -x "$prebuilt/bin/clang" ] || abort "$prebuilt/bin/clang is not executable"
+stub() {
+    directory="$work/stub-$1"
+    mkdir -p "$directory"
+    : >"$directory/stub.c"
+    printf '{\n  global:\n' >"$directory/stub.map"
+    for symbol in $2; do
+        echo "void $symbol(void) {}" >>"$directory/stub.c"
+        echo "    $symbol;" >>"$directory/stub.map"
+    done
+    printf '  local:\n    *;\n};\n' >>"$directory/stub.map"
+    "$prebuilt/bin/clang" "--target=$primary_target$min_api" -shared -fPIC \
+        -o "$directory/$ENGINE_LIBRARY" "$directory/stub.c" \
+        -Wl,--version-script="$directory/stub.map" \
+        -Wl,-z,relro,-z,now,-z,max-page-size="$PAGE_ALIGNMENT" \
+        2>"$directory/clang.log" ||
+        abort "the $1 stub did not link: $(tr '\n' ' ' <"$directory/clang.log")"
+    echo "$directory/$ENGINE_LIBRARY"
+}
+
+whole=$(stub inventory "$JNI_SYMBOLS")
+check "a library exporting the inventory raises no objection" "" \
+    "$(export_objection "$(exported_symbols "$whole")" "$JNI_SYMBOLS")"
+failures=0
+inspect_library "$whole" "$primary_abi" " $ENGINE_LIBRARY" >"$work/report" 2>&1
+check "the library check raises no export objection against it" 0 \
+    "$(grep -c 'does not export' "$work/report" || true)"
+
+lacking=$(stub missing "$short")
+failures=0
+inspect_library "$lacking" "$primary_abi" " $ENGINE_LIBRARY" >"$work/report" 2>&1
+check "a library short of one JNI symbol is rejected" 1 \
+    "$(grep -c "missing $dropped" "$work/report" || true)"
+
+surplus=$(stub extra "$JNI_SYMBOLS$invented")
+failures=0
+inspect_library "$surplus" "$primary_abi" " $ENGINE_LIBRARY" >"$work/report" 2>&1
+check "a library exporting one symbol too many is rejected" 1 \
+    "$(grep -c "extra $invented" "$work/report" || true)"
+
+# The engine a release ships, read the same way.
+check "the built engine exports exactly the inventory" "" \
+    "$(export_objection \
+        "$(exported_symbols "$artifact_root/$primary_target/$profile_directory/$ENGINE_LIBRARY")" \
+        "$JNI_SYMBOLS")"
+
 echo "APKS the engine every input must carry, on copies of the built outputs"
 
 intact=""

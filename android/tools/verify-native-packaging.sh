@@ -11,7 +11,9 @@
 # for every ABI app/build.gradle.kts declares and for no other ABI; every
 # packaged library must load on a kernel with 16 KB pages, match the ABI
 # directory holding it, and need only a platform library available at the
-# declared minimum API or a library the same APK packages for the same ABI.
+# declared minimum API or a library the same APK packages for the same ABI. The
+# engine must export exactly the JNI inventory declared below, no more and no
+# fewer.
 #
 # Sourcing this file with VERIFY_NATIVE_PACKAGING_LIB=1 defines the checks
 # without running them; such a caller owns `failures` and must set `work` to a
@@ -38,7 +40,18 @@ libneuralnetworks.so:27 libamidi.so:29 libbinder_ndk.so:29"
 REFUSED_LIBRARIES="libsqlite3.so libsqlite.so"
 
 ENGINE_LIBRARY="libslipbox_android.so"
-JNI_SYMBOL="Java_io_github_b_1vitamins_slipbox_engine_SlipboxNativeEngine_nativeRunFixtureProbe"
+
+# The closed set of symbols the engine may export. crates/slipbox-android holds
+# this list, its linker version script and the Kotlin seam to one inventory.
+JNI_SYMBOLS="
+Java_io_github_b_1vitamins_slipbox_engine_SlipboxNativeEngine_nativeAdapterContract
+Java_io_github_b_1vitamins_slipbox_engine_SlipboxNativeEngine_nativeOpenReadSession
+Java_io_github_b_1vitamins_slipbox_engine_SlipboxNativeEngine_nativeOpenMaintenanceSession
+Java_io_github_b_1vitamins_slipbox_engine_SlipboxNativeEngine_nativeReadSession
+Java_io_github_b_1vitamins_slipbox_engine_SlipboxNativeEngine_nativeMaintainSession
+Java_io_github_b_1vitamins_slipbox_engine_SlipboxNativeEngine_nativeCloseSession
+Java_io_github_b_1vitamins_slipbox_engine_SlipboxNativeEngine_nativeRunFixtureProbe
+"
 
 PAGE_ALIGNMENT=16384
 
@@ -161,6 +174,32 @@ relro_objection() {
     esac
 }
 
+# The dynamic symbols the library $1 defines, one per line and sorted.
+exported_symbols() {
+    "$readelf" --dyn-syms "$1" |
+        awk '($5 == "GLOBAL" || $5 == "WEAK") && $7 != "UND" { print $8 }' | sort
+}
+
+# The words of $1 that $2 does not hold, each prefixed with a space.
+missing_from() {
+    for word in $1; do
+        case " $(echo "$2" | tr '\n' ' ') " in
+        *" $word "*) ;;
+        *) printf ' %s' "$word" ;;
+        esac
+    done
+}
+
+# Why the exported symbols $1 are not exactly the inventory $2, or nothing when
+# they are. Both directions are named, so a missing symbol and an extra one
+# cannot cancel out.
+export_objection() {
+    absent=$(missing_from "$2" "$1")
+    unexpected=$(missing_from "$1" "$2")
+    [ -z "$absent$unexpected" ] ||
+        echo "does not export exactly the JNI inventory:${absent:+ missing$absent}${unexpected:+ extra$unexpected}"
+}
+
 # Whether the NEEDED entry $1 is admissible at minimum API $2 beside the
 # same-ABI libraries $3: 0 admissible, 1 a refused host library, 2 a platform
 # library newer than the declared minimum, 3 neither a platform library nor
@@ -238,8 +277,7 @@ inspect_library() {
     done
     echo "  $label needs $(echo "$needed" | tr '\n' ' ')"
 
-    exports=$("$readelf" --dyn-syms "$library" |
-        awk '($5 == "GLOBAL" || $5 == "WEAK") && $7 != "UND" { print $8 }' | sort)
+    exports=$(exported_symbols "$library")
     sections=$("$readelf" -S "$library")
     echo "  $label exports $(echo "$exports" | tr '\n' ' ')"
     echo "  $label debug sections $(echo "$sections" | grep -c '\.debug_' || true)," \
@@ -248,8 +286,8 @@ inspect_library() {
 
     [ "$(basename "$library")" = "$ENGINE_LIBRARY" ] || return 0
 
-    [ "$exports" = "$JNI_SYMBOL" ] ||
-        fail "$label exports something other than the single JNI entry point"
+    objection=$(export_objection "$exports" "$JNI_SYMBOLS")
+    [ -z "$objection" ] || fail "$label $objection"
     # Relocations the loader can resolve eagerly must be resolved before any of
     # this library runs, which is what the NDK's default link line asks for.
     "$readelf" -dW "$library" | grep -q 'BIND_NOW' ||
@@ -277,7 +315,7 @@ inspect_artifacts() {
         "$nm" --defined-only "$artifact" >"$defined" 2>"$work/symbol-errors" || dump=$?
         [ "$dump" -eq 0 ] ||
             fail "$artifact has no readable symbol table: $(tr '\n' ' ' <"$work/symbol-errors")"
-        for symbol in sqlite3_open_v2 sqlite3_libversion "$JNI_SYMBOL"; do
+        for symbol in sqlite3_open_v2 sqlite3_libversion $JNI_SYMBOLS; do
             grep -q " $symbol\$" "$defined" || fail "$artifact defines no $symbol"
         done
         echo "  defined symbols $(wc -l <"$defined" | tr -d ' '), symbol tables" \

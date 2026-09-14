@@ -14,6 +14,7 @@ buildscript {
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 val applicationIdBase = "io.github.b_vitamins.slipbox"
@@ -178,12 +179,17 @@ dependencies {
     implementation(libs.androidx.navigation3.runtime)
     implementation(libs.androidx.navigation3.ui)
 
+    implementation(libs.androidx.lifecycle.common)
+    implementation(libs.kotlinx.serialization.json)
+
     testImplementation(libs.junit)
 
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
+
+    androidTestImplementation(libs.androidx.lifecycle.runtime)
 
     // Compose's transitive Espresso 3.5.0 is incompatible with API 37 input injection.
     androidTestImplementation(libs.androidx.test.espresso.core)
@@ -192,11 +198,7 @@ dependencies {
 }
 
 /**
- * Cross-compiles the native library for every qualified ABI.
- *
- * The NDK supplies the compiler, archiver and linker of the ABI and minimum API
- * level, so the Rust code and the bundled SQLite amalgamation observe one
- * sysroot. The version script keeps every symbol but the JNI entry point local.
+ * Cross-compile each qualified ABI using the NDK sysroot and a closed JNI export map.
  */
 abstract class CargoAndroidLibrary
     @Inject

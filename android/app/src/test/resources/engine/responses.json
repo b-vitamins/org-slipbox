@@ -1,0 +1,2756 @@
+{
+  "contract": {
+    "version": 1,
+    "outcome": "contract",
+    "limits": {
+      "max_request_bytes": 65536,
+      "max_response_bytes": 4194304,
+      "max_page_entries": 200,
+      "max_relation_entries": 1000,
+      "max_note_source_lines": 1000,
+      "max_context_lines": 200,
+      "max_path_bytes": 4096,
+      "max_open_sessions": 8,
+      "max_queued_requests": 32
+    },
+    "read_operations": [
+      "status",
+      "indexedFiles",
+      "searchNodes",
+      "searchNodeContent",
+      "nodeFromId",
+      "nodeFromKey",
+      "readNodeSource",
+      "listGlossaryTerms",
+      "searchGlossary",
+      "glossaryTerm",
+      "backlinks",
+      "forwardLinks",
+      "explore"
+    ],
+    "maintenance_operations": [
+      "index",
+      "indexFile"
+    ]
+  },
+  "opened": {
+    "version": 1,
+    "outcome": "opened",
+    "handle": 7,
+    "capability": "read",
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    }
+  },
+  "opened_maintenance": {
+    "version": 1,
+    "outcome": "opened",
+    "handle": 8,
+    "capability": "maintenance",
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-02"
+    }
+  },
+  "closed": {
+    "version": 1,
+    "outcome": "closed",
+    "handle": 7,
+    "retired": true,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    }
+  },
+  "closed_repeat": {
+    "version": 1,
+    "outcome": "closed",
+    "handle": 7,
+    "retired": false,
+    "binding": null
+  },
+  "opened_other_binding": {
+    "version": 1,
+    "outcome": "opened",
+    "handle": 7,
+    "capability": "read",
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-02"
+    }
+  },
+  "bad_closed_other_handle": {
+    "version": 1,
+    "outcome": "closed",
+    "handle": 9,
+    "retired": true,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    }
+  },
+  "bad_closed_other_binding": {
+    "version": 1,
+    "outcome": "closed",
+    "handle": 7,
+    "retired": true,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-02"
+    }
+  },
+  "bad_closed_repeat_binding": {
+    "version": 1,
+    "outcome": "closed",
+    "handle": 7,
+    "retired": false,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    }
+  },
+  "refused": {
+    "version": 1,
+    "outcome": "refused",
+    "reason": "engine-refused",
+    "bound": null,
+    "engine": {
+      "code": -32602,
+      "kind": "invalid-params"
+    }
+  },
+  "refused_bound": {
+    "version": 1,
+    "outcome": "refused",
+    "reason": "out-of-bounds",
+    "bound": "page-entries",
+    "engine": null
+  },
+  "refused_uncanonical": {
+    "version": 1,
+    "outcome": "refused",
+    "reason": "uncanonical-result",
+    "bound": null,
+    "engine": null
+  },
+  "refused_binding": {
+    "version": 1,
+    "outcome": "refused",
+    "reason": "binding-mismatch",
+    "bound": null,
+    "engine": null
+  },
+  "answered_status": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "status",
+      "result": {
+        "version": "0.18.0",
+        "root": "/data/fixture/root",
+        "db": "/data/fixture/slipbox.db",
+        "files_indexed": 2,
+        "nodes_indexed": 5,
+        "notes_indexed": 3,
+        "links_indexed": 4
+      }
+    }
+  },
+  "answered_indexed_files": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "indexedFiles",
+      "result": {
+        "files": [
+          "alpha.org",
+          "beta.org"
+        ]
+      }
+    }
+  },
+  "answered_search_nodes": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "searchNodes",
+      "result": {
+        "nodes": [
+          {
+            "node_key": "heading:alpha.org:3",
+            "explicit_id": "11111111-2222-3333-4444-555555555555",
+            "file_path": "alpha.org",
+            "title": "Ωμέγα théorie 漢字",
+            "outline_path": "Alpha/Ωμέγα théorie 漢字",
+            "aliases": [
+              "omega",
+              "Ω"
+            ],
+            "tags": [
+              "fixture",
+              "unicode"
+            ],
+            "refs": [
+              "cite:omega1998"
+            ],
+            "todo_keyword": "TODO",
+            "scheduled_for": "2026-03-01",
+            "deadline_for": "2026-03-08",
+            "closed_at": null,
+            "glossary": true,
+            "glossary_status": "confirmed",
+            "sr_due": "2026-04-01",
+            "sr_ease": "2.50",
+            "sr_interval": "6",
+            "sr_reps": "3",
+            "sr_last": "2026-03-26",
+            "level": 2,
+            "line": 3,
+            "kind": "heading",
+            "file_mtime_ns": 1740000000000000000,
+            "backlink_count": 2,
+            "forward_link_count": 1
+          },
+          {
+            "node_key": "file:beta.org",
+            "explicit_id": null,
+            "file_path": "beta.org",
+            "title": "Beta",
+            "outline_path": "",
+            "aliases": [],
+            "tags": [],
+            "refs": [],
+            "todo_keyword": null,
+            "scheduled_for": null,
+            "deadline_for": null,
+            "closed_at": null,
+            "glossary": false,
+            "glossary_status": null,
+            "sr_due": null,
+            "sr_ease": null,
+            "sr_interval": null,
+            "sr_reps": null,
+            "sr_last": null,
+            "level": 0,
+            "line": 1,
+            "kind": "file",
+            "file_mtime_ns": 0,
+            "backlink_count": 0,
+            "forward_link_count": 0
+          }
+        ]
+      }
+    }
+  },
+  "answered_search_node_content": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "searchNodeContent",
+      "result": {
+        "hits": [
+          {
+            "node": {
+              "node_key": "heading:alpha.org:3",
+              "explicit_id": "11111111-2222-3333-4444-555555555555",
+              "file_path": "alpha.org",
+              "title": "Ωμέγα théorie 漢字",
+              "outline_path": "Alpha/Ωμέγα théorie 漢字",
+              "aliases": [
+                "omega",
+                "Ω"
+              ],
+              "tags": [
+                "fixture",
+                "unicode"
+              ],
+              "refs": [
+                "cite:omega1998"
+              ],
+              "todo_keyword": "TODO",
+              "scheduled_for": "2026-03-01",
+              "deadline_for": "2026-03-08",
+              "closed_at": null,
+              "glossary": true,
+              "glossary_status": "confirmed",
+              "sr_due": "2026-04-01",
+              "sr_ease": "2.50",
+              "sr_interval": "6",
+              "sr_reps": "3",
+              "sr_last": "2026-03-26",
+              "level": 2,
+              "line": 3,
+              "kind": "heading",
+              "file_mtime_ns": 1740000000000000000,
+              "backlink_count": 2,
+              "forward_link_count": 1
+            },
+            "snippet": {
+              "segments": [
+                {
+                  "text": "before ",
+                  "matched": false
+                },
+                {
+                  "text": "Ωμέγα théorie 漢字",
+                  "matched": true
+                },
+                {
+                  "text": " after",
+                  "matched": false
+                }
+              ]
+            }
+          },
+          {
+            "node": {
+              "node_key": "file:beta.org",
+              "explicit_id": null,
+              "file_path": "beta.org",
+              "title": "Beta",
+              "outline_path": "",
+              "aliases": [],
+              "tags": [],
+              "refs": [],
+              "todo_keyword": null,
+              "scheduled_for": null,
+              "deadline_for": null,
+              "closed_at": null,
+              "glossary": false,
+              "glossary_status": null,
+              "sr_due": null,
+              "sr_ease": null,
+              "sr_interval": null,
+              "sr_reps": null,
+              "sr_last": null,
+              "level": 0,
+              "line": 1,
+              "kind": "file",
+              "file_mtime_ns": 0,
+              "backlink_count": 0,
+              "forward_link_count": 0
+            },
+            "snippet": {
+              "segments": []
+            }
+          }
+        ]
+      }
+    }
+  },
+  "answered_node_from_id": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "nodeFromId",
+      "result": {
+        "node_key": "heading:alpha.org:3",
+        "explicit_id": "11111111-2222-3333-4444-555555555555",
+        "file_path": "alpha.org",
+        "title": "Ωμέγα théorie 漢字",
+        "outline_path": "Alpha/Ωμέγα théorie 漢字",
+        "aliases": [
+          "omega",
+          "Ω"
+        ],
+        "tags": [
+          "fixture",
+          "unicode"
+        ],
+        "refs": [
+          "cite:omega1998"
+        ],
+        "todo_keyword": "TODO",
+        "scheduled_for": "2026-03-01",
+        "deadline_for": "2026-03-08",
+        "closed_at": null,
+        "glossary": true,
+        "glossary_status": "confirmed",
+        "sr_due": "2026-04-01",
+        "sr_ease": "2.50",
+        "sr_interval": "6",
+        "sr_reps": "3",
+        "sr_last": "2026-03-26",
+        "level": 2,
+        "line": 3,
+        "kind": "heading",
+        "file_mtime_ns": 1740000000000000000,
+        "backlink_count": 2,
+        "forward_link_count": 1
+      }
+    }
+  },
+  "answered_node_from_key": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "nodeFromKey",
+      "result": {
+        "node_key": "file:beta.org",
+        "explicit_id": null,
+        "file_path": "beta.org",
+        "title": "Beta",
+        "outline_path": "",
+        "aliases": [],
+        "tags": [],
+        "refs": [],
+        "todo_keyword": null,
+        "scheduled_for": null,
+        "deadline_for": null,
+        "closed_at": null,
+        "glossary": false,
+        "glossary_status": null,
+        "sr_due": null,
+        "sr_ease": null,
+        "sr_interval": null,
+        "sr_reps": null,
+        "sr_last": null,
+        "level": 0,
+        "line": 1,
+        "kind": "file",
+        "file_mtime_ns": 0,
+        "backlink_count": 0,
+        "forward_link_count": 0
+      }
+    }
+  },
+  "answered_read_node_source": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "readNodeSource",
+      "result": {
+        "anchor": {
+          "node_key": "heading:alpha.org:3",
+          "explicit_id": "11111111-2222-3333-4444-555555555555",
+          "file_path": "alpha.org",
+          "title": "Ωμέγα théorie 漢字",
+          "outline_path": "Alpha/Ωμέγα théorie 漢字",
+          "aliases": [
+            "omega",
+            "Ω"
+          ],
+          "tags": [
+            "fixture",
+            "unicode"
+          ],
+          "refs": [
+            "cite:omega1998"
+          ],
+          "todo_keyword": "TODO",
+          "scheduled_for": "2026-03-01",
+          "deadline_for": "2026-03-08",
+          "closed_at": null,
+          "glossary": true,
+          "glossary_status": "confirmed",
+          "sr_due": "2026-04-01",
+          "sr_ease": "2.50",
+          "sr_interval": "6",
+          "sr_reps": "3",
+          "sr_last": "2026-03-26",
+          "level": 2,
+          "line": 3,
+          "kind": "heading",
+          "file_mtime_ns": 1740000000000000000,
+          "backlink_count": 2,
+          "forward_link_count": 1
+        },
+        "source": {
+          "file_path": "alpha.org",
+          "start_line": 3,
+          "line_count": 2,
+          "total_lines": 12,
+          "content": "*** Ωμέγα théorie 漢字\nbody\n",
+          "truncated_before": false,
+          "truncated_after": false
+        },
+        "node_start_line": 3,
+        "node_line_count": 2
+      }
+    }
+  },
+  "answered_list_glossary_terms": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "listGlossaryTerms",
+      "result": {
+        "terms": [
+          {
+            "node_key": "heading:alpha.org:3",
+            "explicit_id": "11111111-2222-3333-4444-555555555555",
+            "file_path": "alpha.org",
+            "title": "Ωμέγα théorie 漢字",
+            "outline_path": "Alpha/Ωμέγα théorie 漢字",
+            "aliases": [
+              "omega",
+              "Ω"
+            ],
+            "tags": [
+              "fixture",
+              "unicode"
+            ],
+            "refs": [
+              "cite:omega1998"
+            ],
+            "todo_keyword": "TODO",
+            "scheduled_for": "2026-03-01",
+            "deadline_for": "2026-03-08",
+            "closed_at": null,
+            "glossary": true,
+            "glossary_status": "confirmed",
+            "sr_due": "2026-04-01",
+            "sr_ease": "2.50",
+            "sr_interval": "6",
+            "sr_reps": "3",
+            "sr_last": "2026-03-26",
+            "level": 2,
+            "line": 3,
+            "kind": "heading",
+            "file_mtime_ns": 1740000000000000000,
+            "backlink_count": 2,
+            "forward_link_count": 1
+          }
+        ],
+        "total": 1,
+        "has_more": false,
+        "next_position": null
+      }
+    }
+  },
+  "answered_search_glossary": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "searchGlossary",
+      "result": {
+        "terms": [
+          {
+            "node_key": "heading:alpha.org:3",
+            "explicit_id": "11111111-2222-3333-4444-555555555555",
+            "file_path": "alpha.org",
+            "title": "Ωμέγα théorie 漢字",
+            "outline_path": "Alpha/Ωμέγα théorie 漢字",
+            "aliases": [
+              "omega",
+              "Ω"
+            ],
+            "tags": [
+              "fixture",
+              "unicode"
+            ],
+            "refs": [
+              "cite:omega1998"
+            ],
+            "todo_keyword": "TODO",
+            "scheduled_for": "2026-03-01",
+            "deadline_for": "2026-03-08",
+            "closed_at": null,
+            "glossary": true,
+            "glossary_status": "confirmed",
+            "sr_due": "2026-04-01",
+            "sr_ease": "2.50",
+            "sr_interval": "6",
+            "sr_reps": "3",
+            "sr_last": "2026-03-26",
+            "level": 2,
+            "line": 3,
+            "kind": "heading",
+            "file_mtime_ns": 1740000000000000000,
+            "backlink_count": 2,
+            "forward_link_count": 1
+          }
+        ],
+        "total": 1,
+        "has_more": true
+      }
+    }
+  },
+  "answered_glossary_term": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "glossaryTerm",
+      "result": {
+        "term": {
+          "node_key": "heading:alpha.org:3",
+          "explicit_id": "11111111-2222-3333-4444-555555555555",
+          "file_path": "alpha.org",
+          "title": "Ωμέγα théorie 漢字",
+          "outline_path": "Alpha/Ωμέγα théorie 漢字",
+          "aliases": [
+            "omega",
+            "Ω"
+          ],
+          "tags": [
+            "fixture",
+            "unicode"
+          ],
+          "refs": [
+            "cite:omega1998"
+          ],
+          "todo_keyword": "TODO",
+          "scheduled_for": "2026-03-01",
+          "deadline_for": "2026-03-08",
+          "closed_at": null,
+          "glossary": true,
+          "glossary_status": "confirmed",
+          "sr_due": "2026-04-01",
+          "sr_ease": "2.50",
+          "sr_interval": "6",
+          "sr_reps": "3",
+          "sr_last": "2026-03-26",
+          "level": 2,
+          "line": 3,
+          "kind": "heading",
+          "file_mtime_ns": 1740000000000000000,
+          "backlink_count": 2,
+          "forward_link_count": 1
+        }
+      }
+    }
+  },
+  "answered_backlinks": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "backlinks",
+      "result": {
+        "backlinks": [
+          {
+            "source_note": {
+              "node_key": "heading:alpha.org:3",
+              "explicit_id": "11111111-2222-3333-4444-555555555555",
+              "file_path": "alpha.org",
+              "title": "Ωμέγα théorie 漢字",
+              "outline_path": "Alpha/Ωμέγα théorie 漢字",
+              "aliases": [
+                "omega",
+                "Ω"
+              ],
+              "tags": [
+                "fixture",
+                "unicode"
+              ],
+              "refs": [
+                "cite:omega1998"
+              ],
+              "todo_keyword": "TODO",
+              "scheduled_for": "2026-03-01",
+              "deadline_for": "2026-03-08",
+              "closed_at": null,
+              "glossary": true,
+              "glossary_status": "confirmed",
+              "sr_due": "2026-04-01",
+              "sr_ease": "2.50",
+              "sr_interval": "6",
+              "sr_reps": "3",
+              "sr_last": "2026-03-26",
+              "level": 2,
+              "line": 3,
+              "kind": "heading",
+              "file_mtime_ns": 1740000000000000000,
+              "backlink_count": 2,
+              "forward_link_count": 1
+            },
+            "source_anchor": {
+              "node_key": "heading:alpha.org:3",
+              "explicit_id": "11111111-2222-3333-4444-555555555555",
+              "file_path": "alpha.org",
+              "title": "Ωμέγα théorie 漢字",
+              "outline_path": "Alpha/Ωμέγα théorie 漢字",
+              "aliases": [
+                "omega",
+                "Ω"
+              ],
+              "tags": [
+                "fixture",
+                "unicode"
+              ],
+              "refs": [
+                "cite:omega1998"
+              ],
+              "todo_keyword": "TODO",
+              "scheduled_for": "2026-03-01",
+              "deadline_for": "2026-03-08",
+              "closed_at": null,
+              "glossary": true,
+              "glossary_status": "confirmed",
+              "sr_due": "2026-04-01",
+              "sr_ease": "2.50",
+              "sr_interval": "6",
+              "sr_reps": "3",
+              "sr_last": "2026-03-26",
+              "level": 2,
+              "line": 3,
+              "kind": "heading",
+              "file_mtime_ns": 1740000000000000000,
+              "backlink_count": 2,
+              "forward_link_count": 1
+            },
+            "row": 12,
+            "col": 4,
+            "preview": "* Ωμέγα théorie 漢字",
+            "explanation": {
+              "kind": "backlink"
+            }
+          },
+          {
+            "source_note": {
+              "node_key": "heading:alpha.org:3",
+              "explicit_id": "11111111-2222-3333-4444-555555555555",
+              "file_path": "alpha.org",
+              "title": "Ωμέγα théorie 漢字",
+              "outline_path": "Alpha/Ωμέγα théorie 漢字",
+              "aliases": [
+                "omega",
+                "Ω"
+              ],
+              "tags": [
+                "fixture",
+                "unicode"
+              ],
+              "refs": [
+                "cite:omega1998"
+              ],
+              "todo_keyword": "TODO",
+              "scheduled_for": "2026-03-01",
+              "deadline_for": "2026-03-08",
+              "closed_at": null,
+              "glossary": true,
+              "glossary_status": "confirmed",
+              "sr_due": "2026-04-01",
+              "sr_ease": "2.50",
+              "sr_interval": "6",
+              "sr_reps": "3",
+              "sr_last": "2026-03-26",
+              "level": 2,
+              "line": 3,
+              "kind": "heading",
+              "file_mtime_ns": 1740000000000000000,
+              "backlink_count": 2,
+              "forward_link_count": 1
+            },
+            "source_anchor": null,
+            "row": 12,
+            "col": 4,
+            "preview": "* Ωμέγα théorie 漢字",
+            "explanation": {
+              "kind": "backlink"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "answered_forward_links": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "forwardLinks",
+      "result": {
+        "forward_links": [
+          {
+            "destination_note": {
+              "node_key": "file:beta.org",
+              "explicit_id": null,
+              "file_path": "beta.org",
+              "title": "Beta",
+              "outline_path": "",
+              "aliases": [],
+              "tags": [],
+              "refs": [],
+              "todo_keyword": null,
+              "scheduled_for": null,
+              "deadline_for": null,
+              "closed_at": null,
+              "glossary": false,
+              "glossary_status": null,
+              "sr_due": null,
+              "sr_ease": null,
+              "sr_interval": null,
+              "sr_reps": null,
+              "sr_last": null,
+              "level": 0,
+              "line": 1,
+              "kind": "file",
+              "file_mtime_ns": 0,
+              "backlink_count": 0,
+              "forward_link_count": 0
+            },
+            "row": 5,
+            "col": 0,
+            "preview": "[[id:11111111-2222-3333-4444-555555555555]]",
+            "explanation": {
+              "kind": "forward-link"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "answered_explore": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "explore",
+      "result": {
+        "lens": "structure",
+        "sections": [
+          {
+            "kind": "backlinks",
+            "entries": [
+              {
+                "kind": "backlink",
+                "source_note": {
+                  "node_key": "heading:alpha.org:3",
+                  "explicit_id": "11111111-2222-3333-4444-555555555555",
+                  "file_path": "alpha.org",
+                  "title": "Ωμέγα théorie 漢字",
+                  "outline_path": "Alpha/Ωμέγα théorie 漢字",
+                  "aliases": [
+                    "omega",
+                    "Ω"
+                  ],
+                  "tags": [
+                    "fixture",
+                    "unicode"
+                  ],
+                  "refs": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "TODO",
+                  "scheduled_for": "2026-03-01",
+                  "deadline_for": "2026-03-08",
+                  "closed_at": null,
+                  "glossary": true,
+                  "glossary_status": "confirmed",
+                  "sr_due": "2026-04-01",
+                  "sr_ease": "2.50",
+                  "sr_interval": "6",
+                  "sr_reps": "3",
+                  "sr_last": "2026-03-26",
+                  "level": 2,
+                  "line": 3,
+                  "kind": "heading",
+                  "file_mtime_ns": 1740000000000000000,
+                  "backlink_count": 2,
+                  "forward_link_count": 1
+                },
+                "source_anchor": {
+                  "node_key": "heading:alpha.org:3",
+                  "explicit_id": "11111111-2222-3333-4444-555555555555",
+                  "file_path": "alpha.org",
+                  "title": "Ωμέγα théorie 漢字",
+                  "outline_path": "Alpha/Ωμέγα théorie 漢字",
+                  "aliases": [
+                    "omega",
+                    "Ω"
+                  ],
+                  "tags": [
+                    "fixture",
+                    "unicode"
+                  ],
+                  "refs": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "TODO",
+                  "scheduled_for": "2026-03-01",
+                  "deadline_for": "2026-03-08",
+                  "closed_at": null,
+                  "glossary": true,
+                  "glossary_status": "confirmed",
+                  "sr_due": "2026-04-01",
+                  "sr_ease": "2.50",
+                  "sr_interval": "6",
+                  "sr_reps": "3",
+                  "sr_last": "2026-03-26",
+                  "level": 2,
+                  "line": 3,
+                  "kind": "heading",
+                  "file_mtime_ns": 1740000000000000000,
+                  "backlink_count": 2,
+                  "forward_link_count": 1
+                },
+                "row": 12,
+                "col": 4,
+                "preview": "* Ωμέγα théorie 漢字",
+                "explanation": {
+                  "kind": "backlink"
+                }
+              },
+              {
+                "kind": "backlink",
+                "source_note": {
+                  "node_key": "heading:alpha.org:3",
+                  "explicit_id": "11111111-2222-3333-4444-555555555555",
+                  "file_path": "alpha.org",
+                  "title": "Ωμέγα théorie 漢字",
+                  "outline_path": "Alpha/Ωμέγα théorie 漢字",
+                  "aliases": [
+                    "omega",
+                    "Ω"
+                  ],
+                  "tags": [
+                    "fixture",
+                    "unicode"
+                  ],
+                  "refs": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "TODO",
+                  "scheduled_for": "2026-03-01",
+                  "deadline_for": "2026-03-08",
+                  "closed_at": null,
+                  "glossary": true,
+                  "glossary_status": "confirmed",
+                  "sr_due": "2026-04-01",
+                  "sr_ease": "2.50",
+                  "sr_interval": "6",
+                  "sr_reps": "3",
+                  "sr_last": "2026-03-26",
+                  "level": 2,
+                  "line": 3,
+                  "kind": "heading",
+                  "file_mtime_ns": 1740000000000000000,
+                  "backlink_count": 2,
+                  "forward_link_count": 1
+                },
+                "source_anchor": null,
+                "row": 12,
+                "col": 4,
+                "preview": "* Ωμέγα théorie 漢字",
+                "explanation": {
+                  "kind": "backlink"
+                }
+              }
+            ]
+          },
+          {
+            "kind": "forward-links",
+            "entries": [
+              {
+                "kind": "forward-link",
+                "destination_note": {
+                  "node_key": "file:beta.org",
+                  "explicit_id": null,
+                  "file_path": "beta.org",
+                  "title": "Beta",
+                  "outline_path": "",
+                  "aliases": [],
+                  "tags": [],
+                  "refs": [],
+                  "todo_keyword": null,
+                  "scheduled_for": null,
+                  "deadline_for": null,
+                  "closed_at": null,
+                  "glossary": false,
+                  "glossary_status": null,
+                  "sr_due": null,
+                  "sr_ease": null,
+                  "sr_interval": null,
+                  "sr_reps": null,
+                  "sr_last": null,
+                  "level": 0,
+                  "line": 1,
+                  "kind": "file",
+                  "file_mtime_ns": 0,
+                  "backlink_count": 0,
+                  "forward_link_count": 0
+                },
+                "row": 5,
+                "col": 0,
+                "preview": "[[id:11111111-2222-3333-4444-555555555555]]",
+                "explanation": {
+                  "kind": "forward-link"
+                }
+              }
+            ]
+          },
+          {
+            "kind": "reflinks",
+            "entries": [
+              {
+                "kind": "reflink",
+                "source_anchor": {
+                  "node_key": "heading:alpha.org:3",
+                  "explicit_id": "11111111-2222-3333-4444-555555555555",
+                  "file_path": "alpha.org",
+                  "title": "Ωμέγα théorie 漢字",
+                  "outline_path": "Alpha/Ωμέγα théorie 漢字",
+                  "aliases": [
+                    "omega",
+                    "Ω"
+                  ],
+                  "tags": [
+                    "fixture",
+                    "unicode"
+                  ],
+                  "refs": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "TODO",
+                  "scheduled_for": "2026-03-01",
+                  "deadline_for": "2026-03-08",
+                  "closed_at": null,
+                  "glossary": true,
+                  "glossary_status": "confirmed",
+                  "sr_due": "2026-04-01",
+                  "sr_ease": "2.50",
+                  "sr_interval": "6",
+                  "sr_reps": "3",
+                  "sr_last": "2026-03-26",
+                  "level": 2,
+                  "line": 3,
+                  "kind": "heading",
+                  "file_mtime_ns": 1740000000000000000,
+                  "backlink_count": 2,
+                  "forward_link_count": 1
+                },
+                "row": 7,
+                "col": 2,
+                "preview": "cite:omega1998",
+                "explanation": {
+                  "kind": "shared-reference",
+                  "reference": "cite:omega1998"
+                },
+                "matched_reference": "cite:omega1998"
+              }
+            ]
+          },
+          {
+            "kind": "unlinked-references",
+            "entries": [
+              {
+                "kind": "unlinked-reference",
+                "source_note": {
+                  "node_key": "file:beta.org",
+                  "explicit_id": null,
+                  "file_path": "beta.org",
+                  "title": "Beta",
+                  "outline_path": "",
+                  "aliases": [],
+                  "tags": [],
+                  "refs": [],
+                  "todo_keyword": null,
+                  "scheduled_for": null,
+                  "deadline_for": null,
+                  "closed_at": null,
+                  "glossary": false,
+                  "glossary_status": null,
+                  "sr_due": null,
+                  "sr_ease": null,
+                  "sr_interval": null,
+                  "sr_reps": null,
+                  "sr_last": null,
+                  "level": 0,
+                  "line": 1,
+                  "kind": "file",
+                  "file_mtime_ns": 0,
+                  "backlink_count": 0,
+                  "forward_link_count": 0
+                },
+                "source_anchor": {
+                  "node_key": "heading:alpha.org:3",
+                  "explicit_id": "11111111-2222-3333-4444-555555555555",
+                  "file_path": "alpha.org",
+                  "title": "Ωμέγα théorie 漢字",
+                  "outline_path": "Alpha/Ωμέγα théorie 漢字",
+                  "aliases": [
+                    "omega",
+                    "Ω"
+                  ],
+                  "tags": [
+                    "fixture",
+                    "unicode"
+                  ],
+                  "refs": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "TODO",
+                  "scheduled_for": "2026-03-01",
+                  "deadline_for": "2026-03-08",
+                  "closed_at": null,
+                  "glossary": true,
+                  "glossary_status": "confirmed",
+                  "sr_due": "2026-04-01",
+                  "sr_ease": "2.50",
+                  "sr_interval": "6",
+                  "sr_reps": "3",
+                  "sr_last": "2026-03-26",
+                  "level": 2,
+                  "line": 3,
+                  "kind": "heading",
+                  "file_mtime_ns": 1740000000000000000,
+                  "backlink_count": 2,
+                  "forward_link_count": 1
+                },
+                "row": 9,
+                "col": 1,
+                "preview": "Ωμέγα théorie 漢字 appears here",
+                "explanation": {
+                  "kind": "unlinked-reference",
+                  "matched_text": "Ωμέγα théorie 漢字"
+                },
+                "matched_text": "Ωμέγα théorie 漢字"
+              }
+            ]
+          },
+          {
+            "kind": "time-neighbors",
+            "entries": [
+              {
+                "kind": "anchor",
+                "anchor": {
+                  "node_key": "heading:alpha.org:3",
+                  "explicit_id": "11111111-2222-3333-4444-555555555555",
+                  "file_path": "alpha.org",
+                  "title": "Ωμέγα théorie 漢字",
+                  "outline_path": "Alpha/Ωμέγα théorie 漢字",
+                  "aliases": [
+                    "omega",
+                    "Ω"
+                  ],
+                  "tags": [
+                    "fixture",
+                    "unicode"
+                  ],
+                  "refs": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "TODO",
+                  "scheduled_for": "2026-03-01",
+                  "deadline_for": "2026-03-08",
+                  "closed_at": null,
+                  "glossary": true,
+                  "glossary_status": "confirmed",
+                  "sr_due": "2026-04-01",
+                  "sr_ease": "2.50",
+                  "sr_interval": "6",
+                  "sr_reps": "3",
+                  "sr_last": "2026-03-26",
+                  "level": 2,
+                  "line": 3,
+                  "kind": "heading",
+                  "file_mtime_ns": 1740000000000000000,
+                  "backlink_count": 2,
+                  "forward_link_count": 1
+                },
+                "explanation": {
+                  "kind": "time-neighbor",
+                  "relations": [
+                    {
+                      "source_field": "scheduled",
+                      "candidate_field": "deadline",
+                      "date": "2026-03-08"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "kind": "task-neighbors",
+            "entries": [
+              {
+                "kind": "anchor",
+                "anchor": {
+                  "node_key": "heading:alpha.org:3",
+                  "explicit_id": "11111111-2222-3333-4444-555555555555",
+                  "file_path": "alpha.org",
+                  "title": "Ωμέγα théorie 漢字",
+                  "outline_path": "Alpha/Ωμέγα théorie 漢字",
+                  "aliases": [
+                    "omega",
+                    "Ω"
+                  ],
+                  "tags": [
+                    "fixture",
+                    "unicode"
+                  ],
+                  "refs": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "TODO",
+                  "scheduled_for": "2026-03-01",
+                  "deadline_for": "2026-03-08",
+                  "closed_at": null,
+                  "glossary": true,
+                  "glossary_status": "confirmed",
+                  "sr_due": "2026-04-01",
+                  "sr_ease": "2.50",
+                  "sr_interval": "6",
+                  "sr_reps": "3",
+                  "sr_last": "2026-03-26",
+                  "level": 2,
+                  "line": 3,
+                  "kind": "heading",
+                  "file_mtime_ns": 1740000000000000000,
+                  "backlink_count": 2,
+                  "forward_link_count": 1
+                },
+                "explanation": {
+                  "kind": "task-neighbor",
+                  "shared_todo_keyword": "TODO",
+                  "planning_relations": [
+                    {
+                      "source_field": "scheduled",
+                      "candidate_field": "deadline",
+                      "date": "2026-03-08"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "kind": "bridge-candidates",
+            "entries": [
+              {
+                "kind": "anchor",
+                "anchor": {
+                  "node_key": "heading:alpha.org:3",
+                  "explicit_id": "11111111-2222-3333-4444-555555555555",
+                  "file_path": "alpha.org",
+                  "title": "Ωμέγα théorie 漢字",
+                  "outline_path": "Alpha/Ωμέγα théorie 漢字",
+                  "aliases": [
+                    "omega",
+                    "Ω"
+                  ],
+                  "tags": [
+                    "fixture",
+                    "unicode"
+                  ],
+                  "refs": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "TODO",
+                  "scheduled_for": "2026-03-01",
+                  "deadline_for": "2026-03-08",
+                  "closed_at": null,
+                  "glossary": true,
+                  "glossary_status": "confirmed",
+                  "sr_due": "2026-04-01",
+                  "sr_ease": "2.50",
+                  "sr_interval": "6",
+                  "sr_reps": "3",
+                  "sr_last": "2026-03-26",
+                  "level": 2,
+                  "line": 3,
+                  "kind": "heading",
+                  "file_mtime_ns": 1740000000000000000,
+                  "backlink_count": 2,
+                  "forward_link_count": 1
+                },
+                "explanation": {
+                  "kind": "bridge-candidate",
+                  "references": [
+                    "cite:omega1998"
+                  ],
+                  "via_notes": [
+                    {
+                      "node_key": "file:gamma.org",
+                      "explicit_id": "22222222-3333-4444-5555-666666666666",
+                      "title": "Gamma"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "kind": "dormant-notes",
+            "entries": [
+              {
+                "kind": "anchor",
+                "anchor": {
+                  "node_key": "heading:alpha.org:3",
+                  "explicit_id": "11111111-2222-3333-4444-555555555555",
+                  "file_path": "alpha.org",
+                  "title": "Ωμέγα théorie 漢字",
+                  "outline_path": "Alpha/Ωμέγα théorie 漢字",
+                  "aliases": [
+                    "omega",
+                    "Ω"
+                  ],
+                  "tags": [
+                    "fixture",
+                    "unicode"
+                  ],
+                  "refs": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "TODO",
+                  "scheduled_for": "2026-03-01",
+                  "deadline_for": "2026-03-08",
+                  "closed_at": null,
+                  "glossary": true,
+                  "glossary_status": "confirmed",
+                  "sr_due": "2026-04-01",
+                  "sr_ease": "2.50",
+                  "sr_interval": "6",
+                  "sr_reps": "3",
+                  "sr_last": "2026-03-26",
+                  "level": 2,
+                  "line": 3,
+                  "kind": "heading",
+                  "file_mtime_ns": 1740000000000000000,
+                  "backlink_count": 2,
+                  "forward_link_count": 1
+                },
+                "explanation": {
+                  "kind": "dormant-shared-reference",
+                  "references": [
+                    "cite:omega1998"
+                  ],
+                  "modified_at_ns": 1739000000000000000,
+                  "via_notes": []
+                }
+              }
+            ]
+          },
+          {
+            "kind": "unresolved-tasks",
+            "entries": [
+              {
+                "kind": "anchor",
+                "anchor": {
+                  "node_key": "heading:alpha.org:3",
+                  "explicit_id": "11111111-2222-3333-4444-555555555555",
+                  "file_path": "alpha.org",
+                  "title": "Ωμέγα théorie 漢字",
+                  "outline_path": "Alpha/Ωμέγα théorie 漢字",
+                  "aliases": [
+                    "omega",
+                    "Ω"
+                  ],
+                  "tags": [
+                    "fixture",
+                    "unicode"
+                  ],
+                  "refs": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "TODO",
+                  "scheduled_for": "2026-03-01",
+                  "deadline_for": "2026-03-08",
+                  "closed_at": null,
+                  "glossary": true,
+                  "glossary_status": "confirmed",
+                  "sr_due": "2026-04-01",
+                  "sr_ease": "2.50",
+                  "sr_interval": "6",
+                  "sr_reps": "3",
+                  "sr_last": "2026-03-26",
+                  "level": 2,
+                  "line": 3,
+                  "kind": "heading",
+                  "file_mtime_ns": 1740000000000000000,
+                  "backlink_count": 2,
+                  "forward_link_count": 1
+                },
+                "explanation": {
+                  "kind": "unresolved-shared-reference",
+                  "references": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "NEXT"
+                }
+              }
+            ]
+          },
+          {
+            "kind": "weakly-integrated-notes",
+            "entries": [
+              {
+                "kind": "anchor",
+                "anchor": {
+                  "node_key": "heading:alpha.org:3",
+                  "explicit_id": "11111111-2222-3333-4444-555555555555",
+                  "file_path": "alpha.org",
+                  "title": "Ωμέγα théorie 漢字",
+                  "outline_path": "Alpha/Ωμέγα théorie 漢字",
+                  "aliases": [
+                    "omega",
+                    "Ω"
+                  ],
+                  "tags": [
+                    "fixture",
+                    "unicode"
+                  ],
+                  "refs": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "TODO",
+                  "scheduled_for": "2026-03-01",
+                  "deadline_for": "2026-03-08",
+                  "closed_at": null,
+                  "glossary": true,
+                  "glossary_status": "confirmed",
+                  "sr_due": "2026-04-01",
+                  "sr_ease": "2.50",
+                  "sr_interval": "6",
+                  "sr_reps": "3",
+                  "sr_last": "2026-03-26",
+                  "level": 2,
+                  "line": 3,
+                  "kind": "heading",
+                  "file_mtime_ns": 1740000000000000000,
+                  "backlink_count": 2,
+                  "forward_link_count": 1
+                },
+                "explanation": {
+                  "kind": "weakly-integrated-shared-reference",
+                  "references": [
+                    "cite:omega1998"
+                  ],
+                  "structural_link_count": 1,
+                  "via_notes": [
+                    {
+                      "node_key": "file:gamma.org",
+                      "explicit_id": "22222222-3333-4444-5555-666666666666",
+                      "title": "Gamma"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "kind": "reflinks",
+            "entries": []
+          }
+        ]
+      }
+    }
+  },
+  "answered_index": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 8,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-02"
+    },
+    "answer": {
+      "kind": "index",
+      "result": {
+        "files_indexed": 2,
+        "nodes_indexed": 5,
+        "links_indexed": 4
+      }
+    }
+  },
+  "answered_index_file": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 8,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-02"
+    },
+    "answer": {
+      "kind": "indexFile",
+      "result": {
+        "file_path": "alpha.org"
+      }
+    }
+  },
+  "answered_node_from_id_absent": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "nodeFromId",
+      "result": null
+    }
+  },
+  "answered_node_from_key_absent": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "nodeFromKey",
+      "result": null
+    }
+  },
+  "answered_glossary_term_absent": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "glossaryTerm",
+      "result": {
+        "term": null
+      }
+    }
+  },
+  "bad_answered_without_version": {
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "status",
+      "result": {
+        "version": "0.18.0",
+        "root": "/data/fixture/root",
+        "db": "/data/fixture/slipbox.db",
+        "files_indexed": 2,
+        "nodes_indexed": 5,
+        "notes_indexed": 3,
+        "links_indexed": 4
+      }
+    }
+  },
+  "bad_opened_without_version": {
+    "outcome": "opened",
+    "handle": 7,
+    "capability": "read",
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    }
+  },
+  "bad_answered_unsupported_version": {
+    "version": 2,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "status",
+      "result": {
+        "version": "0.18.0",
+        "root": "/data/fixture/root",
+        "db": "/data/fixture/slipbox.db",
+        "files_indexed": 2,
+        "nodes_indexed": 5,
+        "notes_indexed": 3,
+        "links_indexed": 4
+      }
+    }
+  },
+  "bad_answered_foreign_payload": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "status",
+      "result": {
+        "files": [
+          "alpha.org",
+          "beta.org"
+        ]
+      }
+    }
+  },
+  "bad_answered_unknown_kind": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "captureNode",
+      "result": {
+        "node_key": "x"
+      }
+    }
+  },
+  "crossed_answer_maintenance": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "index",
+      "result": {
+        "files_indexed": 2,
+        "nodes_indexed": 5,
+        "links_indexed": 4
+      }
+    }
+  },
+  "crossed_answer_read": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 8,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-02"
+    },
+    "answer": {
+      "kind": "status",
+      "result": {
+        "version": "0.18.0",
+        "root": "/data/fixture/root",
+        "db": "/data/fixture/slipbox.db",
+        "files_indexed": 2,
+        "nodes_indexed": 5,
+        "notes_indexed": 3,
+        "links_indexed": 4
+      }
+    }
+  },
+  "bad_answered_missing_field": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "readNodeSource",
+      "result": {
+        "anchor": {
+          "node_key": "heading:alpha.org:3",
+          "explicit_id": "11111111-2222-3333-4444-555555555555",
+          "file_path": "alpha.org",
+          "title": "Ωμέγα théorie 漢字",
+          "outline_path": "Alpha/Ωμέγα théorie 漢字",
+          "aliases": [
+            "omega",
+            "Ω"
+          ],
+          "tags": [
+            "fixture",
+            "unicode"
+          ],
+          "refs": [
+            "cite:omega1998"
+          ],
+          "todo_keyword": "TODO",
+          "scheduled_for": "2026-03-01",
+          "deadline_for": "2026-03-08",
+          "closed_at": null,
+          "glossary": true,
+          "glossary_status": "confirmed",
+          "sr_due": "2026-04-01",
+          "sr_ease": "2.50",
+          "sr_interval": "6",
+          "sr_reps": "3",
+          "sr_last": "2026-03-26",
+          "level": 2,
+          "line": 3,
+          "kind": "heading",
+          "file_mtime_ns": 1740000000000000000,
+          "backlink_count": 2,
+          "forward_link_count": 1
+        },
+        "node_start_line": 3,
+        "node_line_count": 2
+      }
+    }
+  },
+  "bad_answered_wrong_type": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "indexedFiles",
+      "result": {
+        "files": "alpha.org"
+      }
+    }
+  },
+  "bad_answered_null_result": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "status",
+      "result": null
+    }
+  },
+  "bad_answered_extra_answer_field": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "status",
+      "result": {
+        "version": "0.18.0",
+        "root": "/data/fixture/root",
+        "db": "/data/fixture/slipbox.db",
+        "files_indexed": 2,
+        "nodes_indexed": 5,
+        "notes_indexed": 3,
+        "links_indexed": 4
+      },
+      "extra": true
+    }
+  },
+  "bad_answered_no_kind": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "result": {
+        "version": "0.18.0",
+        "root": "/data/fixture/root",
+        "db": "/data/fixture/slipbox.db",
+        "files_indexed": 2,
+        "nodes_indexed": 5,
+        "notes_indexed": 3,
+        "links_indexed": 4
+      }
+    }
+  },
+  "bad_answered_unknown_entry": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "explore",
+      "result": {
+        "lens": "structure",
+        "sections": [
+          {
+            "kind": "backlinks",
+            "entries": [
+              {
+                "kind": "captureNode",
+                "source_note": {
+                  "node_key": "heading:alpha.org:3",
+                  "explicit_id": "11111111-2222-3333-4444-555555555555",
+                  "file_path": "alpha.org",
+                  "title": "Ωμέγα théorie 漢字",
+                  "outline_path": "Alpha/Ωμέγα théorie 漢字",
+                  "aliases": [
+                    "omega",
+                    "Ω"
+                  ],
+                  "tags": [
+                    "fixture",
+                    "unicode"
+                  ],
+                  "refs": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "TODO",
+                  "scheduled_for": "2026-03-01",
+                  "deadline_for": "2026-03-08",
+                  "closed_at": null,
+                  "glossary": true,
+                  "glossary_status": "confirmed",
+                  "sr_due": "2026-04-01",
+                  "sr_ease": "2.50",
+                  "sr_interval": "6",
+                  "sr_reps": "3",
+                  "sr_last": "2026-03-26",
+                  "level": 2,
+                  "line": 3,
+                  "kind": "heading",
+                  "file_mtime_ns": 1740000000000000000,
+                  "backlink_count": 2,
+                  "forward_link_count": 1
+                },
+                "source_anchor": {
+                  "node_key": "heading:alpha.org:3",
+                  "explicit_id": "11111111-2222-3333-4444-555555555555",
+                  "file_path": "alpha.org",
+                  "title": "Ωμέγα théorie 漢字",
+                  "outline_path": "Alpha/Ωμέγα théorie 漢字",
+                  "aliases": [
+                    "omega",
+                    "Ω"
+                  ],
+                  "tags": [
+                    "fixture",
+                    "unicode"
+                  ],
+                  "refs": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "TODO",
+                  "scheduled_for": "2026-03-01",
+                  "deadline_for": "2026-03-08",
+                  "closed_at": null,
+                  "glossary": true,
+                  "glossary_status": "confirmed",
+                  "sr_due": "2026-04-01",
+                  "sr_ease": "2.50",
+                  "sr_interval": "6",
+                  "sr_reps": "3",
+                  "sr_last": "2026-03-26",
+                  "level": 2,
+                  "line": 3,
+                  "kind": "heading",
+                  "file_mtime_ns": 1740000000000000000,
+                  "backlink_count": 2,
+                  "forward_link_count": 1
+                },
+                "row": 12,
+                "col": 4,
+                "preview": "* Ωμέγα théorie 漢字",
+                "explanation": {
+                  "kind": "backlink"
+                }
+              },
+              {
+                "kind": "backlink",
+                "source_note": {
+                  "node_key": "heading:alpha.org:3",
+                  "explicit_id": "11111111-2222-3333-4444-555555555555",
+                  "file_path": "alpha.org",
+                  "title": "Ωμέγα théorie 漢字",
+                  "outline_path": "Alpha/Ωμέγα théorie 漢字",
+                  "aliases": [
+                    "omega",
+                    "Ω"
+                  ],
+                  "tags": [
+                    "fixture",
+                    "unicode"
+                  ],
+                  "refs": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "TODO",
+                  "scheduled_for": "2026-03-01",
+                  "deadline_for": "2026-03-08",
+                  "closed_at": null,
+                  "glossary": true,
+                  "glossary_status": "confirmed",
+                  "sr_due": "2026-04-01",
+                  "sr_ease": "2.50",
+                  "sr_interval": "6",
+                  "sr_reps": "3",
+                  "sr_last": "2026-03-26",
+                  "level": 2,
+                  "line": 3,
+                  "kind": "heading",
+                  "file_mtime_ns": 1740000000000000000,
+                  "backlink_count": 2,
+                  "forward_link_count": 1
+                },
+                "source_anchor": null,
+                "row": 12,
+                "col": 4,
+                "preview": "* Ωμέγα théorie 漢字",
+                "explanation": {
+                  "kind": "backlink"
+                }
+              }
+            ]
+          },
+          {
+            "kind": "forward-links",
+            "entries": [
+              {
+                "kind": "forward-link",
+                "destination_note": {
+                  "node_key": "file:beta.org",
+                  "explicit_id": null,
+                  "file_path": "beta.org",
+                  "title": "Beta",
+                  "outline_path": "",
+                  "aliases": [],
+                  "tags": [],
+                  "refs": [],
+                  "todo_keyword": null,
+                  "scheduled_for": null,
+                  "deadline_for": null,
+                  "closed_at": null,
+                  "glossary": false,
+                  "glossary_status": null,
+                  "sr_due": null,
+                  "sr_ease": null,
+                  "sr_interval": null,
+                  "sr_reps": null,
+                  "sr_last": null,
+                  "level": 0,
+                  "line": 1,
+                  "kind": "file",
+                  "file_mtime_ns": 0,
+                  "backlink_count": 0,
+                  "forward_link_count": 0
+                },
+                "row": 5,
+                "col": 0,
+                "preview": "[[id:11111111-2222-3333-4444-555555555555]]",
+                "explanation": {
+                  "kind": "forward-link"
+                }
+              }
+            ]
+          },
+          {
+            "kind": "reflinks",
+            "entries": [
+              {
+                "kind": "reflink",
+                "source_anchor": {
+                  "node_key": "heading:alpha.org:3",
+                  "explicit_id": "11111111-2222-3333-4444-555555555555",
+                  "file_path": "alpha.org",
+                  "title": "Ωμέγα théorie 漢字",
+                  "outline_path": "Alpha/Ωμέγα théorie 漢字",
+                  "aliases": [
+                    "omega",
+                    "Ω"
+                  ],
+                  "tags": [
+                    "fixture",
+                    "unicode"
+                  ],
+                  "refs": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "TODO",
+                  "scheduled_for": "2026-03-01",
+                  "deadline_for": "2026-03-08",
+                  "closed_at": null,
+                  "glossary": true,
+                  "glossary_status": "confirmed",
+                  "sr_due": "2026-04-01",
+                  "sr_ease": "2.50",
+                  "sr_interval": "6",
+                  "sr_reps": "3",
+                  "sr_last": "2026-03-26",
+                  "level": 2,
+                  "line": 3,
+                  "kind": "heading",
+                  "file_mtime_ns": 1740000000000000000,
+                  "backlink_count": 2,
+                  "forward_link_count": 1
+                },
+                "row": 7,
+                "col": 2,
+                "preview": "cite:omega1998",
+                "explanation": {
+                  "kind": "shared-reference",
+                  "reference": "cite:omega1998"
+                },
+                "matched_reference": "cite:omega1998"
+              }
+            ]
+          },
+          {
+            "kind": "unlinked-references",
+            "entries": [
+              {
+                "kind": "unlinked-reference",
+                "source_note": {
+                  "node_key": "file:beta.org",
+                  "explicit_id": null,
+                  "file_path": "beta.org",
+                  "title": "Beta",
+                  "outline_path": "",
+                  "aliases": [],
+                  "tags": [],
+                  "refs": [],
+                  "todo_keyword": null,
+                  "scheduled_for": null,
+                  "deadline_for": null,
+                  "closed_at": null,
+                  "glossary": false,
+                  "glossary_status": null,
+                  "sr_due": null,
+                  "sr_ease": null,
+                  "sr_interval": null,
+                  "sr_reps": null,
+                  "sr_last": null,
+                  "level": 0,
+                  "line": 1,
+                  "kind": "file",
+                  "file_mtime_ns": 0,
+                  "backlink_count": 0,
+                  "forward_link_count": 0
+                },
+                "source_anchor": {
+                  "node_key": "heading:alpha.org:3",
+                  "explicit_id": "11111111-2222-3333-4444-555555555555",
+                  "file_path": "alpha.org",
+                  "title": "Ωμέγα théorie 漢字",
+                  "outline_path": "Alpha/Ωμέγα théorie 漢字",
+                  "aliases": [
+                    "omega",
+                    "Ω"
+                  ],
+                  "tags": [
+                    "fixture",
+                    "unicode"
+                  ],
+                  "refs": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "TODO",
+                  "scheduled_for": "2026-03-01",
+                  "deadline_for": "2026-03-08",
+                  "closed_at": null,
+                  "glossary": true,
+                  "glossary_status": "confirmed",
+                  "sr_due": "2026-04-01",
+                  "sr_ease": "2.50",
+                  "sr_interval": "6",
+                  "sr_reps": "3",
+                  "sr_last": "2026-03-26",
+                  "level": 2,
+                  "line": 3,
+                  "kind": "heading",
+                  "file_mtime_ns": 1740000000000000000,
+                  "backlink_count": 2,
+                  "forward_link_count": 1
+                },
+                "row": 9,
+                "col": 1,
+                "preview": "Ωμέγα théorie 漢字 appears here",
+                "explanation": {
+                  "kind": "unlinked-reference",
+                  "matched_text": "Ωμέγα théorie 漢字"
+                },
+                "matched_text": "Ωμέγα théorie 漢字"
+              }
+            ]
+          },
+          {
+            "kind": "time-neighbors",
+            "entries": [
+              {
+                "kind": "anchor",
+                "anchor": {
+                  "node_key": "heading:alpha.org:3",
+                  "explicit_id": "11111111-2222-3333-4444-555555555555",
+                  "file_path": "alpha.org",
+                  "title": "Ωμέγα théorie 漢字",
+                  "outline_path": "Alpha/Ωμέγα théorie 漢字",
+                  "aliases": [
+                    "omega",
+                    "Ω"
+                  ],
+                  "tags": [
+                    "fixture",
+                    "unicode"
+                  ],
+                  "refs": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "TODO",
+                  "scheduled_for": "2026-03-01",
+                  "deadline_for": "2026-03-08",
+                  "closed_at": null,
+                  "glossary": true,
+                  "glossary_status": "confirmed",
+                  "sr_due": "2026-04-01",
+                  "sr_ease": "2.50",
+                  "sr_interval": "6",
+                  "sr_reps": "3",
+                  "sr_last": "2026-03-26",
+                  "level": 2,
+                  "line": 3,
+                  "kind": "heading",
+                  "file_mtime_ns": 1740000000000000000,
+                  "backlink_count": 2,
+                  "forward_link_count": 1
+                },
+                "explanation": {
+                  "kind": "time-neighbor",
+                  "relations": [
+                    {
+                      "source_field": "scheduled",
+                      "candidate_field": "deadline",
+                      "date": "2026-03-08"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "kind": "task-neighbors",
+            "entries": [
+              {
+                "kind": "anchor",
+                "anchor": {
+                  "node_key": "heading:alpha.org:3",
+                  "explicit_id": "11111111-2222-3333-4444-555555555555",
+                  "file_path": "alpha.org",
+                  "title": "Ωμέγα théorie 漢字",
+                  "outline_path": "Alpha/Ωμέγα théorie 漢字",
+                  "aliases": [
+                    "omega",
+                    "Ω"
+                  ],
+                  "tags": [
+                    "fixture",
+                    "unicode"
+                  ],
+                  "refs": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "TODO",
+                  "scheduled_for": "2026-03-01",
+                  "deadline_for": "2026-03-08",
+                  "closed_at": null,
+                  "glossary": true,
+                  "glossary_status": "confirmed",
+                  "sr_due": "2026-04-01",
+                  "sr_ease": "2.50",
+                  "sr_interval": "6",
+                  "sr_reps": "3",
+                  "sr_last": "2026-03-26",
+                  "level": 2,
+                  "line": 3,
+                  "kind": "heading",
+                  "file_mtime_ns": 1740000000000000000,
+                  "backlink_count": 2,
+                  "forward_link_count": 1
+                },
+                "explanation": {
+                  "kind": "task-neighbor",
+                  "shared_todo_keyword": "TODO",
+                  "planning_relations": [
+                    {
+                      "source_field": "scheduled",
+                      "candidate_field": "deadline",
+                      "date": "2026-03-08"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "kind": "bridge-candidates",
+            "entries": [
+              {
+                "kind": "anchor",
+                "anchor": {
+                  "node_key": "heading:alpha.org:3",
+                  "explicit_id": "11111111-2222-3333-4444-555555555555",
+                  "file_path": "alpha.org",
+                  "title": "Ωμέγα théorie 漢字",
+                  "outline_path": "Alpha/Ωμέγα théorie 漢字",
+                  "aliases": [
+                    "omega",
+                    "Ω"
+                  ],
+                  "tags": [
+                    "fixture",
+                    "unicode"
+                  ],
+                  "refs": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "TODO",
+                  "scheduled_for": "2026-03-01",
+                  "deadline_for": "2026-03-08",
+                  "closed_at": null,
+                  "glossary": true,
+                  "glossary_status": "confirmed",
+                  "sr_due": "2026-04-01",
+                  "sr_ease": "2.50",
+                  "sr_interval": "6",
+                  "sr_reps": "3",
+                  "sr_last": "2026-03-26",
+                  "level": 2,
+                  "line": 3,
+                  "kind": "heading",
+                  "file_mtime_ns": 1740000000000000000,
+                  "backlink_count": 2,
+                  "forward_link_count": 1
+                },
+                "explanation": {
+                  "kind": "bridge-candidate",
+                  "references": [
+                    "cite:omega1998"
+                  ],
+                  "via_notes": [
+                    {
+                      "node_key": "file:gamma.org",
+                      "explicit_id": "22222222-3333-4444-5555-666666666666",
+                      "title": "Gamma"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "kind": "dormant-notes",
+            "entries": [
+              {
+                "kind": "anchor",
+                "anchor": {
+                  "node_key": "heading:alpha.org:3",
+                  "explicit_id": "11111111-2222-3333-4444-555555555555",
+                  "file_path": "alpha.org",
+                  "title": "Ωμέγα théorie 漢字",
+                  "outline_path": "Alpha/Ωμέγα théorie 漢字",
+                  "aliases": [
+                    "omega",
+                    "Ω"
+                  ],
+                  "tags": [
+                    "fixture",
+                    "unicode"
+                  ],
+                  "refs": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "TODO",
+                  "scheduled_for": "2026-03-01",
+                  "deadline_for": "2026-03-08",
+                  "closed_at": null,
+                  "glossary": true,
+                  "glossary_status": "confirmed",
+                  "sr_due": "2026-04-01",
+                  "sr_ease": "2.50",
+                  "sr_interval": "6",
+                  "sr_reps": "3",
+                  "sr_last": "2026-03-26",
+                  "level": 2,
+                  "line": 3,
+                  "kind": "heading",
+                  "file_mtime_ns": 1740000000000000000,
+                  "backlink_count": 2,
+                  "forward_link_count": 1
+                },
+                "explanation": {
+                  "kind": "dormant-shared-reference",
+                  "references": [
+                    "cite:omega1998"
+                  ],
+                  "modified_at_ns": 1739000000000000000,
+                  "via_notes": []
+                }
+              }
+            ]
+          },
+          {
+            "kind": "unresolved-tasks",
+            "entries": [
+              {
+                "kind": "anchor",
+                "anchor": {
+                  "node_key": "heading:alpha.org:3",
+                  "explicit_id": "11111111-2222-3333-4444-555555555555",
+                  "file_path": "alpha.org",
+                  "title": "Ωμέγα théorie 漢字",
+                  "outline_path": "Alpha/Ωμέγα théorie 漢字",
+                  "aliases": [
+                    "omega",
+                    "Ω"
+                  ],
+                  "tags": [
+                    "fixture",
+                    "unicode"
+                  ],
+                  "refs": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "TODO",
+                  "scheduled_for": "2026-03-01",
+                  "deadline_for": "2026-03-08",
+                  "closed_at": null,
+                  "glossary": true,
+                  "glossary_status": "confirmed",
+                  "sr_due": "2026-04-01",
+                  "sr_ease": "2.50",
+                  "sr_interval": "6",
+                  "sr_reps": "3",
+                  "sr_last": "2026-03-26",
+                  "level": 2,
+                  "line": 3,
+                  "kind": "heading",
+                  "file_mtime_ns": 1740000000000000000,
+                  "backlink_count": 2,
+                  "forward_link_count": 1
+                },
+                "explanation": {
+                  "kind": "unresolved-shared-reference",
+                  "references": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "NEXT"
+                }
+              }
+            ]
+          },
+          {
+            "kind": "weakly-integrated-notes",
+            "entries": [
+              {
+                "kind": "anchor",
+                "anchor": {
+                  "node_key": "heading:alpha.org:3",
+                  "explicit_id": "11111111-2222-3333-4444-555555555555",
+                  "file_path": "alpha.org",
+                  "title": "Ωμέγα théorie 漢字",
+                  "outline_path": "Alpha/Ωμέγα théorie 漢字",
+                  "aliases": [
+                    "omega",
+                    "Ω"
+                  ],
+                  "tags": [
+                    "fixture",
+                    "unicode"
+                  ],
+                  "refs": [
+                    "cite:omega1998"
+                  ],
+                  "todo_keyword": "TODO",
+                  "scheduled_for": "2026-03-01",
+                  "deadline_for": "2026-03-08",
+                  "closed_at": null,
+                  "glossary": true,
+                  "glossary_status": "confirmed",
+                  "sr_due": "2026-04-01",
+                  "sr_ease": "2.50",
+                  "sr_interval": "6",
+                  "sr_reps": "3",
+                  "sr_last": "2026-03-26",
+                  "level": 2,
+                  "line": 3,
+                  "kind": "heading",
+                  "file_mtime_ns": 1740000000000000000,
+                  "backlink_count": 2,
+                  "forward_link_count": 1
+                },
+                "explanation": {
+                  "kind": "weakly-integrated-shared-reference",
+                  "references": [
+                    "cite:omega1998"
+                  ],
+                  "structural_link_count": 1,
+                  "via_notes": [
+                    {
+                      "node_key": "file:gamma.org",
+                      "explicit_id": "22222222-3333-4444-5555-666666666666",
+                      "title": "Gamma"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "kind": "reflinks",
+            "entries": []
+          }
+        ]
+      }
+    }
+  },
+  "bad_contract_missing_limit": {
+    "version": 1,
+    "outcome": "contract",
+    "limits": {
+      "max_request_bytes": 65536,
+      "max_response_bytes": 4194304,
+      "max_page_entries": 200,
+      "max_relation_entries": 1000,
+      "max_note_source_lines": 1000,
+      "max_context_lines": 200,
+      "max_path_bytes": 4096,
+      "max_queued_requests": 32
+    },
+    "read_operations": [
+      "status",
+      "indexedFiles",
+      "searchNodes",
+      "searchNodeContent",
+      "nodeFromId",
+      "nodeFromKey",
+      "readNodeSource",
+      "listGlossaryTerms",
+      "searchGlossary",
+      "glossaryTerm",
+      "backlinks",
+      "forwardLinks",
+      "explore"
+    ],
+    "maintenance_operations": [
+      "index",
+      "indexFile"
+    ]
+  },
+  "bad_contract_negative_queue": {
+    "version": 1,
+    "outcome": "contract",
+    "limits": {
+      "max_request_bytes": 65536,
+      "max_response_bytes": 4194304,
+      "max_page_entries": 200,
+      "max_relation_entries": 1000,
+      "max_note_source_lines": 1000,
+      "max_context_lines": 200,
+      "max_path_bytes": 4096,
+      "max_open_sessions": 8,
+      "max_queued_requests": -1
+    },
+    "read_operations": [
+      "status",
+      "indexedFiles",
+      "searchNodes",
+      "searchNodeContent",
+      "nodeFromId",
+      "nodeFromKey",
+      "readNodeSource",
+      "listGlossaryTerms",
+      "searchGlossary",
+      "glossaryTerm",
+      "backlinks",
+      "forwardLinks",
+      "explore"
+    ],
+    "maintenance_operations": [
+      "index",
+      "indexFile"
+    ]
+  },
+  "bad_contract_zero_queue": {
+    "version": 1,
+    "outcome": "contract",
+    "limits": {
+      "max_request_bytes": 65536,
+      "max_response_bytes": 4194304,
+      "max_page_entries": 200,
+      "max_relation_entries": 1000,
+      "max_note_source_lines": 1000,
+      "max_context_lines": 200,
+      "max_path_bytes": 4096,
+      "max_open_sessions": 8,
+      "max_queued_requests": 0
+    },
+    "read_operations": [
+      "status",
+      "indexedFiles",
+      "searchNodes",
+      "searchNodeContent",
+      "nodeFromId",
+      "nodeFromKey",
+      "readNodeSource",
+      "listGlossaryTerms",
+      "searchGlossary",
+      "glossaryTerm",
+      "backlinks",
+      "forwardLinks",
+      "explore"
+    ],
+    "maintenance_operations": [
+      "index",
+      "indexFile"
+    ]
+  },
+  "bad_contract_unbounded_queue": {
+    "version": 1,
+    "outcome": "contract",
+    "limits": {
+      "max_request_bytes": 65536,
+      "max_response_bytes": 4194304,
+      "max_page_entries": 200,
+      "max_relation_entries": 1000,
+      "max_note_source_lines": 1000,
+      "max_context_lines": 200,
+      "max_path_bytes": 4096,
+      "max_open_sessions": 8,
+      "max_queued_requests": 2147483647
+    },
+    "read_operations": [
+      "status",
+      "indexedFiles",
+      "searchNodes",
+      "searchNodeContent",
+      "nodeFromId",
+      "nodeFromKey",
+      "readNodeSource",
+      "listGlossaryTerms",
+      "searchGlossary",
+      "glossaryTerm",
+      "backlinks",
+      "forwardLinks",
+      "explore"
+    ],
+    "maintenance_operations": [
+      "index",
+      "indexFile"
+    ]
+  },
+  "bad_contract_excessive_sessions": {
+    "version": 1,
+    "outcome": "contract",
+    "limits": {
+      "max_request_bytes": 65536,
+      "max_response_bytes": 4194304,
+      "max_page_entries": 200,
+      "max_relation_entries": 1000,
+      "max_note_source_lines": 1000,
+      "max_context_lines": 200,
+      "max_path_bytes": 4096,
+      "max_open_sessions": 9,
+      "max_queued_requests": 32
+    },
+    "read_operations": [
+      "status",
+      "indexedFiles",
+      "searchNodes",
+      "searchNodeContent",
+      "nodeFromId",
+      "nodeFromKey",
+      "readNodeSource",
+      "listGlossaryTerms",
+      "searchGlossary",
+      "glossaryTerm",
+      "backlinks",
+      "forwardLinks",
+      "explore"
+    ],
+    "maintenance_operations": [
+      "index",
+      "indexFile"
+    ]
+  },
+  "bad_contract_duplicate_operation": {
+    "version": 1,
+    "outcome": "contract",
+    "limits": {
+      "max_request_bytes": 65536,
+      "max_response_bytes": 4194304,
+      "max_page_entries": 200,
+      "max_relation_entries": 1000,
+      "max_note_source_lines": 1000,
+      "max_context_lines": 200,
+      "max_path_bytes": 4096,
+      "max_open_sessions": 8,
+      "max_queued_requests": 32
+    },
+    "read_operations": [
+      "status",
+      "indexedFiles",
+      "searchNodes",
+      "searchNodeContent",
+      "nodeFromId",
+      "nodeFromKey",
+      "readNodeSource",
+      "listGlossaryTerms",
+      "searchGlossary",
+      "glossaryTerm",
+      "backlinks",
+      "forwardLinks",
+      "explore",
+      "status"
+    ],
+    "maintenance_operations": [
+      "index",
+      "indexFile"
+    ]
+  },
+  "bad_contract_unknown_operation": {
+    "version": 1,
+    "outcome": "contract",
+    "limits": {
+      "max_request_bytes": 65536,
+      "max_response_bytes": 4194304,
+      "max_page_entries": 200,
+      "max_relation_entries": 1000,
+      "max_note_source_lines": 1000,
+      "max_context_lines": 200,
+      "max_path_bytes": 4096,
+      "max_open_sessions": 8,
+      "max_queued_requests": 32
+    },
+    "read_operations": [
+      "status",
+      "indexedFiles",
+      "searchNodes",
+      "searchNodeContent",
+      "nodeFromId",
+      "nodeFromKey",
+      "readNodeSource",
+      "listGlossaryTerms",
+      "searchGlossary",
+      "glossaryTerm",
+      "backlinks",
+      "forwardLinks",
+      "explore",
+      "captureNode"
+    ],
+    "maintenance_operations": [
+      "index",
+      "indexFile"
+    ]
+  },
+  "bad_contract_short_vocabulary": {
+    "version": 1,
+    "outcome": "contract",
+    "limits": {
+      "max_request_bytes": 65536,
+      "max_response_bytes": 4194304,
+      "max_page_entries": 200,
+      "max_relation_entries": 1000,
+      "max_note_source_lines": 1000,
+      "max_context_lines": 200,
+      "max_path_bytes": 4096,
+      "max_open_sessions": 8,
+      "max_queued_requests": 32
+    },
+    "read_operations": [
+      "status",
+      "indexedFiles",
+      "searchNodes",
+      "searchNodeContent",
+      "nodeFromId",
+      "nodeFromKey",
+      "readNodeSource",
+      "listGlossaryTerms",
+      "searchGlossary",
+      "glossaryTerm",
+      "backlinks",
+      "forwardLinks"
+    ],
+    "maintenance_operations": [
+      "index",
+      "indexFile"
+    ]
+  },
+  "contract_reordered_vocabulary": {
+    "version": 1,
+    "outcome": "contract",
+    "limits": {
+      "max_request_bytes": 65536,
+      "max_response_bytes": 4194304,
+      "max_page_entries": 200,
+      "max_relation_entries": 1000,
+      "max_note_source_lines": 1000,
+      "max_context_lines": 200,
+      "max_path_bytes": 4096,
+      "max_open_sessions": 8,
+      "max_queued_requests": 32
+    },
+    "read_operations": [
+      "explore",
+      "forwardLinks",
+      "backlinks",
+      "glossaryTerm",
+      "searchGlossary",
+      "listGlossaryTerms",
+      "readNodeSource",
+      "nodeFromKey",
+      "nodeFromId",
+      "searchNodeContent",
+      "searchNodes",
+      "indexedFiles",
+      "status"
+    ],
+    "maintenance_operations": [
+      "index",
+      "indexFile"
+    ]
+  }
+}

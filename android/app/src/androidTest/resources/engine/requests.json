@@ -1,0 +1,302 @@
+{
+  "open_read": {
+    "version": 1,
+    "capability": "read",
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "context": {
+      "root": "/data/fixture/root",
+      "database": "/data/fixture/slipbox.db"
+    }
+  },
+  "open_maintenance": {
+    "version": 1,
+    "capability": "maintenance",
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-02"
+    },
+    "context": {
+      "root": "/data/fixture/root",
+      "database": "/data/fixture/slipbox.db"
+    }
+  },
+  "read_status": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "status"
+    }
+  },
+  "read_indexed_files": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "indexedFiles"
+    }
+  },
+  "read_search_nodes": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "searchNodes",
+      "query": "Ωμέγα théorie 漢字",
+      "limit": 25,
+      "sort": "title"
+    }
+  },
+  "read_search_node_content": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "searchNodeContent",
+      "query": "Ωμέγα théorie 漢字",
+      "limit": 25
+    }
+  },
+  "read_node_from_id": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "nodeFromId",
+      "id": "11111111-2222-3333-4444-555555555555"
+    }
+  },
+  "read_node_from_key": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "nodeFromKey",
+      "node_key": "heading:alpha.org:3"
+    }
+  },
+  "read_source": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "readNodeSource",
+      "node_key": "heading:alpha.org:3",
+      "context_before": 0,
+      "context_after": 0,
+      "max_lines": 1000
+    }
+  },
+  "read_list_glossary_terms": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "listGlossaryTerms",
+      "limit": 50,
+      "after": null
+    }
+  },
+  "read_search_glossary": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "searchGlossary",
+      "query": "Ωμέγα théorie 漢字",
+      "limit": 50
+    }
+  },
+  "read_glossary_term": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "glossaryTerm",
+      "node_key": "heading:riemann.org:2"
+    }
+  },
+  "read_backlinks": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "backlinks",
+      "node_key": "heading:alpha.org:3",
+      "limit": 200,
+      "unique": false
+    }
+  },
+  "read_forward_links": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "forwardLinks",
+      "node_key": "heading:alpha.org:3",
+      "limit": 200,
+      "unique": false
+    }
+  },
+  "read_explore": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "explore",
+      "node_key": "heading:alpha.org:3",
+      "lens": "structure",
+      "limit": 200,
+      "unique": true
+    }
+  },
+  "maintain_index": {
+    "version": 1,
+    "handle": 8,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-02"
+    },
+    "operation": {
+      "kind": "index"
+    }
+  },
+  "maintain_index_file": {
+    "version": 1,
+    "handle": 8,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-02"
+    },
+    "operation": {
+      "kind": "indexFile",
+      "file_path": "alpha.org"
+    }
+  },
+  "close": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    }
+  },
+  "close_other_binding": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-02"
+    }
+  },
+  "bad_read_unknown_operation": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "captureNode",
+      "template": "note"
+    }
+  },
+  "bad_read_crossed_operation": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "indexFile",
+      "file_path": "alpha.org"
+    }
+  },
+  "bad_read_without_version": {
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "status"
+    }
+  },
+  "bad_read_unsupported_version": {
+    "version": 2,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "status"
+    }
+  },
+  "bad_read_extra_field": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "status"
+    },
+    "extra": true
+  },
+  "bad_read_missing_binding": {
+    "version": 1,
+    "handle": 7,
+    "operation": {
+      "kind": "status"
+    }
+  },
+  "bad_close_without_binding": {
+    "version": 1,
+    "handle": 7
+  }
+}

@@ -41,5 +41,6 @@ buildscript {
         classpath("com.android.tools.build:gradle:$agpVersion")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
         classpath("org.jetbrains.kotlin:compose-compiler-gradle-plugin:$kotlinVersion")
+        classpath("org.jetbrains.kotlin:kotlin-serialization:$kotlinVersion")
     }
 }

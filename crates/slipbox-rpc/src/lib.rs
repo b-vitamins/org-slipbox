@@ -7,8 +7,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
+pub mod android;
 pub mod operations;
 
+pub use android::{
+    ADAPTER_LIMITS, ADAPTER_PROTOCOL_VERSION, AdapterCapability, AdapterOutcome, AdapterRefusal,
+    AdapterResponse, MaintenanceOperation, ReadOperation, RefusalReason, SessionIdentity,
+};
 pub use operations::{
     FreshnessBehavior, OperationDescriptor, OperationFamily, OperationMutation, is_read_only,
     operation_descriptor_by_method, operation_descriptors,

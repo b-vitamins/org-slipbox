@@ -32,6 +32,23 @@ const EXPECTED_WORKSPACE_CLOSURE: &[&str] = &[
 const SEAM_SOURCE: &str =
     "app/src/main/kotlin/io/github/b_vitamins/slipbox/engine/SlipboxNativeEngine.kt";
 
+const VERIFIER: &str = "tools/verify-native-packaging.sh";
+
+/// The closed set of native methods the library exports, as Kotlin names them.
+///
+/// It is spelled out here so that four declarations of it -- the Kotlin seam,
+/// the linker version script, the Rust definitions and the packaging verifier --
+/// cannot agree on a fifth set between them.
+const JNI_METHODS: &[&str] = &[
+    "nativeAdapterContract",
+    "nativeCloseSession",
+    "nativeMaintainSession",
+    "nativeOpenMaintenanceSession",
+    "nativeOpenReadSession",
+    "nativeReadSession",
+    "nativeRunFixtureProbe",
+];
+
 #[test]
 fn the_android_package_consumes_the_engine_and_no_desktop_adapter() {
     let graph = ResolvedGraph::rooted_at(&crate_manifest());
@@ -130,27 +147,29 @@ fn the_android_package_builds_one_shared_library_and_no_process() {
 }
 
 #[test]
-fn the_exported_symbol_matches_the_kotlin_seam_it_serves() {
+fn the_exported_symbols_are_exactly_the_ones_kotlin_declares() {
     let seam = read(&android_directory().join(SEAM_SOURCE));
-    let package = declaration(&seam, "package ");
-    let method = declaration(&seam, "external fun ")
-        .split('(')
-        .next()
-        .expect("a method declaration names its method")
-        .to_owned();
-    let expected = format!(
-        "Java_{}",
-        format!("{package}.SlipboxNativeEngine.{method}")
-            .replace('_', "_1")
-            .replace('.', "_")
-    );
+    let package = kotlin_package(&seam);
 
-    assert_eq!(exported_symbols(), vec![expected.clone()]);
-    assert!(
-        read(&crate_directory().join("src/jni_seam.rs"))
-            .contains(&format!("pub unsafe extern \"system\" fn {expected}(")),
-        "the crate defines no function named {expected}"
-    );
+    let declared: BTreeSet<String> = declarations(&seam, "external fun ")
+        .map(|declaration| method_name(&declaration))
+        .collect();
+    assert_eq!(declared, owned(JNI_METHODS), "{SEAM_SOURCE}");
+
+    let expected: BTreeSet<String> = JNI_METHODS
+        .iter()
+        .map(|method| mangled(&package, method))
+        .collect();
+    assert_eq!(exported_symbols(), expected, "jni-exports.map");
+
+    let source = read(&crate_directory().join("src/jni_seam.rs"));
+    let defined: BTreeSet<String> = declarations(&source, "pub unsafe extern \"system\" fn ")
+        .map(|declaration| method_name(&declaration))
+        .collect();
+    assert_eq!(defined, expected, "src/jni_seam.rs");
+
+    let verifier = read(&android_directory().join(VERIFIER));
+    assert_eq!(verifier_symbols(&verifier), expected, "{VERIFIER}");
 }
 
 #[test]
@@ -213,7 +232,7 @@ fn no_native_library_is_committed_to_a_source_tree() {
     );
 }
 
-fn exported_symbols() -> Vec<String> {
+fn exported_symbols() -> BTreeSet<String> {
     read(&crate_directory().join("jni-exports.map"))
         .lines()
         .skip_while(|line| !line.trim_start().starts_with("global:"))
@@ -223,14 +242,64 @@ fn exported_symbols() -> Vec<String> {
         .collect()
 }
 
-fn declaration(source: &str, keyword: &str) -> String {
+/// The verifier's own inventory, read as the list it iterates over.
+fn verifier_symbols(source: &str) -> BTreeSet<String> {
     source
         .lines()
-        .find_map(|line| line.split_once(keyword))
-        .unwrap_or_else(|| panic!("the seam declares no {keyword}"))
-        .1
+        .skip_while(|line| !line.starts_with("JNI_SYMBOLS=\""))
+        .skip(1)
+        .take_while(|line| line.trim() != "\"")
+        .map(|line| line.trim().to_owned())
+        .filter(|line| !line.is_empty())
+        .collect()
+}
+
+fn kotlin_package(source: &str) -> String {
+    source
+        .lines()
+        .find_map(|line| line.strip_prefix("package "))
+        .expect("a Kotlin source declares its package")
         .trim()
         .to_owned()
+}
+
+/// The JNI mangling of one method of the seam object: `_1` escapes an
+/// underscore, and a dot becomes an underscore.
+fn mangled(package: &str, method: &str) -> String {
+    format!(
+        "Java_{}",
+        format!("{package}.SlipboxNativeEngine.{method}")
+            .replace('_', "_1")
+            .replace('.', "_")
+    )
+}
+
+fn method_name(declaration: &str) -> String {
+    declaration
+        .split('(')
+        .next()
+        .expect("a declaration names what it declares")
+        .to_owned()
+}
+
+fn declaration(source: &str, keyword: &str) -> String {
+    let mut found = declarations(source, keyword);
+    let first = found
+        .next()
+        .unwrap_or_else(|| panic!("the source declares no {keyword}"));
+    assert_eq!(
+        found.next(),
+        None,
+        "{keyword} is declared more than once, so no single declaration answers for it"
+    );
+    first
+}
+
+fn declarations<'a>(source: &'a str, keyword: &'a str) -> impl Iterator<Item = String> + 'a {
+    source
+        .lines()
+        .filter_map(move |line| line.split_once(keyword))
+        .map(|(_, rest)| rest.trim().to_owned())
 }
 
 fn collect_binaries(directory: &Path, found: &mut Vec<PathBuf>) {

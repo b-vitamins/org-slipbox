@@ -9,11 +9,33 @@ import android.os.Looper
 import java.io.File
 
 /**
+ * The calls the packaged library answers, as the UTF-8 JSON documents of
+ * [AdapterResponse].
+ *
+ * A host speaks to the packaged library through this seam, so the contract a
+ * device exercises is the contract a host test exercises.
+ */
+internal interface NativeSeam {
+
+    fun contract(): ByteArray?
+
+    fun openRead(request: ByteArray): ByteArray?
+
+    fun openMaintenance(request: ByteArray): ByteArray?
+
+    fun read(request: ByteArray): ByteArray?
+
+    fun maintain(request: ByteArray): ByteArray?
+
+    fun closeSession(request: ByteArray): ByteArray?
+}
+
+/**
  * The load seam of the packaged native engine.
  *
- * The library exposes one entry point, a self-contained fixture probe that
- * qualifies the packaged engine and its bundled SQLite on a device. Reading
- * notes and maintaining an index are not offered here.
+ * The library exposes the versioned engine adapter and a self-contained fixture
+ * probe that qualifies the packaged engine and its bundled SQLite on a device.
+ * Every entry point declared here is a symbol the linker must export.
  */
 object SlipboxNativeEngine {
 
@@ -63,5 +85,34 @@ object SlipboxNativeEngine {
         return report.toString(Charsets.UTF_8)
     }
 
+    /** The packaged library as one seam. */
+    internal val seam: NativeSeam =
+        object : NativeSeam {
+            override fun contract(): ByteArray? = nativeAdapterContract()
+
+            override fun openRead(request: ByteArray): ByteArray? = nativeOpenReadSession(request)
+
+            override fun openMaintenance(request: ByteArray): ByteArray? =
+                nativeOpenMaintenanceSession(request)
+
+            override fun read(request: ByteArray): ByteArray? = nativeReadSession(request)
+
+            override fun maintain(request: ByteArray): ByteArray? = nativeMaintainSession(request)
+
+            override fun closeSession(request: ByteArray): ByteArray? = nativeCloseSession(request)
+        }
+
     private external fun nativeRunFixtureProbe(parentDirectory: ByteArray): ByteArray?
+
+    private external fun nativeAdapterContract(): ByteArray?
+
+    private external fun nativeOpenReadSession(request: ByteArray): ByteArray?
+
+    private external fun nativeOpenMaintenanceSession(request: ByteArray): ByteArray?
+
+    private external fun nativeReadSession(request: ByteArray): ByteArray?
+
+    private external fun nativeMaintainSession(request: ByteArray): ByteArray?
+
+    private external fun nativeCloseSession(request: ByteArray): ByteArray?
 }
