@@ -42,6 +42,19 @@ BOOT_LIMIT=${DEVICE_SMOKE_BOOT_LIMIT:-600}
 LAUNCH_LIMIT=${DEVICE_SMOKE_LAUNCH_LIMIT:-120}
 TEST_LIMIT=${DEVICE_SMOKE_TEST_LIMIT:-2400}
 STOP_LIMIT=${DEVICE_SMOKE_STOP_LIMIT:-60}
+DATA_PARTITION_MB=${DEVICE_SMOKE_DATA_PARTITION_MB:-4096}
+MIN_DATA_FREE_KB=${DEVICE_SMOKE_MIN_DATA_FREE_KB:-524288}
+
+case $DATA_PARTITION_MB in
+'' | *[!0-9]*) abort "DEVICE_SMOKE_DATA_PARTITION_MB must be a positive integer" ;;
+esac
+[ "$DATA_PARTITION_MB" -gt 0 ] ||
+    abort "DEVICE_SMOKE_DATA_PARTITION_MB must be a positive integer"
+case $MIN_DATA_FREE_KB in
+'' | *[!0-9]*) abort "DEVICE_SMOKE_MIN_DATA_FREE_KB must be a positive integer" ;;
+esac
+[ "$MIN_DATA_FREE_KB" -gt 0 ] ||
+    abort "DEVICE_SMOKE_MIN_DATA_FREE_KB must be a positive integer"
 
 RESULTS=${DEVICE_SMOKE_RESULTS:-$MODULE/app/build/outputs/androidTest-results/connected}
 
@@ -400,10 +413,11 @@ if [ -s "$WORK/attached" ]; then
     fail "the adb server on port $SERVER_PORT already has attached devices"
 fi
 
-echo "### emulator -avd $avd -port $CONSOLE_PORT"
+echo "### emulator -avd $avd -port $CONSOLE_PORT -partition-size $DATA_PARTITION_MB"
 set -m
 "$EMULATOR" -avd "$avd" -port "$CONSOLE_PORT" -no-window -no-snapshot -no-boot-anim \
-    -gpu swiftshader_indirect -memory 2048 -cores 2 >"$out/emulator.log" 2>&1 &
+    -gpu swiftshader_indirect -memory 2048 -cores 2 -partition-size "$DATA_PARTITION_MB" \
+    >"$out/emulator.log" 2>&1 &
 owned_emulator=$!
 set +m
 
@@ -447,6 +461,21 @@ echo "### $SERIAL abi $abi page size $page_size api $api"
     fail "$SERIAL runs API $api, below the declared minimum $(pin min-sdk)"
 
 adb -s "$SERIAL" logcat -c
+
+echo "### $SERIAL /data capacity before APK installation"
+data_status=0
+adb -s "$SERIAL" shell df -k /data >"$WORK/data-filesystem.raw" 2>&1 || data_status=$?
+tr -d '\r' <"$WORK/data-filesystem.raw" >"$out/data-filesystem.txt"
+sed 's/^/  /' "$out/data-filesystem.txt"
+[ "$data_status" -eq 0 ] || fail "$SERIAL could not report /data capacity (status $data_status)"
+data_free_kb=$(awk 'NR > 1 && NF >= 6 { available = $(NF - 2) } END { print available }' \
+    "$out/data-filesystem.txt")
+case $data_free_kb in
+'' | *[!0-9]*) fail "$SERIAL reported no numeric available-KiB value for /data" ;;
+esac
+echo "### $SERIAL /data has $data_free_kb KiB available; gate requires $MIN_DATA_FREE_KB KiB"
+[ "$data_free_kb" -ge "$MIN_DATA_FREE_KB" ] ||
+    fail "$SERIAL has less than $MIN_DATA_FREE_KB KiB available on /data"
 
 "$AAPT2" dump badging "$apk" >"$WORK/badging" 2>"$WORK/badging.err" ||
     fail "aapt2 could not read $apk"

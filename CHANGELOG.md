@@ -24,8 +24,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
   registration. See `doc/android-auth.org`.
 - Add Android CI build, unit, lint and native packaging checks, with a required
   native device-smoke gate on standard hosted Ubuntu x64. Package the x86_64
-  engine alongside ARM64; hosted runtime qualification remains pending until
-  the workflow passes on reviewed master. See `doc/android-ci.org`.
+  engine alongside ARM64, with deterministic emulator install capacity and
+  pre-install diagnostics. See `doc/android-ci.org`.
 - Carry the web reading palette, typography and restrained controls into Compose,
   with contextual appearance preferences and platform-aware font scaling and
   reduced motion. Export per-mount document presentation inputs; the production
@@ -48,7 +48,7 @@ The format follows Keep a Changelog, and this project follows SemVer.
   Provider-bound updates report which cached and reading state may be retained.
 - Package the headless Rust engine and bundled SQLite in the Android app for
   arm64-v8a and x86_64. ARM64 is qualified on 4KB and 16KB kernels; the hosted
-  x86_64 runtime gate remains pending. A private fixture probe checks indexing,
+  x86_64 runtime gate exercises the same private fixture probe for indexing,
   queries and durable reopening; reader wiring remains separate.
   Build and binary-verification instructions are in `doc/android-native.org`.
 - Document the planned Git-sourced Android reader in `doc/android.org`: source

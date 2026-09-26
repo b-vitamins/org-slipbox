@@ -64,6 +64,7 @@ command=${1:-}
 case $command in
 start-server | kill-server | emu) exit 0 ;;
 install)
+    : >"$FIXTURE/install-record"
     echo "Success"
     exit 0
     ;;
@@ -105,6 +106,7 @@ shell)
     "getconf PAGESIZE") cat "$FIXTURE/pagesize" ;;
     "getprop ro.product.cpu.abi") cat "$FIXTURE/abi" ;;
     "getprop ro.build.version.sdk") cat "$FIXTURE/api" ;;
+    "df -k /data") cat "$FIXTURE/data-filesystem" ;;
     "am start"*)
         echo "$*" >"$FIXTURE/launch-record"
         cat "$FIXTURE/am-start"
@@ -130,6 +132,10 @@ set -eu
 echo "mock emulator: $*"
 echo $$ >"$FIXTURE/emulator.pid"
 echo "${ANDROID_AVD_HOME:-}" >"$FIXTURE/emulator-avd-home"
+: >"$FIXTURE/emulator-record"
+for argument in "$@"; do
+    printf '%s\n' "$argument" >>"$FIXTURE/emulator-record"
+done
 if [ ! -f "$FIXTURE/never-boots" ]; then
     (
         sleep 1
@@ -236,6 +242,10 @@ reset() {
     echo 4096 >"$fixture/pagesize"
     echo arm64-v8a >"$fixture/abi"
     echo 37 >"$fixture/api"
+    printf 'Filesystem 1K-blocks Used Available Use%% Mounted on\n' \
+        >"$fixture/data-filesystem"
+    printf '/dev/block/dm-1 4194304 524288 3670016 13%% /data\n' \
+        >>"$fixture/data-filesystem"
     echo 0 >"$fixture/gradle-status"
     echo 4321 >"$fixture/pid"
     : >"$fixture/logcat"
@@ -280,6 +290,10 @@ check "the passing run reports the device it qualified" 1 \
     "$(reported "^### $serial abi arm64-v8a page size 4096 api 37\$")"
 check "the passing run reports the digest of the APK it installed" 1 \
     "$(reported "^### apk sha256 $(shasum -a 256 "$apk" | cut -d' ' -f1)\$")"
+check "the emulator receives an explicit four-GiB data partition" 4096 \
+    "$(awk '$0 == "-partition-size" { getline; print; exit }' "$fixture/emulator-record")"
+check "the passing run reports install capacity" 1 \
+    "$(reported "^### $serial /data has 3670016 KiB available; gate requires 524288 KiB\$")"
 check "the passing run launches the activity the APK declares" \
     "am start -W -n $package/$activity" "$(cat "$fixture/launch-record")"
 check "the passing run scopes the instrumentation to the reused suites" 1 \
@@ -295,6 +309,18 @@ check "the passing run stops the emulator it started" stopped "$(emulator_stoppe
 check "the passing run stops the adb server it started" 1 \
     "$(reported '^### cleanup stopped the adb server it started')"
 check "the passing run ends in a pass" 1 "$(reported '^PASS ')"
+
+reset
+printf 'Filesystem 1K-blocks Used Available Use%% Mounted on\n' \
+    >"$fixture/data-filesystem"
+printf '/dev/block/dm-1 786432 524288 262144 67%% /data\n' \
+    >>"$fixture/data-filesystem"
+smoke
+check "a device without install capacity fails the gate" 1 "$status"
+check "the capacity failure names the required free space" 1 \
+    "$(reported "^FAIL $serial has less than 524288 KiB available on /data\$")"
+check "the capacity failure occurs before APK installation" 0 \
+    "$([ -f "$fixture/install-record" ] && echo 1 || echo 0)"
 
 # Simulate a packaged-library load failure in both instrumentation and logcat.
 reset

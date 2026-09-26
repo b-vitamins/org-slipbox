@@ -21,9 +21,11 @@ Gradle modules, wrapper distributions and Cargo inputs, not build outputs.
 emulator. It runs =NativeEngineProbeTest= and =EngineAdapterTest=, requires every
 declared case to execute without skips, and checks logcat for crashes and hangs.
 Diagnostics include the APK digest, device ABI, page size, API level, launch
-output and instrumentation results. The script bounds waits and cleans up the
-emulator and adb server it started; it refuses occupied ports and a device whose
-ABI is not the one its system image implements.
+output, pre-install =/data= capacity and instrumentation results. The script
+bounds waits and cleans up the emulator and adb server it started; it refuses
+occupied ports, insufficient install capacity and a device whose ABI is not the
+one its system image implements. The emulator gets an explicit 4096 MB data
+partition so image defaults cannot make APK installation nondeterministic.
 
 * Inputs
 
@@ -66,7 +68,8 @@ qualification: those remain the local ARM64 device run's evidence, and a clean
 cross-build alone qualifies no runtime.
 See [[https://docs.github.com/en/actions/reference/runners/github-hosted-runners][GitHub-hosted runners]] and [[https://developer.android.com/studio/run/emulator-acceleration][Android emulator acceleration]].
 
-The hosted device run remains pending until it passes on reviewed master.
+Native runtime qualification requires this hosted device run to pass on
+reviewed master.
 
 * Local Checks
 
@@ -93,3 +96,5 @@ The device script requires Bash for process-group deadlines. It accepts
 tool overrides. =DEVICE_SMOKE_SERVER_PORT= and =DEVICE_SMOKE_CONSOLE_PORT=
 isolate parallel runs; =DEVICE_SMOKE_RESULTS= selects the results tree.
 =DEVICE_SMOKE_*_LIMIT= variables bound individual stages.
+=DEVICE_SMOKE_DATA_PARTITION_MB= selects the emulator data-partition size and
+=DEVICE_SMOKE_MIN_DATA_FREE_KB= sets the pre-install free-space floor.
