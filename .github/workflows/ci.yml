@@ -262,8 +262,14 @@ jobs:
             sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-          [ -w /dev/kvm ] || {
-            echo "::error::/dev/kvm is not writable, so no accelerated emulator can boot"
+          [ -e /dev/kvm ] || {
+            echo "::error::this hosted runner exposes no /dev/kvm device"
+            exit 1
+          }
+          sudo chmod 0666 /dev/kvm
+          ls -l /dev/kvm
+          [ -r /dev/kvm ] && [ -w /dev/kvm ] || {
+            echo "::error::/dev/kvm is not readable and writable, so no accelerated emulator can boot"
             exit 1
           }
           "$ANDROID_HOME/emulator/emulator" -accel-check

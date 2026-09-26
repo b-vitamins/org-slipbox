@@ -55,8 +55,9 @@ The gate runs on the standard GitHub-hosted =ubuntu-24.04= x64 runner. No
 repository variable or self-hosted runner is required. CI uses no GitHub App
 credentials, private corpus or release signing secrets.
 
-The job grants access to =/dev/kvm= and confirms acceleration with
-=emulator -accel-check= before any boot. An
+The job installs a persistent udev rule for the ephemeral runner, applies the
+same world-readable/writable mode directly to its existing =/dev/kvm= node, and
+confirms acceleration with =emulator -accel-check= before any boot. An
 accelerated emulator implements its host's architecture, which is why the image
 is derived rather than configured: =inputs.sh= reads =uname -m=, refuses a host
 architecture the build does not qualify, and names the pinned platform for that
