@@ -25,9 +25,10 @@ output, pre-install =/data= capacity and instrumentation results. The script
 bounds waits and cleans up the emulator and adb server it started; it refuses
 occupied ports, insufficient install capacity and a device whose ABI is not the
 one its system image implements. It also waits for Android's package service,
-whose registration can lag the boot-complete property on a fresh image. The
-emulator gets an explicit 4096 MB data partition so image defaults cannot make
-APK installation nondeterministic.
+whose registration can lag the boot-complete property or restart during initial
+package installation on a fresh image. Only that service-unavailable result is
+retried, within a fixed attempt bound. The emulator gets an explicit 4096 MB
+data partition so image defaults cannot make APK installation nondeterministic.
 
 * Inputs
 
@@ -100,3 +101,4 @@ isolate parallel runs; =DEVICE_SMOKE_RESULTS= selects the results tree.
 =DEVICE_SMOKE_*_LIMIT= variables bound individual stages.
 =DEVICE_SMOKE_DATA_PARTITION_MB= selects the emulator data-partition size and
 =DEVICE_SMOKE_MIN_DATA_FREE_KB= sets the pre-install free-space floor.
+=DEVICE_SMOKE_INSTALL_ATTEMPTS= bounds package-service recovery during install.

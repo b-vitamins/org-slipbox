@@ -64,6 +64,12 @@ command=${1:-}
 case $command in
 start-server | kill-server | emu) exit 0 ;;
 install)
+    echo attempt >>"$FIXTURE/install-attempts"
+    if [ -f "$FIXTURE/fail-install-service-once" ]; then
+        mv "$FIXTURE/fail-install-service-once" "$FIXTURE/package-service-recovering"
+        echo "cmd: Can't find service: package" >&2
+        exit 20
+    fi
     if [ ! -f "$FIXTURE/package-service-ready" ]; then
         echo "cmd: Can't find service: package" >&2
         exit 20
@@ -111,6 +117,17 @@ shell)
     "getprop ro.product.cpu.abi") cat "$FIXTURE/abi" ;;
     "getprop ro.build.version.sdk") cat "$FIXTURE/api" ;;
     "cmd package path android")
+        if [ -f "$FIXTURE/package-service-recovering" ]; then
+            recovery_calls=0
+            [ ! -f "$FIXTURE/package-recovery-calls" ] ||
+                recovery_calls=$(cat "$FIXTURE/package-recovery-calls")
+            recovery_calls=$((recovery_calls + 1))
+            echo "$recovery_calls" >"$FIXTURE/package-recovery-calls"
+            if [ "$recovery_calls" -lt 3 ]; then
+                exit 20
+            fi
+            rm "$FIXTURE/package-service-recovering" "$FIXTURE/package-recovery-calls"
+        fi
         [ -f "$FIXTURE/package-service-ready" ] || exit 20
         echo "package:/system/framework/framework-res.apk"
         ;;
@@ -344,6 +361,15 @@ smoke
 check "a delayed package service is awaited before install" 0 "$status"
 check "the delayed package service eventually permits installation" 1 \
     "$([ -f "$fixture/install-record" ] && echo 1 || echo 0)"
+
+reset
+touch "$fixture/fail-install-service-once"
+smoke
+check "a package-service restart during install is retried" 0 "$status"
+check "the service restart causes exactly one bounded retry" 2 \
+    "$(wc -l <"$fixture/install-attempts" | tr -d ' ')"
+check "the transient install failure is named" 1 \
+    "$(reported '^### package service became unavailable during install attempt 1; retrying$')"
 
 # Simulate a packaged-library load failure in both instrumentation and logcat.
 reset

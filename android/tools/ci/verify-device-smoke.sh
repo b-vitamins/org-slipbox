@@ -44,6 +44,7 @@ TEST_LIMIT=${DEVICE_SMOKE_TEST_LIMIT:-2400}
 STOP_LIMIT=${DEVICE_SMOKE_STOP_LIMIT:-60}
 DATA_PARTITION_MB=${DEVICE_SMOKE_DATA_PARTITION_MB:-4096}
 MIN_DATA_FREE_KB=${DEVICE_SMOKE_MIN_DATA_FREE_KB:-524288}
+INSTALL_ATTEMPTS=${DEVICE_SMOKE_INSTALL_ATTEMPTS:-3}
 
 case $DATA_PARTITION_MB in
 '' | *[!0-9]*) abort "DEVICE_SMOKE_DATA_PARTITION_MB must be a positive integer" ;;
@@ -55,6 +56,11 @@ case $MIN_DATA_FREE_KB in
 esac
 [ "$MIN_DATA_FREE_KB" -gt 0 ] ||
     abort "DEVICE_SMOKE_MIN_DATA_FREE_KB must be a positive integer"
+case $INSTALL_ATTEMPTS in
+'' | *[!0-9]*) abort "DEVICE_SMOKE_INSTALL_ATTEMPTS must be a positive integer" ;;
+esac
+[ "$INSTALL_ATTEMPTS" -gt 0 ] ||
+    abort "DEVICE_SMOKE_INSTALL_ATTEMPTS must be a positive integer"
 
 RESULTS=${DEVICE_SMOKE_RESULTS:-$MODULE/app/build/outputs/androidTest-results/connected}
 
@@ -303,6 +309,19 @@ ask() {
     value=$(tr -d '\r' <"$WORK/answer")
 }
 
+wait_for_package_service() {
+    waited=0
+    until ask "cmd package path android" && echo "$value" | grep -q '^package:'; do
+        running "$owned_emulator" ||
+            fail "the emulator exited before its package service became ready"
+        [ "$waited" -lt "$BOOT_LIMIT" ] ||
+            fail "$SERIAL package service did not become ready within $BOOT_LIMIT seconds"
+        sleep 1
+        waited=$((waited + 1))
+    done
+    echo "### $SERIAL package service ready after $waited seconds"
+}
+
 cleanup() {
     status=$?
     trap - EXIT INT TERM
@@ -460,16 +479,7 @@ echo "### $SERIAL abi $abi page size $page_size api $api"
 [ "$api" -ge "$(pin min-sdk)" ] ||
     fail "$SERIAL runs API $api, below the declared minimum $(pin min-sdk)"
 
-waited=0
-until ask "cmd package path android" && echo "$value" | grep -q '^package:'; do
-    running "$owned_emulator" ||
-        fail "the emulator exited before its package service became ready"
-    [ "$waited" -lt "$BOOT_LIMIT" ] ||
-        fail "$SERIAL package service did not become ready within $BOOT_LIMIT seconds"
-    sleep 1
-    waited=$((waited + 1))
-done
-echo "### $SERIAL package service ready after $waited seconds"
+wait_for_package_service
 
 adb -s "$SERIAL" logcat -c
 
@@ -496,10 +506,22 @@ activity=$(sed -n "s/^launchable-activity: name='\([^']*\)'.*/\1/p" "$WORK/badgi
 [ -n "$activity" ] || fail "$apk declares no launchable activity"
 
 echo "### adb install -r $package"
-installed=0
-adb -s "$SERIAL" install -r "$apk" >"$WORK/install" 2>&1 || installed=$?
-sed 's/^/  /' "$WORK/install"
-[ "$installed" -eq 0 ] || fail "installing $apk exited $installed"
+install_attempt=1
+while :; do
+    installed=0
+    adb -s "$SERIAL" install -r "$apk" >"$WORK/install" 2>&1 || installed=$?
+    sed 's/^/  /' "$WORK/install"
+    [ "$installed" -ne 0 ] || break
+    if grep -Fq "Can't find service: package" "$WORK/install" &&
+        [ "$install_attempt" -lt "$INSTALL_ATTEMPTS" ]; then
+        echo "### package service became unavailable during install attempt $install_attempt; retrying"
+        wait_for_package_service
+        install_attempt=$((install_attempt + 1))
+        continue
+    fi
+    fail "installing $apk exited $installed"
+done
+echo "### installed $package on attempt $install_attempt"
 
 echo "### am start -W -n $package/$activity"
 launched=0
