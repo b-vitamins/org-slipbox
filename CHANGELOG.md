@@ -24,8 +24,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
   registration. See `doc/android-auth.org`.
 - Add Android CI build, unit, lint and native packaging checks, with a required
   native device-smoke gate on standard hosted Ubuntu x64. Package the x86_64
-  engine alongside ARM64, with deterministic emulator install capacity and
-  pre-install diagnostics. See `doc/android-ci.org`.
+  engine alongside ARM64, with deterministic emulator install capacity,
+  package-service readiness and pre-install diagnostics. See `doc/android-ci.org`.
 - Carry the web reading palette, typography and restrained controls into Compose,
   with contextual appearance preferences and platform-aware font scaling and
   reduced motion. Export per-mount document presentation inputs; the production

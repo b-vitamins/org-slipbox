@@ -64,6 +64,10 @@ command=${1:-}
 case $command in
 start-server | kill-server | emu) exit 0 ;;
 install)
+    if [ ! -f "$FIXTURE/package-service-ready" ]; then
+        echo "cmd: Can't find service: package" >&2
+        exit 20
+    fi
     : >"$FIXTURE/install-record"
     echo "Success"
     exit 0
@@ -106,6 +110,10 @@ shell)
     "getconf PAGESIZE") cat "$FIXTURE/pagesize" ;;
     "getprop ro.product.cpu.abi") cat "$FIXTURE/abi" ;;
     "getprop ro.build.version.sdk") cat "$FIXTURE/api" ;;
+    "cmd package path android")
+        [ -f "$FIXTURE/package-service-ready" ] || exit 20
+        echo "package:/system/framework/framework-res.apk"
+        ;;
     "df -k /data") cat "$FIXTURE/data-filesystem" ;;
     "am start"*)
         echo "$*" >"$FIXTURE/launch-record"
@@ -140,6 +148,10 @@ if [ ! -f "$FIXTURE/never-boots" ]; then
     (
         sleep 1
         touch "$FIXTURE/booted"
+        if [ -f "$FIXTURE/delay-package-service" ]; then
+            sleep 2
+            touch "$FIXTURE/package-service-ready"
+        fi
     ) &
 fi
 exec sleep 900
@@ -242,6 +254,7 @@ reset() {
     echo 4096 >"$fixture/pagesize"
     echo arm64-v8a >"$fixture/abi"
     echo 37 >"$fixture/api"
+    touch "$fixture/package-service-ready"
     printf 'Filesystem 1K-blocks Used Available Use%% Mounted on\n' \
         >"$fixture/data-filesystem"
     printf '/dev/block/dm-1 4194304 524288 3670016 13%% /data\n' \
@@ -294,6 +307,8 @@ check "the emulator receives an explicit four-GiB data partition" 4096 \
     "$(awk '$0 == "-partition-size" { getline; print; exit }' "$fixture/emulator-record")"
 check "the passing run reports install capacity" 1 \
     "$(reported "^### $serial /data has 3670016 KiB available; gate requires 524288 KiB\$")"
+check "the passing run requires the package service" 1 \
+    "$(reported "^### $serial package service ready after [0-9][0-9]* seconds\$")"
 check "the passing run launches the activity the APK declares" \
     "am start -W -n $package/$activity" "$(cat "$fixture/launch-record")"
 check "the passing run scopes the instrumentation to the reused suites" 1 \
@@ -320,6 +335,14 @@ check "a device without install capacity fails the gate" 1 "$status"
 check "the capacity failure names the required free space" 1 \
     "$(reported "^FAIL $serial has less than 524288 KiB available on /data\$")"
 check "the capacity failure occurs before APK installation" 0 \
+    "$([ -f "$fixture/install-record" ] && echo 1 || echo 0)"
+
+reset
+rm "$fixture/package-service-ready"
+touch "$fixture/delay-package-service"
+smoke
+check "a delayed package service is awaited before install" 0 "$status"
+check "the delayed package service eventually permits installation" 1 \
     "$([ -f "$fixture/install-record" ] && echo 1 || echo 0)"
 
 # Simulate a packaged-library load failure in both instrumentation and logcat.

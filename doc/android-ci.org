@@ -24,8 +24,10 @@ Diagnostics include the APK digest, device ABI, page size, API level, launch
 output, pre-install =/data= capacity and instrumentation results. The script
 bounds waits and cleans up the emulator and adb server it started; it refuses
 occupied ports, insufficient install capacity and a device whose ABI is not the
-one its system image implements. The emulator gets an explicit 4096 MB data
-partition so image defaults cannot make APK installation nondeterministic.
+one its system image implements. It also waits for Android's package service,
+whose registration can lag the boot-complete property on a fresh image. The
+emulator gets an explicit 4096 MB data partition so image defaults cannot make
+APK installation nondeterministic.
 
 * Inputs
 

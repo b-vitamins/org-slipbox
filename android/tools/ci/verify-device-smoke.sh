@@ -460,6 +460,17 @@ echo "### $SERIAL abi $abi page size $page_size api $api"
 [ "$api" -ge "$(pin min-sdk)" ] ||
     fail "$SERIAL runs API $api, below the declared minimum $(pin min-sdk)"
 
+waited=0
+until ask "cmd package path android" && echo "$value" | grep -q '^package:'; do
+    running "$owned_emulator" ||
+        fail "the emulator exited before its package service became ready"
+    [ "$waited" -lt "$BOOT_LIMIT" ] ||
+        fail "$SERIAL package service did not become ready within $BOOT_LIMIT seconds"
+    sleep 1
+    waited=$((waited + 1))
+done
+echo "### $SERIAL package service ready after $waited seconds"
+
 adb -s "$SERIAL" logcat -c
 
 echo "### $SERIAL /data capacity before APK installation"
