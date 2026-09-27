@@ -7,6 +7,13 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Build verified staged SQLite indexes from immutable Git snapshots. Initial
+  imports parse the delta's complete Org inventory; later candidates clone the
+  current index through SQLite's online-backup API, update or remove only paths
+  named by the repository delta, and seal source/revision/schema/statistics
+  metadata before becoming eligible for publication. Failed or cancelled work
+  leaves the completed base untouched, and incompatible schemas require an
+  explicit rebuild. See `doc/android-git.org`.
 - Derive bounded changed-file inventories directly between fetched Git
   revisions, including additions, edits, deletions, exact and edited rename
   hints, assets, confined symlink outputs and initial imports. Same-revision

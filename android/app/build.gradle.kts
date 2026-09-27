@@ -184,6 +184,7 @@ val rustClosure =
         "slipbox-index",
         "slipbox-rpc",
         "slipbox-store",
+        "slipbox-sync",
         "slipbox-write",
     )
 

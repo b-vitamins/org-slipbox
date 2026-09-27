@@ -27,6 +27,7 @@ const EXPECTED_WORKSPACE_CLOSURE: &[&str] = &[
     "slipbox-index",
     "slipbox-rpc",
     "slipbox-store",
+    "slipbox-sync",
     "slipbox-write",
 ];
 
@@ -90,7 +91,7 @@ fn the_android_package_consumes_the_engine_and_no_desktop_adapter() {
 fn bundled_sqlite_is_selected_through_the_whole_android_path() {
     let graph = ResolvedGraph::rooted_at(&crate_manifest());
 
-    for package in ["slipbox-engine", "slipbox-store"] {
+    for package in ["slipbox-engine", "slipbox-store", "slipbox-sync"] {
         let selected = graph.selected_features(package);
         assert!(
             selected.contains("bundled-sqlite"),
@@ -125,6 +126,9 @@ fn bundled_sqlite_is_selected_through_the_whole_android_path() {
     let engine = declared_dependency(package, "slipbox-engine");
     assert_eq!(engine["uses_default_features"], false);
     assert_eq!(requested_features(engine), owned(&["bundled-sqlite"]));
+    let sync = declared_dependency(package, "slipbox-sync");
+    assert_eq!(sync["uses_default_features"], false);
+    assert_eq!(requested_features(sync), owned(&["bundled-sqlite"]));
 }
 
 #[test]

@@ -1,0 +1,26 @@
+[package]
+name = "slipbox-sync"
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Staged source and index generation workflows for repository-backed corpora."
+
+[features]
+default = ["bundled-sqlite"]
+bundled-sqlite = ["slipbox-store/bundled-sqlite"]
+system-sqlite = ["slipbox-store/system-sqlite"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+slipbox-core = { path = "../slipbox-core" }
+slipbox-git = { path = "../slipbox-git" }
+slipbox-index = { path = "../slipbox-index" }
+slipbox-store = { path = "../slipbox-store", default-features = false }
+tempfile.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+anyhow.workspace = true

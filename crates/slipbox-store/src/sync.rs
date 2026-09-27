@@ -85,17 +85,31 @@ impl Database {
     }
 
     pub fn remove_file_index(&mut self, file_path: &str) -> Result<()> {
+        self.remove_file_indexes(&[file_path.to_owned()])
+    }
+
+    pub fn remove_file_indexes(&mut self, file_paths: &[String]) -> Result<()> {
+        if file_paths.is_empty() {
+            return Ok(());
+        }
         let transaction = self.connection.transaction()?;
-        let changed_paths = vec![file_path.to_owned()];
-        let old_destination_ids = indexed_explicit_ids_for_paths(&transaction, &changed_paths)?;
-        apply_backlink_delta_for_source_paths(&transaction, &changed_paths, -1)?;
-        apply_external_forward_delta_for_destination_ids(
-            &transaction,
-            &old_destination_ids,
-            &changed_paths,
-            -1,
-        )?;
-        delete_file_rows(&transaction, file_path)?;
+        let rebuild_counts = file_paths.len() > RELATION_COUNT_REBUILD_FILE_THRESHOLD;
+        if !rebuild_counts {
+            let old_destination_ids = indexed_explicit_ids_for_paths(&transaction, file_paths)?;
+            apply_backlink_delta_for_source_paths(&transaction, file_paths, -1)?;
+            apply_external_forward_delta_for_destination_ids(
+                &transaction,
+                &old_destination_ids,
+                file_paths,
+                -1,
+            )?;
+        }
+        for file_path in file_paths {
+            delete_file_rows(&transaction, file_path)?;
+        }
+        if rebuild_counts {
+            rebuild_relation_counts(&transaction)?;
+        }
         transaction.commit()?;
         Ok(())
     }
@@ -739,4 +753,58 @@ fn source_note_keys_by_anchor_key(nodes: &[IndexedNode]) -> HashMap<String, Stri
 
 fn indexed_node_is_note(node: &IndexedNode) -> bool {
     matches!(node.kind, NodeKind::File) || node.explicit_id.is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::{Context, Result};
+    use slipbox_index::scan_source;
+
+    use super::*;
+
+    #[test]
+    fn a_large_removal_rebuilds_relation_counts_without_a_parameter_overflow() -> Result<()> {
+        let workspace = tempfile::tempdir()?;
+        let mut database = Database::open(&workspace.path().join("index.sqlite3"))?;
+        let removed_ids = (0..33)
+            .map(|index| format!("removed-{index}"))
+            .collect::<Vec<_>>();
+        let survivor_links = removed_ids
+            .iter()
+            .map(|id| format!("[[id:{id}]]"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut files = vec![scan_source(
+            "survivor.org",
+            &format!("#+title: Survivor\n:PROPERTIES:\n:ID: survivor\n:END:\n{survivor_links}\n"),
+        )];
+        files.extend(removed_ids.iter().enumerate().map(|(index, id)| {
+            scan_source(
+                &format!("removed-{index}.org"),
+                &format!(
+                    "#+title: Removed {index}\n:PROPERTIES:\n:ID: {id}\n:END:\n[[id:survivor]]\n"
+                ),
+            )
+        }));
+        database.sync_file_indexes(&files)?;
+
+        let survivor = database
+            .node_from_id("survivor")?
+            .context("survivor before removal")?;
+        assert_eq!(database.backlink_note_count(&survivor.node_key)?, 33);
+        assert_eq!(database.forward_link_note_count(&survivor.node_key)?, 33);
+
+        let removed_paths = (0..33)
+            .map(|index| format!("removed-{index}.org"))
+            .collect::<Vec<_>>();
+        database.remove_file_indexes(&removed_paths)?;
+
+        let survivor = database
+            .node_from_id("survivor")?
+            .context("survivor after removal")?;
+        assert_eq!(database.backlink_note_count(&survivor.node_key)?, 0);
+        assert_eq!(database.forward_link_note_count(&survivor.node_key)?, 0);
+        assert_eq!(database.stats()?.files_indexed, 1);
+        Ok(())
+    }
 }

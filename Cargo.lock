@@ -2606,6 +2606,7 @@ dependencies = [
  "slipbox-engine",
  "slipbox-git",
  "slipbox-rpc",
+ "slipbox-sync",
  "tempfile",
  "zeroize",
 ]
@@ -2707,6 +2708,21 @@ dependencies = [
  "slipbox-index",
  "tempfile",
  "urlencoding",
+]
+
+[[package]]
+name = "slipbox-sync"
+version = "0.18.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "slipbox-core",
+ "slipbox-git",
+ "slipbox-index",
+ "slipbox-store",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]

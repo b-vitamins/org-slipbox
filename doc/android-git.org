@@ -6,14 +6,15 @@ The Android Git transport clones public HTTPS repositories and fetches public or
 authenticated GitHub repositories without a Git executable on the device. It is
 read-only: it creates and updates a bare object store and exposes no push or
 remote-write operation. Exact fetched revisions can then be materialized into
-immutable source-owned candidate snapshots. Source selection, indexing,
-publication and reader activation remain separate orchestration work. Exact
-changed-file inventories can be derived between tracked revisions before the
-next index is staged.
+immutable source-owned candidate snapshots. Source selection, publication and
+reader activation remain separate orchestration work. Exact
+changed-file inventories can be derived between tracked revisions and applied
+to an isolated candidate index before publication.
 
-The implementation is =slipbox-git=. Android owns operation lifetime and
-cancellation in =slipbox-android=; versioned transport documents stay in
-=slipbox-rpc=. Kotlin obtains a current credential from
+The object transport and immutable source views are implemented in
+=slipbox-git=; =slipbox-sync= owns staged index construction. Android owns
+operation lifetime and cancellation in =slipbox-android=; versioned transport
+documents stay in =slipbox-rpc=. Kotlin obtains a current credential from
 =CredentialRenewalOwner=, copies it into a one-call byte array, clears that
 array after JNI returns, and never puts it in request JSON.
 
@@ -143,6 +144,33 @@ Initial imports use an empty previous inventory. This Rust result is the input
 to staged incremental indexing; no corpus inventory is transported through
 Kotlin.
 
+* Staged Indexes
+
+=slipbox-sync= builds a candidate index in a private sibling temporary
+directory and renames it into its immutable destination only after SQLite
+verification, WAL checkpointing and completion-manifest persistence. The
+manifest binds format version 1, source identity, current and previous
+revisions, notes folder, index schema, final file/node/link counts, and the
+number of parsed and removed paths. Reopening a candidate verifies both the
+database and its recorded counts before accepting it.
+
+An initial import parses every Org path in the initial delta into a new current
+schema. A later import uses SQLite's online-backup API to copy the previous
+completed index coherently even when it has a WAL, removes deleted and
+renamed-away paths through the dedicated removal operation, and parses and
+file-syncs only added, modified and renamed-to Org paths from the new immutable
+snapshot. Asset-only changes advance the candidate revision without invoking
+the Org parser or modifying derived rows. Git has no file mtime, so repository
+index rows use a deterministic zero mtime and therefore match a clean rebuild.
+
+No file-level update calls whole-root prune logic. Failure or cancellation can
+only alter the temporary candidate; the completed base database and manifest
+remain unchanged. A base manifest or database on another schema is refused as
+an explicit rebuild requirement. Migration and rebuild remain background
+choices for later orchestration rather than an implicit query or UI-path
+fallback. Publication and reader activation remain the next coherent-generation
+boundary.
+
 * Qualification
 
 =slipbox-git='s tests serve real Git smart HTTP through a loopback CGI fixture.
@@ -155,6 +183,14 @@ Object-delta fixtures cover initial imports, additions, edits, deletions, exact
 asset moves, edited note moves, unchanged revisions, rewinds, unrelated branch
 roots, missing ancestry, missing objects and changes reached through committed
 symlinks.
+
+Staged-index fixtures compare an incremental candidate with a clean rebuild
+across node and occurrence search, glossary rows, stale-row removal, backlinks,
+forward links and stored relation counts. They also remove an unchanged file
+from a test snapshot after delta derivation to prove file-level staging neither
+parses it nor treats the changed-file set as a complete-root prune inventory.
+Failure, cancellation, incompatible-schema and idempotent-completion fixtures
+verify isolation and explicit rebuild behavior.
 
 The focused Kotlin tests prove that a rotated credential is the byte sequence
 given to the actual native-call seam and that its temporary byte array is then

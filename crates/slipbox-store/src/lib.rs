@@ -8,6 +8,7 @@ mod exploration;
 mod files;
 mod forward_links;
 mod graph;
+mod handoff;
 mod json_store;
 mod links;
 mod nodes;
@@ -25,6 +26,7 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 
 pub use nodes::{GlossaryPage, GlossaryPosition, note_owners_by_anchor_key};
+pub use schema::INDEX_SCHEMA_VERSION;
 
 pub struct Database {
     connection: Connection,

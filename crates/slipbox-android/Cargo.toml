@@ -27,6 +27,9 @@ slipbox-engine = { path = "../slipbox-engine", default-features = false, feature
 ] }
 slipbox-git = { path = "../slipbox-git" }
 slipbox-rpc = { path = "../slipbox-rpc" }
+slipbox-sync = { path = "../slipbox-sync", default-features = false, features = [
+  "bundled-sqlite",
+] }
 zeroize.workspace = true
 
 [dev-dependencies]

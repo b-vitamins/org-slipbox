@@ -2,22 +2,22 @@ use anyhow::Result;
 
 use crate::Database;
 
-const SCHEMA_VERSION: i32 = 24;
+pub const INDEX_SCHEMA_VERSION: i32 = 24;
 
 impl Database {
     pub(crate) fn migrate(&self) -> Result<()> {
         let version: i32 = self
             .connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        if version > SCHEMA_VERSION {
+        if version > INDEX_SCHEMA_VERSION {
             anyhow::bail!(
                 "database schema version {} is newer than supported version {}",
                 version,
-                SCHEMA_VERSION
+                INDEX_SCHEMA_VERSION
             );
         }
 
-        if version < SCHEMA_VERSION {
+        if version < INDEX_SCHEMA_VERSION {
             self.rebuild_schema()?;
         }
 
@@ -220,7 +220,7 @@ impl Database {
                ON nodes (sr_due)
                WHERE glossary = 1;
 
-             PRAGMA user_version = {SCHEMA_VERSION};"
+             PRAGMA user_version = {INDEX_SCHEMA_VERSION};"
         ))?;
         Ok(())
     }
@@ -257,7 +257,7 @@ mod tests {
         let stamped: i32 = database
             .connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        assert_eq!(stamped, super::SCHEMA_VERSION);
+        assert_eq!(stamped, super::INDEX_SCHEMA_VERSION);
         Ok(())
     }
 
