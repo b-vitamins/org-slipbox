@@ -5,7 +5,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Bounded, credential-isolated HTTPS Git transport for repository sources."
+description = "Bounded Git transport and object-store views for repository sources."
 
 [dependencies]
 gix.workspace = true

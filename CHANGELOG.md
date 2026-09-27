@@ -7,6 +7,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Derive bounded changed-file inventories directly between fetched Git
+  revisions, including additions, edits, deletions, exact and edited rename
+  hints, assets, confined symlink outputs and initial imports. Same-revision
+  refreshes are true no-ops; fast-forwards, rewinds, rewritten or incomplete
+  histories are explicit and do not replace exact tree comparison. See
+  `doc/android-git.org`.
 - Materialize exact fetched Git revisions into immutable, source-owned Android
   snapshot candidates using Rust object reads rather than checkout machinery.
   Bound entry/file/disk use, confine paths and symlinks to the repository, keep

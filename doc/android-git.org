@@ -7,7 +7,9 @@ authenticated GitHub repositories without a Git executable on the device. It is
 read-only: it creates and updates a bare object store and exposes no push or
 remote-write operation. Exact fetched revisions can then be materialized into
 immutable source-owned candidate snapshots. Source selection, indexing,
-publication and reader activation remain separate orchestration work.
+publication and reader activation remain separate orchestration work. Exact
+changed-file inventories can be derived between tracked revisions before the
+next index is staged.
 
 The implementation is =slipbox-git=. Android owns operation lifetime and
 cancellation in =slipbox-android=; versioned transport documents stay in
@@ -108,6 +110,39 @@ boundary. It carries no credential and shares the bounded operation identity and
 cancellation registry with clone/fetch. Kotlin refuses foreground execution and
 checks the returned operation and revision before accepting the result.
 
+* Revision Deltas
+
+=slipbox-git= derives an initial or between-revision file inventory from exact
+commit objects. It compares the same admitted view used by materialization, not
+a checkout or provider comparison API: eligible Org files and assets are
+included, unsupported inputs are omitted, and changes to a confined symlink
+target are attributed to each materialized output path. The result separates
+added, modified and deleted paths and supplies rename identity hints. Exact
+content moves are detected for every file type; bounded token similarity adds
+edited-rename hints for admitted text without writing an Org ID.
+
+The comparison is source-bound and fail-closed. Both trees are validated in
+full before a result is returned, missing or malformed required objects fail the
+operation, and cancellation or an exhausted entry, byte, diagnostic or change
+budget produces no partial delta. Rename inference has separate comparison,
+fingerprint-token and similarity-step limits. If an inference limit is reached,
+the exact added/deleted inventory remains complete and the result marks rename
+detection as limited rather than presenting incomplete hints as complete.
+
+A request for the same revision and notes-folder policy validates the commit and
+selected folder, then returns an empty delta without walking or parsing the
+corpus. Other comparisons use commit trees directly and never depend on a merge
+base. History is reported separately as initial, same-revision, fast-forward,
+rewind, divergent or incomplete, so branch changes, force pushes and shallow
+missing ancestry do not change the file inventory semantics.
+
+The production bounds are 100,000 output changes, 4,096 inspected ancestry
+commits, 16,384 edited-rename candidate pairs, 65,536 fingerprint tokens and
+1,000,000 similarity steps, in addition to the snapshot admission bounds.
+Initial imports use an empty previous inventory. This Rust result is the input
+to staged incremental indexing; no corpus inventory is transported through
+Kotlin.
+
 * Qualification
 
 =slipbox-git='s tests serve real Git smart HTTP through a loopback CGI fixture.
@@ -115,6 +150,11 @@ They cover clone, a subsequent update, an unchanged fetch, the exact shallow
 history bound, branch-only refs, preflight and in-flight cancellation, cleanup,
 closed errors and credential redaction. Host Git constructs and serves the
 fixture; the library under test never invokes it.
+
+Object-delta fixtures cover initial imports, additions, edits, deletions, exact
+asset moves, edited note moves, unchanged revisions, rewinds, unrelated branch
+roots, missing ancestry, missing objects and changes reached through committed
+symlinks.
 
 The focused Kotlin tests prove that a rotated credential is the byte sequence
 given to the actual native-call seam and that its temporary byte array is then

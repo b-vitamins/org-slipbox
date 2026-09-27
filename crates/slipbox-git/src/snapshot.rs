@@ -17,6 +17,10 @@ use thiserror::Error;
 
 use crate::{MAX_REPOSITORY_PATH_BYTES, check_cancelled, isolated_options};
 
+mod delta;
+
+pub use delta::*;
+
 pub const SNAPSHOT_FORMAT_VERSION: u32 = 1;
 pub const SNAPSHOT_CONTENT_DIRECTORY: &str = "content";
 pub const SNAPSHOT_MANIFEST_FILE: &str = "snapshot.json";
@@ -323,6 +327,7 @@ pub fn materialize(
     let commit = repository
         .find_commit(revision)
         .map_err(|_| SnapshotError::RevisionUnavailable)?;
+    commit.decode().map_err(|_| SnapshotError::ObjectInvalid)?;
     let tree_id = commit
         .tree_id()
         .map_err(|_| SnapshotError::ObjectInvalid)?
@@ -586,56 +591,15 @@ where
         object_id: gix::ObjectId,
         path: &[String],
     ) -> Result<(), SnapshotError> {
-        let policy = file_policy(path, self.notes);
-        let limit = match policy {
-            FilePolicy::Skip => return Ok(()),
-            FilePolicy::EncryptedOrg => {
-                return self.diagnostic(path, SnapshotDiagnosticReason::EncryptedOrg);
-            }
-            FilePolicy::Attributes => MAX_ATTRIBUTES_BYTES,
-            FilePolicy::Org => self.limits.max_org_file_bytes,
-            FilePolicy::Asset { .. } => self.limits.max_asset_file_bytes,
-        };
-        let header = self
-            .repository
-            .find_header(object_id)
-            .map_err(|_| SnapshotError::ObjectInvalid)?;
-        if header.kind() != gix::objs::Kind::Blob {
-            return Err(SnapshotError::ObjectInvalid);
-        }
-        if header.size() > limit {
-            return self.diagnostic(path, SnapshotDiagnosticReason::OversizedInput);
-        }
-        let blob = self
-            .repository
-            .find_blob(object_id)
-            .map_err(|_| SnapshotError::ObjectInvalid)?;
-        if blob.data.len() as u64 != header.size() {
-            return Err(SnapshotError::ObjectInvalid);
-        }
-        if matches!(policy, FilePolicy::Attributes) {
-            if attributes_request_filter(&blob.data) {
-                self.diagnostic(path, SnapshotDiagnosticReason::ExternalFilter)?;
-            }
-            return Ok(());
-        }
-        if is_lfs_pointer(&blob.data) {
-            return self.diagnostic(path, SnapshotDiagnosticReason::LfsPointer);
-        }
-        if matches!(policy, FilePolicy::Org | FilePolicy::Asset { text: true }) {
-            let text = match std::str::from_utf8(&blob.data) {
-                Ok(text) => text,
-                Err(_) => {
-                    return self.diagnostic(path, SnapshotDiagnosticReason::UnsupportedEncoding);
-                }
+        let (policy, data) =
+            match inspect_blob(self.repository, object_id, path, self.notes, self.limits)? {
+                BlobInspection::Skip => return Ok(()),
+                BlobInspection::Diagnostic(reason) => return self.diagnostic(path, reason),
+                BlobInspection::Admitted { policy, data } => (policy, data),
             };
-            if text.contains('\0') {
-                return self.diagnostic(path, SnapshotDiagnosticReason::UnsupportedFormat);
-            }
-        }
         let next_bytes = self
             .bytes
-            .checked_add(blob.data.len() as u64)
+            .checked_add(data.len() as u64)
             .filter(|bytes| *bytes <= self.limits.max_total_bytes)
             .ok_or(SnapshotError::InputExhausted)?;
         snapshot_cancelled(self.cancelled)?;
@@ -645,7 +609,7 @@ where
             bytes: self.bytes,
         });
         let relative = path_to_pathbuf(path);
-        write_private_file(&self.content_root.join(relative), &blob.data)?;
+        write_private_file(&self.content_root.join(relative), &data)?;
         self.bytes = next_bytes;
         self.files += 1;
         match policy {
@@ -679,6 +643,81 @@ enum FilePolicy {
     Asset { text: bool },
     EncryptedOrg,
     Attributes,
+}
+
+enum BlobInspection {
+    Skip,
+    Diagnostic(SnapshotDiagnosticReason),
+    Admitted { policy: FilePolicy, data: Vec<u8> },
+}
+
+fn inspect_blob(
+    repository: &gix::Repository,
+    object_id: gix::ObjectId,
+    path: &[String],
+    notes: &NotesFolder,
+    limits: SnapshotLimits,
+) -> Result<BlobInspection, SnapshotError> {
+    let policy = file_policy(path, notes);
+    let limit = match policy {
+        FilePolicy::Skip => return Ok(BlobInspection::Skip),
+        FilePolicy::EncryptedOrg => {
+            return Ok(BlobInspection::Diagnostic(
+                SnapshotDiagnosticReason::EncryptedOrg,
+            ));
+        }
+        FilePolicy::Attributes => MAX_ATTRIBUTES_BYTES,
+        FilePolicy::Org => limits.max_org_file_bytes,
+        FilePolicy::Asset { .. } => limits.max_asset_file_bytes,
+    };
+    let header = repository
+        .find_header(object_id)
+        .map_err(|_| SnapshotError::ObjectInvalid)?;
+    if header.kind() != gix::objs::Kind::Blob {
+        return Err(SnapshotError::ObjectInvalid);
+    }
+    if header.size() > limit {
+        return Ok(BlobInspection::Diagnostic(
+            SnapshotDiagnosticReason::OversizedInput,
+        ));
+    }
+    let mut blob = repository
+        .find_blob(object_id)
+        .map_err(|_| SnapshotError::ObjectInvalid)?;
+    if blob.data.len() as u64 != header.size() {
+        return Err(SnapshotError::ObjectInvalid);
+    }
+    if matches!(policy, FilePolicy::Attributes) {
+        return Ok(if attributes_request_filter(&blob.data) {
+            BlobInspection::Diagnostic(SnapshotDiagnosticReason::ExternalFilter)
+        } else {
+            BlobInspection::Skip
+        });
+    }
+    if is_lfs_pointer(&blob.data) {
+        return Ok(BlobInspection::Diagnostic(
+            SnapshotDiagnosticReason::LfsPointer,
+        ));
+    }
+    if matches!(policy, FilePolicy::Org | FilePolicy::Asset { text: true }) {
+        let text = match std::str::from_utf8(&blob.data) {
+            Ok(text) => text,
+            Err(_) => {
+                return Ok(BlobInspection::Diagnostic(
+                    SnapshotDiagnosticReason::UnsupportedEncoding,
+                ));
+            }
+        };
+        if text.contains('\0') {
+            return Ok(BlobInspection::Diagnostic(
+                SnapshotDiagnosticReason::UnsupportedFormat,
+            ));
+        }
+    }
+    Ok(BlobInspection::Admitted {
+        policy,
+        data: std::mem::take(&mut blob.data),
+    })
 }
 
 fn file_policy(path: &[String], notes: &NotesFolder) -> FilePolicy {

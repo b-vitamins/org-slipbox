@@ -221,6 +221,8 @@ impl Fixture {
         run_git(["init", text(&seed)]);
         run_git_in(&seed, ["config", "user.name", "Slipbox Fixture"]);
         run_git_in(&seed, ["config", "user.email", "fixture@example.invalid"]);
+        run_git_in(&seed, ["config", "gc.auto", "0"]);
+        run_git_in(&seed, ["config", "maintenance.auto", "false"]);
         run_git_in(&seed, ["branch", "-M", "main"]);
         run_git_in(&seed, ["remote", "add", "origin", text(&remote)]);
         for serial in 0..commits {
@@ -520,24 +522,28 @@ fn git_program() -> PathBuf {
 }
 
 fn run_git<const N: usize>(arguments: [&str; N]) {
-    let status = Command::new(git_program())
+    let output = Command::new(git_program())
         .args(arguments)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
+        .output()
         .expect("run fixture git");
-    assert!(status.success(), "fixture git command succeeded");
+    assert!(
+        output.status.success(),
+        "fixture git command {arguments:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 fn run_git_in<const N: usize>(directory: &Path, arguments: [&str; N]) {
-    let status = Command::new(git_program())
+    let output = Command::new(git_program())
         .current_dir(directory)
         .args(arguments)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
+        .output()
         .expect("run fixture git");
-    assert!(status.success(), "fixture git command succeeded");
+    assert!(
+        output.status.success(),
+        "fixture git command {arguments:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 fn git_stdout<const N: usize>(arguments: [&str; N]) -> String {
