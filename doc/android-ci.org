@@ -26,10 +26,10 @@ bounds waits and cleans up the emulator and adb server it started; it refuses
 occupied ports, insufficient install capacity and a device whose ABI is not the
 one its system image implements. It also waits for Android's package service,
 whose registration can lag the boot-complete property or restart during initial
-package installation on a fresh image. The gate requires ten consecutive
-successful service probes before its first write and after any observed restart.
-Only the missing-service and package binder broken-pipe results are retried,
-within a fixed attempt bound. The emulator gets an explicit 4096 MB data
+package installation on a fresh image. It waits until that service answers
+before its first write. Only the missing-service and package binder broken-pipe
+results are retried, within a fixed attempt bound. The emulator gets an explicit
+4096 MB data
 partition so image defaults cannot make APK installation nondeterministic. APK
 upload and package installation run as separate, non-streaming steps. A
 successful install can precede visibility of its declared activity by one
@@ -40,8 +40,9 @@ bounded reinstall and retry.
 
 =android/tools/ci/inputs.sh= reads the toolchain catalog, Gradle wrapper and
 qualified ABI declaration rather than maintaining separate CI versions. The
-emulator image it names is the pinned platform for the qualified ABI of the host
-architecture, since an accelerated emulator implements its own host.
+emulator image is a separately pinned plain AOSP release for the qualified ABI
+of the host architecture, since an accelerated emulator implements its own
+host. Compile and target SDK changes cannot silently change the runtime gate.
 
 #+begin_src bash
 android/tools/ci/inputs.sh
@@ -66,8 +67,10 @@ same world-readable/writable mode directly to its existing =/dev/kvm= node, and
 confirms acceleration with =emulator -accel-check= before any boot. An
 accelerated emulator implements its host's architecture, which is why the image
 is derived rather than configured: =inputs.sh= reads =uname -m=, refuses a host
-architecture the build does not qualify, and names the pinned platform for that
-ABI. The device gate then refuses a device that is not that image's ABI.
+architecture the build does not qualify, and names the pinned API 36 AOSP image
+for that ABI. The device gate then refuses a device that is not that image's
+ABI. The application still compiles and targets API 37; the device gate needs no
+Google APIs.
 
 The job installs the pinned SDK packages, emulator, image, Rust toolchain and
 every declared target rather than relying on preinstalled versions.
@@ -110,5 +113,3 @@ isolate parallel runs; =DEVICE_SMOKE_RESULTS= selects the results tree.
 =DEVICE_SMOKE_MIN_DATA_FREE_KB= sets the pre-install free-space floor.
 =DEVICE_SMOKE_INSTALL_ATTEMPTS= bounds package-service recovery during install.
 =DEVICE_SMOKE_LAUNCH_ATTEMPTS= bounds installed-activity registration recovery.
-=DEVICE_SMOKE_PACKAGE_SERVICE_STABLE_PROBES= sets the consecutive package-service
-probe window required before an install.

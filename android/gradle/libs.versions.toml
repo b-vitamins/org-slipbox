@@ -27,6 +27,7 @@ androidx-test-espresso = "3.7.0"
 compile-sdk = "37"
 min-sdk = "23"
 target-sdk = "37"
+device-api = "36"
 build-tools = "36.0.0"
 
 # The NDK supplies the compiler, archiver and linker that cross-compile the

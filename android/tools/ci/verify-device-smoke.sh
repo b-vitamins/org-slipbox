@@ -46,7 +46,6 @@ DATA_PARTITION_MB=${DEVICE_SMOKE_DATA_PARTITION_MB:-4096}
 MIN_DATA_FREE_KB=${DEVICE_SMOKE_MIN_DATA_FREE_KB:-524288}
 INSTALL_ATTEMPTS=${DEVICE_SMOKE_INSTALL_ATTEMPTS:-3}
 LAUNCH_ATTEMPTS=${DEVICE_SMOKE_LAUNCH_ATTEMPTS:-3}
-PACKAGE_SERVICE_STABLE_PROBES=${DEVICE_SMOKE_PACKAGE_SERVICE_STABLE_PROBES:-10}
 
 case $DATA_PARTITION_MB in
 '' | *[!0-9]*) abort "DEVICE_SMOKE_DATA_PARTITION_MB must be a positive integer" ;;
@@ -68,12 +67,6 @@ case $LAUNCH_ATTEMPTS in
 esac
 [ "$LAUNCH_ATTEMPTS" -gt 0 ] ||
     abort "DEVICE_SMOKE_LAUNCH_ATTEMPTS must be a positive integer"
-case $PACKAGE_SERVICE_STABLE_PROBES in
-'' | *[!0-9]*) abort "DEVICE_SMOKE_PACKAGE_SERVICE_STABLE_PROBES must be a positive integer" ;;
-esac
-[ "$PACKAGE_SERVICE_STABLE_PROBES" -gt 0 ] ||
-    abort "DEVICE_SMOKE_PACKAGE_SERVICE_STABLE_PROBES must be a positive integer"
-
 RESULTS=${DEVICE_SMOKE_RESULTS:-$MODULE/app/build/outputs/androidTest-results/connected}
 
 avd=slipbox-ci
@@ -323,24 +316,15 @@ ask() {
 
 wait_for_package_service() {
     waited=0
-    stable=0
-    while [ "$stable" -lt "$PACKAGE_SERVICE_STABLE_PROBES" ]; do
-        if ask "cmd package path android" && echo "$value" | grep -q '^package:'; then
-            stable=$((stable + 1))
-        else
-            stable=0
-        fi
-        if [ "$stable" -lt "$PACKAGE_SERVICE_STABLE_PROBES" ]; then
-            running "$owned_emulator" ||
-                fail "the emulator exited before its package service became ready"
-            [ "$waited" -lt "$BOOT_LIMIT" ] ||
-                fail "$SERIAL package service did not become ready within $BOOT_LIMIT seconds"
-            sleep 1
-            waited=$((waited + 1))
-        fi
+    until ask "cmd package path android" && echo "$value" | grep -q '^package:'; do
+        running "$owned_emulator" ||
+            fail "the emulator exited before its package service became ready"
+        [ "$waited" -lt "$BOOT_LIMIT" ] ||
+            fail "$SERIAL package service did not become ready within $BOOT_LIMIT seconds"
+        sleep 1
+        waited=$((waited + 1))
     done
-    echo "### $SERIAL package service stable for $PACKAGE_SERVICE_STABLE_PROBES probes" \
-        "after $waited seconds"
+    echo "### $SERIAL package service ready after $waited seconds"
 }
 
 cleanup() {

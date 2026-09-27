@@ -51,6 +51,10 @@ platform_api() {
     echo "android-$(pin compile-sdk).0"
 }
 
+device_api() {
+    echo "android-$(pin device-api)"
+}
+
 # Hardware acceleration requires a guest ABI matching its host architecture.
 host_abi() {
     case $(uname -m) in
@@ -64,7 +68,7 @@ system_image() {
     host=$(host_abi)
     declared_abi_targets | grep -q "^$host:" ||
         abort "$BUILD_SCRIPT does not qualify $host, the accelerated ABI of this host"
-    echo "system-images;$(platform_api);google_apis;$host"
+    echo "system-images;$(device_api);default;$host"
 }
 
 declared_abi_targets() {
@@ -102,6 +106,7 @@ pins() {
     echo "build_tools=$(pin build-tools)"
     echo "compile_sdk=$(pin compile-sdk)"
     echo "platform=$(platform_api)"
+    echo "device_api=$(pin device-api)"
     echo "min_sdk=$(pin min-sdk)"
     echo "target_sdk=$(pin target-sdk)"
     echo "abis=$(words_of "$(echo "$abi_targets" | cut -d: -f1)")"

@@ -16,7 +16,7 @@ console_port=${DEVICE_SMOKE_CONSOLE_PORT:-5554}
 serial=emulator-$console_port
 
 avd=slipbox-ci-fixture
-image="system-images;android-37.0;google_apis;arm64-v8a"
+image="system-images;android-36;default;arm64-v8a"
 package=io.github.b_vitamins.slipbox.debug
 activity=io.github.b_vitamins.slipbox.SlipboxActivity
 test_sources="$MODULE/app/src/androidTest/kotlin/io/github/b_vitamins/slipbox/engine"
@@ -126,14 +126,6 @@ shell)
     "getprop ro.product.cpu.abi") cat "$FIXTURE/abi" ;;
     "getprop ro.build.version.sdk") cat "$FIXTURE/api" ;;
     "cmd package path android")
-        if [ -f "$FIXTURE/flap-package-service" ]; then
-            flap_calls=0
-            [ ! -f "$FIXTURE/package-flap-calls" ] ||
-                flap_calls=$(cat "$FIXTURE/package-flap-calls")
-            flap_calls=$((flap_calls + 1))
-            echo "$flap_calls" >"$FIXTURE/package-flap-calls"
-            [ "$flap_calls" -ne 2 ] || exit 20
-        fi
         if [ -f "$FIXTURE/package-service-recovering" ]; then
             recovery_calls=0
             [ ! -f "$FIXTURE/package-recovery-calls" ] ||
@@ -296,7 +288,7 @@ reset() {
     echo normal >"$fixture/devices-mode"
     echo 4096 >"$fixture/pagesize"
     echo arm64-v8a >"$fixture/abi"
-    echo 37 >"$fixture/api"
+    echo 36 >"$fixture/api"
     touch "$fixture/package-service-ready"
     printf 'Filesystem 1K-blocks Used Available Use%% Mounted on\n' \
         >"$fixture/data-filesystem"
@@ -326,7 +318,6 @@ smoke() {
         DEVICE_SMOKE_SERVER_PORT="$server_port" DEVICE_SMOKE_CONSOLE_PORT="$console_port" \
         DEVICE_SMOKE_COMMAND_LIMIT=15 DEVICE_SMOKE_BOOT_LIMIT=8 \
         DEVICE_SMOKE_LAUNCH_LIMIT=15 DEVICE_SMOKE_TEST_LIMIT=30 DEVICE_SMOKE_STOP_LIMIT=2 \
-        DEVICE_SMOKE_PACKAGE_SERVICE_STABLE_PROBES="${fixture_package_stable_probes:-1}" \
         "$SMOKE" --avd "$avd" --image "$image" --apk "$apk" --out "$out" "$@" \
         >"$work/smoke.log" 2>&1 || status=$?
 }
@@ -345,7 +336,7 @@ reset
 smoke --page-size 4096
 check "a booted device that runs every declared case passes" 0 "$status"
 check "the passing run reports the device it qualified" 1 \
-    "$(reported "^### $serial abi arm64-v8a page size 4096 api 37\$")"
+    "$(reported "^### $serial abi arm64-v8a page size 4096 api 36\$")"
 check "the passing run reports the digest of the APK it installed" 1 \
     "$(reported "^### apk sha256 $(shasum -a 256 "$apk" | cut -d' ' -f1)\$")"
 check "the emulator receives an explicit four-GiB data partition" 4096 \
@@ -353,7 +344,7 @@ check "the emulator receives an explicit four-GiB data partition" 4096 \
 check "the passing run reports install capacity" 1 \
     "$(reported "^### $serial /data has 3670016 KiB available; gate requires 524288 KiB\$")"
 check "the passing run requires the package service" 1 \
-    "$(reported "^### $serial package service stable for 1 probes after [0-9][0-9]* seconds\$")"
+    "$(reported "^### $serial package service ready after [0-9][0-9]* seconds\$")"
 check "the passing run separates the APK upload from package installation" \
     "--no-streaming -r $apk" "$(paste -sd ' ' "$fixture/install-command")"
 check "the passing run launches the activity the APK declares" \
@@ -390,17 +381,6 @@ touch "$fixture/delay-package-service"
 smoke
 check "a delayed package service is awaited before install" 0 "$status"
 check "the delayed package service eventually permits installation" 1 \
-    "$([ -f "$fixture/install-record" ] && echo 1 || echo 0)"
-
-reset
-touch "$fixture/flap-package-service"
-fixture_package_stable_probes=3
-smoke
-unset fixture_package_stable_probes
-check "a flapping package service is stabilized before install" 0 "$status"
-check "the stability window restarts after a failed probe" 5 \
-    "$(cat "$fixture/package-flap-calls")"
-check "the stabilized package service eventually permits installation" 1 \
     "$([ -f "$fixture/install-record" ] && echo 1 || echo 0)"
 
 reset
@@ -505,7 +485,7 @@ check "the mismatched device ABI is reported" 1 \
 
 reset
 smoke_image=$image
-image="system-images;android-37.0;google_apis;riscv64"
+image="system-images;android-36;default;riscv64"
 smoke
 image=$smoke_image
 check "an unqualified system image is refused" 1 "$status"
@@ -518,12 +498,12 @@ check "the unqualified image is named" 1 \
 reset
 echo x86_64 >"$fixture/abi"
 smoke_image=$image
-image="system-images;android-37.0;google_apis;x86_64"
+image="system-images;android-36;default;x86_64"
 smoke --page-size 4096
 image=$smoke_image
 check "the qualified x86_64 image and device pass the same gate" 0 "$status"
 check "the x86_64 run reports the device it qualified" 1 \
-    "$(reported "^### $serial abi x86_64 page size 4096 api 37\$")"
+    "$(reported "^### $serial abi x86_64 page size 4096 api 36\$")"
 
 reset
 printf 'Status: 0\nError: Activity not started, unable to resolve Intent\n' >"$fixture/am-start"

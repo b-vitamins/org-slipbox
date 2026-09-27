@@ -56,12 +56,12 @@ trap 'rm -rf "$work"' EXIT INT TERM
 sh "$INPUTS" >"$work/pins"
 
 check "the pinned inputs are the declared set" \
-    "abis agp build_tools compile_sdk gradle gradle_sha256 jdk kotlin min_sdk ndk platform rust rust_targets system_image target_sdk" \
+    "abis agp build_tools compile_sdk device_api gradle gradle_sha256 jdk kotlin min_sdk ndk platform rust rust_targets system_image target_sdk" \
     "$(cut -d= -f1 <"$work/pins" | sort | tr '\n' ' ' | sed 's/ $//')"
 check "every input is a step output name with a value" 0 \
     "$(grep -vc '^[a-z][a-z0-9_]*=..*$' "$work/pins" || true)"
 
-for version in jdk agp kotlin rust ndk build-tools compile-sdk min-sdk target-sdk; do
+for version in jdk agp kotlin rust ndk build-tools compile-sdk device-api min-sdk target-sdk; do
     check "$version is the version the catalog declares" "$(catalog_version "$version")" \
         "$(emitted "$(echo "$version" | tr '-' '_')")"
 done
@@ -88,8 +88,8 @@ arm64 | aarch64) accelerated=arm64-v8a ;;
 x86_64 | amd64) accelerated=x86_64 ;;
 *) accelerated="" ;;
 esac
-check "the system image is the compiled platform for this host's accelerated ABI" \
-    "system-images;$(emitted platform);google_apis;$accelerated" \
+check "the system image is the pinned device API for this host's accelerated ABI" \
+    "system-images;android-$(emitted device_api);default;$accelerated" \
     "$(emitted system_image)"
 check "the image ABI is one the build script qualifies" 1 \
     "$(emitted abis | tr ' ' '\n' | grep -cx "$accelerated" || true)"
