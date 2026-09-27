@@ -29,9 +29,10 @@ whose registration can lag the boot-complete property or restart during initial
 package installation on a fresh image. Only the missing-service and package
 binder broken-pipe results are retried, within a fixed attempt bound. The
 emulator gets an explicit 4096 MB data partition so image defaults cannot make
-APK installation nondeterministic. A successful install can precede visibility
-of its declared activity by one package-registry cycle; only that exact launch
-result receives a separate bounded retry.
+APK installation nondeterministic. APK upload and package installation run as
+separate, non-streaming steps. A successful install can precede visibility of
+its declared activity by one package-registry cycle; only that exact launch
+result receives a separate bounded reinstall and retry.
 
 * Inputs
 

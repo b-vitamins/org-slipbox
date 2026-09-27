@@ -511,24 +511,28 @@ activity=$(sed -n "s/^launchable-activity: name='\([^']*\)'.*/\1/p" "$WORK/badgi
 [ -n "$package" ] || fail "$apk declares no package name"
 [ -n "$activity" ] || fail "$apk declares no launchable activity"
 
-echo "### adb install -r $package"
-install_attempt=1
-while :; do
-    installed=0
-    adb -s "$SERIAL" install -r "$apk" >"$WORK/install" 2>&1 || installed=$?
-    sed 's/^/  /' "$WORK/install"
-    [ "$installed" -ne 0 ] || break
-    if { grep -Fq "Can't find service: package" "$WORK/install" ||
-        grep -Fq "Failure calling service package: Broken pipe" "$WORK/install"; } &&
-        [ "$install_attempt" -lt "$INSTALL_ATTEMPTS" ]; then
-        echo "### package service became unavailable during install attempt $install_attempt; retrying"
-        wait_for_package_service
-        install_attempt=$((install_attempt + 1))
-        continue
-    fi
-    fail "installing $apk exited $installed"
-done
-echo "### installed $package on attempt $install_attempt"
+install_apk() {
+    echo "### adb install --no-streaming -r $package"
+    install_attempt=1
+    while :; do
+        installed=0
+        adb -s "$SERIAL" install --no-streaming -r "$apk" >"$WORK/install" 2>&1 || installed=$?
+        sed 's/^/  /' "$WORK/install"
+        [ "$installed" -ne 0 ] || break
+        if { grep -Fq "Can't find service: package" "$WORK/install" ||
+            grep -Fq "Failure calling service package: Broken pipe" "$WORK/install"; } &&
+            [ "$install_attempt" -lt "$INSTALL_ATTEMPTS" ]; then
+            echo "### package service became unavailable during install attempt $install_attempt; retrying"
+            wait_for_package_service
+            install_attempt=$((install_attempt + 1))
+            continue
+        fi
+        fail "installing $apk exited $installed"
+    done
+    echo "### installed $package on attempt $install_attempt"
+}
+
+install_apk
 
 echo "### am start -W -n $package/$activity"
 launch_attempt=1
@@ -544,8 +548,9 @@ while :; do
     if grep -Fq 'Error type 3' "$out/launch.txt" &&
         grep -Fq "Error: Activity class {$package/$activity} does not exist." "$out/launch.txt" &&
         [ "$launch_attempt" -lt "$LAUNCH_ATTEMPTS" ]; then
-        echo "### installed activity unavailable during launch attempt $launch_attempt; retrying"
+        echo "### installed activity unavailable during launch attempt $launch_attempt; reinstalling"
         wait_for_package_service
+        install_apk
         launch_attempt=$((launch_attempt + 1))
         continue
     fi

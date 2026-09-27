@@ -65,6 +65,10 @@ case $command in
 start-server | kill-server | emu) exit 0 ;;
 install)
     echo attempt >>"$FIXTURE/install-attempts"
+    : >"$FIXTURE/install-command"
+    for argument in "$@"; do
+        echo "$argument" >>"$FIXTURE/install-command"
+    done
     if [ -f "$FIXTURE/fail-install-service-once" ]; then
         mv "$FIXTURE/fail-install-service-once" "$FIXTURE/package-service-recovering"
         echo "cmd: Can't find service: package" >&2
@@ -140,8 +144,10 @@ shell)
     "am start"*)
         echo attempt >>"$FIXTURE/launch-attempts"
         echo "$*" >"$FIXTURE/launch-record"
-        if [ -f "$FIXTURE/fail-launch-component-once" ]; then
-            rm "$FIXTURE/fail-launch-component-once"
+        if [ -f "$FIXTURE/fail-launch-component-once" ] ||
+            [ -f "$FIXTURE/fail-launch-component-always" ]; then
+            [ ! -f "$FIXTURE/fail-launch-component-once" ] ||
+                rm "$FIXTURE/fail-launch-component-once"
             echo "Error type 3"
             echo "Error: Activity class {$(cat "$FIXTURE/component")} does not exist."
             exit 1
@@ -339,6 +345,8 @@ check "the passing run reports install capacity" 1 \
     "$(reported "^### $serial /data has 3670016 KiB available; gate requires 524288 KiB\$")"
 check "the passing run requires the package service" 1 \
     "$(reported "^### $serial package service ready after [0-9][0-9]* seconds\$")"
+check "the passing run separates the APK upload from package installation" \
+    "--no-streaming -r $apk" "$(paste -sd ' ' "$fixture/install-command")"
 check "the passing run launches the activity the APK declares" \
     "am start -W -n $package/$activity" "$(cat "$fixture/launch-record")"
 check "the passing run scopes the instrumentation to the reused suites" 1 \
@@ -399,8 +407,20 @@ smoke
 check "a delayed installed activity is retried" 0 "$status"
 check "the delayed activity causes exactly one bounded retry" 2 \
     "$(wc -l <"$fixture/launch-attempts" | tr -d ' ')"
+check "the delayed activity causes exactly one bounded reinstall" 2 \
+    "$(wc -l <"$fixture/install-attempts" | tr -d ' ')"
 check "the delayed activity is named" 1 \
-    "$(reported '^### installed activity unavailable during launch attempt 1; retrying$')"
+    "$(reported '^### installed activity unavailable during launch attempt 1; reinstalling$')"
+
+reset
+touch "$fixture/fail-launch-component-always"
+smoke
+check "a permanently absent installed activity fails the gate" 1 "$status"
+check "the absent activity exhausts the bounded launch attempts" 3 \
+    "$(wc -l <"$fixture/launch-attempts" | tr -d ' ')"
+check "the absent activity causes only bounded reinstalls" 3 \
+    "$(wc -l <"$fixture/install-attempts" | tr -d ' ')"
+check "the absent activity reaches no pass" 0 "$(reported '^PASS ')"
 
 # Simulate a packaged-library load failure in both instrumentation and logcat.
 reset
