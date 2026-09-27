@@ -54,6 +54,11 @@ fn argument_entries() -> Vec<(&'static str, Entry)> {
         ("nativeRunFixtureProbe", |env, argument| unsafe {
             jni_seam::Java_io_github_b_1vitamins_slipbox_engine_SlipboxNativeEngine_nativeRunFixtureProbe(env, THIS, argument)
         }),
+        ("nativeMaterialize", |env, argument| unsafe {
+            jni_seam::Java_io_github_b_1vitamins_slipbox_git_SlipboxNativeGit_nativeMaterialize(
+                env, THIS, argument,
+            )
+        }),
     ]
 }
 
@@ -74,6 +79,15 @@ fn argument_of(entry: &str, probe: &TempDir) -> Vec<u8> {
     let binding = json!({"source": SOURCE, "generation": GENERATION});
     let request = match entry {
         "nativeRunFixtureProbe" => return text(probe.path()).into_bytes(),
+        "nativeMaterialize" => json!({
+            "version": 1,
+            "operation": 1,
+            "source": "invalid",
+            "repository": "/private/repository.git",
+            "revision": "0123456789abcdef0123456789abcdef01234567",
+            "notes_folder": "",
+            "snapshot": "/private/snapshot",
+        }),
         "nativeCloseSession" => json!({
             "version": ADAPTER_PROTOCOL_VERSION,
             "handle": 0,
@@ -255,7 +269,12 @@ fn every_entry_point_answers_through_this_boundary() {
             assert_eq!(answered["passed"], true, "{answered}");
         } else {
             assert_eq!(answered["outcome"], "refused", "{answered}");
-            assert_eq!(answered["reason"], "unknown-handle", "{answered}");
+            let reason = if name == "nativeMaterialize" {
+                "malformed-request"
+            } else {
+                "unknown-handle"
+            };
+            assert_eq!(answered["reason"], reason, "{answered}");
         }
         assert_eq!(
             trace(),

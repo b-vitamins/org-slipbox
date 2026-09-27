@@ -3,6 +3,10 @@
 //! The transport keeps a bare object store. It does not materialize repository
 //! files, run repository programs, consult credential helpers, or expose push.
 
+mod snapshot;
+
+pub use snapshot::*;
+
 use std::fmt;
 use std::fs;
 use std::num::NonZeroU32;

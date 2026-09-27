@@ -7,6 +7,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Materialize exact fetched Git revisions into immutable, source-owned Android
+  snapshot candidates using Rust object reads rather than checkout machinery.
+  Bound entry/file/disk use, confine paths and symlinks to the repository, keep
+  supported assets available outside the notes folder, and report encrypted
+  Org, invalid encodings, oversized files, submodules, LFS pointers and filters
+  without executing repository content. See `doc/android-git.org`.
 - Clone and fetch bounded public HTTPS and authenticated private GitHub sources
   on Android through a read-only Rust Git transport. Credentials cross JNI
   separately from request documents, cancellation and coarse progress are

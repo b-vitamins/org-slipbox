@@ -38,6 +38,37 @@ sealed interface GitSynchronizationOutcome {
     data class ContractFailed(val fault: GitContractFault) : GitSynchronizationOutcome
 }
 
+/** One exact fetched revision and its immutable candidate destination. */
+class GitMaterialization(
+    val operation: Long,
+    val source: String,
+    val repository: File,
+    val revision: String,
+    val notesFolder: String,
+    val snapshot: File,
+) {
+
+    override fun toString(): String = "GitMaterialization($operation)"
+}
+
+sealed interface GitMaterializationOutcome {
+
+    data class Materialized(
+        val disposition: GitSnapshotDisposition,
+        val revision: String,
+        val entries: Long,
+        val files: Long,
+        val orgFiles: Long,
+        val assets: Long,
+        val bytes: Long,
+        val diagnostics: List<GitSnapshotDiagnostic>,
+    ) : GitMaterializationOutcome
+
+    data class Refused(val reason: GitRefusalReason) : GitMaterializationOutcome
+
+    data class ContractFailed(val fault: GitContractFault) : GitMaterializationOutcome
+}
+
 enum class GitAccessRefusal {
     REAUTHORIZE,
     UNCOMMITTED,
@@ -94,6 +125,66 @@ class GitRepositoryTransport internal constructor(
     /** This is deliberately safe to call from the foreground thread. */
     fun cancel(operation: Long): Boolean = operation > 0 && seam.cancel(operation)
 
+    /** Blocking object-to-filesystem materialization, with no network or credential access. */
+    fun materialize(request: GitMaterialization): GitMaterializationOutcome {
+        if (foreground.isCurrent()) {
+            return GitMaterializationOutcome.ContractFailed(GitContractFault.FOREGROUND_REFUSED)
+        }
+        val encoded =
+            GitWire.encode(
+                GitMaterializeRequest(
+                    operation = request.operation,
+                    source = request.source,
+                    repository = request.repository.absolutePath,
+                    revision = request.revision,
+                    notesFolder = request.notesFolder,
+                    snapshot = request.snapshot.absolutePath,
+                ),
+            )
+        if (encoded.size > MAX_GIT_REQUEST_BYTES) {
+            return GitMaterializationOutcome.ContractFailed(GitContractFault.REQUEST_OVERSIZED)
+        }
+        val answer =
+            seam.materialize(encoded)
+                ?: return GitMaterializationOutcome.ContractFailed(GitContractFault.NO_ANSWER)
+        if (answer.size > MAX_GIT_RESPONSE_BYTES) {
+            return GitMaterializationOutcome.ContractFailed(GitContractFault.RESPONSE_OVERSIZED)
+        }
+        val response =
+            try {
+                GitWire.decode(answer)
+            } catch (failure: GitContractException) {
+                return GitMaterializationOutcome.ContractFailed(failure.fault)
+            }
+        if (response.version != GIT_PROTOCOL_VERSION) {
+            return GitMaterializationOutcome.ContractFailed(GitContractFault.UNSUPPORTED_VERSION)
+        }
+        return when (response) {
+            is GitResponse.Refused -> GitMaterializationOutcome.Refused(response.reason)
+            is GitResponse.Fetched ->
+                GitMaterializationOutcome.ContractFailed(GitContractFault.UNEXPECTED_OUTCOME)
+            is GitResponse.Materialized -> {
+                when {
+                    response.operation != request.operation ->
+                        GitMaterializationOutcome.ContractFailed(GitContractFault.FOREIGN_OPERATION)
+                    response.revision != request.revision ->
+                        GitMaterializationOutcome.ContractFailed(GitContractFault.FOREIGN_REVISION)
+                    else ->
+                        GitMaterializationOutcome.Materialized(
+                            response.disposition,
+                            response.revision,
+                            response.entries,
+                            response.files,
+                            response.orgFiles,
+                            response.assets,
+                            response.bytes,
+                            response.diagnostics,
+                        )
+                }
+            }
+        }
+    }
+
     private fun synchronize(
         request: GitSynchronization,
         credential: ByteArray?,
@@ -127,6 +218,8 @@ class GitRepositoryTransport internal constructor(
         }
         return when (response) {
             is GitResponse.Refused -> GitSynchronizationOutcome.Refused(response.reason)
+            is GitResponse.Materialized ->
+                GitSynchronizationOutcome.ContractFailed(GitContractFault.UNEXPECTED_OUTCOME)
             is GitResponse.Fetched -> {
                 if (response.operation != request.operation) {
                     GitSynchronizationOutcome.ContractFailed(GitContractFault.FOREIGN_OPERATION)

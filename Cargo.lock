@@ -2652,6 +2652,8 @@ name = "slipbox-git"
 version = "0.18.0"
 dependencies = [
  "gix",
+ "serde",
+ "serde_json",
  "slipbox-core",
  "tempfile",
  "thiserror",

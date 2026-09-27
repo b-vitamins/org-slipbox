@@ -18,6 +18,8 @@ internal class GitJourneyReport {
 
     var publicClone: Boolean = false
 
+    var publicMaterialized: Boolean = false
+
     var privateClone: Boolean = false
 
     var authenticatedFetch: Boolean = false
@@ -33,11 +35,13 @@ internal class GitJourneyReport {
                 tokenRenewed &&
                 renewalCommitted &&
                 publicClone &&
+                publicMaterialized &&
                 privateClone &&
                 authenticatedFetch &&
                 ownedCleanup
 
-    fun summary(): String = "${if (passed) "PASS" else "FAIL"} live-git private clone/fetch"
+    fun summary(): String =
+        "${if (passed) "PASS" else "FAIL"} live-git clone/materialize/fetch"
 
     fun json(): String =
         Record()
@@ -45,6 +49,7 @@ internal class GitJourneyReport {
             .flag("tokenRenewed", tokenRenewed)
             .flag("renewalCommitted", renewalCommitted)
             .flag("publicClone", publicClone)
+            .flag("publicMaterialized", publicMaterialized)
             .flag("privateClone", privateClone)
             .flag("authenticatedFetch", authenticatedFetch)
             .flag("ownedCleanup", ownedCleanup)

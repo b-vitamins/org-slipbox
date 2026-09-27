@@ -5,8 +5,9 @@
 The Android Git transport clones public HTTPS repositories and fetches public or
 authenticated GitHub repositories without a Git executable on the device. It is
 read-only: it creates and updates a bare object store and exposes no push or
-remote-write operation. Source selection, worktree materialization, indexing and
-reader activation remain separate orchestration work.
+remote-write operation. Exact fetched revisions can then be materialized into
+immutable source-owned candidate snapshots. Source selection, indexing,
+publication and reader activation remain separate orchestration work.
 
 The implementation is =slipbox-git=. Android owns operation lifetime and
 cancellation in =slipbox-android=; versioned transport documents stay in
@@ -55,6 +56,58 @@ is a closed transport fault rather than a network attempt.
 There is deliberately no push, commit, merge, checkout mutation or remote-write
 API in this crate or JNI surface.
 
+* Snapshot Materialization
+
+Materialization reads an exact 40-character fetched commit identifier through
+=gix='s object database. It does not invoke checkout, the Git executable, hooks,
+credential helpers, clean or smudge filters, submodule commands, LFS helpers,
+decryptors or any repository-provided program. Executable blobs that are
+eligible content become mode-600 ordinary files.
+
+Each candidate has this private layout:
+
+#+begin_example
+SNAPSHOT/
+  snapshot.json
+  content/
+    REPOSITORY PATHS...
+#+end_example
+
+The manifest binds format version 1, source identity, revision, notes folder,
+counts, byte size and bounded diagnostics. An existing destination is accepted
+only when that ownership tuple matches exactly; another source or revision can
+never replace it. A new candidate is built in a mode-700 sibling temporary
+directory and renamed into place only after its content and manifest are
+complete. Cancellation, storage failure, malformed objects and exhausted total
+budgets remove the temporary candidate and do not touch any existing snapshot.
+Publication remains the later coherent source/index generation boundary.
+
+Plain UTF-8 =.org= files are admitted only below the selected notes folder.
+PNG, JPEG, GIF, WebP and UTF-8 text assets are admitted anywhere within the
+repository so a note can resolve a repository-contained =../assets/...= target.
+No path can leave =content/=. Valid in-repository Git symlinks are resolved from
+the committed tree and copied as ordinary files or directories; absolute,
+escaping, missing and cyclic links are omitted with explicit diagnostics. The
+snapshot never contains a filesystem symlink.
+
+The production bounds are 100,000 inspected entries, 64 diagnostics, 1,024
+bytes per repository-relative path, 64 tree levels, 8 MiB per Org file, 32 MiB
+per asset and 512 MiB of materialized bytes. Commit, tree, attributes and
+symlink objects have separate read-before-decode bounds. A caller may lower the
+entry/file/total limits but cannot raise them.
+
+Encrypted Org, invalid text encoding or format, per-file oversize, Git
+submodules, unresolved LFS pointers and external filter declarations are left
+out and named in the source-bound manifest. Files outside the supported note and
+asset policy are not source inputs and are not copied. A diagnostic budget that
+cannot name every exception fails the candidate rather than silently truncating
+the report.
+
+Android calls this operation through the versioned =nativeMaterialize= byte-array
+boundary. It carries no credential and shares the bounded operation identity and
+cancellation registry with clone/fetch. Kotlin refuses foreground execution and
+checks the returned operation and revision before accepting the result.
+
 * Qualification
 
 =slipbox-git='s tests serve real Git smart HTTP through a loopback CGI fixture.
@@ -68,9 +121,10 @@ given to the actual native-call seam and that its temporary byte array is then
 cleared. The APK build additionally proves the Android-only TLS initializer,
 version-matched verifier AAR, JNI export inventory and both native ABIs.
 
-An explicit device journey proves the remaining network path against real
-GitHub. It clones this project's public repository without a credential, feeds a
-locally supplied private credential through the production renewal owner into a
+An explicit device journey proves the remaining network and filesystem path
+against real GitHub. It clones this project's public repository without a
+credential, materializes that exact revision in application-private storage,
+feeds a locally supplied private credential through the production renewal owner into a
 native authenticated clone, and repeats the authenticated fetch. The credential
 is staged over standard input into an application-private mode-600 file, is
 absent from instrumentation arguments and Git URLs, and is deleted before the

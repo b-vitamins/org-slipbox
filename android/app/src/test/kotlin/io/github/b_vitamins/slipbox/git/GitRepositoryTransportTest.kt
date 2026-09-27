@@ -122,6 +122,69 @@ class GitRepositoryTransportTest {
         assertEquals(listOf(OPERATION), seam.cancelled)
     }
 
+    @Test
+    fun snapshotMaterializationIsSourceBoundCredentialFreeAndOffMain() {
+        val seam = RecordingGitSeam(materialized(OPERATION))
+        val transport = GitRepositoryTransport(seam, ForegroundThread.None)
+        val request = materialization()
+
+        assertEquals(
+            GitMaterializationOutcome.Materialized(
+                GitSnapshotDisposition.CREATED,
+                REVISION,
+                entries = 7,
+                files = 3,
+                orgFiles = 1,
+                assets = 2,
+                bytes = 99,
+                diagnostics =
+                    listOf(
+                        GitSnapshotDiagnostic(
+                            "notes/locked.org.gpg",
+                            GitSnapshotDiagnosticReason.ENCRYPTED_ORG,
+                        ),
+                    ),
+            ),
+            transport.materialize(request),
+        )
+        val document = requireNotNull(seam.request).toString(Charsets.UTF_8)
+        assertTrue(document.contains("\"source\":\"$SOURCE\""))
+        assertTrue(document.contains("\"notes_folder\":\"notes\""))
+        assertFalse(document.contains("credential"))
+        assertNull(seam.credential)
+
+        val foreground = RecordingGitSeam(materialized(OPERATION))
+        assertEquals(
+            GitMaterializationOutcome.ContractFailed(GitContractFault.FOREGROUND_REFUSED),
+            GitRepositoryTransport(foreground, ForegroundThread { true })
+                .materialize(request),
+        )
+        assertNull(foreground.request)
+    }
+
+    @Test
+    fun materializationRejectsForeignRevisionAndFetchOutcomes() {
+        val foreign =
+            RecordingGitSeam(
+                materialized(
+                    OPERATION,
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                ),
+            )
+        assertEquals(
+            GitMaterializationOutcome.ContractFailed(GitContractFault.FOREIGN_REVISION),
+            GitRepositoryTransport(foreign, ForegroundThread.None)
+                .materialize(materialization()),
+        )
+
+        val fetched = RecordingGitSeam(fetched(OPERATION))
+        assertEquals(
+            GitMaterializationOutcome.ContractFailed(GitContractFault.UNEXPECTED_OUTCOME),
+            GitRepositoryTransport(fetched, ForegroundThread.None)
+                .materialize(materialization()),
+        )
+    }
+
     private fun request(): GitSynchronization =
         GitSynchronization(
             operation = OPERATION,
@@ -130,13 +193,28 @@ class GitRepositoryTransportTest {
             repository = temporary.root.resolve("notes.git"),
         )
 
+    private fun materialization(): GitMaterialization =
+        GitMaterialization(
+            operation = OPERATION,
+            source = SOURCE,
+            repository = temporary.root.resolve("notes.git"),
+            revision = REVISION,
+            notesFolder = "notes",
+            snapshot = temporary.root.resolve("snapshots/revision"),
+        )
+
     private companion object {
 
         const val OPERATION = 41L
         const val REVISION = "0123456789abcdef0123456789abcdef01234567"
+        const val SOURCE = "0123456789abcdef0123456789abcdef"
 
         fun fetched(operation: Long): ByteArray =
             """{"version":1,"outcome":"fetched","operation":$operation,"disposition":"cloned","revision":"$REVISION","received_objects":17}"""
+                .toByteArray(Charsets.UTF_8)
+
+        fun materialized(operation: Long, revision: String = REVISION): ByteArray =
+            """{"version":1,"outcome":"materialized","operation":$operation,"disposition":"created","revision":"$revision","entries":7,"files":3,"org_files":1,"assets":2,"bytes":99,"diagnostics":[{"path":"notes/locked.org.gpg","reason":"encrypted-org"}]}"""
                 .toByteArray(Charsets.UTF_8)
     }
 }
@@ -155,6 +233,11 @@ private class RecordingGitSeam(
         this.request = request.copyOf()
         this.credential = credential
         credentialText = credential?.toString(Charsets.UTF_8)
+        return answer
+    }
+
+    override fun materialize(request: ByteArray): ByteArray? {
+        this.request = request.copyOf()
         return answer
     }
 

@@ -18,7 +18,7 @@ import java.nio.charset.CodingErrorAction
 
 internal const val GIT_PROTOCOL_VERSION: Int = 1
 internal const val MAX_GIT_REQUEST_BYTES: Int = 16 * 1024
-internal const val MAX_GIT_RESPONSE_BYTES: Int = 4 * 1024
+internal const val MAX_GIT_RESPONSE_BYTES: Int = 96 * 1024
 
 @Serializable
 internal data class GitRequest(
@@ -26,6 +26,17 @@ internal data class GitRequest(
     val remote: String,
     val branch: String,
     val repository: String,
+    val version: Int = GIT_PROTOCOL_VERSION,
+)
+
+@Serializable
+internal data class GitMaterializeRequest(
+    val operation: Long,
+    val source: String,
+    val repository: String,
+    val revision: String,
+    @SerialName("notes_folder") val notesFolder: String,
+    val snapshot: String,
     val version: Int = GIT_PROTOCOL_VERSION,
 )
 
@@ -43,6 +54,21 @@ internal sealed class GitResponse {
         val disposition: GitDisposition,
         val revision: String,
         @SerialName("received_objects") val receivedObjects: Long,
+    ) : GitResponse()
+
+    @Serializable
+    @SerialName("materialized")
+    data class Materialized(
+        override val version: Int,
+        val operation: Long,
+        val disposition: GitSnapshotDisposition,
+        val revision: String,
+        val entries: Long,
+        val files: Long,
+        @SerialName("org_files") val orgFiles: Long,
+        val assets: Long,
+        val bytes: Long,
+        val diagnostics: List<GitSnapshotDiagnostic>,
     ) : GitResponse()
 
     @Serializable
@@ -66,6 +92,54 @@ enum class GitDisposition {
 }
 
 @Serializable
+enum class GitSnapshotDisposition {
+    @SerialName("created")
+    CREATED,
+
+    @SerialName("existing")
+    EXISTING,
+}
+
+@Serializable
+data class GitSnapshotDiagnostic(
+    val path: String,
+    val reason: GitSnapshotDiagnosticReason,
+)
+
+@Serializable
+enum class GitSnapshotDiagnosticReason {
+    @SerialName("encrypted-org")
+    ENCRYPTED_ORG,
+
+    @SerialName("unsupported-encoding")
+    UNSUPPORTED_ENCODING,
+
+    @SerialName("unsupported-format")
+    UNSUPPORTED_FORMAT,
+
+    @SerialName("oversized-input")
+    OVERSIZED_INPUT,
+
+    @SerialName("submodule")
+    SUBMODULE,
+
+    @SerialName("lfs-pointer")
+    LFS_POINTER,
+
+    @SerialName("external-filter")
+    EXTERNAL_FILTER,
+
+    @SerialName("symlink-escapes")
+    SYMLINK_ESCAPES,
+
+    @SerialName("symlink-cycle")
+    SYMLINK_CYCLE,
+
+    @SerialName("symlink-unavailable")
+    SYMLINK_UNAVAILABLE,
+}
+
+@Serializable
 enum class GitRefusalReason {
     @SerialName("unsupported-version")
     UNSUPPORTED_VERSION,
@@ -85,6 +159,12 @@ enum class GitRefusalReason {
     @SerialName("destination-refused")
     DESTINATION_REFUSED,
 
+    @SerialName("destination-occupied")
+    DESTINATION_OCCUPIED,
+
+    @SerialName("storage-boundary")
+    STORAGE_BOUNDARY,
+
     @SerialName("credential-refused")
     CREDENTIAL_REFUSED,
 
@@ -103,6 +183,30 @@ enum class GitRefusalReason {
     @SerialName("transport-failed")
     TRANSPORT_FAILED,
 
+    @SerialName("ownership-mismatch")
+    OWNERSHIP_MISMATCH,
+
+    @SerialName("revision-refused")
+    REVISION_REFUSED,
+
+    @SerialName("revision-unavailable")
+    REVISION_UNAVAILABLE,
+
+    @SerialName("notes-folder-unavailable")
+    NOTES_FOLDER_UNAVAILABLE,
+
+    @SerialName("unsafe-path")
+    UNSAFE_PATH,
+
+    @SerialName("object-invalid")
+    OBJECT_INVALID,
+
+    @SerialName("input-exhausted")
+    INPUT_EXHAUSTED,
+
+    @SerialName("diagnostics-exhausted")
+    DIAGNOSTICS_EXHAUSTED,
+
     @SerialName("encoding-failed")
     ENCODING_FAILED,
 
@@ -120,6 +224,8 @@ enum class GitContractFault {
     MALFORMED,
     UNSUPPORTED_VERSION,
     FOREIGN_OPERATION,
+    FOREIGN_REVISION,
+    UNEXPECTED_OUTCOME,
 }
 
 internal object GitWire {
@@ -134,6 +240,9 @@ internal object GitWire {
 
     fun encode(request: GitRequest): ByteArray =
         json.encodeToString(GitRequest.serializer(), request).toByteArray(Charsets.UTF_8)
+
+    fun encode(request: GitMaterializeRequest): ByteArray =
+        json.encodeToString(GitMaterializeRequest.serializer(), request).toByteArray(Charsets.UTF_8)
 
     fun decode(answer: ByteArray): GitResponse {
         val decoder =

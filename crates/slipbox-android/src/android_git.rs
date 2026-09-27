@@ -5,11 +5,15 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use slipbox_core::{GitBranch, RemoteUrl};
-use slipbox_git::{AccessToken, FetchDisposition, FetchRequest, GitError, synchronize};
+use slipbox_core::{GitBranch, NotesFolder, RemoteUrl, SourceId};
+use slipbox_git::{
+    AccessToken, FetchDisposition, FetchRequest, GitError, SnapshotDiagnosticReason,
+    SnapshotDisposition, SnapshotError, SnapshotRequest, materialize, synchronize,
+};
 use slipbox_rpc::android_git::{
-    GitDisposition, GitFetched, GitOutcome, GitRefusalReason, GitResponse, decode_git_request,
-    encode_git_response,
+    GitDisposition, GitFetched, GitMaterialized, GitOutcome, GitRefusalReason, GitResponse,
+    GitSnapshotDiagnostic, GitSnapshotDiagnosticReason, GitSnapshotDisposition, decode_git_request,
+    decode_materialize_request, encode_git_response,
 };
 
 const MAX_ACTIVE_OPERATIONS: usize = 8;
@@ -61,6 +65,66 @@ pub fn serve_synchronize(request: &[u8], credential: Option<Vec<u8>>) -> Vec<u8>
     }
 }
 
+/// Materialize one exact fetched revision into an immutable source-owned
+/// candidate snapshot. No credential participates in this operation.
+#[must_use]
+pub fn serve_materialize(request: &[u8]) -> Vec<u8> {
+    let request = match decode_materialize_request(request) {
+        Ok(request) => request,
+        Err(reason) => return refused(reason),
+    };
+    let source = match SourceId::parse(&request.source) {
+        Ok(source) => source,
+        Err(_) => return refused(GitRefusalReason::MalformedRequest),
+    };
+    let notes_folder = match NotesFolder::parse(&request.notes_folder) {
+        Ok(notes_folder) => notes_folder,
+        Err(_) => return refused(GitRefusalReason::MalformedRequest),
+    };
+    let snapshot = match SnapshotRequest::new(
+        source,
+        PathBuf::from(&request.repository),
+        &request.revision,
+        notes_folder,
+        PathBuf::from(&request.snapshot),
+    ) {
+        Ok(snapshot) => snapshot,
+        Err(error) => return refused(map_snapshot_error(error)),
+    };
+    let operation = request.operation;
+    let active = match operations().begin(operation) {
+        Ok(active) => active,
+        Err(reason) => return refused(reason),
+    };
+    let outcome = materialize(&snapshot, active.cancelled(), |_| {});
+    match outcome {
+        Ok(outcome) => encode_git_response(&GitResponse::new(GitOutcome::Materialized(
+            GitMaterialized {
+                operation,
+                disposition: match outcome.disposition {
+                    SnapshotDisposition::Created => GitSnapshotDisposition::Created,
+                    SnapshotDisposition::Existing => GitSnapshotDisposition::Existing,
+                },
+                revision: outcome.revision,
+                entries: outcome.entries,
+                files: outcome.files,
+                org_files: outcome.org_files,
+                assets: outcome.assets,
+                bytes: outcome.bytes,
+                diagnostics: outcome
+                    .diagnostics
+                    .into_iter()
+                    .map(|diagnostic| GitSnapshotDiagnostic {
+                        path: diagnostic.path,
+                        reason: map_diagnostic(diagnostic.reason),
+                    })
+                    .collect(),
+            },
+        ))),
+        Err(error) => refused(map_snapshot_error(error)),
+    }
+}
+
 /// Request cancellation of one active operation. Unknown and already-finished
 /// identities are defined as `false`.
 #[must_use]
@@ -85,6 +149,47 @@ fn map_error(error: GitError) -> GitRefusalReason {
         GitError::RepositoryInvalid => GitRefusalReason::RepositoryInvalid,
         GitError::BranchUnavailable => GitRefusalReason::BranchUnavailable,
         GitError::TransportFailed => GitRefusalReason::TransportFailed,
+    }
+}
+
+fn map_snapshot_error(error: SnapshotError) -> GitRefusalReason {
+    match error {
+        SnapshotError::LimitsRefused => GitRefusalReason::OutOfBounds,
+        SnapshotError::DestinationRefused => GitRefusalReason::DestinationRefused,
+        SnapshotError::DestinationOccupied => GitRefusalReason::DestinationOccupied,
+        SnapshotError::StorageBoundary => GitRefusalReason::StorageBoundary,
+        SnapshotError::OwnershipMismatch => GitRefusalReason::OwnershipMismatch,
+        SnapshotError::RepositoryInvalid => GitRefusalReason::RepositoryInvalid,
+        SnapshotError::RevisionRefused => GitRefusalReason::RevisionRefused,
+        SnapshotError::RevisionUnavailable => GitRefusalReason::RevisionUnavailable,
+        SnapshotError::NotesFolderUnavailable => GitRefusalReason::NotesFolderUnavailable,
+        SnapshotError::UnsafePath => GitRefusalReason::UnsafePath,
+        SnapshotError::ObjectInvalid => GitRefusalReason::ObjectInvalid,
+        SnapshotError::InputExhausted => GitRefusalReason::InputExhausted,
+        SnapshotError::DiagnosticsExhausted => GitRefusalReason::DiagnosticsExhausted,
+        SnapshotError::Cancelled => GitRefusalReason::Cancelled,
+        SnapshotError::StorageFailed => GitRefusalReason::StorageFailed,
+    }
+}
+
+fn map_diagnostic(reason: SnapshotDiagnosticReason) -> GitSnapshotDiagnosticReason {
+    match reason {
+        SnapshotDiagnosticReason::EncryptedOrg => GitSnapshotDiagnosticReason::EncryptedOrg,
+        SnapshotDiagnosticReason::UnsupportedEncoding => {
+            GitSnapshotDiagnosticReason::UnsupportedEncoding
+        }
+        SnapshotDiagnosticReason::UnsupportedFormat => {
+            GitSnapshotDiagnosticReason::UnsupportedFormat
+        }
+        SnapshotDiagnosticReason::OversizedInput => GitSnapshotDiagnosticReason::OversizedInput,
+        SnapshotDiagnosticReason::Submodule => GitSnapshotDiagnosticReason::Submodule,
+        SnapshotDiagnosticReason::LfsPointer => GitSnapshotDiagnosticReason::LfsPointer,
+        SnapshotDiagnosticReason::ExternalFilter => GitSnapshotDiagnosticReason::ExternalFilter,
+        SnapshotDiagnosticReason::SymlinkEscapes => GitSnapshotDiagnosticReason::SymlinkEscapes,
+        SnapshotDiagnosticReason::SymlinkCycle => GitSnapshotDiagnosticReason::SymlinkCycle,
+        SnapshotDiagnosticReason::SymlinkUnavailable => {
+            GitSnapshotDiagnosticReason::SymlinkUnavailable
+        }
     }
 }
 

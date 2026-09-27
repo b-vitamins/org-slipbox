@@ -9,7 +9,10 @@ qualifies the packaged engine on a device. The probe indexes a synthetic Org roo
 in application-private storage, queries notes, sources and glossary terms, drops
 the service, reopens the same durable database and reports every result as JSON.
 
-No credential path, Git source or note rendering exists in this library;
+The same library exposes separate bounded Git clone/fetch and snapshot
+materialization entry points. Credentials exist only in the one-call Git
+transport path and never enter an engine session or snapshot request; the
+reader-session adapter still owns neither source orchestration nor note rendering.
 [[file:android.org][doc/android.org]] states the reader contract those must satisfy.
 [[file:android-build.org][doc/android-build.org]] covers the Compose shell, pins and locks.
 

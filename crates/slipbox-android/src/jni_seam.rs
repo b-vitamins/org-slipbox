@@ -31,7 +31,7 @@ use crate::adapter::{
     Refusable, Served, contained, serve_close, serve_contract, serve_maintenance, serve_open,
     serve_read, sessions,
 };
-use crate::android_git::{cancel, serve_synchronize};
+use crate::android_git::{cancel, serve_materialize, serve_synchronize};
 use crate::probe::{ProbeReport, run_fixture_probe};
 
 const ENCODE_FAILURE: &[u8] = br#"{"passed":false,"checks":[],"failure":{"stage":"encode","detail":"the probe report did not encode"}}"#;
@@ -113,6 +113,34 @@ pub unsafe extern "system" fn Java_io_github_b_1vitamins_slipbox_git_SlipboxNati
     let response =
         panic::catch_unwind(AssertUnwindSafe(|| serve_synchronize(&request, credential)))
             .unwrap_or_else(|_| git_refusal(GitRefusalReason::Panicked));
+    unsafe { new_byte_array(env, &response) }
+}
+
+/// Materialize one fetched revision into an immutable candidate snapshot.
+///
+/// # Safety
+///
+/// `request` must be a JVM byte-array reference owned by the calling thread.
+#[allow(non_snake_case)]
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_io_github_b_1vitamins_slipbox_git_SlipboxNativeGit_nativeMaterialize(
+    env: *mut JNIEnv,
+    _this: jobject,
+    request: jbyteArray,
+) -> jbyteArray {
+    let request = match unsafe { read_git_request(env, request) } {
+        Argument::Bytes(request) => request,
+        Argument::Refused(refusal) => {
+            let reason = match refusal.reason {
+                RefusalReason::OutOfBounds => GitRefusalReason::OutOfBounds,
+                _ => GitRefusalReason::MalformedRequest,
+            };
+            return unsafe { new_byte_array(env, &git_refusal(reason)) };
+        }
+        Argument::Pending => return ptr::null_mut(),
+    };
+    let response = panic::catch_unwind(AssertUnwindSafe(|| serve_materialize(&request)))
+        .unwrap_or_else(|_| git_refusal(GitRefusalReason::Panicked));
     unsafe { new_byte_array(env, &response) }
 }
 

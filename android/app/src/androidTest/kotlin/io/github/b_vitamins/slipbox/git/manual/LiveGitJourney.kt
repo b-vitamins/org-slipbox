@@ -17,7 +17,10 @@ import io.github.b_vitamins.slipbox.auth.renewal.CredentialRenewalOwner
 import io.github.b_vitamins.slipbox.auth.renewal.RenewalRequest
 import io.github.b_vitamins.slipbox.auth.renewal.SlipboxRenewalStorage
 import io.github.b_vitamins.slipbox.git.GitDisposition
+import io.github.b_vitamins.slipbox.git.GitMaterialization
+import io.github.b_vitamins.slipbox.git.GitMaterializationOutcome
 import io.github.b_vitamins.slipbox.git.GitRepositoryTransport
+import io.github.b_vitamins.slipbox.git.GitSnapshotDisposition
 import io.github.b_vitamins.slipbox.git.GitSynchronization
 import io.github.b_vitamins.slipbox.git.GitSynchronizationOutcome
 import io.github.b_vitamins.slipbox.security.ForegroundThread
@@ -102,6 +105,28 @@ class LiveGitJourney : Instrumentation() {
                 report.refusal = classify("public", public)
                 return
             }
+            val publicRevision = (public as GitSynchronizationOutcome.Fetched).revision
+            val materialized =
+                transport.materialize(
+                    GitMaterialization(
+                        operation = operation(),
+                        source = SNAPSHOT_SOURCE_ID,
+                        repository = File(repositoryRoot, PUBLIC_REPOSITORY_NAME),
+                        revision = publicRevision,
+                        notesFolder = "",
+                        snapshot = File(repositoryRoot, PUBLIC_SNAPSHOT_NAME),
+                    ),
+                )
+            report.publicMaterialized =
+                materialized is GitMaterializationOutcome.Materialized &&
+                    materialized.disposition == GitSnapshotDisposition.CREATED &&
+                    materialized.revision == publicRevision &&
+                    materialized.orgFiles > 0 &&
+                    materialized.files >= materialized.orgFiles
+            if (!report.publicMaterialized) {
+                report.refusal = classify("materialize", materialized)
+                return
+            }
             val repository = File(repositoryRoot, PRIVATE_REPOSITORY_NAME)
             val first =
                 transport.synchronize(
@@ -152,6 +177,16 @@ class LiveGitJourney : Instrumentation() {
             is GitSynchronizationOutcome.AccessRefused ->
                 "$stage-${outcome.reason.name.lowercase()}"
             is GitSynchronizationOutcome.ContractFailed ->
+                "$stage-${outcome.fault.name.lowercase()}"
+        }
+
+    private fun classify(stage: String, outcome: GitMaterializationOutcome): String =
+        when (outcome) {
+            is GitMaterializationOutcome.Materialized ->
+                "$stage-${outcome.disposition.name.lowercase()}"
+            is GitMaterializationOutcome.Refused ->
+                "$stage-${outcome.reason.name.lowercase()}"
+            is GitMaterializationOutcome.ContractFailed ->
                 "$stage-${outcome.fault.name.lowercase()}"
         }
 
@@ -261,10 +296,12 @@ class LiveGitJourney : Instrumentation() {
         const val BRANCH_FILE = "branch"
         const val REPOSITORY_ROOT_NAME = "live-git"
         const val PUBLIC_REPOSITORY_NAME = "public.git"
+        const val PUBLIC_SNAPSHOT_NAME = "public-snapshot"
         const val PRIVATE_REPOSITORY_NAME = "private.git"
         const val PUBLIC_REMOTE = "https://github.com/b-vitamins/org-slipbox.git"
         const val PUBLIC_BRANCH = "master"
         const val SOURCE_ID = "live-git-source"
+        const val SNAPSHOT_SOURCE_ID = "0123456789abcdef0123456789abcdef"
         const val ACCOUNT_ID = "1"
         const val LOGIN = "live-git"
         const val CREDENTIAL_REF = "live-git-credential"

@@ -53,7 +53,12 @@ const JNI_METHODS: &[&str] = &[
     "nativeRunFixtureProbe",
 ];
 
-const GIT_JNI_METHODS: &[&str] = &["nativeCancel", "nativeInitialize", "nativeSynchronize"];
+const GIT_JNI_METHODS: &[&str] = &[
+    "nativeCancel",
+    "nativeInitialize",
+    "nativeMaterialize",
+    "nativeSynchronize",
+];
 
 #[test]
 fn the_android_package_consumes_the_engine_and_no_desktop_adapter() {

@@ -4,7 +4,7 @@
 
 # Usage: tools/git-smoke/live-git.sh OUTPUT_DIR [TOKEN_FILE]
 #
-# Builds and runs an explicitly invoked private-repository clone/fetch journey.
+# Builds and runs an explicitly invoked clone/materialize/private-fetch journey.
 # Secret and repository inputs enter application-private files over stdin; they
 # never appear in an instrumentation argument, URL, log, or result document.
 
@@ -119,8 +119,8 @@ else
 fi
 
 [ "$run_status" -ne 124 ] || { echo "FAIL the journey exceeded $RUN_LIMIT seconds"; exit 1; }
-if grep -q 'PASS live-git private clone/fetch' "$OUTPUT/live-git.log"; then
-    echo 'PASS live-git private clone/fetch'
+if grep -q 'PASS live-git clone/materialize/fetch' "$OUTPUT/live-git.log"; then
+    echo 'PASS live-git clone/materialize/fetch'
     exit 0
 fi
 sed -n 's/^INSTRUMENTATION_RESULT: stream=//p' "$OUTPUT/live-git.log"

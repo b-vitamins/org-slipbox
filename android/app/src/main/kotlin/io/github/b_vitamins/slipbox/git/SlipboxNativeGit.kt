@@ -12,6 +12,8 @@ internal interface NativeGitSeam {
 
     fun synchronize(request: ByteArray, credential: ByteArray?): ByteArray?
 
+    fun materialize(request: ByteArray): ByteArray?
+
     fun cancel(operation: Long): Boolean
 }
 
@@ -26,6 +28,9 @@ internal object SlipboxNativeGit {
             override fun synchronize(request: ByteArray, credential: ByteArray?): ByteArray? =
                 nativeSynchronize(request, credential)
 
+            override fun materialize(request: ByteArray): ByteArray? =
+                nativeMaterialize(request)
+
             override fun cancel(operation: Long): Boolean = nativeCancel(operation)
         }
 
@@ -39,6 +44,8 @@ internal object SlipboxNativeGit {
     private external fun nativeInitialize(context: Context): Boolean
 
     private external fun nativeSynchronize(request: ByteArray, credential: ByteArray?): ByteArray?
+
+    private external fun nativeMaterialize(request: ByteArray): ByteArray?
 
     private external fun nativeCancel(operation: Long): Boolean
 }
