@@ -70,6 +70,11 @@ install)
         echo "cmd: Can't find service: package" >&2
         exit 20
     fi
+    if [ -f "$FIXTURE/fail-install-broken-pipe-once" ]; then
+        mv "$FIXTURE/fail-install-broken-pipe-once" "$FIXTURE/package-service-recovering"
+        echo "cmd: Failure calling service package: Broken pipe (32)" >&2
+        exit 20
+    fi
     if [ ! -f "$FIXTURE/package-service-ready" ]; then
         echo "cmd: Can't find service: package" >&2
         exit 20
@@ -369,6 +374,15 @@ check "a package-service restart during install is retried" 0 "$status"
 check "the service restart causes exactly one bounded retry" 2 \
     "$(wc -l <"$fixture/install-attempts" | tr -d ' ')"
 check "the transient install failure is named" 1 \
+    "$(reported '^### package service became unavailable during install attempt 1; retrying$')"
+
+reset
+touch "$fixture/fail-install-broken-pipe-once"
+smoke
+check "a package-service broken pipe during install is retried" 0 "$status"
+check "the broken pipe causes exactly one bounded retry" 2 \
+    "$(wc -l <"$fixture/install-attempts" | tr -d ' ')"
+check "the transient broken pipe is named" 1 \
     "$(reported '^### package service became unavailable during install attempt 1; retrying$')"
 
 # Simulate a packaged-library load failure in both instrumentation and logcat.

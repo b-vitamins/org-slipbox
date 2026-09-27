@@ -25,7 +25,7 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Add Android CI build, unit, lint and native packaging checks, with a required
   native device-smoke gate on standard hosted Ubuntu x64. Package the x86_64
   engine alongside ARM64, with explicit KVM access, deterministic emulator
-  install capacity, bounded package-service recovery and pre-install
+  install capacity, bounded package-service and binder recovery, and pre-install
   diagnostics. See `doc/android-ci.org`.
 - Carry the web reading palette, typography and restrained controls into Compose,
   with contextual appearance preferences and platform-aware font scaling and

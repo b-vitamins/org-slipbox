@@ -512,7 +512,8 @@ while :; do
     adb -s "$SERIAL" install -r "$apk" >"$WORK/install" 2>&1 || installed=$?
     sed 's/^/  /' "$WORK/install"
     [ "$installed" -ne 0 ] || break
-    if grep -Fq "Can't find service: package" "$WORK/install" &&
+    if { grep -Fq "Can't find service: package" "$WORK/install" ||
+        grep -Fq "Failure calling service package: Broken pipe" "$WORK/install"; } &&
         [ "$install_attempt" -lt "$INSTALL_ATTEMPTS" ]; then
         echo "### package service became unavailable during install attempt $install_attempt; retrying"
         wait_for_package_service
