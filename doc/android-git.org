@@ -1,0 +1,92 @@
+#+title: org-slipbox Android Git Transport
+
+* Scope
+
+The Android Git transport clones public HTTPS repositories and fetches public or
+authenticated GitHub repositories without a Git executable on the device. It is
+read-only: it creates and updates a bare object store and exposes no push or
+remote-write operation. Source selection, worktree materialization, indexing and
+reader activation remain separate orchestration work.
+
+The implementation is =slipbox-git=. Android owns operation lifetime and
+cancellation in =slipbox-android=; versioned transport documents stay in
+=slipbox-rpc=. Kotlin obtains a current credential from
+=CredentialRenewalOwner=, copies it into a one-call byte array, clears that
+array after JNI returns, and never puts it in request JSON.
+
+* Dependency And Compatibility Contract
+
+The workspace pins =gix 0.87.1= with default features disabled and only
+=blocking-http-transport-reqwest-rust-tls= and =sha1= enabled. This retains the
+workspace's Rust 1.85 MSRV. Android builds use the separately pinned Rust 1.98.1
+toolchain documented in [[file:android-native.org][android-native.org]].
+The locked transport dependency closure declares no Rust requirement above
+1.85 and is checked directly with =cargo +1.85.1 check -p gix --locked=.
+
+Rustls verifies Android HTTPS peers through the platform trust manager. Cargo
+selects =rustls-platform-verifier 0.7.1= and its
+=rustls-platform-verifier-android 0.2.0= support crate. Gradle reads that support
+version from =Cargo.lock=, resolves the matching =0.2.0= AAR from the verifier's
+restricted Maven repository, and pins its dependency lock and SHA-256. JNI gives
+the verifier an application context once before Git work; initialization failure
+is a closed transport fault rather than a network attempt.
+
+* Network And Storage Bounds
+
+- Only credential-free =https://= remotes enter production. Redirects, HTTP,
+  SSH, URL rewriting, credential helpers, hooks, filters and repository programs
+  are disabled or unreachable. Tests alone admit loopback HTTP for a smart-HTTP
+  fixture.
+- A credential callback answers an authentication challenge for exactly one
+  operation. Credentials are accepted only for canonical =github.com= HTTPS on
+  its default port, never persisted, included in a URL or configuration, or
+  copied into an exported diagnostic.
+- One explicit branch refspec is fetched, tags are disabled, and each request is
+  shallow at depth 256. Existing older objects are not expanded or pruned by a
+  refresh.
+- The destination is an absolute bounded path. A new clone is bare, and an
+  existing destination must already be a usable object store. The transport
+  reports only closed failure reasons, a disposition, the fetched object count
+  and the selected revision.
+- At most eight native operations are active. Their positive operation IDs are
+  unique while active; cancellation signals the matching =AtomicBool=. The Rust
+  API reports preparing, connecting, receiving and complete progress stages.
+
+There is deliberately no push, commit, merge, checkout mutation or remote-write
+API in this crate or JNI surface.
+
+* Qualification
+
+=slipbox-git='s tests serve real Git smart HTTP through a loopback CGI fixture.
+They cover clone, a subsequent update, an unchanged fetch, the exact shallow
+history bound, branch-only refs, preflight and in-flight cancellation, cleanup,
+closed errors and credential redaction. Host Git constructs and serves the
+fixture; the library under test never invokes it.
+
+The focused Kotlin tests prove that a rotated credential is the byte sequence
+given to the actual native-call seam and that its temporary byte array is then
+cleared. The APK build additionally proves the Android-only TLS initializer,
+version-matched verifier AAR, JNI export inventory and both native ABIs.
+
+An explicit device journey proves the remaining network path against real
+GitHub. It clones this project's public repository without a credential, feeds a
+locally supplied private credential through the production renewal owner into a
+native authenticated clone, and repeats the authenticated fetch. The credential
+is staged over standard input into an application-private mode-600 file, is
+absent from instrumentation arguments and Git URLs, and is deleted before the
+network result is published. The result document contains booleans only; it
+contains no repository identity, revision, path or credential.
+
+With an emulator or device already attached and the private token stored outside
+the repository, run from the repository root:
+
+#+begin_src bash
+android/tools/git-smoke/live-git.sh EVIDENCE_DIRECTORY \
+  "$HOME/sync/.env.local.github"
+#+end_src
+
+The second argument defaults to that path. This manual journey uses the token as
+the result of a controlled refresh exchange so the production renewal-to-Git
+handoff is exercised. It does not replace the separate device-flow and token
+rotation qualifications in [[file:android-auth.org][android-auth.org]]. Evidence directories are local artifacts and
+must not be committed.

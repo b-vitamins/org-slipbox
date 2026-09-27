@@ -8,6 +8,7 @@ use serde_json::Value;
 use thiserror::Error;
 
 pub mod android;
+pub mod android_git;
 pub mod operations;
 
 pub use android::{

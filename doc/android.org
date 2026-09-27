@@ -8,12 +8,13 @@ and which boundaries hold before any of it is built.
 
 None of it is shipped. `0.18.0` is the latest shipped release, and its released
 metadata and history remain authoritative. An unreleased Compose shell provides
-Library and About screens; it does not yet load notes. The native adapter and
-document host are implemented independently. Git sync and reader wiring remain
-unbuilt. GitHub authorization is qualified independently; private clone and fetch
-remain unproven.
+Library and About screens; it does not yet load notes. The native adapter,
+document host and bounded Git transport are implemented independently. Source
+orchestration, worktree materialization and reader wiring remain unbuilt. GitHub
+authorization and real public/private device fetches are qualified independently.
 Build instructions and toolchain pins are
-in [[file:android-build.org][doc/android-build.org]]; private-fetch qualification belongs to the tracker.
+in [[file:android-build.org][doc/android-build.org]]; the transport and its device qualification are
+in [[file:android-git.org][doc/android-git.org]].
 
 The public model is defined in [[file:model.org][doc/model.org]]. The reader
 adds no public bucket. It is a fourth front-end over the same Rust-owned model
@@ -108,7 +109,8 @@ One writer owns each catalog path. Revision checks detect committed competing
 writes but do not serialize writers. Corrupt or unsupported documents are
 refused untouched. Same-directory rename commits a save; a subsequent
 =NotDurable= error reports the new revision and requires reload before retry.
-This catalog does not yet connect the Android shell to Git or authentication.
+The catalog and Git/authentication transports are implemented independently;
+the Android shell does not yet orchestrate them into a readable generation.
 
 ** One Active Corpus
 
@@ -429,10 +431,12 @@ renewed with a single-use refresh token that itself expires, so the reader
 treats renewal as routine and re-runs device authorization when renewal is no
 longer possible.
 
-Whether a real clone and fetch succeed end to end against a selected private
-repository is a qualification requirement, not something this document
-establishes. Until that is demonstrated on a device, the private path is
-specified rather than proven.
+The transport is device-qualified with a public HTTPS clone and a private GitHub
+clone plus repeat fetch. The private journey feeds a locally supplied token
+through the production renewal owner and native credential callback, while
+keeping it out of URLs, arguments and evidence. See
+[[file:android-git.org][android-git.org]]. Ordinary authorization still uses the GitHub App device and
+refresh flows above; the qualification token is not an application feature.
 
 The protocol references are GitHub's
 [[https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app][user-token and device-flow documentation]]

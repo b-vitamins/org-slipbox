@@ -20,4 +20,9 @@
         android:name="io.github.b_vitamins.slipbox.github.manual.LiveProviderJourney"
         android:targetPackage="io.github.b_vitamins.slipbox.debug" />
 
+    <!-- Explicit invocation only; secret inputs stay outside runner arguments. -->
+    <instrumentation
+        android:name="io.github.b_vitamins.slipbox.git.manual.LiveGitJourney"
+        android:targetPackage="io.github.b_vitamins.slipbox.debug" />
+
 </manifest>

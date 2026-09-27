@@ -23,6 +23,7 @@ const EXPECTED_WORKSPACE_CLOSURE: &[&str] = &[
     "slipbox-android",
     "slipbox-core",
     "slipbox-engine",
+    "slipbox-git",
     "slipbox-index",
     "slipbox-rpc",
     "slipbox-store",
@@ -31,6 +32,9 @@ const EXPECTED_WORKSPACE_CLOSURE: &[&str] = &[
 
 const SEAM_SOURCE: &str =
     "app/src/main/kotlin/io/github/b_vitamins/slipbox/engine/SlipboxNativeEngine.kt";
+
+const GIT_SEAM_SOURCE: &str =
+    "app/src/main/kotlin/io/github/b_vitamins/slipbox/git/SlipboxNativeGit.kt";
 
 const VERIFIER: &str = "tools/verify-native-packaging.sh";
 
@@ -48,6 +52,8 @@ const JNI_METHODS: &[&str] = &[
     "nativeReadSession",
     "nativeRunFixtureProbe",
 ];
+
+const GIT_JNI_METHODS: &[&str] = &["nativeCancel", "nativeInitialize", "nativeSynchronize"];
 
 #[test]
 fn the_android_package_consumes_the_engine_and_no_desktop_adapter() {
@@ -149,17 +155,28 @@ fn the_android_package_builds_one_shared_library_and_no_process() {
 #[test]
 fn the_exported_symbols_are_exactly_the_ones_kotlin_declares() {
     let seam = read(&android_directory().join(SEAM_SOURCE));
-    let package = kotlin_package(&seam);
+    let git_seam = read(&android_directory().join(GIT_SEAM_SOURCE));
 
-    let declared: BTreeSet<String> = declarations(&seam, "external fun ")
+    let mut declared: BTreeSet<String> = declarations(&seam, "external fun ")
         .map(|declaration| method_name(&declaration))
         .collect();
     assert_eq!(declared, owned(JNI_METHODS), "{SEAM_SOURCE}");
-
-    let expected: BTreeSet<String> = JNI_METHODS
-        .iter()
-        .map(|method| mangled(&package, method))
+    let git_declared: BTreeSet<String> = declarations(&git_seam, "external fun ")
+        .map(|declaration| method_name(&declaration))
         .collect();
+    assert_eq!(git_declared, owned(GIT_JNI_METHODS), "{GIT_SEAM_SOURCE}");
+    declared.extend(git_declared);
+
+    let mut expected: BTreeSet<String> = JNI_METHODS
+        .iter()
+        .map(|method| mangled(&kotlin_package(&seam), "SlipboxNativeEngine", method))
+        .collect();
+    expected.extend(
+        GIT_JNI_METHODS
+            .iter()
+            .map(|method| mangled(&kotlin_package(&git_seam), "SlipboxNativeGit", method)),
+    );
+    assert_eq!(declared.len(), expected.len(), "the Kotlin seams overlap");
     assert_eq!(exported_symbols(), expected, "jni-exports.map");
 
     let source = read(&crate_directory().join("src/jni_seam.rs"));
@@ -265,10 +282,10 @@ fn kotlin_package(source: &str) -> String {
 
 /// The JNI mangling of one method of the seam object: `_1` escapes an
 /// underscore, and a dot becomes an underscore.
-fn mangled(package: &str, method: &str) -> String {
+fn mangled(package: &str, class: &str, method: &str) -> String {
     format!(
         "Java_{}",
-        format!("{package}.SlipboxNativeEngine.{method}")
+        format!("{package}.{class}.{method}")
             .replace('_', "_1")
             .replace('.', "_")
     )

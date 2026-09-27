@@ -1,0 +1,17 @@
+[package]
+name = "slipbox-git"
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Bounded, credential-isolated HTTPS Git transport for repository sources."
+
+[dependencies]
+gix.workspace = true
+slipbox-core = { path = "../slipbox-core" }
+thiserror.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

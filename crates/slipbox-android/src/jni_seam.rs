@@ -15,18 +15,133 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::ptr;
 
-use jni_sys::{JNIEnv, JNINativeInterface__1_6, jbyte, jbyteArray, jobject, jsize};
+use jni_sys::{
+    JNI_FALSE, JNI_TRUE, JNIEnv, JNINativeInterface__1_6, jboolean, jbyte, jbyteArray, jlong,
+    jobject, jsize,
+};
 use slipbox_rpc::android::{
     ADAPTER_LIMITS, AdapterBound, AdapterCapability, AdapterRefusal, RefusalReason, encode_refusal,
 };
+use slipbox_rpc::android_git::{
+    GitRefusalReason, GitResponse, MAX_GIT_REQUEST_BYTES, MAX_GIT_TEXT_BYTES, encode_git_response,
+};
+use zeroize::Zeroize;
 
 use crate::adapter::{
     Refusable, Served, contained, serve_close, serve_contract, serve_maintenance, serve_open,
     serve_read, sessions,
 };
+use crate::android_git::{cancel, serve_synchronize};
 use crate::probe::{ProbeReport, run_fixture_probe};
 
 const ENCODE_FAILURE: &[u8] = br#"{"passed":false,"checks":[],"failure":{"stage":"encode","detail":"the probe report did not encode"}}"#;
+
+/// Give the Android TLS verifier the application context it needs to consult
+/// the platform trust manager. This must succeed before any Git network call.
+///
+/// # Safety
+///
+/// `env` and `context` must belong to the calling JNI frame. The Kotlin caller
+/// passes an application context whose global reference may safely outlive it.
+#[allow(non_snake_case)]
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_io_github_b_1vitamins_slipbox_git_SlipboxNativeGit_nativeInitialize(
+    env: *mut JNIEnv,
+    _this: jobject,
+    context: jobject,
+) -> jboolean {
+    if env.is_null() || context.is_null() || unsafe { pending(env) } {
+        return JNI_FALSE;
+    }
+
+    #[cfg(target_os = "android")]
+    {
+        let mut unowned = unsafe { jni::EnvUnowned::from_raw(env.cast()) };
+        let outcome = unowned
+            .with_env(|owned| {
+                let context = unsafe { jni::objects::JObject::from_raw(owned, context) };
+                rustls_platform_verifier::android::init_with_env(owned, context)
+            })
+            .into_outcome();
+        if matches!(outcome, jni::Outcome::Ok(())) {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    }
+
+    #[cfg(not(target_os = "android"))]
+    JNI_FALSE
+}
+
+/// Clone or fetch one repository. The request is versioned JSON; the optional
+/// credential is a separate byte array and never becomes part of that document.
+///
+/// # Safety
+///
+/// Both arrays must be JVM references owned by the calling thread. A null
+/// credential selects unauthenticated HTTPS.
+#[allow(non_snake_case)]
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_io_github_b_1vitamins_slipbox_git_SlipboxNativeGit_nativeSynchronize(
+    env: *mut JNIEnv,
+    _this: jobject,
+    request: jbyteArray,
+    credential: jbyteArray,
+) -> jbyteArray {
+    let request = match unsafe { read_git_request(env, request) } {
+        Argument::Bytes(request) => request,
+        Argument::Refused(refusal) => {
+            let reason = match refusal.reason {
+                RefusalReason::OutOfBounds => GitRefusalReason::OutOfBounds,
+                _ => GitRefusalReason::MalformedRequest,
+            };
+            return unsafe { new_byte_array(env, &git_refusal(reason)) };
+        }
+        Argument::Pending => return ptr::null_mut(),
+    };
+    let credential = match unsafe { read_credential(env, credential) } {
+        CredentialArgument::Absent => None,
+        CredentialArgument::Bytes(credential) => Some(credential),
+        CredentialArgument::Refused => {
+            return unsafe {
+                new_byte_array(env, &git_refusal(GitRefusalReason::CredentialRefused))
+            };
+        }
+        CredentialArgument::Pending => return ptr::null_mut(),
+    };
+    let response =
+        panic::catch_unwind(AssertUnwindSafe(|| serve_synchronize(&request, credential)))
+            .unwrap_or_else(|_| git_refusal(GitRefusalReason::Panicked));
+    unsafe { new_byte_array(env, &response) }
+}
+
+/// Signal one active Git operation. Unknown and completed operations answer
+/// false and cancellation never allocates through JNI.
+///
+/// # Safety
+///
+/// `env` must be the JNI environment of the calling thread.
+#[allow(non_snake_case)]
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_io_github_b_1vitamins_slipbox_git_SlipboxNativeGit_nativeCancel(
+    env: *mut JNIEnv,
+    _this: jobject,
+    operation: jlong,
+) -> jboolean {
+    if unsafe { pending(env) } || operation <= 0 {
+        return JNI_FALSE;
+    }
+    if cancel(operation) {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
+}
+
+fn git_refusal(reason: GitRefusalReason) -> Vec<u8> {
+    encode_git_response(&GitResponse::refused(reason))
+}
 
 /// Run the fixture probe under `parent_directory` and return its report as
 /// UTF-8 JSON, or null when the JVM cannot allocate the result array.
@@ -177,6 +292,13 @@ enum Argument {
     Pending,
 }
 
+enum CredentialArgument {
+    Absent,
+    Bytes(Vec<u8>),
+    Refused,
+    Pending,
+}
+
 /// Reads the request, serves it, and returns the answer as a fresh `byte[]`.
 unsafe fn answer(
     env: *mut JNIEnv,
@@ -220,6 +342,14 @@ unsafe fn opened(
 /// Copies one request out of the JVM, refusing an oversized one before
 /// allocating for it.
 unsafe fn read_request(env: *mut JNIEnv, array: jbyteArray) -> Argument {
+    unsafe { read_request_bounded(env, array, ADAPTER_LIMITS.max_request_bytes) }
+}
+
+unsafe fn read_git_request(env: *mut JNIEnv, array: jbyteArray) -> Argument {
+    unsafe { read_request_bounded(env, array, MAX_GIT_REQUEST_BYTES) }
+}
+
+unsafe fn read_request_bounded(env: *mut JNIEnv, array: jbyteArray, limit: usize) -> Argument {
     // Before the argument is judged: a refusal is a side effect, and a null
     // argument is what a JVM that has already thrown passes.
     if unsafe { pending(env) } {
@@ -236,7 +366,7 @@ unsafe fn read_request(env: *mut JNIEnv, array: jbyteArray) -> Argument {
     let Ok(length) = usize::try_from(length) else {
         return Argument::Refused(AdapterRefusal::of(RefusalReason::MalformedRequest));
     };
-    if length > ADAPTER_LIMITS.max_request_bytes {
+    if length > limit {
         return Argument::Refused(AdapterRefusal::bounded(AdapterBound::RequestBytes));
     }
 
@@ -254,6 +384,42 @@ unsafe fn read_request(env: *mut JNIEnv, array: jbyteArray) -> Argument {
         return Argument::Pending;
     }
     Argument::Bytes(bytes)
+}
+
+/// Copies one optional credential without ever interpreting it as text.
+unsafe fn read_credential(env: *mut JNIEnv, array: jbyteArray) -> CredentialArgument {
+    if unsafe { pending(env) } {
+        return CredentialArgument::Pending;
+    }
+    if array.is_null() {
+        return CredentialArgument::Absent;
+    }
+    let jni = unsafe { interface(env) };
+    let length = unsafe { (jni.GetArrayLength)(env, array) };
+    if unsafe { pending(env) } {
+        return CredentialArgument::Pending;
+    }
+    let Ok(length) = usize::try_from(length) else {
+        return CredentialArgument::Refused;
+    };
+    if length == 0 || length > MAX_GIT_TEXT_BYTES {
+        return CredentialArgument::Refused;
+    }
+    let mut bytes = vec![0u8; length];
+    unsafe {
+        (jni.GetByteArrayRegion)(
+            env,
+            array,
+            0,
+            length as jsize,
+            bytes.as_mut_ptr().cast::<jbyte>(),
+        );
+    }
+    if unsafe { pending(env) } {
+        bytes.zeroize();
+        return CredentialArgument::Pending;
+    }
+    CredentialArgument::Bytes(bytes)
 }
 
 /// Android implements JNI 1.6, so that namespace resolves every call here.

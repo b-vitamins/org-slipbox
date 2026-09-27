@@ -153,9 +153,10 @@ The build cache is disabled throughout: a qualification must produce the bytes i
 inspects rather than replay a recorded outcome.
 
 Both variants package the library the Cargo =release= profile builds, so the bytes
-a device exercises are the bytes a release carries. Only the seven JNI entry points
-are dynamically visible: =crates/slipbox-android/jni-exports.map= keeps the engine
-and SQLite symbols local. Libraries link with =-Wl,-z,max-page-size=16384=.
+a device exercises are the bytes a release carries. Only the closed engine and
+Git JNI inventory is dynamically visible: =crates/slipbox-android/jni-exports.map=
+keeps the engine, Git internals and SQLite symbols local. Libraries link with
+=-Wl,-z,max-page-size=16384=.
 
 * Verify the packaged libraries
 

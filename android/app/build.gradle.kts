@@ -5,6 +5,9 @@ import groovy.json.JsonSlurper
 import java.security.MessageDigest
 import java.util.Properties
 import javax.inject.Inject
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.ValueSource
+import org.gradle.api.provider.ValueSourceParameters
 
 buildscript {
     dependencyLocking {
@@ -126,6 +129,48 @@ val qualifiedAbis = mapOf(
 val rustWorkspaceDirectory = rootProject.layout.projectDirectory.dir("..")
 val rustCrateDirectory = rustWorkspaceDirectory.dir("crates/slipbox-android")
 
+abstract class RustlsPlatformVerifierVersion :
+    ValueSource<String, RustlsPlatformVerifierVersion.Parameters> {
+
+    interface Parameters : ValueSourceParameters {
+        val lockFile: RegularFileProperty
+    }
+
+    override fun obtain(): String {
+        val lines = parameters.lockFile.get().asFile.readLines()
+        val packageLine = lines.indexOfFirst {
+            it.trim() == "name = \"rustls-platform-verifier-android\""
+        }
+        val version =
+            if (packageLine < 0) {
+                null
+            } else {
+                lines.drop(packageLine + 1)
+                    .firstOrNull { it.trimStart().startsWith("version = ") }
+                    ?.substringAfter('"', "")
+                    ?.substringBefore('"', "")
+                    ?.takeIf(String::isNotEmpty)
+            }
+        return requireNotNull(version) {
+            "rustls-platform-verifier-android is absent from Cargo.lock"
+        }
+    }
+}
+
+val rustlsPlatformVerifierVersion =
+    providers.of(RustlsPlatformVerifierVersion::class.java) {
+        parameters.lockFile.set(rustWorkspaceDirectory.file("Cargo.lock"))
+    }
+
+configurations.configureEach {
+    resolutionStrategy.eachDependency {
+        if (requested.group == "org.rustls" && requested.name == "rustls-platform-verifier") {
+            useVersion(rustlsPlatformVerifierVersion.get())
+            because("the JVM and Rust verifier components must have identical versions")
+        }
+    }
+}
+
 val webClientDirectory = rustWorkspaceDirectory.dir("crates/slipbox-web/client")
 val documentAssetDirectory = "document"
 
@@ -135,6 +180,7 @@ val rustClosure =
         "slipbox-android",
         "slipbox-core",
         "slipbox-engine",
+        "slipbox-git",
         "slipbox-index",
         "slipbox-rpc",
         "slipbox-store",
@@ -239,6 +285,7 @@ dependencies {
 
     implementation(libs.androidx.lifecycle.common)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.rustls.platform.verifier)
     implementation(libs.androidx.webkit)
 
     testImplementation(libs.junit)

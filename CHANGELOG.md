@@ -7,6 +7,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Clone and fetch bounded public HTTPS and authenticated private GitHub sources
+  on Android through a read-only Rust Git transport. Credentials cross JNI
+  separately from request documents, cancellation and coarse progress are
+  explicit, Android's platform trust verifier is version-matched to Cargo, and
+  smart-HTTP fixtures plus a sanitized real-device journey qualify the path.
+  See `doc/android-git.org`.
 - Discover authorized GitHub repositories, branches and folders through App
   user-token access, with complete pagination and revalidated source selections.
   See `doc/android-github.org`.

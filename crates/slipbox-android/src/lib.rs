@@ -6,6 +6,7 @@
 //! self-contained fixture probe that qualifies the packaged engine on a device.
 
 pub mod adapter;
+pub mod android_git;
 pub mod jni_seam;
 pub mod probe;
 
