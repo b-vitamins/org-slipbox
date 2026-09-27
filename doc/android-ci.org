@@ -29,7 +29,9 @@ whose registration can lag the boot-complete property or restart during initial
 package installation on a fresh image. Only the missing-service and package
 binder broken-pipe results are retried, within a fixed attempt bound. The
 emulator gets an explicit 4096 MB data partition so image defaults cannot make
-APK installation nondeterministic.
+APK installation nondeterministic. A successful install can precede visibility
+of its declared activity by one package-registry cycle; only that exact launch
+result receives a separate bounded retry.
 
 * Inputs
 
@@ -104,3 +106,4 @@ isolate parallel runs; =DEVICE_SMOKE_RESULTS= selects the results tree.
 =DEVICE_SMOKE_DATA_PARTITION_MB= selects the emulator data-partition size and
 =DEVICE_SMOKE_MIN_DATA_FREE_KB= sets the pre-install free-space floor.
 =DEVICE_SMOKE_INSTALL_ATTEMPTS= bounds package-service recovery during install.
+=DEVICE_SMOKE_LAUNCH_ATTEMPTS= bounds installed-activity registration recovery.

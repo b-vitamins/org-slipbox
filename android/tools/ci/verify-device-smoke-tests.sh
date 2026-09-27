@@ -138,7 +138,14 @@ shell)
         ;;
     "df -k /data") cat "$FIXTURE/data-filesystem" ;;
     "am start"*)
+        echo attempt >>"$FIXTURE/launch-attempts"
         echo "$*" >"$FIXTURE/launch-record"
+        if [ -f "$FIXTURE/fail-launch-component-once" ]; then
+            rm "$FIXTURE/fail-launch-component-once"
+            echo "Error type 3"
+            echo "Error: Activity class {$(cat "$FIXTURE/component")} does not exist."
+            exit 1
+        fi
         cat "$FIXTURE/am-start"
         ;;
     "pidof "*) cat "$FIXTURE/pid" ;;
@@ -283,6 +290,7 @@ reset() {
         >>"$fixture/data-filesystem"
     echo 0 >"$fixture/gradle-status"
     echo 4321 >"$fixture/pid"
+    echo "$package/$activity" >"$fixture/component"
     : >"$fixture/logcat"
     printf 'Status: ok\nActivity: %s\nTotalTime: 412\n' "$package/$activity" >"$fixture/am-start"
     printf "package: name='%s' versionCode='1' versionName='0.19.0'\n" "$package" \
@@ -384,6 +392,15 @@ check "the broken pipe causes exactly one bounded retry" 2 \
     "$(wc -l <"$fixture/install-attempts" | tr -d ' ')"
 check "the transient broken pipe is named" 1 \
     "$(reported '^### package service became unavailable during install attempt 1; retrying$')"
+
+reset
+touch "$fixture/fail-launch-component-once"
+smoke
+check "a delayed installed activity is retried" 0 "$status"
+check "the delayed activity causes exactly one bounded retry" 2 \
+    "$(wc -l <"$fixture/launch-attempts" | tr -d ' ')"
+check "the delayed activity is named" 1 \
+    "$(reported '^### installed activity unavailable during launch attempt 1; retrying$')"
 
 # Simulate a packaged-library load failure in both instrumentation and logcat.
 reset

@@ -45,6 +45,7 @@ STOP_LIMIT=${DEVICE_SMOKE_STOP_LIMIT:-60}
 DATA_PARTITION_MB=${DEVICE_SMOKE_DATA_PARTITION_MB:-4096}
 MIN_DATA_FREE_KB=${DEVICE_SMOKE_MIN_DATA_FREE_KB:-524288}
 INSTALL_ATTEMPTS=${DEVICE_SMOKE_INSTALL_ATTEMPTS:-3}
+LAUNCH_ATTEMPTS=${DEVICE_SMOKE_LAUNCH_ATTEMPTS:-3}
 
 case $DATA_PARTITION_MB in
 '' | *[!0-9]*) abort "DEVICE_SMOKE_DATA_PARTITION_MB must be a positive integer" ;;
@@ -61,6 +62,11 @@ case $INSTALL_ATTEMPTS in
 esac
 [ "$INSTALL_ATTEMPTS" -gt 0 ] ||
     abort "DEVICE_SMOKE_INSTALL_ATTEMPTS must be a positive integer"
+case $LAUNCH_ATTEMPTS in
+'' | *[!0-9]*) abort "DEVICE_SMOKE_LAUNCH_ATTEMPTS must be a positive integer" ;;
+esac
+[ "$LAUNCH_ATTEMPTS" -gt 0 ] ||
+    abort "DEVICE_SMOKE_LAUNCH_ATTEMPTS must be a positive integer"
 
 RESULTS=${DEVICE_SMOKE_RESULTS:-$MODULE/app/build/outputs/androidTest-results/connected}
 
@@ -525,13 +531,29 @@ done
 echo "### installed $package on attempt $install_attempt"
 
 echo "### am start -W -n $package/$activity"
-launched=0
-bounded "$LAUNCH_LIMIT" "$ADB" -P "$SERVER_PORT" -s "$SERIAL" shell \
-    am start -W -n "$package/$activity" >"$out/launch.txt" 2>&1 || launched=$?
-sed 's/^/  /' "$out/launch.txt"
-[ "$launched" -eq 0 ] || fail "the launch command exited $launched"
-grep -q '^Status: ok' "$out/launch.txt" || fail "$package did not report a successful launch"
-! grep -q '^Error' "$out/launch.txt" || fail "$package reported a launch error"
+launch_attempt=1
+while :; do
+    launched=0
+    bounded "$LAUNCH_LIMIT" "$ADB" -P "$SERVER_PORT" -s "$SERIAL" shell \
+        am start -W -n "$package/$activity" >"$out/launch.txt" 2>&1 || launched=$?
+    sed 's/^/  /' "$out/launch.txt"
+    if [ "$launched" -eq 0 ] && grep -q '^Status: ok' "$out/launch.txt" &&
+        ! grep -q '^Error' "$out/launch.txt"; then
+        break
+    fi
+    if grep -Fq 'Error type 3' "$out/launch.txt" &&
+        grep -Fq "Error: Activity class {$package/$activity} does not exist." "$out/launch.txt" &&
+        [ "$launch_attempt" -lt "$LAUNCH_ATTEMPTS" ]; then
+        echo "### installed activity unavailable during launch attempt $launch_attempt; retrying"
+        wait_for_package_service
+        launch_attempt=$((launch_attempt + 1))
+        continue
+    fi
+    [ "$launched" -eq 0 ] || fail "the launch command exited $launched"
+    grep -q '^Status: ok' "$out/launch.txt" || fail "$package did not report a successful launch"
+    fail "$package reported a launch error"
+done
+echo "### launched $package on attempt $launch_attempt"
 ask "pidof $package || true" || fail "$SERIAL did not answer which process $package runs as"
 [ -n "$value" ] || fail "$package left no process running after its launch"
 echo "### $package runs as pid $value"
