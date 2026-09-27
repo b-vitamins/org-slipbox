@@ -126,6 +126,14 @@ shell)
     "getprop ro.product.cpu.abi") cat "$FIXTURE/abi" ;;
     "getprop ro.build.version.sdk") cat "$FIXTURE/api" ;;
     "cmd package path android")
+        if [ -f "$FIXTURE/flap-package-service" ]; then
+            flap_calls=0
+            [ ! -f "$FIXTURE/package-flap-calls" ] ||
+                flap_calls=$(cat "$FIXTURE/package-flap-calls")
+            flap_calls=$((flap_calls + 1))
+            echo "$flap_calls" >"$FIXTURE/package-flap-calls"
+            [ "$flap_calls" -ne 2 ] || exit 20
+        fi
         if [ -f "$FIXTURE/package-service-recovering" ]; then
             recovery_calls=0
             [ ! -f "$FIXTURE/package-recovery-calls" ] ||
@@ -318,6 +326,7 @@ smoke() {
         DEVICE_SMOKE_SERVER_PORT="$server_port" DEVICE_SMOKE_CONSOLE_PORT="$console_port" \
         DEVICE_SMOKE_COMMAND_LIMIT=15 DEVICE_SMOKE_BOOT_LIMIT=8 \
         DEVICE_SMOKE_LAUNCH_LIMIT=15 DEVICE_SMOKE_TEST_LIMIT=30 DEVICE_SMOKE_STOP_LIMIT=2 \
+        DEVICE_SMOKE_PACKAGE_SERVICE_STABLE_PROBES="${fixture_package_stable_probes:-1}" \
         "$SMOKE" --avd "$avd" --image "$image" --apk "$apk" --out "$out" "$@" \
         >"$work/smoke.log" 2>&1 || status=$?
 }
@@ -344,7 +353,7 @@ check "the emulator receives an explicit four-GiB data partition" 4096 \
 check "the passing run reports install capacity" 1 \
     "$(reported "^### $serial /data has 3670016 KiB available; gate requires 524288 KiB\$")"
 check "the passing run requires the package service" 1 \
-    "$(reported "^### $serial package service ready after [0-9][0-9]* seconds\$")"
+    "$(reported "^### $serial package service stable for 1 probes after [0-9][0-9]* seconds\$")"
 check "the passing run separates the APK upload from package installation" \
     "--no-streaming -r $apk" "$(paste -sd ' ' "$fixture/install-command")"
 check "the passing run launches the activity the APK declares" \
@@ -381,6 +390,17 @@ touch "$fixture/delay-package-service"
 smoke
 check "a delayed package service is awaited before install" 0 "$status"
 check "the delayed package service eventually permits installation" 1 \
+    "$([ -f "$fixture/install-record" ] && echo 1 || echo 0)"
+
+reset
+touch "$fixture/flap-package-service"
+fixture_package_stable_probes=3
+smoke
+unset fixture_package_stable_probes
+check "a flapping package service is stabilized before install" 0 "$status"
+check "the stability window restarts after a failed probe" 5 \
+    "$(cat "$fixture/package-flap-calls")"
+check "the stabilized package service eventually permits installation" 1 \
     "$([ -f "$fixture/install-record" ] && echo 1 || echo 0)"
 
 reset
