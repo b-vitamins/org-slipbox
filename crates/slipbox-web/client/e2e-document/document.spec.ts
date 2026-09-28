@@ -574,7 +574,7 @@ test("reports gestures as caller-owned intents and never navigates itself", asyn
   expect(new URL(page.url()).pathname).toBe("/host.html");
 });
 
-test("escapes hostile content and leaves an unfollowable target inert", async ({
+test("escapes hostile content, rejects dangerous links, and exposes an Org target", async ({
   page,
 }) => {
   await openHost(page);
@@ -586,8 +586,10 @@ test("escapes hostile content and leaves an unfollowable target inert", async ({
   await expect(rendered).toContainText("<b>bold</b>");
   await expect(rendered.locator("script")).toHaveCount(0);
   await expect(rendered.locator("b")).toHaveCount(0);
-  await expect(rendered.locator("a")).toHaveCount(0);
-  await expect(rendered.locator(".org-link--inert")).toHaveCount(3);
+  const file = rendered.getByRole("link", { name: "a file" });
+  await expect(file).toHaveCount(1);
+  await expect(file).not.toHaveAttribute("href");
+  await expect(rendered.locator(".org-link--inert")).toHaveCount(2);
   expect(await page.evaluate(() => "__breached" in window)).toBe(false);
 });
 

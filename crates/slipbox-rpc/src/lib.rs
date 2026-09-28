@@ -46,6 +46,7 @@ pub const METHOD_ANCHOR_AT_POINT: &str = "slipbox/anchorAtPoint";
 pub const METHOD_ANCHOR_FROM_KEY: &str = "slipbox/anchorFromKey";
 pub const METHOD_READ_FILE_SOURCE: &str = "slipbox/readFileSource";
 pub const METHOD_READ_NODE_SOURCE: &str = "slipbox/readNodeSource";
+pub const METHOD_RESOLVE_DOCUMENT_LINK: &str = "slipbox/resolveDocumentLink";
 pub const METHOD_NOTE_CONTEXT: &str = "slipbox/noteContext";
 pub const METHOD_BACKLINKS: &str = "slipbox/backlinks";
 pub const METHOD_FORWARD_LINKS: &str = "slipbox/forwardLinks";

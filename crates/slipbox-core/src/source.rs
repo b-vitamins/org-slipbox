@@ -44,6 +44,23 @@ pub struct ReadNodeSourceParams {
     pub max_lines: Option<usize>,
 }
 
+/// One link as written in a source-bound document and the anchor it came from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolveDocumentLinkParams {
+    pub source_node_key: String,
+    pub target: String,
+}
+
+/// A document link reduced to an action the client may safely perform.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum DocumentLinkResolution {
+    Note { node_key: String },
+    External { url: String },
+    Missing,
+    Unsupported,
+}
+
 impl ReadNodeSourceParams {
     #[must_use]
     pub fn normalized_context_before(&self) -> u32 {

@@ -18,8 +18,9 @@ use slipbox_rpc::android::{
 use slipbox_rpc::{
     METHOD_BACKLINKS, METHOD_EXPLORE, METHOD_FORWARD_LINKS, METHOD_GLOSSARY_TERM, METHOD_INDEX,
     METHOD_INDEX_FILE, METHOD_INDEXED_FILES, METHOD_LIST_GLOSSARY_TERMS, METHOD_LIST_NOTES,
-    METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_READ_NODE_SOURCE, METHOD_SEARCH_GLOSSARY,
-    METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES,
+    METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_READ_NODE_SOURCE,
+    METHOD_RESOLVE_DOCUMENT_LINK, METHOD_SEARCH_GLOSSARY, METHOD_SEARCH_NODE_CONTENT,
+    METHOD_SEARCH_NODES,
 };
 use tempfile::TempDir;
 
@@ -1317,6 +1318,11 @@ fn read_cases(keys: &Keys) -> Vec<(Value, &'static str, Value)> {
             json!({"kind": "readNodeSource", "node_key": beta, "context_before": 2, "context_after": 2, "max_lines": 400}),
             METHOD_READ_NODE_SOURCE,
             json!({"node_key": beta, "context_before": 2, "context_after": 2, "max_lines": 400}),
+        ),
+        (
+            json!({"kind": "resolveDocumentLink", "source_node_key": alpha, "target": "id:beta-target"}),
+            METHOD_RESOLVE_DOCUMENT_LINK,
+            json!({"source_node_key": alpha, "target": "id:beta-target"}),
         ),
         (
             json!({"kind": "listGlossaryTerms", "limit": 20}),

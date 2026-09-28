@@ -10,7 +10,17 @@ import io.github.b_vitamins.slipbox.ui.document.DocumentPresentation
 import java.util.Locale
 
 @Immutable
-internal data class DocumentMount(val token: String, val source: DocumentSource) {
+internal data class DocumentMount(
+    val token: String,
+    val source: DocumentSource,
+    val initialProgress: Float = 0f,
+) {
+    init {
+        require(initialProgress.isFinite() && initialProgress in 0f..1f) {
+            "document progress must be finite and between zero and one"
+        }
+    }
+
     val binding: DocumentBinding get() = source.binding
 }
 
@@ -35,6 +45,7 @@ internal object DocumentPayload {
             appendQuoted(mount.source.org)
             append(",\"baseLevel\":").append(mount.source.baseLevel)
             append("},\"presentation\":").append(presentation.toJson())
+            append(",\"initialProgress\":").append(mount.initialProgress)
             append(",\"assetBase\":")
             appendQuoted(DocumentOrigin.assetBase(mount.token))
             append('}')

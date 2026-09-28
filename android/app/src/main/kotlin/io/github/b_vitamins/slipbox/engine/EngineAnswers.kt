@@ -138,6 +138,29 @@ data class ReadNodeSourceResult(
 )
 
 @Serializable
+@JsonClassDiscriminator("kind")
+sealed class DocumentLinkResolution {
+
+    @Serializable
+    @SerialName("note")
+    data class Note(
+        @SerialName("node_key") val nodeKey: String,
+    ) : DocumentLinkResolution()
+
+    @Serializable
+    @SerialName("external")
+    data class External(val url: String) : DocumentLinkResolution()
+
+    @Serializable
+    @SerialName("missing")
+    data object Missing : DocumentLinkResolution()
+
+    @Serializable
+    @SerialName("unsupported")
+    data object Unsupported : DocumentLinkResolution()
+}
+
+@Serializable
 data class ListGlossaryTermsResult(
     val terms: List<NodeRecord>,
     val total: Long,
@@ -427,6 +450,10 @@ sealed class EngineAnswer {
     data class ReadNodeSource(val result: ReadNodeSourceResult) : EngineAnswer(), ReadAnswer
 
     @Serializable
+    @SerialName("resolveDocumentLink")
+    data class ResolveDocumentLink(val result: DocumentLinkResolution) : EngineAnswer(), ReadAnswer
+
+    @Serializable
     @SerialName("listGlossaryTerms")
     data class ListGlossaryTerms(val result: ListGlossaryTermsResult) : EngineAnswer(), ReadAnswer
 
@@ -470,6 +497,7 @@ internal fun ReadOperation.answerIn(answer: EngineAnswer): ReadAnswer? =
         is ReadOperation.NodeFromId -> answer as? EngineAnswer.NodeFromId
         is ReadOperation.NodeFromKey -> answer as? EngineAnswer.NodeFromKey
         is ReadOperation.ReadNodeSource -> answer as? EngineAnswer.ReadNodeSource
+        is ReadOperation.ResolveDocumentLink -> answer as? EngineAnswer.ResolveDocumentLink
         is ReadOperation.ListGlossaryTerms -> answer as? EngineAnswer.ListGlossaryTerms
         is ReadOperation.SearchGlossary -> answer as? EngineAnswer.SearchGlossary
         is ReadOperation.GlossaryTerm -> answer as? EngineAnswer.GlossaryTerm

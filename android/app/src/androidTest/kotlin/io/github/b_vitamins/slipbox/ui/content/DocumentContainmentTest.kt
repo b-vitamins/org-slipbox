@@ -146,7 +146,11 @@ class DocumentContainmentTest {
             0.0,
         )
         assertEquals("while the bundle it loaded was served", 200.0, view.number(status("host.js")), 0.0)
-        assertTrue("no gesture came of any of it", raised.reported().isEmpty())
+        assertEquals(
+            "the external page was reported without navigating the view",
+            listOf(DocumentIntent.Go(EXTERNAL)),
+            raised.reported(),
+        )
         assertTrue("and no asset was asked for", store.asks().isEmpty())
         Evidence.record(
             "content-navigation",
@@ -163,6 +167,13 @@ class DocumentContainmentTest {
 
     private companion object {
         const val SETTLE_MILLIS = 750L
+
+        val EXTERNAL =
+            DocumentLink(
+                id = null,
+                target = "https://elsewhere.invalid/page",
+                reference = "https://elsewhere.invalid/page",
+            )
 
         fun status(name: String): String =
             "Number((performance.getEntriesByType('resource')" +

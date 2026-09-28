@@ -146,7 +146,7 @@ class DocumentReadingTest {
         assertTrue("both equations carry their reading", document.getInt("mathml") >= 2)
         assertEquals("and neither was rejected", 0, document.getInt("mathErrors"))
         assertTrue("the display equation is set, not collapsed", document.getInt("mathHeight") > 0)
-        assertEquals("an id link is a link carrying no URL", 1, document.getInt("idLinks"))
+        assertEquals("source-aware links carry no URL", 2, document.getInt("idLinks"))
         assertEquals("the file target is left to the app", 1, document.getInt("assetLinks"))
         assertEquals("the note supplied no script", 0, document.getInt("scripts"))
         assertEquals("the page is declared in a language", "en", document.getString("lang"))

@@ -1,14 +1,19 @@
 /*
- * Render inline Org nodes to DOM. An internal `id:` link renders through
- * `GrammarLink`, which routes gestures to the navigation grammar; an external
- * safe external link carries no grammar and is followed by the browser.
+ * Render inline Org nodes to DOM. Source-aware Org links render through
+ * `GrammarLink`, which routes gestures to the navigation grammar. Safe external
+ * links retain normal browser behavior unless an embedding host intercepts them.
  */
 
 import { For, Show, type Component } from "solid-js";
 
 import { useAssetResolver } from "./assets.jsx";
-import { GrammarLink } from "./GrammarLink.jsx";
-import { followableHref, resolvedAssetHref } from "./link-target.js";
+import { GrammarLink, isBrowserGesture } from "./GrammarLink.jsx";
+import {
+  followableHref,
+  isOrgDocumentTarget,
+  resolvedAssetHref,
+} from "./link-target.js";
+import { useNavigation } from "./navigation.jsx";
 import { InlineMath } from "./Math.jsx";
 import type { Inline } from "./types.js";
 
@@ -22,9 +27,18 @@ type LinkNode = Extract<Inline, { type: "link" }>;
  */
 const ExternalLink: Component<{ node: LinkNode }> = (props) => {
   const resolveAsset = useAssetResolver();
+  const navigation = useNavigation();
   const asset = (): string | null => {
     const resolved = resolveAsset(props.node.target);
     return resolved === null ? null : resolvedAssetHref(resolved);
+  };
+  const follow = (event: MouseEvent): void => {
+    if (isBrowserGesture(event)) {
+      return;
+    }
+    if (navigation.external?.({ id: null, target: props.node.target }) === true) {
+      event.preventDefault();
+    }
   };
   return (
     <Show
@@ -50,7 +64,7 @@ const ExternalLink: Component<{ node: LinkNode }> = (props) => {
       }
     >
       {(href) => (
-        <a class="org-link org-link--external" href={href()}>
+        <a class="org-link org-link--external" href={href()} onClick={follow}>
           <RenderInline nodes={props.node.label} />
         </a>
       )}
@@ -60,7 +74,7 @@ const ExternalLink: Component<{ node: LinkNode }> = (props) => {
 
 const OrgLink: Component<{ node: LinkNode }> = (props) => (
   <Show
-    when={props.node.id !== null}
+    when={props.node.id !== null || isOrgDocumentTarget(props.node.target)}
     fallback={<ExternalLink node={props.node} />}
   >
     <GrammarLink

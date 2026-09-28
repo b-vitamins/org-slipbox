@@ -225,6 +225,7 @@ internal object Notes {
         listOf(
             "A fixed point is a value a map returns unchanged, so \\(f(x) = x\\) is the",
             "whole of it. See [[id:$NOTE_ID][the settled column]] for the reading it came from,",
+            "[[file:next.org::*Target][the next note]], [[https://example.org/page][the paper]],",
             "and [[file:diagram.png][the diagram]] beside it.",
             "",
             "* The measure",

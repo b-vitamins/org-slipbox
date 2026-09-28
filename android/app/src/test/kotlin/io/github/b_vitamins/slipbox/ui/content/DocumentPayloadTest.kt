@@ -71,6 +71,7 @@ class DocumentPayloadTest {
         assertEquals(mount.source.id, source?.get("id")?.jsonPrimitive?.content)
         assertEquals(mount.source.generation, source?.get("generation")?.jsonPrimitive?.content)
         assertEquals("2", source?.get("baseLevel")?.jsonPrimitive?.content)
+        assertEquals("0.375", payload["initialProgress"]?.jsonPrimitive?.content)
     }
 
     @Test
@@ -100,6 +101,7 @@ class DocumentPayloadTest {
                     id = "note-1",
                     org = source,
                 ),
+            initialProgress = 0.375f,
         )
 
     private fun presentation(dark: Boolean = false, fontScale: Float = 1f): DocumentPresentation =

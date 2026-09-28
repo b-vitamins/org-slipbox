@@ -47,6 +47,13 @@ export function documentNavigation(
     },
     pin: (target) => emit({ verb: "pin", link: linkOf(target) }),
     go: (target) => emit({ verb: "go", link: linkOf(target) }),
+    external: (target) => {
+      if (options().interceptExternal !== true) {
+        return false;
+      }
+      emit({ verb: "go", link: linkOf(target) });
+      return true;
+    },
   };
   return { navigation, retire: withdraw };
 }

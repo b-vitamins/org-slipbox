@@ -10,11 +10,12 @@ use slipbox_core::{
     BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID, BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID,
     CompareNotesParams, ComparisonConnectorDirection, CorpusAuditEntry, CorpusAuditKind,
     CorpusAuditResult, DanglingLinkAuditRecord, DeleteExplorationArtifactResult,
-    DeleteReviewRunResult, DeleteWorkbenchPackResult, ExecuteExplorationArtifactResult,
-    ExecutedExplorationArtifactPayload, ExplorationArtifactMetadata, ExplorationArtifactPayload,
-    ExplorationArtifactResult, ExplorationEntry, ExplorationExplanation, ExplorationLens,
-    ExplorationSectionKind, ExploreParams, ExploreResult, GlossaryTermResult, GradeTermResult,
-    GraphParams, ImportWorkbenchPackResult, ListExplorationArtifactsResult, ListNotesResult,
+    DeleteReviewRunResult, DeleteWorkbenchPackResult, DocumentLinkResolution,
+    ExecuteExplorationArtifactResult, ExecutedExplorationArtifactPayload,
+    ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
+    ExplorationEntry, ExplorationExplanation, ExplorationLens, ExplorationSectionKind,
+    ExploreParams, ExploreResult, GlossaryTermResult, GradeTermResult, GraphParams,
+    ImportWorkbenchPackResult, ListExplorationArtifactsResult, ListNotesResult,
     ListReviewRoutinesResult, ListReviewRunsResult, ListWorkbenchPacksResult, ListWorkflowsResult,
     MarkReviewFindingResult, NodeKind, NoteComparisonEntry, NoteComparisonExplanation,
     NoteComparisonGroup, NoteComparisonResult, NoteComparisonSectionKind, NoteContextResult,
@@ -46,7 +47,7 @@ use super::{
     execute_saved_exploration_artifact_by_id, execute_workflow_spec, exploration_artifact, explore,
     export_workbench_pack, glossary_term, import_workbench_pack, list_exploration_artifacts,
     list_notes, list_review_routines, list_review_runs, list_workbench_packs, list_workflows,
-    mark_review_finding, node_from_ref, note_context, read_node_source,
+    mark_review_finding, node_from_ref, note_context, read_node_source, resolve_document_link,
     review_finding_remediation_apply, review_finding_remediation_preview, review_routine,
     review_run, run_review_routine, run_workflow, save_corpus_audit_review,
     save_exploration_artifact, save_review_run, save_workflow_review, search_node_content,
@@ -4294,6 +4295,182 @@ Shares only the target deadline.
         .node_key;
 
     (workspace, state, target_key)
+}
+
+fn document_link_state() -> (TempDir, ServerState) {
+    let workspace = tempfile::tempdir().expect("workspace should be created");
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(root.join("guide")).expect("nested notes root should be created");
+    fs::write(
+        root.join("guide/start.org"),
+        "#+title: Start\n\n* Local heading\nLocal body.\n",
+    )
+    .expect("source fixture should be written");
+    fs::write(
+        root.join("guide/next.org"),
+        "#+title: Next\n\n* Named heading\nNamed body.\n\n* Stable heading\n:PROPERTIES:\n:ID: next-id\n:END:\nStable body.\n",
+    )
+    .expect("target fixture should be written");
+    fs::write(root.join("guide/café.org"), "#+title: Café\n")
+        .expect("unicode fixture should be written");
+
+    let db_path = workspace.path().join("index.sqlite3");
+    let discovery = DiscoveryPolicy::default();
+    let mut state = ServerState::new(root.clone(), db_path, Vec::new(), discovery)
+        .expect("state should be created");
+    let files = scan_root_with_policy(&root, &state.discovery).expect("fixture should be indexed");
+    state
+        .database
+        .sync_index(&files)
+        .expect("fixture index should sync");
+    (workspace, state)
+}
+
+fn document_link(state: &mut ServerState, target: &str) -> DocumentLinkResolution {
+    serde_json::from_value(
+        resolve_document_link(
+            state,
+            json!({
+                "source_node_key": "file:guide/start.org",
+                "target": target,
+            }),
+        )
+        .expect("document link resolution should answer"),
+    )
+    .expect("document link resolution should decode")
+}
+
+#[test]
+fn document_links_resolve_ids_keys_relative_files_and_headings() {
+    let (_workspace, mut state) = document_link_state();
+    let named = heading_key_by_title(&state, "guide/next.org", "Named heading");
+    let local = heading_key_by_title(&state, "guide/start.org", "Local heading");
+
+    assert_eq!(
+        document_link(&mut state, "id:next-id"),
+        DocumentLinkResolution::Note {
+            node_key: heading_key_by_title(&state, "guide/next.org", "Stable heading"),
+        },
+    );
+    assert_eq!(
+        document_link(&mut state, "file:guide/next.org"),
+        DocumentLinkResolution::Note {
+            node_key: "file:guide/next.org".to_owned(),
+        },
+    );
+    assert_eq!(
+        document_link(&mut state, &named),
+        DocumentLinkResolution::Note {
+            node_key: named.clone(),
+        },
+    );
+    assert_eq!(
+        document_link(&mut state, "next.org::*Named heading"),
+        DocumentLinkResolution::Note { node_key: named },
+    );
+    assert_eq!(
+        document_link(&mut state, "file:next.org::#next-id"),
+        DocumentLinkResolution::Note {
+            node_key: heading_key_by_title(&state, "guide/next.org", "Stable heading"),
+        },
+    );
+    assert_eq!(
+        document_link(&mut state, "*Local heading"),
+        DocumentLinkResolution::Note { node_key: local },
+    );
+    assert_eq!(
+        document_link(&mut state, "caf%C3%A9.org"),
+        DocumentLinkResolution::Note {
+            node_key: "file:guide/café.org".to_owned(),
+        },
+    );
+}
+
+#[test]
+fn document_links_report_missing_unsupported_and_safe_external_targets() {
+    let (_workspace, mut state) = document_link_state();
+
+    assert_eq!(
+        document_link(&mut state, "missing.org"),
+        DocumentLinkResolution::Missing,
+    );
+    for target in [
+        "../outside.org",
+        "%2e%2e/outside.org",
+        "guide%2Fnext.org",
+        "%2Foutside.org",
+        "javascript:alert(1)",
+        "mailto:reader@example.org",
+        "https:example.org/private",
+        "https:\\example.org/private",
+        "https://user:secret@example.org/private",
+    ] {
+        assert_eq!(
+            document_link(&mut state, target),
+            DocumentLinkResolution::Unsupported,
+            "{target:?} should not escape the document resolver",
+        );
+    }
+    assert_eq!(
+        document_link(&mut state, "https://example.org/read?q=caf%C3%A9#part"),
+        DocumentLinkResolution::External {
+            url: "https://example.org/read?q=caf%C3%A9#part".to_owned(),
+        },
+    );
+    assert_eq!(
+        document_link(&mut state, "http://example.org/read"),
+        DocumentLinkResolution::External {
+            url: "http://example.org/read".to_owned(),
+        },
+    );
+}
+
+#[test]
+fn document_ids_resolve_only_inside_the_originating_source() {
+    fn collision_state(target: &str) -> (TempDir, ServerState) {
+        let workspace = tempfile::tempdir().expect("workspace should be created");
+        let root = workspace.path().join("notes");
+        fs::create_dir_all(root.join("guide")).expect("notes root should be created");
+        fs::write(root.join("guide/start.org"), "#+title: Start\n")
+            .expect("source fixture should be written");
+        fs::write(
+            root.join(format!("guide/{target}.org")),
+            "#+title: Target\n\n* Shared\n:PROPERTIES:\n:ID: shared-id\n:END:\n",
+        )
+        .expect("collision fixture should be written");
+        let mut state = ServerState::new(
+            root.clone(),
+            workspace.path().join("index.sqlite3"),
+            Vec::new(),
+            DiscoveryPolicy::default(),
+        )
+        .expect("state should be created");
+        let files =
+            scan_root_with_policy(&root, &state.discovery).expect("fixture should be indexed");
+        state
+            .database
+            .sync_index(&files)
+            .expect("fixture index should sync");
+        (workspace, state)
+    }
+
+    let (_first_workspace, mut first) = collision_state("first");
+    let (_second_workspace, mut second) = collision_state("second");
+    let first_key = heading_key_by_title(&first, "guide/first.org", "Shared");
+    let second_key = heading_key_by_title(&second, "guide/second.org", "Shared");
+
+    assert_eq!(
+        document_link(&mut first, "id:shared-id"),
+        DocumentLinkResolution::Note {
+            node_key: first_key,
+        },
+    );
+    assert_eq!(
+        document_link(&mut second, "id:shared-id"),
+        DocumentLinkResolution::Note {
+            node_key: second_key,
+        },
+    );
 }
 
 fn comparison_state() -> (TempDir, ServerState, String, String) {

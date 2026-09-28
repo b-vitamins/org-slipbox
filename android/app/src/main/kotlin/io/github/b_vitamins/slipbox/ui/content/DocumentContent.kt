@@ -63,11 +63,15 @@ internal enum class DocumentGesture(val verb: String) {
 
 /** Navigation requests only; the caller owns destinations and previews. */
 internal sealed interface DocumentIntent {
-    data class Glance(val link: DocumentLink, val gesture: DocumentGesture) : DocumentIntent
+    data class Glance(
+        val link: DocumentLink,
+        val gesture: DocumentGesture,
+        val progress: Float = 0f,
+    ) : DocumentIntent
 
-    data class Pin(val link: DocumentLink) : DocumentIntent
+    data class Pin(val link: DocumentLink, val progress: Float = 0f) : DocumentIntent
 
-    data class Go(val link: DocumentLink) : DocumentIntent
+    data class Go(val link: DocumentLink, val progress: Float = 0f) : DocumentIntent
 
     data object Dismiss : DocumentIntent
 }

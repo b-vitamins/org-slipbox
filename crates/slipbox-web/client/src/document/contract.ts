@@ -61,9 +61,15 @@ export interface OrgDocumentOptions {
    */
   readonly href?: (link: OrgDocumentLink) => string | null;
   /**
-   * Resolve a target the renderer cannot follow (`file:`, `attachment:`) to a URL
-   * for it. Relative URLs and the `http`, `https` and `blob` schemes are admitted
-   * and anything else is left inert; the document fetches none of them itself.
+   * Route ordinary primary-clicks on browser-safe external links through
+   * `onIntent` as `go`; false or absent preserves the browser's default action.
+   */
+  readonly interceptExternal?: boolean;
+  /**
+   * Resolve an asset target the renderer cannot follow (for example an
+   * `attachment:` or non-Org `file:` target) to a URL for it. Relative URLs and
+   * the `http`, `https` and `blob` schemes are admitted and anything else is left
+   * inert; the document fetches none of them itself.
    */
   readonly resolveAsset?: (target: string) => string | null;
 }

@@ -70,6 +70,11 @@ internal object EngineOperations {
                 "answered_read_node_source",
             ),
             AdmittedOperation(
+                ReadOperation.ResolveDocumentLink(NODE_KEY, "id:$NODE_ID"),
+                "read_resolve_document_link",
+                "answered_resolve_document_link",
+            ),
+            AdmittedOperation(
                 ReadOperation.ListGlossaryTerms(50, null),
                 "read_list_glossary_terms",
                 "answered_list_glossary_terms",

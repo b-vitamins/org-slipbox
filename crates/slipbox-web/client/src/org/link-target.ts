@@ -5,6 +5,8 @@ const FOLLOWABLE_SCHEMES = new Set(["http", "https", "mailto"]);
 const STRIPPED_ANYWHERE = /[\t\n\r]/g;
 const TRIMMED_ENDS = /^[\u0000-\u0020]+|[\u0000-\u0020]+$/g;
 const SCHEME = /^([a-zA-Z][a-zA-Z0-9+.-]*):/;
+const ORG_FILE = /(?:^|\/)\.?[^/]*\.org(?:::.*)?$/i;
+const SLIPBOX_HEADING = /^heading:.+\.org:\d+$/i;
 
 function normalize(target: string): string {
   return target.replace(STRIPPED_ANYWHERE, "").replace(TRIMMED_ENDS, "");
@@ -18,6 +20,24 @@ export function followableHref(target: string): string | null {
     return null;
   }
   return FOLLOWABLE_SCHEMES.has(scheme.toLowerCase()) ? normalized : null;
+}
+
+/** Whether a target belongs to the host's source-aware Org link grammar. */
+export function isOrgDocumentTarget(target: string): boolean {
+  if (target.startsWith("*") || target.startsWith("#")) {
+    return target.length > 1;
+  }
+  if (SLIPBOX_HEADING.test(target)) {
+    return true;
+  }
+  const isFile = target.toLowerCase().startsWith("file:");
+  if (!isFile && SCHEME.test(target)) {
+    return false;
+  }
+  const fileTarget = isFile
+    ? target.slice("file:".length)
+    : target;
+  return ORG_FILE.test(fileTarget);
 }
 
 /*

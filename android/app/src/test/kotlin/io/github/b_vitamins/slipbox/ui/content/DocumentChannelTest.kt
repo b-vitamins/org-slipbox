@@ -13,24 +13,24 @@ class DocumentChannelTest {
     @Test
     fun theRenderersOwnVocabularyCrosses() {
         assertEquals(
-            DocumentIntent.Glance(ID_LINK, DocumentGesture.Touch),
-            raised("""{"token":"$TOKEN","verb":"glance","link":$ID_LINK_JSON,"gesture":"touch"}"""),
+            DocumentIntent.Glance(ID_LINK, DocumentGesture.Touch, 0.25f),
+            raised("""{"token":"$TOKEN","verb":"glance","link":$ID_LINK_JSON,"gesture":"touch","progress":0.25}"""),
         )
         assertEquals(
-            DocumentIntent.Glance(ID_LINK, DocumentGesture.Hover),
-            raised("""{"token":"$TOKEN","verb":"glance","link":$ID_LINK_JSON,"gesture":"hover"}"""),
+            DocumentIntent.Glance(ID_LINK, DocumentGesture.Hover, 0.5f),
+            raised("""{"token":"$TOKEN","verb":"glance","link":$ID_LINK_JSON,"gesture":"hover","progress":0.5}"""),
         )
         assertEquals(
-            DocumentIntent.Glance(ID_LINK, DocumentGesture.Focus),
-            raised("""{"token":"$TOKEN","verb":"glance","link":$ID_LINK_JSON,"gesture":"focus"}"""),
+            DocumentIntent.Glance(ID_LINK, DocumentGesture.Focus, 0.75f),
+            raised("""{"token":"$TOKEN","verb":"glance","link":$ID_LINK_JSON,"gesture":"focus","progress":0.75}"""),
         )
         assertEquals(
-            DocumentIntent.Pin(ID_LINK),
-            raised("""{"token":"$TOKEN","verb":"pin","link":$ID_LINK_JSON,"gesture":null}"""),
+            DocumentIntent.Pin(ID_LINK, 0f),
+            raised("""{"token":"$TOKEN","verb":"pin","link":$ID_LINK_JSON,"gesture":null,"progress":0}"""),
         )
         assertEquals(
-            DocumentIntent.Go(FILE_LINK),
-            raised("""{"token":"$TOKEN","verb":"go","link":$FILE_LINK_JSON,"gesture":null}"""),
+            DocumentIntent.Go(FILE_LINK, 1f),
+            raised("""{"token":"$TOKEN","verb":"go","link":$FILE_LINK_JSON,"gesture":null,"progress":1}"""),
         )
         assertEquals(
             DocumentIntent.Dismiss,
@@ -102,6 +102,9 @@ class DocumentChannelTest {
                 """{"token":"$TOKEN","verb":"glance","link":$ID_LINK_JSON,"gesture":"drag"}""",
                 """{"token":"$TOKEN","verb":"glance","gesture":"touch"}""",
                 """{"token":"$TOKEN","verb":"pin","link":$ID_LINK_JSON,"gesture":"touch"}""",
+                """{"token":"$TOKEN","verb":"pin","link":$ID_LINK_JSON,"progress":-0.1}""",
+                """{"token":"$TOKEN","verb":"pin","link":$ID_LINK_JSON,"progress":1.1}""",
+                """{"token":"$TOKEN","verb":"pin","link":$ID_LINK_JSON,"progress":null}""",
                 """{"token":"$TOKEN","verb":"dismiss","link":$ID_LINK_JSON}""",
                 """{"token":"$TOKEN","verb":"dismiss","gesture":"touch"}""",
             )
@@ -149,6 +152,7 @@ class DocumentChannelTest {
         const val FILE_LINK_JSON =
             """{"id":null,"target":"figures/diagram.png","reference":"figures/diagram.png"}"""
 
-        const val PIN = """{"token":"$TOKEN","verb":"pin","link":$ID_LINK_JSON}"""
+        const val PIN =
+            """{"token":"$TOKEN","verb":"pin","link":$ID_LINK_JSON,"progress":0}"""
     }
 }

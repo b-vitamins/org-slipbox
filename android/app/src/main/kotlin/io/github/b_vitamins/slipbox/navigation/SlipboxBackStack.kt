@@ -18,7 +18,7 @@ internal fun interface SourceGenerations {
     fun readyGeneration(source: String): String?
 
     companion object {
-                val None = SourceGenerations { null }
+        val None = SourceGenerations { null }
     }
 }
 
@@ -35,18 +35,56 @@ internal class SlipboxBackStack(
 
     private var attached = true
 
-        val entries: List<SlipboxRoute> get() = routes
+    val entries: List<SlipboxRoute> get() = routes
 
     val current: SlipboxRoute get() = routes.last()
 
-        fun open(route: SlipboxRoute): Boolean {
+    fun open(route: SlipboxRoute): Boolean {
         if (!attached) return false
         val bound = bindRoute(route, availability, generations) ?: return false
         routes.appendRoute(bound)
         return true
     }
 
-        fun back(): Boolean {
+    /** Save the live reader position if [origin] is still the presented route. */
+    fun rememberReadingPlace(origin: SlipboxRoute.Reader, anchor: ReadingAnchor): Boolean {
+        if (!attached || !anchor.isCanonical()) return false
+        val presented = routes.lastOrNull() as? SlipboxRoute.Reader ?: return false
+        if (presented.place != origin.place || presented.note.binding != origin.note.binding) {
+            return false
+        }
+        routes[routes.lastIndex] = presented.copy(anchor = anchor)
+        return true
+    }
+
+    /** Follow within the origin's immutable generation and rewind an existing path entry. */
+    fun follow(
+        origin: SlipboxRoute.Reader,
+        targetNodeKey: String,
+        originAnchor: ReadingAnchor,
+    ): Boolean {
+        if (!rememberReadingPlace(origin, originAnchor)) return false
+        if (!availability.presents(SlipboxSurface.Reader)) return false
+        val target =
+            SlipboxRoute.Reader(
+                note = BoundNote(origin.note.binding, targetNodeKey),
+                anchor = ReadingAnchor.Start,
+            )
+        if (!target.isCanonical()) return false
+
+        val existing =
+            routes.indexOfLast { route ->
+                route.place == target.place && route.reads == target.reads
+            }
+        if (existing >= 0) {
+            while (routes.lastIndex > existing) routes.removeAt(routes.lastIndex)
+        } else {
+            routes.add(target)
+        }
+        return true
+    }
+
+    fun back(): Boolean {
         if (!attached || routes.size <= 1) return false
         routes.removeAt(routes.lastIndex)
         return true
@@ -91,7 +129,7 @@ internal class SlipboxBackStack(
         } || changed
     }
 
-        internal fun detach() {
+    internal fun detach() {
         attached = false
     }
 }

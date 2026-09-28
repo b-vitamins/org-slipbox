@@ -137,6 +137,37 @@ class ReaderSurfaceTest {
         composeRule.runOnIdle { assertEquals(1, retries) }
     }
 
+    @Test
+    fun unresolvedDocumentLinksStayInTheReaderWithContext() {
+        lateinit var settings: ReadingSettings
+        var linkPhase by
+            mutableStateOf<ReaderLinkPhase>(ReaderLinkPhase.Missing("file:missing.org"))
+        composeRule.setContent {
+            settings = remember { ReadingSettings(MemoryStore()) }
+            SlipboxTheme(appearance = settings.preferences.appearance) {
+                ReaderScreen(
+                    phase = DocumentReaderPhase.Ready(document()),
+                    settings = settings,
+                    onBack = {},
+                    onRetry = {},
+                    linkPhase = linkPhase,
+                )
+            }
+        }
+
+        val missing =
+            composeRule.onNodeWithText("No indexed target was found for “file:missing.org”.")
+        missing.assertExists()
+        shown()
+
+        composeRule.runOnIdle {
+            linkPhase = ReaderLinkPhase.Unsupported("javascript:alert(1)")
+        }
+        composeRule
+            .onNodeWithText("This reader cannot open “javascript:alert(1)”.")
+            .assertExists()
+    }
+
     private fun shown(): WebView {
         composeRule.waitForIdle()
         val view =

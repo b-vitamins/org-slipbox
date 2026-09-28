@@ -1,6 +1,28 @@
 import { describe, expect, it } from "vitest";
 
-import { followableHref, resolvedAssetHref } from "./link-target.js";
+import {
+  followableHref,
+  isOrgDocumentTarget,
+  resolvedAssetHref,
+} from "./link-target.js";
+
+describe("isOrgDocumentTarget", () => {
+  it("recognizes source-aware Org targets", () => {
+    expect(isOrgDocumentTarget("notes/other.org")).toBe(true);
+    expect(isOrgDocumentTarget("file:notes/other.org::*Heading")).toBe(true);
+    expect(isOrgDocumentTarget("heading:notes/other.org:17")).toBe(true);
+    expect(isOrgDocumentTarget("*Local heading")).toBe(true);
+    expect(isOrgDocumentTarget("#custom-id")).toBe(true);
+    expect(isOrgDocumentTarget("notes/%E6%BC%A2%E5%AD%97.org")).toBe(true);
+    expect(isOrgDocumentTarget("notes%2Fother.org")).toBe(true);
+  });
+
+  it("leaves assets and external targets outside that grammar", () => {
+    expect(isOrgDocumentTarget("file:diagram.png")).toBe(false);
+    expect(isOrgDocumentTarget("attachment:diagram.png")).toBe(false);
+    expect(isOrgDocumentTarget("https://example.org/notes.org")).toBe(false);
+  });
+});
 
 describe("followableHref", () => {
   it("follows the schemes that navigate", () => {

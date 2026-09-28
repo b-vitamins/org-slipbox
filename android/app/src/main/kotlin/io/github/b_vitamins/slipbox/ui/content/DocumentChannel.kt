@@ -74,6 +74,7 @@ private data class RaisedIntent(
     val verb: String,
     val link: RaisedLink? = null,
     val gesture: String? = null,
+    val progress: Float? = null,
 )
 
 private fun RaisedIntent.intent(): DocumentIntent? =
@@ -81,13 +82,29 @@ private fun RaisedIntent.intent(): DocumentIntent? =
         "glance" -> {
             val asked = DocumentGesture.of(gesture)
             val target = link?.link()
-            if (asked == null || target == null) null else DocumentIntent.Glance(target, asked)
+            val position = progress?.takeIf { it.isFinite() && it in 0f..1f }
+            if (asked == null || target == null || position == null) {
+                null
+            } else {
+                DocumentIntent.Glance(target, asked, position)
+            }
         }
-        "pin" -> link?.link()?.takeIf { gesture == null }?.let(DocumentIntent::Pin)
-        "go" -> link?.link()?.takeIf { gesture == null }?.let(DocumentIntent::Go)
-        "dismiss" -> DocumentIntent.Dismiss.takeIf { link == null && gesture == null }
+        "pin" ->
+            link?.link()
+                ?.takeIf { gesture == null }
+                ?.let { target -> progress?.valid()?.let { DocumentIntent.Pin(target, it) } }
+        "go" ->
+            link?.link()
+                ?.takeIf { gesture == null }
+                ?.let { target -> progress?.valid()?.let { DocumentIntent.Go(target, it) } }
+        "dismiss" ->
+            DocumentIntent.Dismiss.takeIf {
+                link == null && gesture == null && progress == null
+            }
         else -> null
     }
+
+private fun Float.valid(): Float? = takeIf { isFinite() && this in 0f..1f }
 
 private fun RaisedLink.link(): DocumentLink? {
     if (target.isEmpty() || reference.isEmpty() || id?.isEmpty() == true) {

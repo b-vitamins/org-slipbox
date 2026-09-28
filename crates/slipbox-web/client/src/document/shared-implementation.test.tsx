@@ -89,6 +89,6 @@ describe("the shared Org implementation", () => {
     expect(web).toContain("org-quote");
     expect(web).toContain("katex");
     expect(web).toContain('href="?note=id%3Aabc-123"');
-    expect(web).toContain("org-link--inert");
+    expect(web).toContain('href="?note=file%3Anotes%2Fother.org"');
   });
 });

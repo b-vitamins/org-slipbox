@@ -1,5 +1,6 @@
 mod assets;
 mod common;
+mod document_links;
 mod exploration;
 mod glossary;
 mod notes;
@@ -12,6 +13,7 @@ pub(crate) use assets::{
     list_workbench_packs, list_workflows, review_routine, run_review_routine, run_workflow,
     save_workflow_review, validate_workbench_pack, workbench_pack, workflow,
 };
+pub(crate) use document_links::resolve_document_link;
 pub(crate) use exploration::{
     compare_notes, delete_exploration_artifact, execute_exploration_artifact, exploration_artifact,
     explore, list_exploration_artifacts, save_exploration_artifact,

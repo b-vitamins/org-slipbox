@@ -8,6 +8,7 @@ package io.github.b_vitamins.slipbox.ui
 import io.github.b_vitamins.slipbox.engine.ADAPTER_PROTOCOL_VERSION
 import io.github.b_vitamins.slipbox.engine.AdapterBound
 import io.github.b_vitamins.slipbox.engine.AdapterResponse
+import io.github.b_vitamins.slipbox.engine.DocumentLinkResolution
 import io.github.b_vitamins.slipbox.engine.EngineRefusal
 import io.github.b_vitamins.slipbox.engine.EngineRefusalKind
 import io.github.b_vitamins.slipbox.engine.EngineRefusedException
@@ -26,6 +27,7 @@ import io.github.b_vitamins.slipbox.sync.RefreshSource
 import io.github.b_vitamins.slipbox.sync.RefreshVisibility
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -145,6 +147,92 @@ class DocumentReaderStateTest {
         current.close()
     }
 
+    @Test
+    fun aLinkResolvesAgainstTheReaderSourceAndOriginNode() {
+        val opened = AtomicReference<ReadySource>()
+        var request: Pair<String, String>? = null
+        val source = source(answer())
+        source.onResolve = { nodeKey, target ->
+            request = nodeKey to target
+            DocumentLinkResolution.Note("heading:other.org:4")
+        }
+        val state =
+            state(
+                ready = ready("generation-bound"),
+                factory = BoundDocumentSourceFactory { ready ->
+                    opened.set(ready)
+                    source
+                },
+            )
+        await { state.phase is DocumentReaderPhase.Ready }
+        var followed: DocumentLinkResolution? = null
+
+        state.follow("file:other.org::*Target") { followed = it }
+        await { followed != null }
+
+        assertEquals("generation-bound", opened.get().binding.generation)
+        assertEquals(NODE_KEY to "file:other.org::*Target", request)
+        assertEquals(DocumentLinkResolution.Note("heading:other.org:4"), followed)
+        assertEquals(ReaderLinkPhase.Idle, state.linkPhase)
+        state.close()
+    }
+
+    @Test
+    fun missingUnsupportedAndFailedLinksHaveDistinctFeedback() {
+        val missingSource = source(answer())
+        missingSource.onResolve = { _, _ -> DocumentLinkResolution.Missing }
+        val missing = state(factory = BoundDocumentSourceFactory { missingSource })
+        await { missing.phase is DocumentReaderPhase.Ready }
+        missing.follow("missing.org") {}
+        await { missing.linkPhase is ReaderLinkPhase.Missing }
+
+        val unsupportedSource = source(answer())
+        unsupportedSource.onResolve = { _, _ -> DocumentLinkResolution.Unsupported }
+        val unsupported = state(factory = BoundDocumentSourceFactory { unsupportedSource })
+        await { unsupported.phase is DocumentReaderPhase.Ready }
+        unsupported.follow("javascript:alert(1)") {}
+        await { unsupported.linkPhase is ReaderLinkPhase.Unsupported }
+
+        val failedSource = source(answer())
+        failedSource.onResolve = { _, _ -> error("offline") }
+        val failed = state(factory = BoundDocumentSourceFactory { failedSource })
+        await { failed.phase is DocumentReaderPhase.Ready }
+        failed.follow("id:later") {}
+        await { failed.linkPhase is ReaderLinkPhase.Failed }
+
+        missing.close()
+        unsupported.close()
+        failed.close()
+    }
+
+    @Test
+    fun aLaterLinkSuppressesTheEarlierLateResolution() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val source = source(answer())
+        source.onResolve = { _, target ->
+            if (target == "id:old") {
+                entered.countDown()
+                release.await(5, TimeUnit.SECONDS)
+                DocumentLinkResolution.Note("heading:old.org:1")
+            } else {
+                DocumentLinkResolution.Note("heading:new.org:1")
+            }
+        }
+        val state = state(factory = BoundDocumentSourceFactory { source })
+        await { state.phase is DocumentReaderPhase.Ready }
+        val followed = mutableListOf<DocumentLinkResolution>()
+
+        state.follow("id:old", followed::add)
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        state.follow("id:new", followed::add)
+        await { followed.isNotEmpty() }
+        release.countDown()
+
+        assertEquals(listOf(DocumentLinkResolution.Note("heading:new.org:1")), followed)
+        state.close()
+    }
+
     private fun state(
         ready: ReadySource = ready("generation-a"),
         factory: BoundDocumentSourceFactory,
@@ -173,6 +261,9 @@ class DocumentReaderStateTest {
 
         var beforeRead: () -> Unit = {}
         var onRead: (String) -> Unit = {}
+        var onResolve: (String, String) -> DocumentLinkResolution = { _, _ ->
+            DocumentLinkResolution.Unsupported
+        }
 
         override fun read(nodeKey: String): ReadNodeSourceResult {
             beforeRead()
@@ -180,6 +271,9 @@ class DocumentReaderStateTest {
             failure?.let { throw it }
             return checkNotNull(answer)
         }
+
+        override fun resolve(sourceNodeKey: String, target: String): DocumentLinkResolution =
+            onResolve(sourceNodeKey, target)
 
         override fun close() = Unit
     }

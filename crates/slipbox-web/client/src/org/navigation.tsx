@@ -47,6 +47,8 @@ export interface Navigation {
   readonly pin: (target: LinkTarget) => void;
   /** Replace the reading path, opening the target as a fresh root. */
   readonly go: (target: LinkTarget) => void;
+  /** Ask the host to handle a browser-safe external target. */
+  readonly external?: (target: LinkTarget) => boolean;
 }
 
 /** The slipbox reference (an `id:` ref or a raw key) a link target opens. */

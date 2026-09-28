@@ -32,6 +32,7 @@ import io.github.b_vitamins.slipbox.R
 import io.github.b_vitamins.slipbox.engine.NodeKind
 import io.github.b_vitamins.slipbox.engine.NodeRecord
 import io.github.b_vitamins.slipbox.ui.content.DocumentContentView
+import io.github.b_vitamins.slipbox.ui.content.DocumentIntent
 import io.github.b_vitamins.slipbox.ui.document.rememberDocumentPresentation
 import io.github.b_vitamins.slipbox.ui.settings.ReadingSettings
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxDimensions
@@ -47,6 +48,9 @@ internal fun ReaderScreen(
     onBack: () -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
+    linkPhase: ReaderLinkPhase = ReaderLinkPhase.Idle,
+    initialProgress: Float = 0f,
+    onIntent: (DocumentIntent) -> Unit = {},
 ) {
     val document = (phase as? DocumentReaderPhase.Ready)?.document
     var appearanceVisible by rememberSaveable { mutableStateOf(false) }
@@ -126,15 +130,48 @@ internal fun ReaderScreen(
 
                 is DocumentReaderPhase.Ready -> {
                     ReaderMetadata(phase.document.anchor)
+                    ReaderLinkNotice(linkPhase)
                     DocumentContentView(
                         source = phase.document.source,
                         presentation = presentation,
+                        initialProgress = initialProgress,
                         modifier = Modifier.fillMaxWidth().weight(1f).testTag(READER_DOCUMENT_TAG),
+                        onIntent = onIntent,
                     )
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ReaderLinkNotice(phase: ReaderLinkPhase) {
+    val text =
+        when (phase) {
+            ReaderLinkPhase.Idle -> return
+            ReaderLinkPhase.Resolving -> stringResource(R.string.reader_link_resolving)
+            is ReaderLinkPhase.Missing -> stringResource(R.string.reader_link_missing, phase.target)
+            is ReaderLinkPhase.Unsupported ->
+                stringResource(R.string.reader_link_unsupported, phase.target)
+            is ReaderLinkPhase.Failed -> stringResource(R.string.reader_link_failed, phase.target)
+            ReaderLinkPhase.ExternalUnavailable ->
+                stringResource(R.string.reader_link_browser_unavailable)
+        }
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color =
+            if (phase == ReaderLinkPhase.Resolving) {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            } else {
+                MaterialTheme.colorScheme.error
+            },
+        modifier =
+            Modifier.fillMaxWidth().padding(
+                horizontal = SlipboxDimensions.readingPadding,
+                vertical = SlipboxDimensions.headerPaddingVertical,
+            ),
+    )
 }
 
 @Composable

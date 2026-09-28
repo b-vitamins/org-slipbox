@@ -23,6 +23,8 @@ slipbox-index = { path = "../slipbox-index" }
 slipbox-rpc = { path = "../slipbox-rpc" }
 slipbox-store = { path = "../slipbox-store", default-features = false }
 slipbox-write = { path = "../slipbox-write" }
+url.workspace = true
+urlencoding.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

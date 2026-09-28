@@ -7,6 +7,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Follow source-aware links from complete Android documents. Rust resolves Org
+  IDs, indexed node keys, relative Org files and heading selectors inside the
+  originating source generation; HTTP(S) pages cross a credential-free browser
+  handoff, while missing, unsupported, malformed and escaping targets remain
+  explicit. Reader history saves the originating viewport and rewinds repeated
+  notes instead of growing duplicate routes.
 - Read complete source-bound Org documents in the Android app. Library rows open
   a native reader whose title, metadata and rich Org body come from one Rust
   answer in the selected source generation; the shared renderer retains tables,

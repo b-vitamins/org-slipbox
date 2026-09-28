@@ -124,6 +124,19 @@
       "max_lines": 1000
     }
   },
+  "read_resolve_document_link": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "resolveDocumentLink",
+      "source_node_key": "heading:alpha.org:3",
+      "target": "id:11111111-2222-3333-4444-555555555555"
+    }
+  },
   "read_list_glossary_terms": {
     "version": 1,
     "handle": 7,

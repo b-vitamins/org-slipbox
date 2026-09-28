@@ -11,7 +11,8 @@ use slipbox_core::{
     BacklinksParams, ExplorationLens, ExploreParams, ForwardLinksParams, GenerationBinding,
     GenerationId, GlossaryTermParams, IndexFileParams, IndexedFilesResult, ListGlossaryTermsParams,
     ListNotesParams, NodeFromIdParams, NodeFromKeyParams, ReadNodeSourceParams,
-    SearchGlossaryParams, SearchNodeContentParams, SearchNodesParams, SearchNodesSort, SourceId,
+    ResolveDocumentLinkParams, SearchGlossaryParams, SearchNodeContentParams, SearchNodesParams,
+    SearchNodesSort, SourceId,
 };
 use slipbox_rpc::android::{
     ADAPTER_LIMITS, ADAPTER_PROTOCOL_VERSION, AdapterBound, AdapterCapability, AdapterContract,
@@ -115,6 +116,10 @@ fn every_read_operation() -> Vec<ReadOperation> {
             context_before: Some(0),
             context_after: Some(0),
             max_lines: Some(ADAPTER_LIMITS.max_note_source_lines),
+        }),
+        ReadOperation::ResolveDocumentLink(ResolveDocumentLinkParams {
+            source_node_key: "heading:alpha.org:3".to_owned(),
+            target: "id:11111111-2222-3333-4444-555555555555".to_owned(),
         }),
         ReadOperation::ListGlossaryTerms(ListGlossaryTermsParams {
             limit: 50,
@@ -829,6 +834,7 @@ fn each_bound_admits_its_last_value_and_refuses_the_first_beyond_it() {
     let relation = ADAPTER_LIMITS.max_relation_entries;
     let lines = ADAPTER_LIMITS.max_note_source_lines;
     let context = ADAPTER_LIMITS.max_context_lines;
+    let path = ADAPTER_LIMITS.max_path_bytes;
 
     let admitted: Vec<ReadOperation> = vec![
         ReadOperation::SearchNodes(SearchNodesParams {
@@ -869,6 +875,10 @@ fn each_bound_admits_its_last_value_and_refuses_the_first_beyond_it() {
             context_before: Some(context),
             context_after: Some(context),
             max_lines: Some(lines),
+        }),
+        ReadOperation::ResolveDocumentLink(ResolveDocumentLinkParams {
+            source_node_key: "s".repeat(path),
+            target: "t".repeat(path),
         }),
     ];
     for operation in admitted {
@@ -960,6 +970,20 @@ fn each_bound_admits_its_last_value_and_refuses_the_first_beyond_it() {
                 max_lines: Some(lines),
             }),
             AdapterBound::ContextLines,
+        ),
+        (
+            ReadOperation::ResolveDocumentLink(ResolveDocumentLinkParams {
+                source_node_key: "s".repeat(path + 1),
+                target: "target.org".to_owned(),
+            }),
+            AdapterBound::PathBytes,
+        ),
+        (
+            ReadOperation::ResolveDocumentLink(ResolveDocumentLinkParams {
+                source_node_key: "file:source.org".to_owned(),
+                target: "t".repeat(path + 1),
+            }),
+            AdapterBound::PathBytes,
         ),
         (
             ReadOperation::ReadNodeSource(ReadNodeSourceParams {

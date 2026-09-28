@@ -10,20 +10,21 @@ use serde::de::{self, DeserializeOwned, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use slipbox_core::{
-    BacklinksParams, BacklinksResult, ExploreParams, ExploreResult, ForwardLinksParams,
-    ForwardLinksResult, GenerationBinding, GlossaryTermParams, GlossaryTermResult, IndexFileParams,
-    IndexFileResult, IndexStats, IndexedFilesResult, ListGlossaryTermsParams,
-    ListGlossaryTermsResult, ListNotesParams, ListNotesResult, NodeFromIdParams, NodeFromKeyParams,
-    NodeRecord, ReadNodeSourceParams, ReadNodeSourceResult, SearchGlossaryParams,
-    SearchGlossaryResult, SearchNodeContentParams, SearchNodeContentResult, SearchNodesParams,
-    SearchNodesResult, StatusInfo,
+    BacklinksParams, BacklinksResult, DocumentLinkResolution, ExploreParams, ExploreResult,
+    ForwardLinksParams, ForwardLinksResult, GenerationBinding, GlossaryTermParams,
+    GlossaryTermResult, IndexFileParams, IndexFileResult, IndexStats, IndexedFilesResult,
+    ListGlossaryTermsParams, ListGlossaryTermsResult, ListNotesParams, ListNotesResult,
+    NodeFromIdParams, NodeFromKeyParams, NodeRecord, ReadNodeSourceParams, ReadNodeSourceResult,
+    ResolveDocumentLinkParams, SearchGlossaryParams, SearchGlossaryResult, SearchNodeContentParams,
+    SearchNodeContentResult, SearchNodesParams, SearchNodesResult, StatusInfo,
 };
 
 use crate::{
     JsonRpcErrorKind, METHOD_BACKLINKS, METHOD_EXPLORE, METHOD_FORWARD_LINKS, METHOD_GLOSSARY_TERM,
     METHOD_INDEX, METHOD_INDEX_FILE, METHOD_INDEXED_FILES, METHOD_LIST_GLOSSARY_TERMS,
     METHOD_LIST_NOTES, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_READ_NODE_SOURCE,
-    METHOD_SEARCH_GLOSSARY, METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES, METHOD_STATUS,
+    METHOD_RESOLVE_DOCUMENT_LINK, METHOD_SEARCH_GLOSSARY, METHOD_SEARCH_NODE_CONTENT,
+    METHOD_SEARCH_NODES, METHOD_STATUS,
 };
 
 /// The supported Android adapter protocol version.
@@ -210,6 +211,8 @@ operation_vocabulary! {
         NodeFromKey, "nodeFromKey", METHOD_NODE_FROM_KEY, NodeFromKeyParams, Option<NodeRecord>;
         ReadNodeSource, "readNodeSource", METHOD_READ_NODE_SOURCE,
             ReadNodeSourceParams, ReadNodeSourceResult;
+        ResolveDocumentLink, "resolveDocumentLink", METHOD_RESOLVE_DOCUMENT_LINK,
+            ResolveDocumentLinkParams, DocumentLinkResolution;
         ListGlossaryTerms, "listGlossaryTerms", METHOD_LIST_GLOSSARY_TERMS,
             ListGlossaryTermsParams, ListGlossaryTermsResult;
         SearchGlossary, "searchGlossary", METHOD_SEARCH_GLOSSARY,
@@ -290,6 +293,10 @@ impl ReadOperation {
             Self::ForwardLinks(params) => relation_bound(params.limit),
             Self::Explore(params) => relation_bound(params.limit),
             Self::ReadNodeSource(params) => source_bound(params),
+            Self::ResolveDocumentLink(params) => (params.source_node_key.len()
+                > ADAPTER_LIMITS.max_path_bytes
+                || params.target.len() > ADAPTER_LIMITS.max_path_bytes)
+                .then_some(AdapterBound::PathBytes),
         }
     }
 }

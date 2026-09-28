@@ -143,6 +143,10 @@ class EngineAdapterTest {
         assertTrue("$source", source.source.lineCount in 1..source.source.totalLines)
         assertTrue("$source", source.nodeLineCount in 1..source.source.lineCount)
 
+        val link = ReadOperation.ResolveDocumentLink(alpha.nodeKey, "id:beta-target")
+        val resolution = answered<EngineAnswer.ResolveDocumentLink>(read, link).result
+        assertEquals(DocumentLinkResolution.Note(beta.nodeKey), resolution)
+
         val listing = ReadOperation.ListGlossaryTerms(50, null)
         val listed = answered<EngineAnswer.ListGlossaryTerms>(read, listing).result
         assertEquals(listOf("Riemann integral"), titles(listed.terms))

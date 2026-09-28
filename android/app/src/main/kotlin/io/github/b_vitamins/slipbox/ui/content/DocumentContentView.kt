@@ -22,6 +22,7 @@ internal fun DocumentContentView(
     source: DocumentSource,
     presentation: DocumentPresentation,
     modifier: Modifier = Modifier,
+    initialProgress: Float = 0f,
     onIntent: (DocumentIntent) -> Unit = {},
     resolveAsset: DocumentAssetResolver = NoAssets,
 ) {
@@ -45,7 +46,7 @@ internal fun DocumentContentView(
         AndroidView(
             factory = { host.view },
             modifier = modifier,
-            update = { host.present(source, presentation) },
+            update = { host.present(source, presentation, initialProgress) },
             onRelease = { host.dispose() },
         )
     }

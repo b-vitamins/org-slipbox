@@ -69,6 +69,63 @@ class SlipboxBackStackTest {
     }
 
     @Test
+    fun followingSavesTheOriginAndBackRestoresItsPosition() {
+        val origin = note(ALPHA, "note-1")
+        val stack = history(origin)
+
+        assertTrue(stack.follow(origin, "note-2", ReadingAnchor("paragraph-7", 0.42f)))
+        assertEquals(note(ALPHA, "note-2"), stack.current)
+        assertTrue(stack.back())
+        assertEquals(
+            origin.copy(anchor = ReadingAnchor("paragraph-7", 0.42f)),
+            stack.current,
+        )
+    }
+
+    @Test
+    fun followingAnExistingReaderRewindsInsteadOfDuplicatingIt() {
+        val first = note(ALPHA, "note-1")
+        val stack = history(first)
+        assertTrue(stack.follow(first, "note-2", ReadingAnchor(progress = 0.2f)))
+        val second = stack.current as SlipboxRoute.Reader
+
+        assertTrue(stack.follow(second, "note-1", ReadingAnchor(progress = 0.7f)))
+
+        assertEquals(2, stack.entries.size)
+        assertEquals(first.place, stack.current.place)
+        assertEquals(ReadingAnchor(progress = 0.2f), (stack.current as SlipboxRoute.Reader).anchor)
+    }
+
+    @Test
+    fun followingKeepsTheOriginGenerationEvenWhenANewerOneIsReady() {
+        var readyGeneration = "g1"
+        val origin = note(ALPHA, "note-1", generation = "g1")
+        val stack =
+            history(
+                origin,
+                generations = SourceGenerations { if (it == ALPHA) readyGeneration else null },
+            )
+        val presented = stack.current as SlipboxRoute.Reader
+        readyGeneration = "g2"
+
+        assertTrue(stack.follow(presented, "note-2", ReadingAnchor.Start))
+
+        assertEquals(bind(ALPHA, "g1"), presented.note.binding)
+        assertEquals(presented.note.binding, (stack.current as SlipboxRoute.Reader).note.binding)
+    }
+
+    @Test
+    fun aFollowFromAReaderThatHasGoneIsRefused() {
+        val origin = note(ALPHA, "note-1")
+        val stack = history(origin)
+        assertTrue(stack.open(SlipboxRoute.About))
+
+        assertFalse(stack.follow(origin, "note-2", ReadingAnchor(progress = 0.5f)))
+        assertFalse(stack.rememberReadingPlace(origin, ReadingAnchor(progress = 0.5f)))
+        assertEquals(SlipboxRoute.About, stack.current)
+    }
+
+    @Test
     fun theSameKeyUnderTwoSourcesOpensTwoEntries() {
         val stack = history()
         assertTrue(stack.open(note(ALPHA, "note-1")))

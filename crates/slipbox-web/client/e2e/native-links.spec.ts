@@ -83,16 +83,17 @@ test.describe("native links", () => {
     expect(heights[0]).toBe(heights[1]);
   });
 
-  test("marks an unfollowed target and an external one each their own way", async ({
+  test("marks a source-aware target and an external one each their own way", async ({
     page,
   }) => {
     await page.goto("/?note=file:source.org");
 
-    const inert = page.locator(".org-link--inert", { hasText: "a local file" });
-    await expect(inert).toBeVisible();
+    const local = page.getByRole("link", { name: "a local file" });
+    await expect(local).toBeVisible();
+    expect(await local.getAttribute("href")).toBe("?note=file%3Aelsewhere.org");
     expect(
-      await inert.evaluate((node) => getComputedStyle(node).textDecorationStyle),
-    ).toBe("dotted");
+      await local.evaluate((node) => getComputedStyle(node).textDecorationStyle),
+    ).toBe("solid");
 
     const external = page.getByRole("link", { name: "the web" });
     const marker = await external.evaluate((node) => ({

@@ -106,6 +106,19 @@ class DocumentGestureTest {
     }
 
     @Test
+    fun orgAndExternalTargetsBothCrossTheTypedChannel() {
+        view.answer("Array.from(document.querySelectorAll('#document a')).find(a => " +
+            "a.textContent === 'the next note').click();")
+        val org = raised.awaited(2).last()
+        assertEquals(DocumentIntent.Pin(NEXT), org)
+
+        raised.forget()
+        view.answer("Array.from(document.querySelectorAll('#document a')).find(a => " +
+            "a.textContent === 'the paper').click();")
+        assertEquals(DocumentIntent.Go(EXTERNAL), raised.awaited(1).single())
+    }
+
+    @Test
     fun aMessageTheChannelDidNotIssueIsRefused() {
         val live = view.mountToken()
         val link = "{\"id\":${Notes.NOTE_ID.quoted()},\"target\":${SETTLED.target.quoted()}," +
@@ -159,6 +172,20 @@ class DocumentGestureTest {
                 id = Notes.NOTE_ID,
                 target = "id:${Notes.NOTE_ID}",
                 reference = "id:${Notes.NOTE_ID}",
+            )
+
+        val NEXT =
+            DocumentLink(
+                id = null,
+                target = "file:next.org::*Target",
+                reference = "file:next.org::*Target",
+            )
+
+        val EXTERNAL =
+            DocumentLink(
+                id = null,
+                target = "https://example.org/page",
+                reference = "https://example.org/page",
             )
 
         const val STALE = "0f9e8d7c-6b5a-4938-8271-605f4e3d2c1b"

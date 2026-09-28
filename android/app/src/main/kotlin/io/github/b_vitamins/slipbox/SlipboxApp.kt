@@ -7,7 +7,10 @@ package io.github.b_vitamins.slipbox
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import io.github.b_vitamins.slipbox.engine.DocumentLinkResolution
 import io.github.b_vitamins.slipbox.navigation.BoundNote
+import io.github.b_vitamins.slipbox.navigation.ReadingAnchor
 import io.github.b_vitamins.slipbox.navigation.SlipboxDestinations
 import io.github.b_vitamins.slipbox.navigation.SlipboxNavigation
 import io.github.b_vitamins.slipbox.navigation.SlipboxRoute
@@ -25,6 +28,9 @@ import io.github.b_vitamins.slipbox.ui.ReaderScreen
 import io.github.b_vitamins.slipbox.ui.SourceSettingsScreen
 import io.github.b_vitamins.slipbox.ui.rememberDocumentReaderState
 import io.github.b_vitamins.slipbox.ui.rememberNotesInventoryState
+import io.github.b_vitamins.slipbox.ui.content.DocumentGesture
+import io.github.b_vitamins.slipbox.ui.content.DocumentIntent
+import io.github.b_vitamins.slipbox.ui.content.SystemExternalLinkHandoff
 import io.github.b_vitamins.slipbox.ui.settings.ReadingSettings
 import io.github.b_vitamins.slipbox.ui.settings.rememberReadingSettings
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxMotion
@@ -86,11 +92,51 @@ private fun productionDestinations(
                 )
             } else {
                 val reader = rememberDocumentReaderState(readerRoute.note, ready)
+                val context = LocalContext.current
+                val external = remember(context) { SystemExternalLinkHandoff(context) }
+                val follow: (String, Float) -> Unit = { target, progress ->
+                    reader.follow(target) { resolution ->
+                        when (resolution) {
+                            is DocumentLinkResolution.Note ->
+                                backStack.follow(
+                                    origin = readerRoute,
+                                    targetNodeKey = resolution.nodeKey,
+                                    originAnchor = ReadingAnchor(progress = progress),
+                                )
+                            is DocumentLinkResolution.External -> {
+                                val current =
+                                    backStack.rememberReadingPlace(
+                                        readerRoute,
+                                        ReadingAnchor(progress = progress),
+                                    )
+                                if (current && !external.open(resolution.url)) {
+                                    reader.externalUnavailable()
+                                }
+                            }
+                            DocumentLinkResolution.Missing,
+                            DocumentLinkResolution.Unsupported,
+                            -> Unit
+                        }
+                    }
+                }
                 ReaderScreen(
                     phase = reader.phase,
                     settings = settings,
                     onBack = { backStack.back() },
                     onRetry = reader::retry,
+                    linkPhase = reader.linkPhase,
+                    initialProgress = readerRoute.anchor.progress,
+                    onIntent = { intent ->
+                        when (intent) {
+                            is DocumentIntent.Glance ->
+                                if (intent.gesture == DocumentGesture.Touch) {
+                                    follow(intent.link.target, intent.progress)
+                                }
+                            is DocumentIntent.Pin -> follow(intent.link.target, intent.progress)
+                            is DocumentIntent.Go -> follow(intent.link.target, intent.progress)
+                            DocumentIntent.Dismiss -> Unit
+                        }
+                    },
                 )
             }
         }

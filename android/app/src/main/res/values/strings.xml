@@ -39,6 +39,11 @@
         <item quantity="other">This note exceeds the offline reader’s current limit of %d lines. Reduce or split it, then refresh the repository.</item>
     </plurals>
     <string name="reader_unavailable">This note could not be loaded.</string>
+    <string name="reader_link_resolving">Opening link…</string>
+    <string name="reader_link_missing">No indexed target was found for “%1$s”.</string>
+    <string name="reader_link_unsupported">This reader cannot open “%1$s”.</string>
+    <string name="reader_link_failed">The target “%1$s” could not be resolved.</string>
+    <string name="reader_link_browser_unavailable">No browser is available for this link.</string>
     <string name="reader_metadata_description">%1$s, %2$s, %3$s</string>
     <plurals name="reader_backlinks">
         <item quantity="one">%d backlink</item>

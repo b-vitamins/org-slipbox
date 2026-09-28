@@ -52,6 +52,7 @@ the shared renderer's untrusted KaTeX options and semantic MathML output.
 DocumentContentView(
     source = DocumentSource(source, generation, id, org, baseLevel = 2),
     presentation = presentation,
+    initialProgress = restoredProgress,
     onIntent = { intent -> /* application navigation */ },
     resolveAsset = DocumentAssetResolver { binding, target -> /* bytes or null */ },
 )
@@ -65,9 +66,9 @@ use their latest values without rebuilding the view.
 
 | Intent    | Payload          | Caller action                     |
 |-----------+------------------+-----------------------------------|
-| =Glance=  | link and gesture | open a contextual preview         |
-| =Pin=     | link             | open beside its origin            |
-| =Go=      | link             | open as a fresh root              |
+| =Glance=  | link, gesture and viewport | open a contextual preview |
+| =Pin=     | link and viewport | open beside its origin           |
+| =Go=      | link and viewport | open as a fresh root              |
 | =Dismiss= | none             | withdraw the standing preview     |
 
 The =slipboxDocument= message channel validates origin, main frame, live token
@@ -76,6 +77,14 @@ gestures are refused; messages are bounded to 4096 characters. Diagnostics name
 the failed check, never the note-derived payload. No native evaluator, RPC
 dispatcher, engine or credential object is exposed. A WebView without the typed
 message-listener feature renders without navigation callbacks.
+
+ID links, indexed node keys, relative Org files and heading selectors all use
+that typed channel; they are not asset requests. The Android host also
+intercepts ordinary primary activation of browser-safe external anchors so the
+native side can validate and dispatch them. The standalone web default keeps
+normal browser navigation. Modifier and auxiliary-button activation remains
+outside the typed channel and is subject to the embedding host's navigation
+policy.
 
 Asset lookup receives =DocumentBinding= and the verbatim Org target, such as
 =file:diagram.png=, on the loader thread. The host rejects invalid token/path
@@ -92,6 +101,9 @@ The host applies its CSS variables and fixes =textZoom= at 100: Android font
 scaling is already incorporated, including nonlinear large-text scaling.
 Presentation updates preserve document nodes, scroll, focus and previews.
 Source changes use the renderer's =update= contract and withdraw old previews.
+One normalized =initialProgress= is applied after a new mount lays out; later
+recomposition of that live mount never reapplies it. Link intents snapshot the
+current normalized viewport so native Back can restore the origin.
 Disposal retires the token, invokes renderer teardown and destroys the WebView;
 the caller withdraws its own preview when removing the content view.
 

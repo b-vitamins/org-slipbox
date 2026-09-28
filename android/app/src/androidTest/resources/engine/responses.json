@@ -22,6 +22,7 @@
       "nodeFromId",
       "nodeFromKey",
       "readNodeSource",
+      "resolveDocumentLink",
       "listGlossaryTerms",
       "searchGlossary",
       "glossaryTerm",
@@ -549,6 +550,22 @@
         },
         "node_start_line": 3,
         "node_line_count": 2
+      }
+    }
+  },
+  "answered_resolve_document_link": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "resolveDocumentLink",
+      "result": {
+        "kind": "note",
+        "node_key": "heading:alpha.org:3"
       }
     }
   },
@@ -2787,6 +2804,7 @@
       "glossaryTerm",
       "searchGlossary",
       "listGlossaryTerms",
+      "resolveDocumentLink",
       "readNodeSource",
       "nodeFromKey",
       "nodeFromId",

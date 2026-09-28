@@ -9,6 +9,7 @@ let mount = null;
 let handle = null;
 let current = null;
 let queued = false;
+let restoredToken = null;
 
 function state(value) {
   document.documentElement.dataset.slipboxState = value;
@@ -32,8 +33,38 @@ function report(intent) {
         ? { id: link.id, target: link.target, reference: link.reference }
         : null,
       gesture: intent.gesture || null,
+      progress: link ? readingProgress() : null,
     }),
   );
+}
+
+function readingProgress() {
+  const scroller = document.scrollingElement;
+  if (!scroller) {
+    return 0;
+  }
+  const extent = scroller.scrollHeight - scroller.clientHeight;
+  return extent <= 0 ? 0 : Math.max(0, Math.min(1, scroller.scrollTop / extent));
+}
+
+function restorePosition() {
+  const token = current.token;
+  if (restoredToken === token) {
+    return;
+  }
+  restoredToken = token;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (!current || current.token !== token) {
+        return;
+      }
+      const scroller = document.scrollingElement;
+      if (scroller) {
+        const extent = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+        scroller.scrollTop = current.initialProgress * extent;
+      }
+    });
+  });
 }
 
 function assetHref(target) {
@@ -49,6 +80,7 @@ function options() {
     theme: current.presentation.theme,
     onIntent: report,
     href: () => null,
+    interceptExternal: true,
     resolveAsset: assetHref,
   };
 }
@@ -72,6 +104,7 @@ function apply() {
   } else {
     handle = mount(element(), options());
   }
+  restorePosition();
   state("ready");
 }
 
@@ -87,6 +120,7 @@ function present(payload) {
 function dispose() {
   queued = false;
   current = null;
+  restoredToken = null;
   if (handle) {
     handle.dispose();
     handle = null;

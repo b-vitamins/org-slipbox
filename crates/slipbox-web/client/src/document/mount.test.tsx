@@ -163,6 +163,74 @@ describe("mountOrgDocument", () => {
     });
   });
 
+  it("reports source-aware file and heading targets through the grammar", () => {
+    const host = hostElement();
+    const intents: OrgDocumentIntent[] = [];
+    mountOrgDocument(host, {
+      content: {
+        source:
+          "[[file:notes/%E6%BC%A2%E5%AD%97.org::*Heading][file]] [[#custom-id][local]]\n",
+      },
+      onIntent: (intent) => intents.push(intent),
+    });
+
+    const links = [...documentOf(host).querySelectorAll("a.org-link")];
+    links.forEach((link) =>
+      link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })),
+    );
+
+    expect(intents.filter((intent) => intent.verb !== "dismiss")).toEqual([
+      {
+        verb: "pin",
+        link: {
+          id: null,
+          target: "file:notes/%E6%BC%A2%E5%AD%97.org::*Heading",
+          reference: "file:notes/%E6%BC%A2%E5%AD%97.org::*Heading",
+        },
+      },
+      {
+        verb: "pin",
+        link: { id: null, target: "#custom-id", reference: "#custom-id" },
+      },
+    ]);
+  });
+
+  it("preserves browser navigation unless the host intercepts external links", () => {
+    const source = "[[https://example.org/paper][paper]]\n";
+    const browserHost = hostElement();
+    const browserIntents: OrgDocumentIntent[] = [];
+    mountOrgDocument(browserHost, {
+      content: { source },
+      onIntent: (intent) => browserIntents.push(intent),
+    });
+    const browserEvent = new MouseEvent("click", { bubbles: true, cancelable: true });
+    documentOf(browserHost).querySelector("a")?.dispatchEvent(browserEvent);
+
+    const appHost = hostElement();
+    const appIntents: OrgDocumentIntent[] = [];
+    mountOrgDocument(appHost, {
+      content: { source },
+      interceptExternal: true,
+      onIntent: (intent) => appIntents.push(intent),
+    });
+    const appEvent = new MouseEvent("click", { bubbles: true, cancelable: true });
+    documentOf(appHost).querySelector("a")?.dispatchEvent(appEvent);
+
+    expect(browserEvent.defaultPrevented).toBe(false);
+    expect(browserIntents).toEqual([]);
+    expect(appEvent.defaultPrevented).toBe(true);
+    expect(appIntents).toEqual([
+      {
+        verb: "go",
+        link: {
+          id: null,
+          target: "https://example.org/paper",
+          reference: "https://example.org/paper",
+        },
+      },
+    ]);
+  });
+
   it("keeps instances on one page independent", () => {
     const first = hostElement();
     const second = hostElement();
@@ -542,8 +610,8 @@ describe("mountOrgDocument", () => {
     });
 
     const rendered = documentOf(host);
-    expect(rendered.querySelectorAll("a")).toHaveLength(0);
-    expect(rendered.querySelectorAll(".org-link--inert")).toHaveLength(2);
+    expect(rendered.querySelectorAll("a")).toHaveLength(1);
+    expect(rendered.querySelectorAll(".org-link--inert")).toHaveLength(1);
   });
 
   it("anchors a target the host resolved and refuses a hostile resolution", () => {

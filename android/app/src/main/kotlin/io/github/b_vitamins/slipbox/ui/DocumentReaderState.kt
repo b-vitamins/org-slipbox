@@ -13,6 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import io.github.b_vitamins.slipbox.engine.AdapterBound
+import io.github.b_vitamins.slipbox.engine.DocumentLinkResolution
 import io.github.b_vitamins.slipbox.engine.EngineAnswer
 import io.github.b_vitamins.slipbox.engine.EngineRefusalKind
 import io.github.b_vitamins.slipbox.engine.EngineRefusedException
@@ -45,6 +46,20 @@ internal sealed interface DocumentReaderPhase {
     data object Failed : DocumentReaderPhase
 }
 
+internal sealed interface ReaderLinkPhase {
+    data object Idle : ReaderLinkPhase
+
+    data object Resolving : ReaderLinkPhase
+
+    data class Missing(val target: String) : ReaderLinkPhase
+
+    data class Unsupported(val target: String) : ReaderLinkPhase
+
+    data class Failed(val target: String) : ReaderLinkPhase
+
+    data object ExternalUnavailable : ReaderLinkPhase
+}
+
 internal data class ReaderDocument(
     val anchor: NodeRecord,
     val source: DocumentSource,
@@ -55,6 +70,8 @@ internal interface BoundDocumentSource : AutoCloseable {
     val maxLines: Int
 
     fun read(nodeKey: String): ReadNodeSourceResult
+
+    fun resolve(sourceNodeKey: String, target: String): DocumentLinkResolution
 }
 
 internal fun interface BoundDocumentSourceFactory {
@@ -88,6 +105,14 @@ private object NativeBoundDocumentSourceFactory : BoundDocumentSourceFactory {
                     return (session.answer(operation).await() as EngineAnswer.ReadNodeSource).result
                 }
 
+                override fun resolve(
+                    sourceNodeKey: String,
+                    target: String,
+                ): DocumentLinkResolution {
+                    val operation = ReadOperation.ResolveDocumentLink(sourceNodeKey, target)
+                    return (session.answer(operation).await() as EngineAnswer.ResolveDocumentLink).result
+                }
+
                 override fun close() {
                     host.close()
                 }
@@ -110,9 +135,13 @@ internal class DocumentReaderState(
 
     private val live = AtomicBoolean(true)
     private val requests = AtomicLong()
+    private val linkRequests = AtomicLong()
     private val opened = AtomicReference<BoundDocumentSource?>()
 
     var phase: DocumentReaderPhase by mutableStateOf(DocumentReaderPhase.Loading)
+        private set
+
+    var linkPhase: ReaderLinkPhase by mutableStateOf(ReaderLinkPhase.Idle)
         private set
 
     init {
@@ -125,6 +154,49 @@ internal class DocumentReaderState(
         opened.getAndSet(null)?.close()
         phase = DocumentReaderPhase.Loading
         request()
+    }
+
+    /** Resolve against this reader's exact source generation, never the later active source. */
+    fun follow(target: String, completed: (DocumentLinkResolution) -> Unit) {
+        if (!live.get() || phase !is DocumentReaderPhase.Ready) return
+        val serial = linkRequests.incrementAndGet()
+        linkPhase = ReaderLinkPhase.Resolving
+        Thread(
+                {
+                    val outcome = runCatching {
+                        checkNotNull(opened.get()).resolve(note.nodeKey, target)
+                    }
+                    delivery.post {
+                        if (!live.get() || linkRequests.get() != serial) return@post
+                        outcome.fold(
+                            onSuccess = { resolution ->
+                                when (resolution) {
+                                    is DocumentLinkResolution.Note,
+                                    is DocumentLinkResolution.External,
+                                    -> {
+                                        linkPhase = ReaderLinkPhase.Idle
+                                        completed(resolution)
+                                    }
+                                    DocumentLinkResolution.Missing ->
+                                        linkPhase = ReaderLinkPhase.Missing(target)
+                                    DocumentLinkResolution.Unsupported ->
+                                        linkPhase = ReaderLinkPhase.Unsupported(target)
+                                }
+                            },
+                            onFailure = { linkPhase = ReaderLinkPhase.Failed(target) },
+                        )
+                    }
+                },
+                LINK_WORKER_NAME,
+            )
+            .apply {
+                isDaemon = true
+                start()
+            }
+    }
+
+    fun externalUnavailable() {
+        if (live.get()) linkPhase = ReaderLinkPhase.ExternalUnavailable
     }
 
     private fun request() {
@@ -206,11 +278,13 @@ internal class DocumentReaderState(
     override fun close() {
         if (!live.compareAndSet(true, false)) return
         requests.incrementAndGet()
+        linkRequests.incrementAndGet()
         opened.getAndSet(null)?.close()
     }
 
     private companion object {
         const val WORKER_NAME = "slipbox-document-reader"
+        const val LINK_WORKER_NAME = "slipbox-document-link"
     }
 }
 

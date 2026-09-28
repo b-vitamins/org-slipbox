@@ -219,6 +219,13 @@ sealed class ReadOperation {
     ) : ReadOperation()
 
     @Serializable
+    @SerialName("resolveDocumentLink")
+    data class ResolveDocumentLink(
+        @SerialName("source_node_key") val sourceNodeKey: String,
+        val target: String,
+    ) : ReadOperation()
+
+    @Serializable
     @SerialName("listGlossaryTerms")
     data class ListGlossaryTerms(
         val limit: Int,

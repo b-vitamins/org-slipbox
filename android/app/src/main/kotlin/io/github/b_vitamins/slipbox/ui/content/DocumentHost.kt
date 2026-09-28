@@ -50,12 +50,21 @@ internal class DocumentHost(
         }
 
     /** Presentation-only changes retain the token, scroll and focus. */
-    fun present(source: DocumentSource, presentation: DocumentPresentation) {
+    fun present(
+        source: DocumentSource,
+        presentation: DocumentPresentation,
+        initialProgress: Float = 0f,
+    ) {
         if (retired) {
             return
         }
         val live = mount
-        val next = if (live != null && live.source == source) live else DocumentMount(token(), source)
+        val next =
+            if (live != null && live.source == source) {
+                live
+            } else {
+                DocumentMount(token(), source, initialProgress)
+            }
         mount = next
         view.setBackgroundColor(background(presentation.theme))
         val presented = Presented(next, presentation)

@@ -182,6 +182,27 @@ retires its session owner before a late reply can publish, so a reply for one
 note or generation cannot appear under another. Only the selected document is
 loaded and rendered; corpus discovery remains the bounded Rust inventory above.
 
+** Source-Bound Link Following
+
+The document renderer reports a link target verbatim together with the current
+normalized viewport position. The native reader asks Rust to resolve it through
+the read session already bound to the document's source and generation. A later
+active-source change therefore cannot redirect an in-flight or historical link.
+Rust owns the supported grammar: Org IDs, indexed file and heading keys,
+relative =.org= paths, file selectors, same-file headings and custom IDs.
+Resolved notes open as complete document reads in that same generation.
+
+HTTP and HTTPS targets are parsed and validated in Rust, then passed to a
+credential-free browsable system intent. User information, malformed URLs,
+application schemes, absolute or traversing file paths, encoded separators and
+targets outside the supported grammar are never handed to another application.
+Missing and unsupported targets remain distinct reader feedback.
+
+Following a note first saves the origin's viewport. Back restores that position.
+Following a note already present in the reading path rewinds to its existing
+entry rather than adding a duplicate, and a stale callback from a route that is
+no longer presented cannot mutate the path.
+
 ** Eligibility And Diagnostics
 
 Plain Org text is the initial supported note format. Everything else is an
