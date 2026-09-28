@@ -183,6 +183,7 @@ val rustClosure =
         "slipbox-git",
         "slipbox-index",
         "slipbox-rpc",
+        "slipbox-sources",
         "slipbox-store",
         "slipbox-sync",
         "slipbox-write",

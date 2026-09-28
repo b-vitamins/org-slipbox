@@ -26,6 +26,7 @@ const EXPECTED_WORKSPACE_CLOSURE: &[&str] = &[
     "slipbox-git",
     "slipbox-index",
     "slipbox-rpc",
+    "slipbox-sources",
     "slipbox-store",
     "slipbox-sync",
     "slipbox-write",
@@ -60,6 +61,7 @@ const GIT_JNI_METHODS: &[&str] = &[
     "nativeMaterialize",
     "nativeRefresh",
     "nativeRefreshStatus",
+    "nativeSourceCatalog",
     "nativeSynchronize",
 ];
 

@@ -2616,6 +2616,7 @@ dependencies = [
  "slipbox-engine",
  "slipbox-git",
  "slipbox-rpc",
+ "slipbox-sources",
  "slipbox-sync",
  "tempfile",
  "zeroize",

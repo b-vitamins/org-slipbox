@@ -14,6 +14,7 @@
     Java_io_github_b_1vitamins_slipbox_git_SlipboxNativeGit_nativeMaterialize;
     Java_io_github_b_1vitamins_slipbox_git_SlipboxNativeGit_nativeRefresh;
     Java_io_github_b_1vitamins_slipbox_git_SlipboxNativeGit_nativeRefreshStatus;
+    Java_io_github_b_1vitamins_slipbox_git_SlipboxNativeGit_nativeSourceCatalog;
     Java_io_github_b_1vitamins_slipbox_git_SlipboxNativeGit_nativeCancel;
     Java_io_github_b_1vitamins_slipbox_git_SlipboxNativeGit_nativeInitialize;
   local:

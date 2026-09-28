@@ -8,9 +8,11 @@ read-only: it creates and updates a bare object store and exposes no push or
 remote-write operation. Exact fetched revisions can then be materialized into
 immutable source-owned candidate snapshots. A source-scoped coordinator now
 recovers the generation store, fetches, derives exact changed-file inventories,
-materializes, stages the index and publishes one coherent generation. Source UI,
-connection UI and reader activation remain separate application work;
-WorkManager now supplies the constrained source-scoped scheduling boundary.
+materializes, stages the index and publishes one coherent generation. The
+Compose connection flow drives that path for first import and activates the
+Rust-owned catalog only after reopening the exact published generation.
+WorkManager supplies the constrained source-scoped scheduling boundary for
+subsequent refreshes.
 
 The object transport and immutable source views are implemented in
 =slipbox-git=; =slipbox-sync= owns staged index construction, refresh
@@ -294,6 +296,15 @@ thread and acquires a private credential only for the blocking native call.
 Stopping work cancels its active native operation. A changed import
 configuration cancels the active flight and re-enqueues both lanes; source
 removal cancels every work item carrying that source's tag.
+
+The version-1 =nativeSourceCatalog= boundary loads, verifies and commits source
+selection without moving source mutation into Kotlin. Its commit request carries
+the catalog revision observed before import, the complete source record (a
+credential reference only, never credential material), the private
+generation-store path and the exact generation returned by refresh. Rust
+acquires a generation lease and verifies source provenance before the catalog
+save. Stale revisions, conflicting identities and unavailable or mismatched
+generations are closed failures; no partial corpus becomes active.
 
 * Qualification
 

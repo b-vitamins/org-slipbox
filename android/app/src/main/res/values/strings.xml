@@ -6,7 +6,23 @@
 <resources>
     <string name="app_name">Slipbox</string>
 
-    <string name="library_empty">Nothing to read yet.</string>
+    <string name="library_empty">No repository is connected.</string>
+    <string name="library_loading">Opening your library.</string>
+    <string name="library_unavailable">The library could not be opened.</string>
+    <string name="library_ready">%1$s · %2$s · revision %3$s</string>
+    <plurals name="library_files">
+        <item quantity="one">%d file</item>
+        <item quantity="other">%d files</item>
+    </plurals>
+    <plurals name="library_nodes">
+        <item quantity="one">%d indexed node</item>
+        <item quantity="other">%d indexed nodes</item>
+    </plurals>
+
+    <string name="action_connect">Connect</string>
+    <string name="action_add_source">Add</string>
+    <string name="action_retry">Try again</string>
+    <string name="action_cancel">Cancel</string>
 
     <string name="action_about">About</string>
     <string name="action_back">Back</string>
@@ -30,4 +46,31 @@
     <string name="about_license">GNU General Public License, version 3 or later</string>
     <string name="about_development_build">A development build of the Android reader, not a
         released version.</string>
+
+    <string name="connection_title">Connect repository</string>
+    <string name="connection_public">Public HTTPS</string>
+    <string name="connection_github">GitHub</string>
+    <string name="connection_url">Repository URL</string>
+    <string name="connection_branch">Branch</string>
+    <string name="connection_folder">Notes folder (optional)</string>
+    <string name="connection_invalid_public">Enter a public HTTPS Git repository.</string>
+    <string name="connection_authorize">Authorize GitHub</string>
+    <string name="connection_installations">Choose an account or organization</string>
+    <string name="connection_repositories">Choose a repository</string>
+    <string name="connection_branches">Choose a branch</string>
+    <string name="connection_loading_github">Loading from GitHub.</string>
+    <string name="connection_github_failed">GitHub could not complete this step.</string>
+    <string name="connection_saving_credential">Securing repository access.</string>
+    <string name="connection_fetching">Fetching repository.</string>
+    <string name="connection_preparing">Preparing repository files.</string>
+    <string name="connection_indexing">Indexing notes.</string>
+    <string name="connection_publishing">Making the library ready.</string>
+    <string name="connection_cancelling">Cancelling import.</string>
+    <string name="connection_import_failed">The repository could not be imported.</string>
+    <string name="connection_reach_failed">The repository could not be reached. Check the connection and try again.</string>
+    <string name="connection_selection_failed">The selected repository, branch, or notes folder is no longer available.</string>
+    <string name="connection_storage_failed">There is not enough usable private storage for this import.</string>
+    <string name="connection_authorization_failed">GitHub access must be renewed before this repository can be imported.</string>
+    <string name="connection_catalog_failed">The imported library could not be activated.</string>
+    <string name="connection_reconnect">Reconnect GitHub</string>
 </resources>

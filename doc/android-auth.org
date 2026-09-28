@@ -8,8 +8,10 @@ provide a PAT, configure a client ID or run a server. Anonymous public HTTPS
 sources remain independent.
 
 The authorization component returns the verified account, installation access
-and credential. Token renewal, repository selection and connection navigation
-are separate responsibilities. See [[file:android.org][the reader contract]] and
+and credential. The connection surface composes it with bounded repository,
+branch and folder discovery, then stores a selected private source credential
+under the newly minted source identity before import. Token renewal remains a
+separate responsibility. See [[file:android.org][the reader contract]] and
 [[file:android-build.org][build instructions]].
 
 * Public Configuration

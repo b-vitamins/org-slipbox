@@ -7,6 +7,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Connect Android to public HTTPS or selected GitHub repositories through a
+  complete first-import surface. GitHub App authorization, repository/branch/
+  folder selection, credential-vault handoff, cancellable stage-specific
+  progress and retry lead into Rust-verified generation activation; the native
+  source catalog becomes active only after the complete derived index reopens,
+  and the Library identifies the ready source, revision and index counts.
 - Schedule Android source refreshes through unique per-source WorkManager lanes.
   Startup and manual requests share a coalescing one-shot lane, periodic work is
   best-effort under network/storage/battery constraints, transient retries are

@@ -13,6 +13,20 @@ import org.junit.Test
 class RefreshWorkTest {
 
     @Test
+    fun completedInitialImportInstallsOnlyTheQuietPeriodicLane() {
+        val queue = RecordingRefreshWorkQueue()
+        val source = source()
+
+        val outcome = SourceRefreshScheduler(queue, RecordingActiveRefreshes()).imported(source)
+
+        assertEquals(RefreshScheduleOutcome.Accepted, outcome)
+        assertEquals(
+            listOf(WorkCall(WorkKind.PERIODIC, RefreshTrigger.PERIODIC, source, false)),
+            queue.calls,
+        )
+    }
+
+    @Test
     fun configurationInstallsBothLanesWithoutCancellingAnInitialSource() {
         val queue = RecordingRefreshWorkQueue()
         val active = RecordingActiveRefreshes()

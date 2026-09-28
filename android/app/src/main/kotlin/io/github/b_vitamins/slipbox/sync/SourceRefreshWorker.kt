@@ -171,6 +171,11 @@ internal fun interface SourceRefreshExecutor {
     fun refresh(request: SourceRefresh): SourceRefreshOutcome
 }
 
+internal fun interface SourceRefreshStatusExecutor {
+
+    fun status(source: String): SourceRefreshStatusOutcome
+}
+
 internal data class SourceRefreshPaths(val repository: File, val store: File)
 
 internal fun interface SourceRefreshStorage {
@@ -241,6 +246,9 @@ internal class SourceRefreshRuntime(
         (executor as? CancellableSourceRefreshExecutor)?.cancel(operation)
     }
 
+    fun status(source: String): SourceRefreshStatusOutcome =
+        (executor as? SourceRefreshStatusExecutor)?.status(source) ?: SourceRefreshStatusOutcome.Idle
+
     private fun retry(attempt: Int, terminal: RefreshRetry): RefreshRetry =
         if (attempt + 1 < MAX_REFRESH_ATTEMPTS) {
             RefreshRetry.Backoff(30L shl (attempt * 2))
@@ -271,7 +279,9 @@ internal interface CancellableSourceRefreshExecutor : SourceRefreshExecutor {
     fun cancel(operation: Long): Boolean
 }
 
-internal class PackagedSourceRefreshExecutor(context: Context) : CancellableSourceRefreshExecutor {
+internal class PackagedSourceRefreshExecutor(context: Context) :
+    CancellableSourceRefreshExecutor,
+    SourceRefreshStatusExecutor {
 
     private val application = context.applicationContext
 
@@ -289,6 +299,8 @@ internal class PackagedSourceRefreshExecutor(context: Context) : CancellableSour
     }
 
     override fun cancel(operation: Long): Boolean = coordinator.cancel(operation)
+
+    override fun status(source: String): SourceRefreshStatusOutcome = coordinator.status(source)
 
     private fun credentials(source: RefreshSource): CredentialRenewalOwner? {
         if (source.provider != RefreshProvider.GITHUB ||

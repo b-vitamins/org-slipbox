@@ -95,6 +95,13 @@ class SourceRefreshScheduler internal constructor(
     private val active: ActiveSourceRefreshes,
 ) {
 
+    /** Continue a completed foreground import without immediately fetching it again. */
+    fun imported(source: RefreshSource): RefreshScheduleOutcome {
+        val input = input(RefreshTrigger.PERIODIC, source) ?: return refusal(source)
+        queue.periodic(input, replace = false)
+        return RefreshScheduleOutcome.Accepted
+    }
+
     /** Installs recurring work and requests a first refresh for [source]. */
     fun configure(
         previous: RefreshSource?,

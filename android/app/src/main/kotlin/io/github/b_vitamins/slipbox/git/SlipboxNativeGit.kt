@@ -18,6 +18,8 @@ internal interface NativeGitSeam {
 
     fun refreshStatus(request: ByteArray): ByteArray? = null
 
+    fun sourceCatalog(request: ByteArray): ByteArray? = null
+
     fun cancel(operation: Long): Boolean
 }
 
@@ -41,6 +43,15 @@ internal object SlipboxNativeGit {
             override fun refreshStatus(request: ByteArray): ByteArray? =
                 nativeRefreshStatus(request)
 
+            override fun sourceCatalog(request: ByteArray): ByteArray? {
+                if (loadFailure != null) return null
+                return try {
+                    nativeSourceCatalog(request)
+                } catch (_: UnsatisfiedLinkError) {
+                    null
+                }
+            }
+
             override fun cancel(operation: Long): Boolean = nativeCancel(operation)
         }
 
@@ -60,6 +71,8 @@ internal object SlipboxNativeGit {
     private external fun nativeRefresh(request: ByteArray, credential: ByteArray?): ByteArray?
 
     private external fun nativeRefreshStatus(request: ByteArray): ByteArray?
+
+    private external fun nativeSourceCatalog(request: ByteArray): ByteArray?
 
     private external fun nativeCancel(operation: Long): Boolean
 }

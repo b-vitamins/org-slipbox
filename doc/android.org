@@ -7,12 +7,14 @@ reader: where its notes come from, what it may read, what it must never write,
 and which boundaries hold before any of it is built.
 
 None of it is shipped. `0.18.0` is the latest shipped release, and its released
-metadata and history remain authoritative. An unreleased Compose shell provides
-Library and About screens; it does not yet load notes. The native adapter,
+metadata and history remain authoritative. The unreleased Compose application
+connects public HTTPS and selected GitHub repositories, imports one complete
+corpus and identifies its verified generation in Library. The native adapter,
 document host, bounded Git transport, source-owned snapshot materializer,
 incremental index staging, coherent generation publication and startup recovery
-are joined by a source-scoped refresh coordinator and constrained WorkManager
-scheduling. Source connection and reader wiring remain unbuilt. GitHub
+are joined to source connection through the source-scoped refresh coordinator;
+WorkManager supplies constrained later refreshes. Note inventory and reader
+wiring remain unbuilt. GitHub
 authorization and real public/private device fetches are qualified
 independently.
 Build instructions and toolchain pins are
@@ -112,9 +114,13 @@ One writer owns each catalog path. Revision checks detect committed competing
 writes but do not serialize writers. Corrupt or unsupported documents are
 refused untouched. Same-directory rename commits a save; a subsequent
 =NotDurable= error reports the new revision and requires reload before retry.
-The catalog, Git/authentication transports and complete native refresh path are
-implemented independently; the Android shell does not yet schedule that path or
-open its ready generation for reading.
+Android loads the catalog off the UI thread, reopens the selected generation and
+shows no source as ready when that verification fails. Initial import sends the
+complete source record through the native refresh path, then calls a narrow
+native catalog boundary with the observed catalog revision and returned ready
+generation. Rust reopens the generation, verifies its source record and exact
+generation identity, and only then saves and selects the source. A lost response
+is recovered by reloading that committed state rather than duplicating the job.
 
 ** One Active Corpus
 
@@ -326,7 +332,9 @@ One native history handles destination callbacks, system Back and predictive
 Back. Presented sheets dismiss before the destination; cancelled gestures leave
 history unchanged and root Back belongs to the platform. Position/search updates
 to the current place retain its presentation. Only registered destinations are
-reachable; the current production build still presents Library and About.
+reachable; the current production build presents Library, repository Connection
+and About. Connection is temporary context, not permanent instructional content
+on Library.
 
 * Synchronization And Freshness
 

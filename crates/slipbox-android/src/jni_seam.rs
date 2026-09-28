@@ -29,6 +29,10 @@ use slipbox_rpc::android_refresh::{
     MAX_REFRESH_REQUEST_BYTES, RefreshFailureReason, RefreshResponse, RefreshRetry,
     encode_refresh_response,
 };
+use slipbox_rpc::android_sources::{
+    MAX_SOURCE_CATALOG_REQUEST_BYTES, SourceCatalogFailureReason, SourceCatalogResponse,
+    encode_source_catalog_response,
+};
 use zeroize::Zeroize;
 
 use crate::adapter::{
@@ -37,6 +41,7 @@ use crate::adapter::{
 };
 use crate::android_git::{cancel, serve_materialize, serve_synchronize};
 use crate::android_refresh::{cancel_refresh, serve_refresh, serve_refresh_status};
+use crate::android_sources::serve_source_catalog;
 use crate::probe::{ProbeReport, run_fixture_probe};
 
 const ENCODE_FAILURE: &[u8] = br#"{"passed":false,"checks":[],"failure":{"stage":"encode","detail":"the probe report did not encode"}}"#;
@@ -237,6 +242,45 @@ pub unsafe extern "system" fn Java_io_github_b_1vitamins_slipbox_git_SlipboxNati
                 },
             };
             slipbox_rpc::android_refresh::encode_refresh_status_response(&response)
+        });
+    unsafe { new_byte_array(env, &response) }
+}
+
+/// Load or activate the Rust-owned source catalog. Activation reopens and
+/// verifies a published generation before the catalog can name it active.
+///
+/// # Safety
+///
+/// `request` must be a JVM byte-array reference owned by the calling thread.
+#[allow(non_snake_case)]
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_io_github_b_1vitamins_slipbox_git_SlipboxNativeGit_nativeSourceCatalog(
+    env: *mut JNIEnv,
+    _this: jobject,
+    request: jbyteArray,
+) -> jbyteArray {
+    let request =
+        match unsafe { read_request_bounded(env, request, MAX_SOURCE_CATALOG_REQUEST_BYTES) } {
+            Argument::Bytes(request) => request,
+            Argument::Refused(refusal) => {
+                let reason = match refusal.reason {
+                    RefusalReason::OutOfBounds => SourceCatalogFailureReason::OutOfBounds,
+                    _ => SourceCatalogFailureReason::MalformedRequest,
+                };
+                return unsafe {
+                    new_byte_array(
+                        env,
+                        &encode_source_catalog_response(&SourceCatalogResponse::refused(reason)),
+                    )
+                };
+            }
+            Argument::Pending => return ptr::null_mut(),
+        };
+    let response = panic::catch_unwind(AssertUnwindSafe(|| serve_source_catalog(&request)))
+        .unwrap_or_else(|_| {
+            encode_source_catalog_response(&SourceCatalogResponse::refused(
+                SourceCatalogFailureReason::Panicked,
+            ))
         });
     unsafe { new_byte_array(env, &response) }
 }
