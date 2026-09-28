@@ -1,5 +1,9 @@
+mod recovery;
+
+pub use recovery::*;
+
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,43 +18,61 @@ use slipbox_git::{
 use tempfile::NamedTempFile;
 use thiserror::Error;
 
-use crate::{STAGED_INDEX_DATABASE_FILE, StagedIndexOutcome, inspect_staged_index};
+use crate::{
+    STAGED_INDEX_DATABASE_FILE, StageIndexError, StagedIndexOutcome, inspect_staged_index,
+};
 
-pub const GENERATION_FORMAT_VERSION: u32 = 1;
+pub const GENERATION_FORMAT_VERSION: u32 = 2;
+pub const GENERATION_STORE_FORMAT_VERSION: u32 = 1;
 pub const GENERATION_STORE_MANIFEST_FILE: &str = "generation-store.json";
 pub const GENERATIONS_DIRECTORY: &str = "generations";
+pub const GENERATION_CANDIDATES_DIRECTORY: &str = "candidates";
 pub const ACTIVE_GENERATION_FILE: &str = "active-generation.json";
+pub const RETAINED_GENERATION_FILE: &str = "retained-generation.json";
 pub const GENERATION_MANIFEST_FILE: &str = "generation.json";
 pub const GENERATION_SOURCE_DIRECTORY: &str = "source";
 pub const GENERATION_INDEX_DIRECTORY: &str = "index";
+pub const GENERATION_READER_LOCK_FILE: &str = ".generation-readers.lock";
 
-const PUBLICATION_LOCK_DIRECTORY: &str = ".generation-publication-lock";
-const MAX_GENERATION_MANIFEST_BYTES: u64 = 64 * 1024;
+const PUBLICATION_LOCK_FILE: &str = ".generation-publication.lock";
+const RECOVERY_LOCK_FILE: &str = ".generation-recovery.lock";
+pub(crate) const GENERATION_STAGE_PREFIX: &str = ".generation-stage-";
+pub(crate) const MAX_GENERATION_MANIFEST_BYTES: u64 = 64 * 1024;
 
 /// One source-owned generation store. It carries no ambient or global root.
 #[derive(Debug, Clone)]
 pub struct GenerationStore {
-    source: SourceId,
-    root: PathBuf,
+    pub(crate) source: SourceId,
+    pub(crate) root: PathBuf,
 }
 
 /// A sealed generation retained for the complete lifetime of a reader.
 #[derive(Debug, Clone)]
 pub struct GenerationLease {
     record: Arc<GenerationRecord>,
+    _reader_lock: Arc<File>,
+}
+
+/// One open content descriptor that keeps its generation leased until the
+/// descriptor itself is released.
+#[derive(Debug)]
+pub struct GenerationContent {
+    file: File,
+    _reader_lock: Arc<File>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct GenerationRecord {
-    binding: GenerationBinding,
-    revision: String,
-    previous_revision: Option<String>,
-    notes_folder: NotesFolder,
-    content_root: PathBuf,
-    index_directory: PathBuf,
-    database: PathBuf,
-    index_schema: i32,
-    stats: IndexStats,
+pub(crate) struct GenerationRecord {
+    pub(crate) binding: GenerationBinding,
+    pub(crate) revision: String,
+    pub(crate) previous_revision: Option<String>,
+    pub(crate) notes_folder: NotesFolder,
+    pub(crate) content_root: PathBuf,
+    pub(crate) index_directory: PathBuf,
+    pub(crate) database: PathBuf,
+    pub(crate) reader_lock: PathBuf,
+    pub(crate) index_schema: i32,
+    pub(crate) stats: IndexStats,
 }
 
 /// Exact candidates and the active generation the caller observed before work
@@ -83,6 +105,7 @@ pub enum PublicationStage {
     IndexSealed,
     ManifestSealed,
     Activating,
+    Retained,
     Complete,
 }
 
@@ -120,10 +143,14 @@ pub enum PublicationError {
     OwnershipMismatch,
     #[error("another publication is already in progress")]
     PublicationInProgress,
+    #[error("generation recovery is in progress")]
+    RecoveryInProgress,
     #[error("the publication candidates are unavailable")]
     CandidateUnavailable,
     #[error("the publication candidates do not describe one generation")]
     CandidateMismatch,
+    #[error("the candidate index requires an explicit rebuild")]
+    RebuildRequired,
     #[error("the active generation changed before publication")]
     ActiveGenerationChanged,
     #[error("the generation destination is occupied")]
@@ -143,19 +170,26 @@ struct GenerationStoreManifest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct GenerationManifest {
-    version: u32,
-    binding: GenerationBinding,
-    revision: String,
-    previous_revision: Option<String>,
-    notes_folder: NotesFolder,
-    snapshot_entries: u64,
-    snapshot_files: u64,
-    snapshot_org_files: u64,
-    snapshot_assets: u64,
-    snapshot_bytes: u64,
-    index_schema: i32,
-    stats: IndexStats,
+pub(crate) struct GenerationManifest {
+    pub(crate) version: u32,
+    pub(crate) binding: GenerationBinding,
+    pub(crate) expected_active: Option<GenerationId>,
+    pub(crate) revision: String,
+    pub(crate) previous_revision: Option<String>,
+    pub(crate) notes_folder: NotesFolder,
+    pub(crate) snapshot_entries: u64,
+    pub(crate) snapshot_files: u64,
+    pub(crate) snapshot_org_files: u64,
+    pub(crate) snapshot_assets: u64,
+    pub(crate) snapshot_bytes: u64,
+    pub(crate) index_schema: i32,
+    pub(crate) stats: IndexStats,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GenerationInspectionError {
+    Unavailable,
+    RebuildRequired,
 }
 
 impl PublishGenerationRequest {
@@ -238,12 +272,15 @@ impl GenerationStore {
             validate_store_manifest(&owner_path, &source)?;
         } else {
             let manifest = GenerationStoreManifest {
-                version: GENERATION_FORMAT_VERSION,
+                version: GENERATION_STORE_FORMAT_VERSION,
                 source: source.clone(),
             };
             write_new_json(&owner_path, &manifest)?;
         }
         ensure_private_directory(&root.join(GENERATIONS_DIRECTORY))?;
+        ensure_private_directory(&root.join(GENERATION_CANDIDATES_DIRECTORY))?;
+        ensure_private_lock_file(&root.join(PUBLICATION_LOCK_FILE))?;
+        ensure_private_lock_file(&root.join(RECOVERY_LOCK_FILE))?;
         sync_directory(&root)?;
         Self::open(source, root)
     }
@@ -254,6 +291,10 @@ impl GenerationStore {
         validate_store_manifest(&root.join(GENERATION_STORE_MANIFEST_FILE), &source)?;
         validate_real_directory(&root.join(GENERATIONS_DIRECTORY))
             .map_err(|_| PublicationError::StoreUnavailable)?;
+        validate_real_directory(&root.join(GENERATION_CANDIDATES_DIRECTORY))
+            .map_err(|_| PublicationError::StoreUnavailable)?;
+        validate_lock_file(&root.join(PUBLICATION_LOCK_FILE))?;
+        validate_lock_file(&root.join(RECOVERY_LOCK_FILE))?;
         Ok(Self { source, root })
     }
 
@@ -267,10 +308,18 @@ impl GenerationStore {
         &self.root
     }
 
+    /// The only store-owned location for snapshot and index candidates. A
+    /// startup recovery may reclaim every child of this directory.
+    #[must_use]
+    pub fn candidates_root(&self) -> PathBuf {
+        self.root.join(GENERATION_CANDIDATES_DIRECTORY)
+    }
+
     /// Acquire the currently active immutable generation. A missing active
     /// manifest is a defined no-ready-generation state.
     pub fn lease(&self) -> Result<Option<GenerationLease>, PublicationError> {
-        self.read_active()
+        let _recovery = RecoveryLock::acquire_shared(&self.root)?;
+        self.read_active_record()?.map(lease_record).transpose()
     }
 
     /// Report transport, ready and in-flight state without conflating them.
@@ -311,7 +360,7 @@ impl GenerationStore {
         let _publication = PublicationLock::acquire(&self.root)?;
         advance(PublicationStage::Preparing, cancelled, &mut progress)?;
 
-        let current = self.read_active()?;
+        let current = self.lease()?;
         if let Some(active) = current.as_ref()
             && active.binding() == &request.binding
         {
@@ -334,14 +383,15 @@ impl GenerationStore {
         }
 
         let destination = self.generation_directory(&request.binding.generation);
-        let (record, disposition) = if path_is_present(&destination)? {
+        let (generation, disposition) = if path_is_present(&destination)? {
             let (manifest, record) = self.inspect_generation(&request.binding.generation)?;
             if manifest != GenerationManifest::from_request(request) {
                 return Err(PublicationError::GenerationOccupied);
             }
+            let generation = lease_record(record)?;
             advance(PublicationStage::Activating, cancelled, &mut progress)?;
-            self.activate(&manifest)?;
-            (record, PublicationDisposition::ActivatedExisting)
+            self.activate_publication(&manifest, cancelled, &mut progress)?;
+            (generation, PublicationDisposition::ActivatedExisting)
         } else {
             let (source, index) = self.validate_candidates(request)?;
             ensure_same_filesystem(&self.root, &source)?;
@@ -349,9 +399,10 @@ impl GenerationStore {
 
             let generations = self.root.join(GENERATIONS_DIRECTORY);
             let staging = tempfile::Builder::new()
-                .prefix(".generation-stage-")
+                .prefix(GENERATION_STAGE_PREFIX)
                 .tempdir_in(&generations)
                 .map_err(|_| PublicationError::StorageFailed)?;
+            ensure_private_lock_file(&staging.path().join(GENERATION_READER_LOCK_FILE))?;
             let staged_source = staging.path().join(GENERATION_SOURCE_DIRECTORY);
             fs::rename(&source, &staged_source).map_err(|_| PublicationError::StorageFailed)?;
             advance(PublicationStage::SourceSealed, cancelled, &mut progress)?;
@@ -381,17 +432,16 @@ impl GenerationStore {
             if sealed != manifest {
                 return Err(PublicationError::StoreUnavailable);
             }
+            let generation = lease_record(record)?;
             advance(PublicationStage::Activating, cancelled, &mut progress)?;
-            self.activate(&manifest)?;
-            (record, PublicationDisposition::Published)
+            self.activate_publication(&manifest, cancelled, &mut progress)?;
+            (generation, PublicationDisposition::Published)
         };
 
         progress(PublicationStage::Complete);
         Ok(PublicationOutcome {
             disposition,
-            generation: GenerationLease {
-                record: Arc::new(record),
-            },
+            generation,
         })
     }
 
@@ -411,10 +461,9 @@ impl GenerationStore {
             .parent()
             .ok_or(PublicationError::CandidateUnavailable)?
             .to_owned();
-        if !source.starts_with(&self.root)
-            || !index.starts_with(&self.root)
-            || source.starts_with(self.root.join(GENERATIONS_DIRECTORY))
-            || index.starts_with(self.root.join(GENERATIONS_DIRECTORY))
+        let candidates = self.candidates_root();
+        if !source.starts_with(&candidates)
+            || !index.starts_with(&candidates)
             || source == index
             || source.starts_with(&index)
             || index.starts_with(&source)
@@ -423,8 +472,10 @@ impl GenerationStore {
         }
         let snapshot =
             inspect_snapshot(&source).map_err(|_| PublicationError::CandidateUnavailable)?;
-        let staged =
-            inspect_staged_index(&index).map_err(|_| PublicationError::CandidateUnavailable)?;
+        let staged = inspect_staged_index(&index).map_err(|error| match error {
+            StageIndexError::RebuildRequired => PublicationError::RebuildRequired,
+            _ => PublicationError::CandidateUnavailable,
+        })?;
         if !snapshot_matches(&snapshot, &request.snapshot)
             || !staged_index_matches(&staged, &request.index)
         {
@@ -433,7 +484,7 @@ impl GenerationStore {
         Ok((source, index))
     }
 
-    fn read_active(&self) -> Result<Option<GenerationLease>, PublicationError> {
+    pub(crate) fn read_active_record(&self) -> Result<Option<GenerationRecord>, PublicationError> {
         let active_path = self.root.join(ACTIVE_GENERATION_FILE);
         if !path_is_present(&active_path)? {
             return Ok(None);
@@ -444,28 +495,42 @@ impl GenerationStore {
         if sealed != active {
             return Err(PublicationError::StoreUnavailable);
         }
-        Ok(Some(GenerationLease {
-            record: Arc::new(record),
-        }))
+        Ok(Some(record))
     }
 
-    fn inspect_generation(
+    pub(crate) fn inspect_generation(
         &self,
         generation: &GenerationId,
     ) -> Result<(GenerationManifest, GenerationRecord), PublicationError> {
         let directory = self.generation_directory(generation);
-        validate_real_directory(&directory).map_err(|_| PublicationError::StoreUnavailable)?;
-        let manifest: GenerationManifest = read_json(&directory.join(GENERATION_MANIFEST_FILE))?;
-        validate_generation_manifest(&manifest, &self.source)?;
-        if &manifest.binding.generation != generation {
-            return Err(PublicationError::StoreUnavailable);
+        self.inspect_generation_directory(&directory, Some(generation))
+            .map_err(|_| PublicationError::StoreUnavailable)
+    }
+
+    pub(crate) fn inspect_generation_directory(
+        &self,
+        directory: &Path,
+        expected_generation: Option<&GenerationId>,
+    ) -> Result<(GenerationManifest, GenerationRecord), GenerationInspectionError> {
+        validate_real_directory(directory).map_err(|_| GenerationInspectionError::Unavailable)?;
+        validate_lock_file(&directory.join(GENERATION_READER_LOCK_FILE))
+            .map_err(|_| GenerationInspectionError::Unavailable)?;
+        let manifest: GenerationManifest = read_json(&directory.join(GENERATION_MANIFEST_FILE))
+            .map_err(|_| GenerationInspectionError::Unavailable)?;
+        validate_generation_manifest(&manifest, &self.source)
+            .map_err(|_| GenerationInspectionError::Unavailable)?;
+        if expected_generation.is_some_and(|generation| &manifest.binding.generation != generation)
+        {
+            return Err(GenerationInspectionError::Unavailable);
         }
         let source_directory = directory.join(GENERATION_SOURCE_DIRECTORY);
         let index_directory = directory.join(GENERATION_INDEX_DIRECTORY);
-        let snapshot =
-            inspect_snapshot(&source_directory).map_err(|_| PublicationError::StoreUnavailable)?;
-        let index = inspect_staged_index(&index_directory)
-            .map_err(|_| PublicationError::StoreUnavailable)?;
+        let snapshot = inspect_snapshot(&source_directory)
+            .map_err(|_| GenerationInspectionError::Unavailable)?;
+        let index = inspect_staged_index(&index_directory).map_err(|error| match error {
+            StageIndexError::RebuildRequired => GenerationInspectionError::RebuildRequired,
+            _ => GenerationInspectionError::Unavailable,
+        })?;
         if snapshot.source != manifest.binding.source
             || snapshot.revision != manifest.revision
             || snapshot.notes_folder != manifest.notes_folder
@@ -481,7 +546,7 @@ impl GenerationStore {
             || index.index_schema != manifest.index_schema
             || index.stats != manifest.stats
         {
-            return Err(PublicationError::StoreUnavailable);
+            return Err(GenerationInspectionError::Unavailable);
         }
         let record = GenerationRecord {
             binding: manifest.binding.clone(),
@@ -491,6 +556,7 @@ impl GenerationStore {
             content_root: snapshot.content_root,
             index_directory,
             database: index.database,
+            reader_lock: directory.join(GENERATION_READER_LOCK_FILE),
             index_schema: manifest.index_schema,
             stats: manifest.stats.clone(),
         };
@@ -499,7 +565,42 @@ impl GenerationStore {
 
     fn activate(&self, manifest: &GenerationManifest) -> Result<(), PublicationError> {
         let active_path = self.root.join(ACTIVE_GENERATION_FILE);
-        if let Ok(metadata) = fs::symlink_metadata(&active_path)
+        if path_is_present(&active_path)? {
+            let current: GenerationManifest = read_json(&active_path)?;
+            self.replace_manifest(RETAINED_GENERATION_FILE, &current)?;
+        }
+        self.replace_manifest(ACTIVE_GENERATION_FILE, manifest)
+    }
+
+    fn activate_publication(
+        &self,
+        manifest: &GenerationManifest,
+        cancelled: &AtomicBool,
+        progress: &mut impl FnMut(PublicationStage),
+    ) -> Result<(), PublicationError> {
+        let active_path = self.root.join(ACTIVE_GENERATION_FILE);
+        if path_is_present(&active_path)? {
+            let current: GenerationManifest = read_json(&active_path)?;
+            self.replace_manifest(RETAINED_GENERATION_FILE, &current)?;
+            advance(PublicationStage::Retained, cancelled, progress)?;
+        }
+        self.replace_manifest(ACTIVE_GENERATION_FILE, manifest)
+    }
+
+    pub(crate) fn activate_recovered(
+        &self,
+        manifest: &GenerationManifest,
+    ) -> Result<(), PublicationError> {
+        self.replace_manifest(ACTIVE_GENERATION_FILE, manifest)
+    }
+
+    fn replace_manifest(
+        &self,
+        name: &str,
+        manifest: &GenerationManifest,
+    ) -> Result<(), PublicationError> {
+        let path = self.root.join(name);
+        if let Ok(metadata) = fs::symlink_metadata(&path)
             && (!metadata.is_file() || metadata.file_type().is_symlink())
         {
             return Err(PublicationError::StoreUnavailable);
@@ -514,17 +615,17 @@ impl GenerationStore {
             .and_then(|()| temporary.as_file().sync_all())
             .map_err(|_| PublicationError::StorageFailed)?;
         temporary
-            .persist(&active_path)
+            .persist(&path)
             .map_err(|_| PublicationError::StorageFailed)?;
-        // The atomic rename is the activation commit point. A directory-sync
-        // error cannot roll it back, so reporting failure after that point
-        // would lie to a retrying caller. Crash recovery can observe only the
-        // previous or this fully sealed manifest.
+        // The atomic rename commits this pointer. A directory-sync error cannot
+        // roll it back, so reporting failure after that point would lie to a
+        // retrying caller. Active-pointer callers perform no later fallible
+        // operation; recovery can observe only the previous or sealed value.
         let _ = root_directory.sync_all();
         Ok(())
     }
 
-    fn generation_directory(&self, generation: &GenerationId) -> PathBuf {
+    pub(crate) fn generation_directory(&self, generation: &GenerationId) -> PathBuf {
         self.root
             .join(GENERATIONS_DIRECTORY)
             .join(generation.as_str())
@@ -580,7 +681,7 @@ impl GenerationLease {
     /// Open one ordinary file from this generation's immutable source tree.
     /// The returned descriptor remains bound even after a newer generation is
     /// activated.
-    pub fn open_content(&self, relative: &str) -> Result<File, PublicationError> {
+    pub fn open_content(&self, relative: &str) -> Result<GenerationContent, PublicationError> {
         validate_content_path(relative)?;
         let path = self.record.content_root.join(relative);
         let metadata =
@@ -593,15 +694,32 @@ impl GenerationLease {
         {
             return Err(PublicationError::StoreUnavailable);
         }
-        File::open(path).map_err(|_| PublicationError::StoreUnavailable)
+        let file = File::open(path).map_err(|_| PublicationError::StoreUnavailable)?;
+        Ok(GenerationContent {
+            file,
+            _reader_lock: Arc::clone(&self._reader_lock),
+        })
+    }
+}
+
+impl Read for GenerationContent {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        self.file.read(buffer)
+    }
+}
+
+impl Seek for GenerationContent {
+    fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+        self.file.seek(position)
     }
 }
 
 impl GenerationManifest {
-    fn from_request(request: &PublishGenerationRequest) -> Self {
+    pub(crate) fn from_request(request: &PublishGenerationRequest) -> Self {
         Self {
             version: GENERATION_FORMAT_VERSION,
             binding: request.binding.clone(),
+            expected_active: request.expected_active.clone(),
             revision: request.snapshot.revision.clone(),
             previous_revision: request.index.previous_revision.clone(),
             notes_folder: request.snapshot.notes_folder.clone(),
@@ -657,13 +775,17 @@ fn staged_index_matches(actual: &StagedIndexOutcome, expected: &StagedIndexOutco
         && actual.removed_file_paths == expected.removed_file_paths
 }
 
-fn validate_generation_manifest(
+pub(crate) fn validate_generation_manifest(
     manifest: &GenerationManifest,
     source: &SourceId,
 ) -> Result<(), PublicationError> {
     if manifest.version != GENERATION_FORMAT_VERSION
         || &manifest.binding.source != source
         || !generation_id_is_admitted(&manifest.binding.generation)
+        || manifest
+            .expected_active
+            .as_ref()
+            .is_some_and(|generation| !generation_id_is_admitted(generation))
         || !revision_is_admitted(&manifest.revision)
         || manifest
             .previous_revision
@@ -687,9 +809,28 @@ fn generation_id_is_admitted(generation: &GenerationId) -> bool {
             .all(|component| matches!(component, Component::Normal(_)))
 }
 
+fn lease_record(record: GenerationRecord) -> Result<GenerationLease, PublicationError> {
+    validate_lock_file(&record.reader_lock)?;
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&record.reader_lock)
+        .map_err(|_| PublicationError::StoreUnavailable)?;
+    match fs2::FileExt::try_lock_shared(&file) {
+        Ok(()) => Ok(GenerationLease {
+            record: Arc::new(record),
+            _reader_lock: Arc::new(file),
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+            Err(PublicationError::RecoveryInProgress)
+        }
+        Err(_) => Err(PublicationError::StoreUnavailable),
+    }
+}
+
 fn validate_store_manifest(path: &Path, source: &SourceId) -> Result<(), PublicationError> {
     let manifest: GenerationStoreManifest = read_json(path)?;
-    if manifest.version != GENERATION_FORMAT_VERSION {
+    if manifest.version != GENERATION_STORE_FORMAT_VERSION {
         return Err(PublicationError::StoreUnavailable);
     }
     if &manifest.source != source {
@@ -768,6 +909,26 @@ fn ensure_private_directory(path: &Path) -> Result<(), PublicationError> {
             validate_real_directory(path).map_err(|_| PublicationError::StoreUnavailable)
         }
         Err(_) => Err(PublicationError::StorageFailed),
+    }
+}
+
+fn ensure_private_lock_file(path: &Path) -> Result<(), PublicationError> {
+    match OpenOptions::new().write(true).create_new(true).open(path) {
+        Ok(file) => {
+            set_private_file_permissions(&file)?;
+            file.sync_all().map_err(|_| PublicationError::StorageFailed)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => validate_lock_file(path),
+        Err(_) => Err(PublicationError::StorageFailed),
+    }
+}
+
+fn validate_lock_file(path: &Path) -> Result<(), PublicationError> {
+    let metadata = fs::symlink_metadata(path).map_err(|_| PublicationError::StoreUnavailable)?;
+    if metadata.is_file() && !metadata.file_type().is_symlink() {
+        Ok(())
+    } else {
+        Err(PublicationError::StoreUnavailable)
     }
 }
 
@@ -877,21 +1038,19 @@ fn set_private_file_permissions(_file: &File) -> Result<(), PublicationError> {
 }
 
 struct PublicationLock {
-    path: PathBuf,
+    file: File,
 }
 
 impl PublicationLock {
     fn acquire(root: &Path) -> Result<Self, PublicationError> {
-        let path = root.join(PUBLICATION_LOCK_DIRECTORY);
-        match fs::create_dir(&path) {
-            Ok(()) => {
-                if let Err(error) = set_private_directory_permissions(&path) {
-                    let _ = fs::remove_dir(&path);
-                    return Err(error);
-                }
-                Ok(Self { path })
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(root.join(PUBLICATION_LOCK_FILE))
+            .map_err(|_| PublicationError::StoreUnavailable)?;
+        match fs2::FileExt::try_lock_exclusive(&file) {
+            Ok(()) => Ok(Self { file }),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 Err(PublicationError::PublicationInProgress)
             }
             Err(_) => Err(PublicationError::StorageFailed),
@@ -901,6 +1060,48 @@ impl PublicationLock {
 
 impl Drop for PublicationLock {
     fn drop(&mut self) {
-        let _ = fs::remove_dir(&self.path);
+        let _ = fs2::FileExt::unlock(&self.file);
+    }
+}
+
+struct RecoveryLock {
+    file: File,
+}
+
+impl RecoveryLock {
+    fn open(root: &Path) -> Result<File, PublicationError> {
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(root.join(RECOVERY_LOCK_FILE))
+            .map_err(|_| PublicationError::StoreUnavailable)
+    }
+
+    fn acquire_shared(root: &Path) -> Result<Self, PublicationError> {
+        let file = Self::open(root)?;
+        match fs2::FileExt::try_lock_shared(&file) {
+            Ok(()) => Ok(Self { file }),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                Err(PublicationError::RecoveryInProgress)
+            }
+            Err(_) => Err(PublicationError::StorageFailed),
+        }
+    }
+
+    fn acquire_exclusive(root: &Path) -> Result<Self, PublicationError> {
+        let file = Self::open(root)?;
+        match fs2::FileExt::try_lock_exclusive(&file) {
+            Ok(()) => Ok(Self { file }),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                Err(PublicationError::RecoveryInProgress)
+            }
+            Err(_) => Err(PublicationError::StorageFailed),
+        }
+    }
+}
+
+impl Drop for RecoveryLock {
+    fn drop(&mut self) {
+        let _ = fs2::FileExt::unlock(&self.file);
     }
 }

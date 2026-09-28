@@ -108,6 +108,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
   `desktop-decryptors`.
 
 ### Fixed
+- Recover interrupted generation publication at startup through crash-released
+  filesystem locking and sealed publication intents. Validate source and index
+  before completing activation, restore a retained verified generation when the
+  active one is corrupt, reclaim abandoned candidates and unleased generations,
+  and report schema, storage and cleanup recovery actions without hiding the
+  last readable corpus. See `doc/android-git.org`.
 - Omit constant literal-ranking tiers from note-content search, reducing query
   work without changing recall, ranking preferences or snippets.
 - Prefer literal title/alias matches over incidental stem matches in canonical

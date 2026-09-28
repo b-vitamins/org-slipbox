@@ -173,6 +173,7 @@ fn failures_at_each_sealing_boundary_leave_the_last_good_generation_active() -> 
         PublicationStage::IndexSealed,
         PublicationStage::ManifestSealed,
         PublicationStage::Activating,
+        PublicationStage::Retained,
     ]
     .into_iter()
     .enumerate()
@@ -432,7 +433,9 @@ impl Fixture {
             self.repository.clone(),
             revision,
             self.notes.clone(),
-            self.root.path().join(format!("snapshot-{name}")),
+            self.store
+                .candidates_root()
+                .join(format!("snapshot-{name}")),
         )?;
         let snapshot = materialize(&snapshot_request, &AtomicBool::new(false), |_| {})?;
         let delta_request = match previous {
@@ -455,7 +458,7 @@ impl Fixture {
             snapshot.clone(),
             delta,
             base,
-            self.root.path().join(format!("index-{name}")),
+            self.store.candidates_root().join(format!("index-{name}")),
         )?;
         let index = stage_index(&index_request, &AtomicBool::new(false), |_| {})?;
         Ok((snapshot, index))

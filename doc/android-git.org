@@ -173,10 +173,11 @@ boundary below.
 
 * Generation Publication
 
-=slipbox-sync= owns a version-1 store for one explicit source root. A published
-generation contains the complete snapshot directory, complete staged-index
-directory and a manifest binding their source, revision, notes folder, previous
-revision, snapshot counts, index schema and index counts. Publication moves both
+=slipbox-sync= owns a version-1 store for one explicit source root. A version-2
+published generation contains the complete snapshot directory, complete
+staged-index directory and a manifest binding their source, revision, notes
+folder, previous revision, snapshot counts, index schema and index counts.
+Publication moves both
 verified candidates into a private sibling staging directory, seals and verifies
 that generation, then atomically replaces =active-generation.json=. Source,
 index and generation manifests remain separate evidence and must agree whenever
@@ -201,6 +202,35 @@ Freshness is explicit data rather than an inference from directory contents. It
 reports the newest fetched revision, the active ready revision and generation,
 and an optional fetching, materializing, indexing or publishing state. A fetched
 or in-flight revision is never presented as ready.
+
+* Startup Recovery And Retention
+
+The store uses mode-600 filesystem locks for publication, recovery and live
+generation readers. The operating system releases them when a process dies, so
+a killed importer or reader cannot leave a stale owner behind. Publication and
+recovery are mutually exclusive; recovery also excludes new lease acquisition
+while it decides retention. Every sealed generation records the active
+generation its publisher observed. Recovery may therefore complete exactly one
+verified interrupted publication only when that compare-and-swap precondition
+still holds. Partial stages, incompatible index schemas and conflicting sealed
+publications are never activated.
+
+Before activation replaces the active manifest, it atomically records the
+previous verified manifest as the retained generation. Startup validates the
+active source, index, schema, counts and manifest agreement. If they are corrupt
+or unusable, it restores the retained verified generation; if no verified
+generation exists, readiness remains absent. Recovery returns typed, content-
+free notices naming the required action: retry the import, rebuild the index,
+refetch the source, free storage or release readers.
+
+Snapshot and index candidates live only below the store's explicit
+=candidates/= directory. Startup reclaims its abandoned contents and incomplete
+publication stages. It also removes generations other than the active and
+retained pair once no generation lease remains. A live reader delays removal;
+an already-open asset descriptor remains bound to its original bytes. Storage
+therefore stays bounded by the active and retained generations plus work held
+by live readers, and an explicit caller-supplied free-space floor reports
+pressure without deleting readable data.
 
 * Qualification
 
@@ -230,6 +260,15 @@ cancellation after source sealing, index sealing, generation-manifest sealing
 and immediately before active-manifest replacement; every case preserves the
 last ready generation. Freshness serialization, stale-writer rejection and
 idempotent read-your-ready-generation behavior are contract-tested as well.
+
+Recovery fixtures terminate a real publication subprocess at preparing,
+source-sealed, index-sealed, manifest-sealed, activation and completion points,
+then reopen the store. They prove partial first imports remain unreadable,
+sealed work alone can finish, stale locks disappear with the process and an
+existing corpus remains readable. Corrupt-active fallback, incompatible-schema
+rebuild reporting, simulated storage pressure, abandoned-candidate reclamation,
+leased-generation deferral, bounded retention and open-asset behavior are also
+covered.
 
 The focused Kotlin tests prove that a rotated credential is the byte sequence
 given to the actual native-call seam and that its temporary byte array is then

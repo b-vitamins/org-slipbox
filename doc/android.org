@@ -10,8 +10,9 @@ None of it is shipped. `0.18.0` is the latest shipped release, and its released
 metadata and history remain authoritative. An unreleased Compose shell provides
 Library and About screens; it does not yet load notes. The native adapter,
 document host, bounded Git transport, source-owned snapshot materializer,
-incremental index staging and coherent generation publication are implemented
-independently. Refresh coordination and reader wiring remain unbuilt. GitHub
+incremental index staging, coherent generation publication and startup recovery
+are implemented independently. Refresh coordination and reader wiring remain
+unbuilt. GitHub
 authorization and real public/private device fetches are qualified independently.
 Build instructions and toolchain pins are
 in [[file:android-build.org][doc/android-build.org]]; the transport and its device qualification are

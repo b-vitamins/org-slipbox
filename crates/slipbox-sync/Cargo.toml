@@ -13,6 +13,7 @@ bundled-sqlite = ["slipbox-store/bundled-sqlite"]
 system-sqlite = ["slipbox-store/system-sqlite"]
 
 [dependencies]
+fs2.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 slipbox-core = { path = "../slipbox-core" }
