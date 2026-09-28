@@ -7,6 +7,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Browse the active Android corpus through bounded filing-order note pages.
+  Rust owns keyset continuation, totals and file/heading note semantics over the
+  indexed order; the native list retains source/generation identity, suppresses
+  withdrawn replies and loads further pages only as the reader reaches them.
 - Manage Android repository sources from one source-details surface. Ready
   repositories can be selected without crossing corpus identities; branch and
   folder changes build in configuration-isolated storage before Rust atomically

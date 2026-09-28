@@ -342,6 +342,39 @@ pub struct SearchNodesResult {
     pub nodes: Vec<NodeRecord>,
 }
 
+/// Parameters for walking all notes in canonical filing order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListNotesParams {
+    #[serde(default = "default_search_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub after: Option<String>,
+}
+
+impl ListNotesParams {
+    #[must_use]
+    pub fn normalized_limit(&self) -> usize {
+        self.limit.clamp(1, 200)
+    }
+
+    #[must_use]
+    pub fn normalized_after(&self) -> Option<&str> {
+        self.after
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
+}
+
+/// One bounded filing-order page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListNotesResult {
+    pub notes: Vec<NodeRecord>,
+    pub total: usize,
+    pub has_more: bool,
+    pub next_position: Option<String>,
+}
+
 /// A run of snippet text tagged with whether it matched the query.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContentSegment {

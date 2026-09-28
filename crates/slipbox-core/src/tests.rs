@@ -15,7 +15,7 @@ use super::{
     ExplorationArtifactSummary, ExplorationEntry, ExplorationExplanation, ExplorationLens,
     ExplorationSection, ExplorationSectionKind, ExploreParams, ExploreResult,
     ImportWorkbenchPackParams, ImportWorkbenchPackResult, ListExplorationArtifactsResult,
-    ListWorkbenchPacksResult, MarkReviewFindingParams, NodeFromKeyParams,
+    ListNotesParams, ListWorkbenchPacksResult, MarkReviewFindingParams, NodeFromKeyParams,
     NodeFromTitleOrAliasParams, NodeKind, NodeRecord, NoteComparisonEntry,
     NoteComparisonExplanation, NoteComparisonGroup, NoteComparisonResult, NoteComparisonSection,
     NoteComparisonSectionKind, NoteConnectivityAuditRecord, NoteContextParams, PlanningField,
@@ -5199,6 +5199,26 @@ fn search_nodes_params_default_to_unspecified_sort() {
             .expect("search node params should deserialize");
 
     assert_eq!(params.sort, None);
+}
+
+#[test]
+fn list_notes_params_keep_the_cursor_optional_and_opaque() {
+    let first: ListNotesParams = serde_json::from_value(json!({ "limit": 50 }))
+        .expect("a first page should deserialize without a cursor");
+    assert_eq!(first.normalized_limit(), 50);
+    assert_eq!(first.normalized_after(), None);
+
+    let continued: ListNotesParams = serde_json::from_value(json!({
+        "limit": 500,
+        "after": "opaque-position"
+    }))
+    .expect("a continued page should deserialize");
+    assert_eq!(continued.normalized_limit(), 200);
+    assert_eq!(continued.normalized_after(), Some("opaque-position"));
+    assert_eq!(
+        serde_json::to_value(&continued).expect("note page params should serialize"),
+        json!({ "limit": 500, "after": "opaque-position" })
+    );
 }
 
 #[test]

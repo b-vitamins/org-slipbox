@@ -88,6 +88,7 @@ internal fun ReadingSurface(
     title: String,
     modifier: Modifier = Modifier,
     obscured: Boolean = false,
+    scrollable: Boolean = true,
     leading: @Composable () -> Unit = {},
     trailing: @Composable () -> Unit = {},
     overlay: @Composable BoxScope.() -> Unit = {},
@@ -101,7 +102,11 @@ internal fun ReadingSurface(
                     thickness = SlipboxDimensions.hairline,
                     color = MaterialTheme.colorScheme.outline,
                 )
-                ReadingColumn(modifier = Modifier.weight(1f), body = body)
+                ReadingColumn(
+                    modifier = Modifier.weight(1f),
+                    scrollable = scrollable,
+                    body = body,
+                )
             }
         }
         overlay()
@@ -111,20 +116,21 @@ internal fun ReadingSurface(
 @Composable
 internal fun ReadingColumn(
     modifier: Modifier = Modifier,
+    scrollable: Boolean = true,
     body: @Composable ColumnScope.() -> Unit,
 ) {
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+        var contentModifier =
+            Modifier
+                // Cap before fillMaxWidth raises the minimum constraint.
+                .widthIn(max = SlipboxDimensions.readingMeasure)
+                .fillMaxWidth()
+                // Keep the canvas full-height even for a short note.
+                .fillMaxHeight()
+                .background(MaterialTheme.colorScheme.surface)
+        if (scrollable) contentModifier = contentModifier.verticalScroll(rememberScrollState())
         Column(
-            modifier =
-                Modifier
-                    // Cap before fillMaxWidth raises the minimum constraint.
-                    .widthIn(max = SlipboxDimensions.readingMeasure)
-                    .fillMaxWidth()
-                    // Keep the canvas full-height even for a short note.
-                    .fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.surface)
-                    .verticalScroll(rememberScrollState())
-                    .padding(SlipboxDimensions.readingPadding),
+            modifier = contentModifier.padding(SlipboxDimensions.readingPadding),
             content = body,
         )
     }

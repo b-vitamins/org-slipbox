@@ -15,6 +15,7 @@ import io.github.b_vitamins.slipbox.navigation.slipboxDestinations
 import io.github.b_vitamins.slipbox.ui.AboutScreen
 import io.github.b_vitamins.slipbox.ui.ConnectionScreen
 import io.github.b_vitamins.slipbox.ui.LibraryScreen
+import io.github.b_vitamins.slipbox.ui.rememberNotesInventoryState
 import io.github.b_vitamins.slipbox.ui.SourceSettingsScreen
 import io.github.b_vitamins.slipbox.sources.SourceLibraryState
 import io.github.b_vitamins.slipbox.sources.SourceCatalogResult
@@ -44,6 +45,8 @@ private fun productionDestinations(
     slipboxDestinations {
         surface(SlipboxSurface.Library) { _, backStack ->
             val catalog = library.catalog
+            val ready = (library.phase as? SourceLibraryPhase.Ready)?.source
+            val inventory = ready?.let { rememberNotesInventoryState(it) }
             LibraryScreen(
                 phase = library.phase,
                 hasSources = catalog?.sources?.isNotEmpty() == true,
@@ -53,6 +56,9 @@ private fun productionDestinations(
                     source?.let { backStack.open(SlipboxRoute.SourceSettings(it.id)) }
                 },
                 onRetry = library::reload,
+                inventory = inventory?.phase,
+                onLoadMore = { inventory?.loadMore() },
+                onRetryInventory = { inventory?.retry() },
                 onOpenAbout = { backStack.open(SlipboxRoute.About) },
             )
         }

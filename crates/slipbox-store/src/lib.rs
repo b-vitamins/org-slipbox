@@ -25,7 +25,9 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
-pub use nodes::{GlossaryPage, GlossaryPosition, note_owners_by_anchor_key};
+pub use nodes::{
+    GlossaryPage, GlossaryPosition, NotePage, NotePosition, note_owners_by_anchor_key,
+};
 pub use schema::INDEX_SCHEMA_VERSION;
 
 pub struct Database {

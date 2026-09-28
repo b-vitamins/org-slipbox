@@ -14,29 +14,30 @@ use slipbox_core::{
     GraphParams, GraphResult, ImportWorkbenchPackParams, ImportWorkbenchPackResult,
     IndexDiagnosticsResult, IndexFileParams, IndexFileResult, IndexStats, IndexedFilesResult,
     ListExplorationArtifactsResult, ListGlossaryTermsParams, ListGlossaryTermsResult,
-    ListReviewRoutinesResult, ListReviewRunsResult, ListWorkbenchPacksResult, ListWorkflowsResult,
-    MarkGlossaryTermParams, MarkGlossaryTermResult, MarkReviewFindingParams,
-    MarkReviewFindingResult, NodeAtPointParams, NodeDiagnosticsParams, NodeDiagnosticsResult,
-    NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord,
-    NoteComparisonResult, NoteContextParams, NoteContextResult, PingInfo, RandomNodeResult,
-    ReadFileSourceParams, ReadFileSourceResult, ReadNodeSourceParams, ReadNodeSourceResult,
-    RefileRegionParams, RefileSubtreeParams, ReflinksParams, ReflinksResult,
-    ReviewFindingRemediationApplyParams, ReviewFindingRemediationApplyResult,
-    ReviewFindingRemediationPreviewParams, ReviewFindingRemediationPreviewResult,
-    ReviewRoutineIdParams, ReviewRoutineResult, ReviewRunDiffParams, ReviewRunDiffResult,
-    ReviewRunIdParams, ReviewRunResult, RewriteFileParams, RunReviewRoutineParams,
-    RunReviewRoutineResult, RunWorkflowParams, RunWorkflowResult, SaveCorpusAuditReviewParams,
-    SaveCorpusAuditReviewResult, SaveExplorationArtifactParams, SaveExplorationArtifactResult,
-    SaveReviewRunParams, SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult,
-    SearchFilesParams, SearchFilesResult, SearchGlossaryParams, SearchGlossaryResult,
-    SearchNodeContentParams, SearchNodeContentResult, SearchNodesParams, SearchNodesResult,
-    SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams, SearchRefsResult,
-    SearchTagsParams, SearchTagsResult, SlipboxLinkRewriteApplyParams,
-    SlipboxLinkRewriteApplyResult, SlipboxLinkRewritePreviewParams,
-    SlipboxLinkRewritePreviewResult, StatusInfo, StructuralWriteReport, UnlinkedReferencesParams,
-    UnlinkedReferencesResult, UpdateNodeMetadataParams, ValidateWorkbenchPackParams,
-    ValidateWorkbenchPackResult, WorkbenchPackIdParams, WorkbenchPackManifest, WorkbenchPackResult,
-    WorkflowIdParams, WorkflowResult,
+    ListNotesParams, ListNotesResult, ListReviewRoutinesResult, ListReviewRunsResult,
+    ListWorkbenchPacksResult, ListWorkflowsResult, MarkGlossaryTermParams, MarkGlossaryTermResult,
+    MarkReviewFindingParams, MarkReviewFindingResult, NodeAtPointParams, NodeDiagnosticsParams,
+    NodeDiagnosticsResult, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
+    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, NoteContextParams,
+    NoteContextResult, PingInfo, RandomNodeResult, ReadFileSourceParams, ReadFileSourceResult,
+    ReadNodeSourceParams, ReadNodeSourceResult, RefileRegionParams, RefileSubtreeParams,
+    ReflinksParams, ReflinksResult, ReviewFindingRemediationApplyParams,
+    ReviewFindingRemediationApplyResult, ReviewFindingRemediationPreviewParams,
+    ReviewFindingRemediationPreviewResult, ReviewRoutineIdParams, ReviewRoutineResult,
+    ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunResult,
+    RewriteFileParams, RunReviewRoutineParams, RunReviewRoutineResult, RunWorkflowParams,
+    RunWorkflowResult, SaveCorpusAuditReviewParams, SaveCorpusAuditReviewResult,
+    SaveExplorationArtifactParams, SaveExplorationArtifactResult, SaveReviewRunParams,
+    SaveReviewRunResult, SaveWorkflowReviewParams, SaveWorkflowReviewResult, SearchFilesParams,
+    SearchFilesResult, SearchGlossaryParams, SearchGlossaryResult, SearchNodeContentParams,
+    SearchNodeContentResult, SearchNodesParams, SearchNodesResult, SearchOccurrencesParams,
+    SearchOccurrencesResult, SearchRefsParams, SearchRefsResult, SearchTagsParams,
+    SearchTagsResult, SlipboxLinkRewriteApplyParams, SlipboxLinkRewriteApplyResult,
+    SlipboxLinkRewritePreviewParams, SlipboxLinkRewritePreviewResult, StatusInfo,
+    StructuralWriteReport, UnlinkedReferencesParams, UnlinkedReferencesResult,
+    UpdateNodeMetadataParams, ValidateWorkbenchPackParams, ValidateWorkbenchPackResult,
+    WorkbenchPackIdParams, WorkbenchPackManifest, WorkbenchPackResult, WorkflowIdParams,
+    WorkflowResult,
 };
 
 use crate::config::DaemonServeConfig;
@@ -128,6 +129,13 @@ impl DaemonClient {
         params: &SearchNodesParams,
     ) -> Result<SearchNodesResult, DaemonClientError> {
         self.rpc.search_nodes(params)
+    }
+
+    pub fn list_notes(
+        &mut self,
+        params: &ListNotesParams,
+    ) -> Result<ListNotesResult, DaemonClientError> {
+        self.rpc.list_notes(params)
     }
 
     pub fn search_node_content(

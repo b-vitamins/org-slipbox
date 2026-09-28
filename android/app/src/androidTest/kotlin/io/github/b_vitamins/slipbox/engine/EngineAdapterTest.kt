@@ -107,6 +107,25 @@ class EngineAdapterTest {
         val absent = answered<EngineAnswer.NodeFromId>(read, ReadOperation.NodeFromId("no-such"))
         assertNull(absent.result)
 
+        val filed = mutableListOf<NodeRecord>()
+        var position: String? = null
+        var total: Long? = null
+        do {
+            val page =
+                answered<EngineAnswer.ListNotes>(
+                    read,
+                    ReadOperation.ListNotes(2, position),
+                ).result
+            total = total?.also { assertEquals(it, page.total) } ?: page.total
+            filed += page.notes
+            position = page.nextPosition
+            assertEquals(page.hasMore, position != null)
+        } while (position != null)
+        assertEquals(total, filed.size.toLong())
+        assertEquals(filed.size, filed.map(NodeRecord::nodeKey).distinct().size)
+        assertEquals(listOf("alpha.org", "beta.org", "riemann.org"), filed.map(NodeRecord::filePath).distinct())
+        assertTrue(filed.any { it.nodeKey == beta.nodeKey })
+
         assertEquals(listOf("Target heading"), titles(search(read, "target")))
         val content = ReadOperation.SearchNodeContent("Target body", 10)
         val hits = answered<EngineAnswer.SearchNodeContent>(read, content).result.hits

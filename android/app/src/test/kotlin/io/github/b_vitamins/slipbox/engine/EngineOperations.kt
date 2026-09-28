@@ -45,6 +45,11 @@ internal object EngineOperations {
                 "answered_search_nodes",
             ),
             AdmittedOperation(
+                ReadOperation.ListNotes(50, null),
+                "read_list_notes",
+                "answered_list_notes",
+            ),
+            AdmittedOperation(
                 ReadOperation.SearchNodeContent(QUERY, 25),
                 "read_search_node_content",
                 "answered_search_node_content",

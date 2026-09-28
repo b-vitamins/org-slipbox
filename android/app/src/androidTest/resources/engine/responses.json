@@ -17,6 +17,7 @@
       "status",
       "indexedFiles",
       "searchNodes",
+      "listNotes",
       "searchNodeContent",
       "nodeFromId",
       "nodeFromKey",
@@ -255,6 +256,52 @@
             "forward_link_count": 0
           }
         ]
+      }
+    }
+  },
+  "answered_list_notes": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "listNotes",
+      "result": {
+        "notes": [
+          {
+            "node_key": "file:beta.org",
+            "explicit_id": null,
+            "file_path": "beta.org",
+            "title": "Beta",
+            "outline_path": "",
+            "aliases": [],
+            "tags": [],
+            "refs": [],
+            "todo_keyword": null,
+            "scheduled_for": null,
+            "deadline_for": null,
+            "closed_at": null,
+            "glossary": false,
+            "glossary_status": null,
+            "sr_due": null,
+            "sr_ease": null,
+            "sr_interval": null,
+            "sr_reps": null,
+            "sr_last": null,
+            "level": 0,
+            "line": 1,
+            "kind": "file",
+            "file_mtime_ns": 0,
+            "backlink_count": 0,
+            "forward_link_count": 0
+          }
+        ],
+        "total": 2,
+        "has_more": true,
+        "next_position": "6e6f7465.31.626574612e6f7267"
       }
     }
   },
@@ -2745,6 +2792,7 @@
       "nodeFromId",
       "searchNodeContent",
       "searchNodes",
+      "listNotes",
       "indexedFiles",
       "status"
     ],

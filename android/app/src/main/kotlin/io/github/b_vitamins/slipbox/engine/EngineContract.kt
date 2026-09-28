@@ -184,6 +184,13 @@ sealed class ReadOperation {
     ) : ReadOperation()
 
     @Serializable
+    @SerialName("listNotes")
+    data class ListNotes(
+        val limit: Int,
+        val after: String? = null,
+    ) : ReadOperation()
+
+    @Serializable
     @SerialName("searchNodeContent")
     data class SearchNodeContent(
         val query: String,

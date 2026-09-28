@@ -17,8 +17,8 @@ use slipbox_rpc::android::{
 };
 use slipbox_rpc::{
     METHOD_BACKLINKS, METHOD_EXPLORE, METHOD_FORWARD_LINKS, METHOD_GLOSSARY_TERM, METHOD_INDEX,
-    METHOD_INDEX_FILE, METHOD_INDEXED_FILES, METHOD_LIST_GLOSSARY_TERMS, METHOD_NODE_FROM_ID,
-    METHOD_NODE_FROM_KEY, METHOD_READ_NODE_SOURCE, METHOD_SEARCH_GLOSSARY,
+    METHOD_INDEX_FILE, METHOD_INDEXED_FILES, METHOD_LIST_GLOSSARY_TERMS, METHOD_LIST_NOTES,
+    METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_READ_NODE_SOURCE, METHOD_SEARCH_GLOSSARY,
     METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES,
 };
 use tempfile::TempDir;
@@ -1292,6 +1292,11 @@ fn read_cases(keys: &Keys) -> Vec<(Value, &'static str, Value)> {
             json!({"kind": "searchNodes", "query": "target", "limit": 20, "sort": "title"}),
             METHOD_SEARCH_NODES,
             json!({"query": "target", "limit": 20, "sort": "title"}),
+        ),
+        (
+            json!({"kind": "listNotes", "limit": 2}),
+            METHOD_LIST_NOTES,
+            json!({"limit": 2}),
         ),
         (
             json!({"kind": "searchNodeContent", "query": "body", "limit": 20}),

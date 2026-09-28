@@ -18,7 +18,7 @@ pub(crate) use exploration::{
 };
 pub(crate) use glossary::{glossary_due, glossary_term, list_glossary_terms, search_glossary};
 pub(crate) use notes::{
-    anchor_at_point, anchor_from_key, node_at_point, node_from_id, node_from_key,
+    anchor_at_point, anchor_from_key, list_notes, node_at_point, node_from_id, node_from_key,
     node_from_title_or_alias, note_context, random_node, read_file_source, read_node_source,
     search_node_content, search_nodes,
 };

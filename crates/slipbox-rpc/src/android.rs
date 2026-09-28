@@ -13,16 +13,17 @@ use slipbox_core::{
     BacklinksParams, BacklinksResult, ExploreParams, ExploreResult, ForwardLinksParams,
     ForwardLinksResult, GenerationBinding, GlossaryTermParams, GlossaryTermResult, IndexFileParams,
     IndexFileResult, IndexStats, IndexedFilesResult, ListGlossaryTermsParams,
-    ListGlossaryTermsResult, NodeFromIdParams, NodeFromKeyParams, NodeRecord, ReadNodeSourceParams,
-    ReadNodeSourceResult, SearchGlossaryParams, SearchGlossaryResult, SearchNodeContentParams,
-    SearchNodeContentResult, SearchNodesParams, SearchNodesResult, StatusInfo,
+    ListGlossaryTermsResult, ListNotesParams, ListNotesResult, NodeFromIdParams, NodeFromKeyParams,
+    NodeRecord, ReadNodeSourceParams, ReadNodeSourceResult, SearchGlossaryParams,
+    SearchGlossaryResult, SearchNodeContentParams, SearchNodeContentResult, SearchNodesParams,
+    SearchNodesResult, StatusInfo,
 };
 
 use crate::{
     JsonRpcErrorKind, METHOD_BACKLINKS, METHOD_EXPLORE, METHOD_FORWARD_LINKS, METHOD_GLOSSARY_TERM,
     METHOD_INDEX, METHOD_INDEX_FILE, METHOD_INDEXED_FILES, METHOD_LIST_GLOSSARY_TERMS,
-    METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_READ_NODE_SOURCE, METHOD_SEARCH_GLOSSARY,
-    METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES, METHOD_STATUS,
+    METHOD_LIST_NOTES, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_READ_NODE_SOURCE,
+    METHOD_SEARCH_GLOSSARY, METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES, METHOD_STATUS,
 };
 
 /// The supported Android adapter protocol version.
@@ -202,6 +203,7 @@ operation_vocabulary! {
         Status, "status", METHOD_STATUS, StateOnlyParams, StatusInfo;
         IndexedFiles, "indexedFiles", METHOD_INDEXED_FILES, StateOnlyParams, IndexedFilesResult;
         SearchNodes, "searchNodes", METHOD_SEARCH_NODES, SearchNodesParams, SearchNodesResult;
+        ListNotes, "listNotes", METHOD_LIST_NOTES, ListNotesParams, ListNotesResult;
         SearchNodeContent, "searchNodeContent", METHOD_SEARCH_NODE_CONTENT,
             SearchNodeContentParams, SearchNodeContentResult;
         NodeFromId, "nodeFromId", METHOD_NODE_FROM_ID, NodeFromIdParams, Option<NodeRecord>;
@@ -280,6 +282,7 @@ impl ReadOperation {
             | Self::NodeFromKey(_)
             | Self::GlossaryTerm(_) => None,
             Self::SearchNodes(params) => page_bound(params.limit),
+            Self::ListNotes(params) => page_bound(params.limit),
             Self::SearchNodeContent(params) => page_bound(params.limit),
             Self::ListGlossaryTerms(params) => page_bound(params.limit),
             Self::SearchGlossary(params) => page_bound(params.limit),

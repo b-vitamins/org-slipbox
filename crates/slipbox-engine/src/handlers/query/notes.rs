@@ -2,13 +2,14 @@ use std::collections::BTreeSet;
 use std::fs;
 
 use slipbox_core::{
-    AnchorFromKeyParams, AnchorRecord, NodeAtPointParams, NodeContentHit, NodeFromIdParams,
-    NodeFromKeyParams, NodeFromTitleOrAliasParams, NodeKind, NoteContextParams, NoteContextResult,
-    RandomNodeResult, ReadFileSourceParams, ReadFileSourceResult, ReadNodeSourceParams,
-    ReadNodeSourceResult, SearchNodeContentParams, SearchNodeContentResult, SearchNodesParams,
-    SearchNodesResult, SourceSlice,
+    AnchorFromKeyParams, AnchorRecord, ListNotesParams, ListNotesResult, NodeAtPointParams,
+    NodeContentHit, NodeFromIdParams, NodeFromKeyParams, NodeFromTitleOrAliasParams, NodeKind,
+    NoteContextParams, NoteContextResult, RandomNodeResult, ReadFileSourceParams,
+    ReadFileSourceResult, ReadNodeSourceParams, ReadNodeSourceResult, SearchNodeContentParams,
+    SearchNodeContentResult, SearchNodesParams, SearchNodesResult, SourceSlice,
 };
 use slipbox_rpc::JsonRpcError;
+use slipbox_store::NotePosition;
 
 use crate::rpc::{internal_error, invalid_params, not_found, parse_params, path_denied, to_value};
 use crate::state::ServerState;
@@ -28,6 +29,29 @@ pub(crate) fn search_nodes(
         .map_err(|error| internal_error(error.context("failed to query nodes")))?;
     let nodes = live_nodes(state, nodes)?;
     to_value(SearchNodesResult { nodes })
+}
+
+pub(crate) fn list_notes(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: ListNotesParams = parse_params(params)?;
+    let after = match params.normalized_after() {
+        Some(token) => Some(
+            NotePosition::parse(token).ok_or_else(|| invalid_params("invalid note position"))?,
+        ),
+        None => None,
+    };
+    let page = state
+        .database
+        .list_notes(params.normalized_limit(), after.as_ref())
+        .map_err(|error| internal_error(error.context("failed to list notes")))?;
+    to_value(ListNotesResult {
+        notes: page.notes,
+        total: page.total,
+        has_more: page.has_more,
+        next_position: page.next_position,
+    })
 }
 
 pub(crate) fn search_node_content(

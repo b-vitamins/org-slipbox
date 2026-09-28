@@ -59,6 +59,19 @@
       "sort": "title"
     }
   },
+  "read_list_notes": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "listNotes",
+      "limit": 50,
+      "after": null
+    }
+  },
   "read_search_node_content": {
     "version": 1,
     "handle": 7,

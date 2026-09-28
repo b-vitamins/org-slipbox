@@ -14,15 +14,15 @@ use slipbox_core::{
     GraphParams, GraphResult, ImportWorkbenchPackParams, ImportWorkbenchPackResult,
     IndexDiagnosticsResult, IndexFileParams, IndexFileResult, IndexStats, IndexedFilesResult,
     ListExplorationArtifactsParams, ListExplorationArtifactsResult, ListGlossaryTermsParams,
-    ListGlossaryTermsResult, ListReviewRoutinesParams, ListReviewRoutinesResult,
-    ListReviewRunsParams, ListReviewRunsResult, ListWorkbenchPacksParams, ListWorkbenchPacksResult,
-    ListWorkflowsParams, ListWorkflowsResult, MarkGlossaryTermParams, MarkGlossaryTermResult,
-    MarkReviewFindingParams, MarkReviewFindingResult, NodeAtPointParams, NodeDiagnosticsParams,
-    NodeDiagnosticsResult, NodeFromIdParams, NodeFromKeyParams, NodeFromRefParams,
-    NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult, NoteContextParams,
-    NoteContextResult, PingInfo, RandomNodeResult, ReadFileSourceParams, ReadFileSourceResult,
-    ReadNodeSourceParams, ReadNodeSourceResult, RefileRegionParams, RefileSubtreeParams,
-    ReflinksParams, ReflinksResult, ReviewFindingRemediationApplyParams,
+    ListGlossaryTermsResult, ListNotesParams, ListNotesResult, ListReviewRoutinesParams,
+    ListReviewRoutinesResult, ListReviewRunsParams, ListReviewRunsResult, ListWorkbenchPacksParams,
+    ListWorkbenchPacksResult, ListWorkflowsParams, ListWorkflowsResult, MarkGlossaryTermParams,
+    MarkGlossaryTermResult, MarkReviewFindingParams, MarkReviewFindingResult, NodeAtPointParams,
+    NodeDiagnosticsParams, NodeDiagnosticsResult, NodeFromIdParams, NodeFromKeyParams,
+    NodeFromRefParams, NodeFromTitleOrAliasParams, NodeRecord, NoteComparisonResult,
+    NoteContextParams, NoteContextResult, PingInfo, RandomNodeResult, ReadFileSourceParams,
+    ReadFileSourceResult, ReadNodeSourceParams, ReadNodeSourceResult, RefileRegionParams,
+    RefileSubtreeParams, ReflinksParams, ReflinksResult, ReviewFindingRemediationApplyParams,
     ReviewFindingRemediationApplyResult, ReviewFindingRemediationPreviewParams,
     ReviewFindingRemediationPreviewResult, ReviewRoutineIdParams, ReviewRoutineResult,
     ReviewRunDiffParams, ReviewRunDiffResult, ReviewRunIdParams, ReviewRunResult,
@@ -52,10 +52,10 @@ use slipbox_rpc::{
     METHOD_EXPORT_WORKBENCH_PACK, METHOD_EXTRACT_SUBTREE, METHOD_FORWARD_LINKS,
     METHOD_GLOSSARY_DUE, METHOD_GLOSSARY_TERM, METHOD_GRADE_TERM, METHOD_GRAPH_DOT,
     METHOD_IMPORT_WORKBENCH_PACK, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_INDEXED_FILES,
-    METHOD_LIST_EXPLORATION_ARTIFACTS, METHOD_LIST_GLOSSARY_TERMS, METHOD_LIST_REVIEW_ROUTINES,
-    METHOD_LIST_REVIEW_RUNS, METHOD_LIST_WORKBENCH_PACKS, METHOD_LIST_WORKFLOWS,
-    METHOD_MARK_GLOSSARY_TERM, METHOD_MARK_REVIEW_FINDING, METHOD_NODE_AT_POINT,
-    METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_NODE_FROM_REF,
+    METHOD_LIST_EXPLORATION_ARTIFACTS, METHOD_LIST_GLOSSARY_TERMS, METHOD_LIST_NOTES,
+    METHOD_LIST_REVIEW_ROUTINES, METHOD_LIST_REVIEW_RUNS, METHOD_LIST_WORKBENCH_PACKS,
+    METHOD_LIST_WORKFLOWS, METHOD_MARK_GLOSSARY_TERM, METHOD_MARK_REVIEW_FINDING,
+    METHOD_NODE_AT_POINT, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_NODE_FROM_REF,
     METHOD_NODE_FROM_TITLE_OR_ALIAS, METHOD_NOTE_CONTEXT, METHOD_PING, METHOD_PROMOTE_ENTIRE_FILE,
     METHOD_RANDOM_NODE, METHOD_READ_FILE_SOURCE, METHOD_READ_NODE_SOURCE, METHOD_REFILE_REGION,
     METHOD_REFILE_SUBTREE, METHOD_REFLINKS, METHOD_REVIEW_FINDING_REMEDIATION_APPLY,
@@ -203,6 +203,13 @@ where
         params: &SearchNodesParams,
     ) -> Result<SearchNodesResult, DaemonClientError> {
         self.request(METHOD_SEARCH_NODES, params)
+    }
+
+    pub(crate) fn list_notes(
+        &mut self,
+        params: &ListNotesParams,
+    ) -> Result<ListNotesResult, DaemonClientError> {
+        self.request(METHOD_LIST_NOTES, params)
     }
 
     pub(crate) fn search_node_content(

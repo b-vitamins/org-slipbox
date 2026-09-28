@@ -11,6 +11,11 @@
     <string name="library_loading">Opening your library.</string>
     <string name="library_unavailable">The library could not be opened.</string>
     <string name="library_ready">%1$s · %2$s · revision %3$s</string>
+    <string name="notes_loading">Loading notes.</string>
+    <string name="notes_loading_more">Loading more notes.</string>
+    <string name="notes_empty">This repository contains no notes.</string>
+    <string name="notes_unavailable">Notes could not be loaded.</string>
+    <string name="notes_more_unavailable">More notes could not be loaded.</string>
     <plurals name="library_files">
         <item quantity="one">%d file</item>
         <item quantity="other">%d files</item>
@@ -18,6 +23,10 @@
     <plurals name="library_nodes">
         <item quantity="one">%d indexed node</item>
         <item quantity="other">%d indexed nodes</item>
+    </plurals>
+    <plurals name="library_notes">
+        <item quantity="one">%d note</item>
+        <item quantity="other">%d notes</item>
     </plurals>
 
     <string name="action_connect">Connect</string>

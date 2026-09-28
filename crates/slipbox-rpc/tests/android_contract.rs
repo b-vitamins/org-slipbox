@@ -10,8 +10,8 @@ use serde_json::{Value, json};
 use slipbox_core::{
     BacklinksParams, ExplorationLens, ExploreParams, ForwardLinksParams, GenerationBinding,
     GenerationId, GlossaryTermParams, IndexFileParams, IndexedFilesResult, ListGlossaryTermsParams,
-    NodeFromIdParams, NodeFromKeyParams, ReadNodeSourceParams, SearchGlossaryParams,
-    SearchNodeContentParams, SearchNodesParams, SearchNodesSort, SourceId,
+    ListNotesParams, NodeFromIdParams, NodeFromKeyParams, ReadNodeSourceParams,
+    SearchGlossaryParams, SearchNodeContentParams, SearchNodesParams, SearchNodesSort, SourceId,
 };
 use slipbox_rpc::android::{
     ADAPTER_LIMITS, ADAPTER_PROTOCOL_VERSION, AdapterBound, AdapterCapability, AdapterContract,
@@ -95,6 +95,10 @@ fn every_read_operation() -> Vec<ReadOperation> {
             query: "omega".to_owned(),
             limit: 25,
             sort: Some(SearchNodesSort::Title),
+        }),
+        ReadOperation::ListNotes(ListNotesParams {
+            limit: 50,
+            after: None,
         }),
         ReadOperation::SearchNodeContent(SearchNodeContentParams {
             query: "omega".to_owned(),

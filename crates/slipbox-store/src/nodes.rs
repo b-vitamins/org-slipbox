@@ -14,6 +14,29 @@ use crate::Database;
 pub(crate) const ANCHOR_SELECT_COLUMN_COUNT: usize = 25;
 
 impl Database {
+    /// Return one page of notes in the same file/line order used by note context.
+    pub fn list_notes(&self, limit: usize, after: Option<&NotePosition>) -> Result<NotePage> {
+        let limit = limit.clamp(1, 200);
+        let filter = note_where("n");
+        let total = self.notes_indexed()? as usize;
+        let mut arguments: Vec<rusqlite::types::Value> = vec![(limit as i64 + 1).into()];
+        let seek = match after {
+            None => String::new(),
+            Some(position) => {
+                arguments.push(position.file_path.clone().into());
+                arguments.push(i64::from(position.line).into());
+                "AND (n.file_path, n.line) > (?2, ?3)".to_owned()
+            }
+        };
+        let sql = list_notes_sql(&filter, &seek);
+        let mut statement = self.connection.prepare(&sql)?;
+        let rows = statement.query_map(params_from_iter(arguments), row_to_note)?;
+        let notes = rows
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .context("failed to read a filing-order note page")?;
+        Ok(NotePage::paged(notes, total, limit))
+    }
+
     pub fn search_nodes(
         &self,
         query: &str,
@@ -669,6 +692,75 @@ pub struct GlossaryPage {
     pub next_position: Option<String>,
 }
 
+pub struct NotePage {
+    pub notes: Vec<NodeRecord>,
+    pub total: usize,
+    pub has_more: bool,
+    pub next_position: Option<String>,
+}
+
+impl NotePage {
+    fn paged(mut notes: Vec<NodeRecord>, total: usize, limit: usize) -> Self {
+        let has_more = notes.len() > limit;
+        notes.truncate(limit);
+        let next_position = if has_more {
+            notes
+                .last()
+                .map(NotePosition::after)
+                .map(|position| position.token())
+        } else {
+            None
+        };
+        Self {
+            notes,
+            total,
+            has_more,
+            next_position,
+        }
+    }
+}
+
+/// Opaque, listing-specific filing-order cursor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotePosition {
+    file_path: String,
+    line: u32,
+}
+
+const NOTE_POSITION_TAG: &str = "note";
+
+impl NotePosition {
+    #[must_use]
+    pub fn parse(token: &str) -> Option<Self> {
+        let mut fields = token.split(POSITION_SEPARATOR);
+        if decode_field(fields.next()?)? != NOTE_POSITION_TAG {
+            return None;
+        }
+        let line = decode_field(fields.next()?)?.parse().ok()?;
+        let file_path = decode_field(fields.next()?)?;
+        if fields.next().is_some() {
+            return None;
+        }
+        Some(Self { file_path, line })
+    }
+
+    fn after(record: &NodeRecord) -> Self {
+        Self {
+            file_path: record.file_path.clone(),
+            line: record.line,
+        }
+    }
+
+    fn token(&self) -> String {
+        format!(
+            "{}{POSITION_SEPARATOR}{}{POSITION_SEPARATOR}{}",
+            encode_field(NOTE_POSITION_TAG),
+            encode_field(&self.line.to_string()),
+            encode_field(&self.file_path),
+        )
+    }
+}
+
 impl GlossaryPage {
     fn paged(
         mut rows: Vec<NodeRecord>,
@@ -857,6 +949,18 @@ fn notes_filed_before_sql() -> String {
           WHERE (n.file_path, n.line) < (?1, ?2)
             AND {}",
         note_where("n"),
+    )
+}
+
+fn list_notes_sql(filter: &str, seek: &str) -> String {
+    format!(
+        "SELECT {}
+           FROM nodes AS n
+          WHERE {filter}
+            {seek}
+          ORDER BY n.file_path, n.line
+          LIMIT ?1",
+        anchor_select_columns("n"),
     )
 }
 
@@ -1371,7 +1475,9 @@ mod tests {
     use anyhow::Result;
     use slipbox_index::{DiscoveryPolicy, scan_path_with_policy, scan_root_with_policy};
 
-    use super::{DUE_POSITION_TAG, GlossaryPage, GlossaryPosition, TERM_POSITION_TAG};
+    use super::{
+        DUE_POSITION_TAG, GlossaryPage, GlossaryPosition, NotePage, NotePosition, TERM_POSITION_TAG,
+    };
     use crate::Database;
     use crate::test_support::indexed_database;
 
@@ -1381,6 +1487,10 @@ mod tests {
 
     fn page_titles(page: &GlossaryPage) -> Vec<String> {
         titles(&page.terms)
+    }
+
+    fn note_page_titles(page: &NotePage) -> Vec<String> {
+        titles(&page.notes)
     }
 
     fn term(title: &str, extra_drawer: &str, body: &str) -> String {
@@ -2318,6 +2428,111 @@ mod tests {
         database.search_nodes("", 200, None)
     }
 
+    #[test]
+    fn bounded_filing_pages_reach_every_file_and_heading_note_once() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&filing_fixture())?;
+        let expected = filed_notes(&database)?;
+        let mut actual = Vec::new();
+        let mut after = None;
+
+        loop {
+            let page = database.list_notes(2, after.as_ref())?;
+            assert_eq!(page.total, expected.len());
+            actual.extend(page.notes.iter().map(|note| note.node_key.clone()));
+            if !page.has_more {
+                assert!(page.next_position.is_none());
+                break;
+            }
+            let token = page.next_position.expect("a continuing page has a cursor");
+            after = Some(NotePosition::parse(&token).expect("the emitted cursor parses"));
+        }
+
+        assert_eq!(
+            actual,
+            expected
+                .into_iter()
+                .map(|note| note.node_key)
+                .collect::<Vec<_>>()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_large_corpus_is_walked_in_bounded_pages() -> Result<()> {
+        let files = (0..513)
+            .map(|index| {
+                (
+                    format!("{index:04}.org"),
+                    format!("#+title: Note {index:04}\n\nBody.\n"),
+                )
+            })
+            .collect::<Vec<_>>();
+        let borrowed = files
+            .iter()
+            .map(|(path, content)| (path.as_str(), content.as_str()))
+            .collect::<Vec<_>>();
+        let (_workspace, database, _root) = indexed_database(&borrowed)?;
+        let mut seen = Vec::new();
+        let mut after = None;
+
+        loop {
+            let page = database.list_notes(37, after.as_ref())?;
+            assert!(page.notes.len() <= 37);
+            assert_eq!(page.total, 513);
+            seen.extend(page.notes.iter().map(|note| note.node_key.clone()));
+            let Some(token) = page.next_position else {
+                assert!(!page.has_more);
+                break;
+            };
+            assert!(page.has_more);
+            after = Some(NotePosition::parse(&token).expect("the emitted cursor parses"));
+        }
+
+        assert_eq!(seen.len(), 513);
+        assert_eq!(
+            seen.iter().collect::<std::collections::HashSet<_>>().len(),
+            513
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_deleted_page_boundary_continues_after_its_filing_position() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&filing_fixture())?;
+        let first = database.list_notes(2, None)?;
+        assert_eq!(note_page_titles(&first), vec!["Alpha", "Beta"]);
+        let boundary = first.notes.last().expect("two notes");
+        let after = NotePosition::parse(
+            first
+                .next_position
+                .as_deref()
+                .expect("the first page continues"),
+        )
+        .expect("the emitted cursor parses");
+        database.connection.execute(
+            "DELETE FROM nodes WHERE node_key = ?1",
+            rusqlite::params![boundary.node_key],
+        )?;
+
+        let rest = database.list_notes(2, Some(&after))?;
+        assert_eq!(note_page_titles(&rest), vec!["Filed child", "Gamma"]);
+        assert_eq!(rest.total, 3);
+        assert!(!rest.has_more);
+        Ok(())
+    }
+
+    #[test]
+    fn note_positions_are_listing_specific_and_strict() {
+        let note = NotePosition {
+            file_path: "folder/a.β.org".to_owned(),
+            line: 27,
+        };
+        assert_eq!(NotePosition::parse(&note.token()), Some(note));
+        assert!(NotePosition::parse("term.32.61").is_none());
+        assert!(NotePosition::parse("6e6f7465.not-a-number.61").is_none());
+        assert!(NotePosition::parse("6e6f7465.32.61.extra").is_none());
+    }
+
     fn place(
         database: &crate::Database,
         note: &slipbox_core::NodeRecord,
@@ -2582,6 +2797,47 @@ mod tests {
                 "the plan must not sort: {plan}"
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn filing_pages_walk_the_ordered_index_without_a_temporary_sort() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&filing_fixture())?;
+        let first_sql = super::list_notes_sql(&super::note_where("n"), "");
+        let mut first_statement = database
+            .connection
+            .prepare(&format!("EXPLAIN QUERY PLAN {first_sql}"))?;
+        let first_rows =
+            first_statement.query_map(rusqlite::params![3], |row| row.get::<_, String>(3))?;
+        let first_plan = first_rows.collect::<rusqlite::Result<Vec<_>>>()?.join("\n");
+        assert!(
+            first_plan.contains("USING INDEX idx_nodes_file_path_line_level"),
+            "the first page must walk the filing-order index: {first_plan}"
+        );
+        assert!(
+            !first_plan.contains("TEMP B-TREE"),
+            "the first page must not sort: {first_plan}"
+        );
+
+        let continued_sql = super::list_notes_sql(
+            &super::note_where("n"),
+            "AND (n.file_path, n.line) > (?2, ?3)",
+        );
+        let mut statement = database
+            .connection
+            .prepare(&format!("EXPLAIN QUERY PLAN {continued_sql}"))?;
+        let rows = statement.query_map(rusqlite::params![3, "a.org", 1], |row| {
+            row.get::<_, String>(3)
+        })?;
+        let plan = rows.collect::<rusqlite::Result<Vec<_>>>()?.join("\n");
+        assert!(
+            plan.contains("SEARCH n USING INDEX idx_nodes_file_path_line_level"),
+            "the page must seek the filing-order index: {plan}"
+        );
+        assert!(
+            !plan.contains("TEMP B-TREE"),
+            "the page must not sort: {plan}"
+        );
         Ok(())
     }
 

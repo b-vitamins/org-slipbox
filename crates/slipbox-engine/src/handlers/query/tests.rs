@@ -14,7 +14,7 @@ use slipbox_core::{
     ExecutedExplorationArtifactPayload, ExplorationArtifactMetadata, ExplorationArtifactPayload,
     ExplorationArtifactResult, ExplorationEntry, ExplorationExplanation, ExplorationLens,
     ExplorationSectionKind, ExploreParams, ExploreResult, GlossaryTermResult, GradeTermResult,
-    GraphParams, ImportWorkbenchPackResult, ListExplorationArtifactsResult,
+    GraphParams, ImportWorkbenchPackResult, ListExplorationArtifactsResult, ListNotesResult,
     ListReviewRoutinesResult, ListReviewRunsResult, ListWorkbenchPacksResult, ListWorkflowsResult,
     MarkReviewFindingResult, NodeKind, NoteComparisonEntry, NoteComparisonExplanation,
     NoteComparisonGroup, NoteComparisonResult, NoteComparisonSectionKind, NoteContextResult,
@@ -45,7 +45,7 @@ use super::{
     execute_exploration_artifact, execute_explore_query, execute_saved_exploration_artifact,
     execute_saved_exploration_artifact_by_id, execute_workflow_spec, exploration_artifact, explore,
     export_workbench_pack, glossary_term, import_workbench_pack, list_exploration_artifacts,
-    list_review_routines, list_review_runs, list_workbench_packs, list_workflows,
+    list_notes, list_review_routines, list_review_runs, list_workbench_packs, list_workflows,
     mark_review_finding, node_from_ref, note_context, read_node_source,
     review_finding_remediation_apply, review_finding_remediation_preview, review_routine,
     review_run, run_review_routine, run_workflow, save_corpus_audit_review,
@@ -274,6 +274,42 @@ fn status_counts_notes_as_the_addressable_search_surface() {
         status.notes_indexed,
         status.nodes_indexed
     );
+}
+
+#[test]
+fn list_notes_exposes_bounded_canonical_filing_pages() {
+    let (_workspace, mut state, _target_key) = indexed_state();
+    let first: ListNotesResult = serde_json::from_value(
+        list_notes(&mut state, json!({ "limit": 2 })).expect("first filing page should succeed"),
+    )
+    .expect("first filing page should decode");
+    assert_eq!(first.notes.len(), 2);
+    assert!(first.has_more);
+    assert!(first.next_position.is_some());
+
+    let second: ListNotesResult = serde_json::from_value(
+        list_notes(
+            &mut state,
+            json!({ "limit": 2, "after": first.next_position }),
+        )
+        .expect("continued filing page should succeed"),
+    )
+    .expect("continued filing page should decode");
+    assert_eq!(second.total, first.total);
+    assert!(first.notes.iter().all(|left| {
+        second
+            .notes
+            .iter()
+            .all(|right| left.node_key != right.node_key)
+    }));
+}
+
+#[test]
+fn list_notes_refuses_a_foreign_cursor() {
+    let (_workspace, mut state, _target_key) = indexed_state();
+    let error = list_notes(&mut state, json!({ "limit": 2, "after": "term.31.61" }))
+        .expect_err("a glossary cursor is not a note cursor");
+    assert_eq!(error.into_inner().code, -32600);
 }
 
 #[test]
