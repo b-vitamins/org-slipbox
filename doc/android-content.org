@@ -50,18 +50,18 @@ the shared renderer's untrusted KaTeX options and semantic MathML output.
 
 #+begin_src kotlin
 DocumentContentView(
-    source = DocumentSource(id, generation, org, baseLevel = 2),
+    source = DocumentSource(source, generation, id, org, baseLevel = 2),
     presentation = presentation,
     onIntent = { intent -> /* application navigation */ },
     resolveAsset = DocumentAssetResolver { binding, target -> /* bytes or null */ },
 )
 #+end_src
 
-The caller supplies a source-scoped document identity and content generation,
-not a bare note key shared across repositories. The view issues its own opaque
-mount token. Any source-field change retires that token; presentation-only
-changes retain it. Callback and resolver replacements use their latest values
-without rebuilding the view.
+The caller supplies the repository source identity, its exact content generation
+and a document identity, not a bare note key shared across repositories. The
+view issues its own opaque mount token. Any source-field change retires that
+token; presentation-only changes retain it. Callback and resolver replacements
+use their latest values without rebuilding the view.
 
 | Intent    | Payload          | Caller action                     |
 |-----------+------------------+-----------------------------------|

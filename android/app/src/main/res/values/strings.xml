@@ -29,6 +29,26 @@
         <item quantity="other">%d notes</item>
     </plurals>
 
+    <string name="reader_title">Reading</string>
+    <string name="reader_loading">Loading note.</string>
+    <string name="reader_not_found">This note is not present in this repository version.</string>
+    <string name="reader_source_unavailable">This repository version is no longer available. Go back and reopen the note.</string>
+    <string name="reader_too_large">This note exceeds the offline reader’s current size limit. Reduce or split it, then refresh the repository.</string>
+    <plurals name="reader_too_many_lines">
+        <item quantity="one">This note exceeds the offline reader’s current limit of %d line. Reduce or split it, then refresh the repository.</item>
+        <item quantity="other">This note exceeds the offline reader’s current limit of %d lines. Reduce or split it, then refresh the repository.</item>
+    </plurals>
+    <string name="reader_unavailable">This note could not be loaded.</string>
+    <string name="reader_metadata_description">%1$s, %2$s, %3$s</string>
+    <plurals name="reader_backlinks">
+        <item quantity="one">%d backlink</item>
+        <item quantity="other">%d backlinks</item>
+    </plurals>
+    <plurals name="reader_links">
+        <item quantity="one">%d link</item>
+        <item quantity="other">%d links</item>
+    </plurals>
+
     <string name="action_connect">Connect</string>
     <string name="action_add_source">Add</string>
     <string name="action_sources">Sources</string>

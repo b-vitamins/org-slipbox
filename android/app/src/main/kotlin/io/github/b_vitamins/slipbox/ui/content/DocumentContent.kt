@@ -7,27 +7,33 @@ package io.github.b_vitamins.slipbox.ui.content
 
 import androidx.compose.runtime.Immutable
 
-/** Caller-provided source-scoped document identity and generation for asset lookups. */
+/** Exact source generation and document identity for later asset lookups. */
 @Immutable
-internal data class DocumentBinding(val id: String, val generation: Long)
+internal data class DocumentBinding(
+    val source: String,
+    val generation: String,
+    val id: String,
+)
 
 /** Org input; changing any field retires the mount token. */
 @Immutable
 internal data class DocumentSource(
+    val source: String,
+    val generation: String,
     val id: String,
-    val generation: Long,
     val org: String,
     val baseLevel: Int = DEFAULT_BASE_LEVEL,
 ) {
     init {
+        require(source.isNotBlank()) { "a document source carries no source identity" }
+        require(generation.isNotBlank()) { "a document source carries no generation" }
         require(id.isNotBlank()) { "a document source carries no id" }
-        require(generation >= 0) { "a document source generation is negative: $generation" }
         require(baseLevel in HIGHEST_LEVEL..LOWEST_LEVEL) {
             "a document base level outside $HIGHEST_LEVEL..$LOWEST_LEVEL: $baseLevel"
         }
     }
 
-    val binding: DocumentBinding get() = DocumentBinding(id, generation)
+    val binding: DocumentBinding get() = DocumentBinding(source, generation, id)
 
     internal companion object {
         const val DEFAULT_BASE_LEVEL = 2

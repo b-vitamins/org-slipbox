@@ -7,6 +7,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Read complete source-bound Org documents in the Android app. Library rows open
+  a native reader whose title, metadata and rich Org body come from one Rust
+  answer in the selected source generation; the shared renderer retains tables,
+  code, math, links, text selection, theme and platform font scaling. Missing,
+  withdrawn, failed and explicitly over-limit reads are distinct, truncation is
+  never rendered, and a replaced note or generation cannot publish a late reply.
 - Browse the active Android corpus through bounded filing-order note pages.
   Rust owns keyset continuation, totals and file/heading note semantics over the
   indexed order; the native list retains source/generation identity, suppresses
@@ -76,10 +82,13 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Embed the bundled Org renderer in an isolated Android content view, with
   explicit presentation, validated navigation intents and source-bound local
   assets. Package verified renderer bytes and fonts in both APK variants;
-  reader-screen wiring remains separate. See `doc/android-content.org`.
+  the production reader now supplies its exact source, generation and note
+  identity. Repository asset resolution remains separate. See
+  `doc/android-content.org`.
 - Add source-aware Android routes with restorable search and reading positions,
   explicit source-transition policies and shared system/predictive Back handling.
-  Navigation exposes only implemented destinations; reader wiring remains separate.
+  Navigation exposes only implemented destinations, including the source-bound
+  reader.
 - Add GitHub App device authorization with browser handoff, cancellable polling,
   verified accounts and scoped credential storage, using the project's public
   registration. See `doc/android-auth.org`.
@@ -113,7 +122,7 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Package the headless Rust engine and bundled SQLite in the Android app for
   arm64-v8a and x86_64. ARM64 is qualified on 4KB and 16KB kernels; the hosted
   x86_64 runtime gate exercises the same private fixture probe for indexing,
-  queries and durable reopening; reader wiring remains separate.
+  queries and durable reopening; production document reads use the same adapter.
   Build and binary-verification instructions are in `doc/android-native.org`.
 - Document the planned Git-sourced Android reader in `doc/android.org`: source
   eligibility, read-only/native boundaries, coherent offline sync, private data,
@@ -125,8 +134,7 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Add an unreleased native Android Compose shell with Library and About screens,
   guarded/restorable navigation, accessible controls, and the web reading tokens.
   Pin and verify its compatible toolchain and lock app and plugin dependencies;
-  contributor instructions are in `doc/android-build.org`. Notes, Git sources,
-  and native engine integration are not yet connected.
+  contributor instructions are in `doc/android-build.org`.
 
 ### Changed
 - Extract service state, operation dispatch and index-backed queries into

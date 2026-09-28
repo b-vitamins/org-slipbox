@@ -51,7 +51,14 @@ class DocumentAssetTest {
         )
 
     private var source by
-        mutableStateOf(DocumentSource(id = "assets", generation = 4, org = Notes.ASSETS))
+        mutableStateOf(
+            DocumentSource(
+                source = "test-source",
+                generation = "4",
+                id = "assets",
+                org = Notes.ASSETS,
+            ),
+        )
 
     private lateinit var view: WebView
 
@@ -96,7 +103,7 @@ class DocumentAssetTest {
         )
         assertTrue(
             "under the binding of the document that asked",
-            store.asks().all { it.binding == DocumentBinding("assets", 4) },
+            store.asks().all { it.binding == DocumentBinding("test-source", "4", "assets") },
         )
         assertEquals("a miss is a refusal, not a fallback", 404.0, view.number(status("missing.png")), 0.0)
         assertEquals("a hit is served", 200.0, view.number(status("diagram.png")), 0.0)
@@ -149,7 +156,13 @@ class DocumentAssetTest {
         val issued = view.strings(HREFS).first()
         val token = view.mountToken()
         composeRule.runOnIdle {
-            source = DocumentSource(id = "assets", generation = 5, org = Notes.ASSETS)
+            source =
+                DocumentSource(
+                    source = "test-source",
+                    generation = "5",
+                    id = "assets",
+                    org = Notes.ASSETS,
+                )
         }
         composeRule.waitForIdle()
         view.awaitTrue(
@@ -166,7 +179,7 @@ class DocumentAssetTest {
         assertEquals("the same bytes under the new binding", "loaded ${DIAGRAM}x$DIAGRAM", view.probeImage(reissued))
         assertEquals(
             "asked for under the generation that is mounted now",
-            AssetAsk(DocumentBinding("assets", 5), "file:diagram.png"),
+            AssetAsk(DocumentBinding("test-source", "5", "assets"), "file:diagram.png"),
             store.asks().single(),
         )
     }

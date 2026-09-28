@@ -49,6 +49,7 @@ class NotesInventorySurfaceTest {
     fun reachingThePageBoundaryLoadsAndShowsTheNextBoundedPage() {
         val all = (1..60).map(::note)
         var loads = 0
+        var opened: NodeRecord? = null
         var inventory by
             mutableStateOf<NotesInventoryPhase>(
                 NotesInventoryPhase.Ready(all.take(50), 60, true, "after-50"),
@@ -64,6 +65,7 @@ class NotesInventorySurfaceTest {
                         loads += 1
                         inventory = NotesInventoryPhase.Ready(all, 60, false, null)
                     },
+                    onOpenNote = { opened = it },
                 )
             }
         }
@@ -76,7 +78,11 @@ class NotesInventorySurfaceTest {
             .onNode(hasScrollAction())
             .performScrollToNode(hasText("Note 60"))
         composeRule.onNodeWithText("Note 60").assertIsDisplayed()
-        composeRule.runOnIdle { assertEquals(1, loads) }
+        composeRule.onNodeWithText("Note 60").performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, loads)
+            assertEquals(all.last(), opened)
+        }
         Evidence.image("notes-inventory-continuation", composeRule.onRoot().captureToImage())
     }
 

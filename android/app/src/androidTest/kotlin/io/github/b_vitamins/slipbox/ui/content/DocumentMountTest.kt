@@ -46,7 +46,14 @@ class DocumentMountTest {
     private var mounted by mutableStateOf(true)
     private var dark by mutableStateOf(false)
     private var source by
-        mutableStateOf(DocumentSource(id = "mount", generation = 1, org = Notes.TALL))
+        mutableStateOf(
+            DocumentSource(
+                source = "test-source",
+                generation = "1",
+                id = "mount",
+                org = Notes.TALL,
+            ),
+        )
 
     @Before
     fun compose() {
@@ -114,7 +121,13 @@ class DocumentMountTest {
 
         val token = view.mountToken()
         composeRule.runOnIdle {
-            source = DocumentSource(id = "mount", generation = 2, org = Notes.ASSETS)
+            source =
+                DocumentSource(
+                    source = "test-source",
+                    generation = "2",
+                    id = "mount",
+                    org = Notes.ASSETS,
+                )
         }
         composeRule.waitForIdle()
         view.awaitTrue(

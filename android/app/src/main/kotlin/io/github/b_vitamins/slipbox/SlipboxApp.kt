@@ -7,20 +7,24 @@ package io.github.b_vitamins.slipbox
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import io.github.b_vitamins.slipbox.navigation.BoundNote
 import io.github.b_vitamins.slipbox.navigation.SlipboxDestinations
 import io.github.b_vitamins.slipbox.navigation.SlipboxNavigation
 import io.github.b_vitamins.slipbox.navigation.SlipboxRoute
 import io.github.b_vitamins.slipbox.navigation.SlipboxSurface
 import io.github.b_vitamins.slipbox.navigation.slipboxDestinations
-import io.github.b_vitamins.slipbox.ui.AboutScreen
-import io.github.b_vitamins.slipbox.ui.ConnectionScreen
-import io.github.b_vitamins.slipbox.ui.LibraryScreen
-import io.github.b_vitamins.slipbox.ui.rememberNotesInventoryState
-import io.github.b_vitamins.slipbox.ui.SourceSettingsScreen
-import io.github.b_vitamins.slipbox.sources.SourceLibraryState
 import io.github.b_vitamins.slipbox.sources.SourceCatalogResult
 import io.github.b_vitamins.slipbox.sources.SourceLibraryPhase
+import io.github.b_vitamins.slipbox.sources.SourceLibraryState
 import io.github.b_vitamins.slipbox.sources.rememberSourceLibraryState
+import io.github.b_vitamins.slipbox.ui.AboutScreen
+import io.github.b_vitamins.slipbox.ui.ConnectionScreen
+import io.github.b_vitamins.slipbox.ui.DocumentReaderPhase
+import io.github.b_vitamins.slipbox.ui.LibraryScreen
+import io.github.b_vitamins.slipbox.ui.ReaderScreen
+import io.github.b_vitamins.slipbox.ui.SourceSettingsScreen
+import io.github.b_vitamins.slipbox.ui.rememberDocumentReaderState
+import io.github.b_vitamins.slipbox.ui.rememberNotesInventoryState
 import io.github.b_vitamins.slipbox.ui.settings.ReadingSettings
 import io.github.b_vitamins.slipbox.ui.settings.rememberReadingSettings
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxMotion
@@ -59,8 +63,36 @@ private fun productionDestinations(
                 inventory = inventory?.phase,
                 onLoadMore = { inventory?.loadMore() },
                 onRetryInventory = { inventory?.retry() },
+                onOpenNote = { note ->
+                    ready?.let {
+                        backStack.open(SlipboxRoute.Reader(BoundNote(it.binding, note.nodeKey)))
+                    }
+                },
                 onOpenAbout = { backStack.open(SlipboxRoute.About) },
             )
+        }
+        surface(SlipboxSurface.Reader) { route, backStack ->
+            val readerRoute = route as SlipboxRoute.Reader
+            val ready =
+                (library.phase as? SourceLibraryPhase.Ready)
+                    ?.source
+                    ?.takeIf { it.binding == readerRoute.note.binding }
+            if (ready == null) {
+                ReaderScreen(
+                    phase = DocumentReaderPhase.SourceUnavailable,
+                    settings = settings,
+                    onBack = { backStack.back() },
+                    onRetry = {},
+                )
+            } else {
+                val reader = rememberDocumentReaderState(readerRoute.note, ready)
+                ReaderScreen(
+                    phase = reader.phase,
+                    settings = settings,
+                    onBack = { backStack.back() },
+                    onRetry = reader::retry,
+                )
+            }
         }
         surface(SlipboxSurface.Connection) { _, backStack ->
             val revision = library.catalogRevision()

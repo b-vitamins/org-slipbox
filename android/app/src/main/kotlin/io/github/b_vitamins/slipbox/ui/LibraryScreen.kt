@@ -5,10 +5,9 @@
 
 package io.github.b_vitamins.slipbox.ui
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -16,6 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
@@ -23,9 +24,9 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import io.github.b_vitamins.slipbox.R
 import io.github.b_vitamins.slipbox.engine.NodeKind
 import io.github.b_vitamins.slipbox.engine.NodeRecord
-import io.github.b_vitamins.slipbox.R
 import io.github.b_vitamins.slipbox.sources.SourceLibraryPhase
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxDimensions
 
@@ -41,6 +42,7 @@ internal fun LibraryScreen(
     inventory: NotesInventoryPhase? = null,
     onLoadMore: () -> Unit = {},
     onRetryInventory: () -> Unit = {},
+    onOpenNote: (NodeRecord) -> Unit = {},
 ) {
     ReadingSurface(
         title = stringResource(R.string.app_name),
@@ -100,6 +102,7 @@ internal fun LibraryScreen(
                     phase = inventory ?: NotesInventoryPhase.Loading,
                     onLoadMore = onLoadMore,
                     onRetry = onRetryInventory,
+                    onOpenNote = onOpenNote,
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -116,6 +119,7 @@ private fun NotesInventory(
     phase: NotesInventoryPhase,
     onLoadMore: () -> Unit,
     onRetry: () -> Unit,
+    onOpenNote: (NodeRecord) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     when (phase) {
@@ -141,7 +145,7 @@ private fun NotesInventory(
             )
             LazyColumn(modifier = modifier.fillMaxWidth()) {
                 items(items = phase.notes, key = NodeRecord::nodeKey) { note ->
-                    NoteInventoryRow(note)
+                    NoteInventoryRow(note, onClick = { onOpenNote(note) })
                     HorizontalDivider(
                         thickness = SlipboxDimensions.hairline,
                         color = MaterialTheme.colorScheme.outline,
@@ -172,7 +176,7 @@ private fun NotesInventory(
 }
 
 @Composable
-private fun NoteInventoryRow(note: NodeRecord) {
+private fun NoteInventoryRow(note: NodeRecord, onClick: () -> Unit) {
     val location =
         when (note.kind) {
             NodeKind.FILE -> note.filePath
@@ -183,6 +187,7 @@ private fun NoteInventoryRow(note: NodeRecord) {
             Modifier
                 .fillMaxWidth()
                 .heightIn(min = SlipboxDimensions.touchTarget)
+                .clickable(onClick = onClick)
                 .padding(vertical = SlipboxDimensions.headerPaddingVertical),
     ) {
         Text(

@@ -43,7 +43,13 @@ class DocumentGestureTest {
     fun mount() {
         composeRule.setContent {
             DocumentContentView(
-                source = DocumentSource(id = "gestures", generation = 3, org = Notes.RICH),
+                source =
+                    DocumentSource(
+                        source = "test-source",
+                        generation = "3",
+                        id = "gestures",
+                        org = Notes.RICH,
+                    ),
                 presentation =
                     documentPresentation(
                         density = LocalDensity.current,

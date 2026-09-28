@@ -62,7 +62,13 @@ class DocumentReadingTest {
                         availableWidth = WIDTH,
                     )
                 DocumentContentView(
-                    source = DocumentSource(id = "reading", generation = 1, org = Notes.RICH),
+                    source =
+                        DocumentSource(
+                            source = "test-source",
+                            generation = "1",
+                            id = "reading",
+                            org = Notes.RICH,
+                        ),
                     presentation = presented,
                     modifier = Modifier.fillMaxSize().testTag(DOCUMENT_TAG),
                 )

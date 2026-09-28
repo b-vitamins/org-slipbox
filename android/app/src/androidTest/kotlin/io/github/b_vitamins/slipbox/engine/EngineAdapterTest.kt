@@ -373,6 +373,36 @@ class EngineAdapterTest {
     }
 
     @Test
+    fun aDocumentAtTheDeclaredLineLimitIsReturnedCompletely() {
+        val expected = (1..ADMITTED_LIMITS.maxNoteSourceLines).joinToString("\n") { "Line $it" } + "\n"
+        File(corpus, "large.org").writeText(expected)
+        val host = host()
+        val maintenance = host.openMaintenance(binding, sessionContext()).settled()
+        val stats =
+            carriedOut<EngineAnswer.Index>(maintenance, MaintenanceOperation.Index).result
+        assertEquals((CORPUS.size + 1).toLong(), stats.filesIndexed)
+        assertEquals(true, maintenance.retire().settled())
+        val read = host.openRead(binding, sessionContext()).settled()
+
+        val answer =
+            answered<EngineAnswer.ReadNodeSource>(
+                read,
+                ReadOperation.ReadNodeSource(
+                    "file:large.org",
+                    0,
+                    0,
+                    ADMITTED_LIMITS.maxNoteSourceLines,
+                ),
+            ).result
+
+        assertEquals(expected, answer.source.content)
+        assertEquals(ADMITTED_LIMITS.maxNoteSourceLines.toLong(), answer.source.lineCount)
+        assertEquals(answer.source.lineCount, answer.nodeLineCount)
+        assertFalse(answer.source.truncatedBefore)
+        assertFalse(answer.source.truncatedAfter)
+    }
+
+    @Test
     fun anEngineRefusalRepeatsNothingOfTheRequest() {
         val read = indexedRead(host())
         val absent = ReadOperation.ReadNodeSource(ABSENT_KEY, 0, 0, 1_000)

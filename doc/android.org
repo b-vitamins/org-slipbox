@@ -14,8 +14,8 @@ document host, bounded Git transport, source-owned snapshot materializer,
 incremental index staging, coherent generation publication and startup recovery
 are joined to source connection through the source-scoped refresh coordinator;
 WorkManager supplies constrained later refreshes. Note inventory and reader
-pages are now generation-bound and Rust-paged; document reader wiring remains
-unbuilt. GitHub
+pages are generation-bound and Rust-paged, and selected notes open through a
+complete source-bound Rust read in the bundled document renderer. GitHub
 authorization and real public/private device fetches are qualified
 independently.
 Build instructions and toolchain pins are
@@ -159,6 +159,28 @@ the next page. A continuation failure retains already displayed rows and may be
 retried from the same cursor. Selecting another source or publishing another
 ready generation disposes the old page owner; its late replies cannot enter the
 new inventory.
+
+** Bound Document Reads
+
+Selecting an inventory row opens a Reader route carrying that note key and the
+exact ready source generation that supplied it. One state owner opens one native
+read session over that generation and asks Rust for the selected node with no
+surrounding context and the adapter's declared note-line limit. Kotlin neither
+reopens the file nor parses Org.
+
+The adapter refuses a source answer that Rust truncated. The reader additionally
+requires the returned anchor key, file path, start line and line count to agree
+before giving its complete Org text to the document view. A note beyond the
+declared line or response-byte bound gets an actionable unsupported-size state;
+missing, loading, unavailable-generation and other failure states remain
+distinct. There is no silent maximum-line cut.
+
+The native title, file/outline location and relation counts use the anchor from
+that same answer. The document mount and every later asset request carry the
+same source identity, generation and note key. Closing or replacing the route
+retires its session owner before a late reply can publish, so a reply for one
+note or generation cannot appear under another. Only the selected document is
+loaded and rendered; corpus discovery remains the bounded Rust inventory above.
 
 ** Eligibility And Diagnostics
 
@@ -317,7 +339,8 @@ alone and makes retained controls inert for document-owned actions.
 The bundle checks resolved asset schemes, not local origins: HTTP(S) and blob
 URLs are admitted. The Android content host imposes the local-only policy above
 and exposes only validated navigation intents and source-bound asset lookup;
-see [[file:android-content.org][android-content.org]]. Reader wiring and repository asset storage remain unbuilt.
+see [[file:android-content.org][android-content.org]]. Repository asset storage
+and resolution remain unbuilt.
 
 * Reading Design
 
@@ -360,8 +383,8 @@ Back. Presented sheets dismiss before the destination; cancelled gestures leave
 history unchanged and root Back belongs to the platform. Position/search updates
 to the current place retain its presentation. Only registered destinations are
 reachable; the current production build presents Library, repository Connection
-and About. Connection is temporary context, not permanent instructional content
-on Library.
+and Source Settings, source-bound Reader, and About. Connection is temporary
+context, not permanent instructional content on Library.
 
 * Synchronization And Freshness
 

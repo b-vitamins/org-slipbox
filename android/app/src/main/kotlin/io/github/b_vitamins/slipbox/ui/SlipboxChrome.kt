@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -89,6 +90,7 @@ internal fun ReadingSurface(
     modifier: Modifier = Modifier,
     obscured: Boolean = false,
     scrollable: Boolean = true,
+    contentPadding: PaddingValues = PaddingValues(SlipboxDimensions.readingPadding),
     leading: @Composable () -> Unit = {},
     trailing: @Composable () -> Unit = {},
     overlay: @Composable BoxScope.() -> Unit = {},
@@ -105,6 +107,7 @@ internal fun ReadingSurface(
                 ReadingColumn(
                     modifier = Modifier.weight(1f),
                     scrollable = scrollable,
+                    contentPadding = contentPadding,
                     body = body,
                 )
             }
@@ -117,6 +120,7 @@ internal fun ReadingSurface(
 internal fun ReadingColumn(
     modifier: Modifier = Modifier,
     scrollable: Boolean = true,
+    contentPadding: PaddingValues = PaddingValues(SlipboxDimensions.readingPadding),
     body: @Composable ColumnScope.() -> Unit,
 ) {
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
@@ -130,7 +134,7 @@ internal fun ReadingColumn(
                 .background(MaterialTheme.colorScheme.surface)
         if (scrollable) contentModifier = contentModifier.verticalScroll(rememberScrollState())
         Column(
-            modifier = contentModifier.padding(SlipboxDimensions.readingPadding),
+            modifier = contentModifier.padding(contentPadding),
             content = body,
         )
     }

@@ -67,8 +67,9 @@ class DocumentPayloadTest {
             payload["assetBase"]?.jsonPrimitive?.content,
         )
         val source = payload["source"]?.jsonObject
+        assertEquals(mount.source.source, source?.get("source")?.jsonPrimitive?.content)
         assertEquals(mount.source.id, source?.get("id")?.jsonPrimitive?.content)
-        assertEquals("7", source?.get("generation")?.jsonPrimitive?.content)
+        assertEquals(mount.source.generation, source?.get("generation")?.jsonPrimitive?.content)
         assertEquals("2", source?.get("baseLevel")?.jsonPrimitive?.content)
     }
 
@@ -92,7 +93,13 @@ class DocumentPayloadTest {
     private fun mount(source: String): DocumentMount =
         DocumentMount(
             token = "3f2a9c81-4d5e-4f60-9a1b-0c2d3e4f5061",
-            source = DocumentSource(id = "note-1", generation = 7, org = source),
+            source =
+                DocumentSource(
+                    source = "source-1",
+                    generation = "generation-7",
+                    id = "note-1",
+                    org = source,
+                ),
         )
 
     private fun presentation(dark: Boolean = false, fontScale: Float = 1f): DocumentPresentation =

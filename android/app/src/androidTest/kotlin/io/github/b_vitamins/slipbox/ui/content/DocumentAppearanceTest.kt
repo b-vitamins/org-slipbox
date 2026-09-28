@@ -209,7 +209,13 @@ class DocumentAppearanceTest {
     private companion object {
         val WIDTH = 411.dp
 
-        val SOURCE = DocumentSource(id = "appearance", generation = 1, org = Notes.RICH)
+        val SOURCE =
+            DocumentSource(
+                source = "test-source",
+                generation = "1",
+                id = "appearance",
+                org = Notes.RICH,
+            )
 
         const val EDGE = 2
 

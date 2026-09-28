@@ -45,7 +45,13 @@ class DocumentContainmentTest {
     fun mount() {
         composeRule.setContent {
             DocumentContentView(
-                source = DocumentSource(id = "hostile", generation = 7, org = Notes.HOSTILE),
+                source =
+                    DocumentSource(
+                        source = "test-source",
+                        generation = "7",
+                        id = "hostile",
+                        org = Notes.HOSTILE,
+                    ),
                 presentation =
                     documentPresentation(
                         density = LocalDensity.current,
