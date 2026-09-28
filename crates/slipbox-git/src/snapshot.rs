@@ -408,6 +408,46 @@ pub fn materialize(
     ))
 }
 
+/// Inspect one completed snapshot without consulting a repository or mutating
+/// the snapshot. Publication uses this to bind the source bytes it activates
+/// to the manifest that was sealed with them.
+pub fn inspect_snapshot(directory: &Path) -> Result<SnapshotOutcome, SnapshotError> {
+    validate_storage_path(directory)?;
+    let metadata = fs::symlink_metadata(directory).map_err(|_| SnapshotError::StorageFailed)?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err(SnapshotError::DestinationOccupied);
+    }
+    if fs::canonicalize(directory).map_err(|_| SnapshotError::StorageFailed)? != directory {
+        return Err(SnapshotError::DestinationOccupied);
+    }
+
+    let manifest = read_snapshot_manifest(directory)?;
+    validate_revision(&manifest.revision)?;
+    if !manifest_counts_are_valid(&manifest, SnapshotLimits::default())
+        || manifest.diagnostics.len() > MAX_SNAPSHOT_DIAGNOSTICS
+        || manifest.diagnostics.iter().any(|diagnostic| {
+            diagnostic.path.is_empty() || diagnostic.path.len() > MAX_SNAPSHOT_PATH_BYTES
+        })
+    {
+        return Err(SnapshotError::DestinationOccupied);
+    }
+    let content_root = directory.join(SNAPSHOT_CONTENT_DIRECTORY);
+    let content =
+        fs::symlink_metadata(&content_root).map_err(|_| SnapshotError::DestinationOccupied)?;
+    if !content.is_dir()
+        || content.file_type().is_symlink()
+        || fs::canonicalize(&content_root).map_err(|_| SnapshotError::StorageFailed)?
+            != content_root
+    {
+        return Err(SnapshotError::DestinationOccupied);
+    }
+    Ok(outcome_from_manifest(
+        SnapshotDisposition::Existing,
+        directory,
+        manifest,
+    ))
+}
+
 fn outcome_from_manifest(
     disposition: SnapshotDisposition,
     destination: &Path,
@@ -437,15 +477,7 @@ fn existing_snapshot(request: &SnapshotRequest) -> Result<Option<SnapshotManifes
     if !metadata.is_dir() || metadata.file_type().is_symlink() {
         return Err(SnapshotError::DestinationOccupied);
     }
-    let manifest_path = request.destination().join(SNAPSHOT_MANIFEST_FILE);
-    let manifest_metadata =
-        fs::symlink_metadata(&manifest_path).map_err(|_| SnapshotError::DestinationOccupied)?;
-    if !manifest_metadata.is_file() || manifest_metadata.len() > MAX_SNAPSHOT_MANIFEST_BYTES {
-        return Err(SnapshotError::DestinationOccupied);
-    }
-    let bytes = fs::read(manifest_path).map_err(|_| SnapshotError::StorageFailed)?;
-    let manifest: SnapshotManifest =
-        serde_json::from_slice(&bytes).map_err(|_| SnapshotError::DestinationOccupied)?;
+    let manifest = read_snapshot_manifest(request.destination())?;
     if manifest.source != *request.source() {
         return Err(SnapshotError::OwnershipMismatch);
     }
@@ -466,6 +498,25 @@ fn existing_snapshot(request: &SnapshotRequest) -> Result<Option<SnapshotManifes
         return Err(SnapshotError::DestinationOccupied);
     }
     Ok(Some(manifest))
+}
+
+fn read_snapshot_manifest(directory: &Path) -> Result<SnapshotManifest, SnapshotError> {
+    let manifest_path = directory.join(SNAPSHOT_MANIFEST_FILE);
+    let manifest_metadata =
+        fs::symlink_metadata(&manifest_path).map_err(|_| SnapshotError::DestinationOccupied)?;
+    if !manifest_metadata.is_file()
+        || manifest_metadata.file_type().is_symlink()
+        || manifest_metadata.len() > MAX_SNAPSHOT_MANIFEST_BYTES
+    {
+        return Err(SnapshotError::DestinationOccupied);
+    }
+    let bytes = fs::read(manifest_path).map_err(|_| SnapshotError::StorageFailed)?;
+    let manifest: SnapshotManifest =
+        serde_json::from_slice(&bytes).map_err(|_| SnapshotError::DestinationOccupied)?;
+    if manifest.version != SNAPSHOT_FORMAT_VERSION {
+        return Err(SnapshotError::DestinationOccupied);
+    }
+    Ok(manifest)
 }
 
 fn manifest_counts_are_valid(manifest: &SnapshotManifest, limits: SnapshotLimits) -> bool {

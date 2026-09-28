@@ -1,5 +1,9 @@
 //! Candidate index construction over immutable repository snapshots.
 
+mod publication;
+
+pub use publication::*;
+
 use std::collections::BTreeSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;

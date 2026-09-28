@@ -7,6 +7,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Publish source snapshots and their matching derived indexes as immutable,
+  source-bound reading generations through one atomic active manifest. Reader
+  leases retain their original query, document and asset paths across later
+  activation; compare-and-swap publication rejects stale writers, exposes
+  fetched/ready/in-flight freshness separately, and leaves the last ready
+  generation visible on every pre-activation failure. See `doc/android-git.org`.
 - Build verified staged SQLite indexes from immutable Git snapshots. Initial
   imports parse the delta's complete Org inventory; later candidates clone the
   current index through SQLite's online-backup API, update or remove only paths

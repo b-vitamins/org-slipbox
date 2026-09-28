@@ -168,8 +168,39 @@ only alter the temporary candidate; the completed base database and manifest
 remain unchanged. A base manifest or database on another schema is refused as
 an explicit rebuild requirement. Migration and rebuild remain background
 choices for later orchestration rather than an implicit query or UI-path
-fallback. Publication and reader activation remain the next coherent-generation
+fallback. Only a verified candidate enters the coherent-generation publication
+boundary below.
+
+* Generation Publication
+
+=slipbox-sync= owns a version-1 store for one explicit source root. A published
+generation contains the complete snapshot directory, complete staged-index
+directory and a manifest binding their source, revision, notes folder, previous
+revision, snapshot counts, index schema and index counts. Publication moves both
+verified candidates into a private sibling staging directory, seals and verifies
+that generation, then atomically replaces =active-generation.json=. Source,
+index and generation manifests remain separate evidence and must agree whenever
+an active generation is opened.
+
+Activation is compare-and-swap against the generation observed before refresh.
+A stale publisher cannot replace a newer ready generation, while retrying a
+completed activation is idempotent. Only the active-manifest rename changes what
+new readers acquire. Cancellation or failure at source, index, generation-
+manifest or pre-activation boundaries leaves the previous active manifest and
+its files untouched.
+
+A generation lease fixes a source identity, generation identity, revision,
+content root and database for its lifetime. Existing leases continue to read
+their old query rows, Org bytes and assets after a newer generation becomes
+ready; new leases read the new generation. Content files are opened through the
+lease with confined relative paths, so an already-open asset descriptor cannot
+be retargeted by activation. No published-generation deletion is part of this
 boundary.
+
+Freshness is explicit data rather than an inference from directory contents. It
+reports the newest fetched revision, the active ready revision and generation,
+and an optional fetching, materializing, indexing or publishing state. A fetched
+or in-flight revision is never presented as ready.
 
 * Qualification
 
@@ -191,6 +222,14 @@ from a test snapshot after delta derivation to prove file-level staging neither
 parses it nor treats the changed-file set as a complete-root prune inventory.
 Failure, cancellation, incompatible-schema and idempotent-completion fixtures
 verify isolation and explicit rebuild behavior.
+
+Publication fixtures hold activation before its atomic boundary while query,
+document and asset readers run concurrently, then prove that old leases retain
+the old generation and newly acquired leases read the new one. They inject
+cancellation after source sealing, index sealing, generation-manifest sealing
+and immediately before active-manifest replacement; every case preserves the
+last ready generation. Freshness serialization, stale-writer rejection and
+idempotent read-your-ready-generation behavior are contract-tested as well.
 
 The focused Kotlin tests prove that a rotated credential is the byte sequence
 given to the actual native-call seam and that its temporary byte array is then
