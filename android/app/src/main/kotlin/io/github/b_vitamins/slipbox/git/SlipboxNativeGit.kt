@@ -14,6 +14,10 @@ internal interface NativeGitSeam {
 
     fun materialize(request: ByteArray): ByteArray?
 
+    fun refresh(request: ByteArray, credential: ByteArray?): ByteArray? = null
+
+    fun refreshStatus(request: ByteArray): ByteArray? = null
+
     fun cancel(operation: Long): Boolean
 }
 
@@ -31,6 +35,12 @@ internal object SlipboxNativeGit {
             override fun materialize(request: ByteArray): ByteArray? =
                 nativeMaterialize(request)
 
+            override fun refresh(request: ByteArray, credential: ByteArray?): ByteArray? =
+                nativeRefresh(request, credential)
+
+            override fun refreshStatus(request: ByteArray): ByteArray? =
+                nativeRefreshStatus(request)
+
             override fun cancel(operation: Long): Boolean = nativeCancel(operation)
         }
 
@@ -46,6 +56,10 @@ internal object SlipboxNativeGit {
     private external fun nativeSynchronize(request: ByteArray, credential: ByteArray?): ByteArray?
 
     private external fun nativeMaterialize(request: ByteArray): ByteArray?
+
+    private external fun nativeRefresh(request: ByteArray, credential: ByteArray?): ByteArray?
+
+    private external fun nativeRefreshStatus(request: ByteArray): ByteArray?
 
     private external fun nativeCancel(operation: Long): Boolean
 }

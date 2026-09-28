@@ -59,6 +59,19 @@ fn argument_entries() -> Vec<(&'static str, Entry)> {
                 env, THIS, argument,
             )
         }),
+        ("nativeRefreshStatus", |env, argument| unsafe {
+            jni_seam::Java_io_github_b_1vitamins_slipbox_git_SlipboxNativeGit_nativeRefreshStatus(
+                env, THIS, argument,
+            )
+        }),
+        ("nativeRefresh", |env, argument| unsafe {
+            jni_seam::Java_io_github_b_1vitamins_slipbox_git_SlipboxNativeGit_nativeRefresh(
+                env,
+                THIS,
+                argument,
+                ptr::null_mut(),
+            )
+        }),
     ]
 }
 
@@ -87,6 +100,18 @@ fn argument_of(entry: &str, probe: &TempDir) -> Vec<u8> {
             "revision": "0123456789abcdef0123456789abcdef01234567",
             "notes_folder": "",
             "snapshot": "/private/snapshot",
+        }),
+        "nativeRefreshStatus" => json!({
+            "version": 1,
+            "source": "invalid",
+        }),
+        "nativeRefresh" => json!({
+            "version": 1,
+            "operation": 1,
+            "attempt": 0,
+            "source": {"id": "invalid"},
+            "repository": "/private/source/repository.git",
+            "store": "/private/source/store",
         }),
         "nativeCloseSession" => json!({
             "version": ADAPTER_PROTOCOL_VERSION,
@@ -267,31 +292,39 @@ fn every_entry_point_answers_through_this_boundary() {
         let answered = document();
         if name == "nativeRunFixtureProbe" {
             assert_eq!(answered["passed"], true, "{answered}");
+        } else if name == "nativeRefreshStatus" {
+            assert_eq!(answered["outcome"]["kind"], "refused", "{answered}");
+            assert_eq!(
+                answered["outcome"]["reason"], "malformed-request",
+                "{answered}"
+            );
         } else {
             assert_eq!(answered["outcome"], "refused", "{answered}");
-            let reason = if name == "nativeMaterialize" {
+            let reason = if name == "nativeMaterialize" || name == "nativeRefresh" {
                 "malformed-request"
             } else {
                 "unknown-handle"
             };
             assert_eq!(answered["reason"], reason, "{answered}");
         }
-        assert_eq!(
-            trace(),
-            [
-                EXCEPTION_CHECK,
-                GET_ARRAY_LENGTH,
-                EXCEPTION_CHECK,
-                GET_BYTE_ARRAY_REGION,
-                EXCEPTION_CHECK,
-                EXCEPTION_CHECK,
-                NEW_BYTE_ARRAY,
-                EXCEPTION_CHECK,
-                SET_BYTE_ARRAY_REGION,
-                EXCEPTION_CHECK
-            ],
-            "{name}"
-        );
+        let mut expected = vec![
+            EXCEPTION_CHECK,
+            GET_ARRAY_LENGTH,
+            EXCEPTION_CHECK,
+            GET_BYTE_ARRAY_REGION,
+            EXCEPTION_CHECK,
+        ];
+        if name == "nativeRefresh" {
+            expected.push(EXCEPTION_CHECK);
+        }
+        expected.extend([
+            EXCEPTION_CHECK,
+            NEW_BYTE_ARRAY,
+            EXCEPTION_CHECK,
+            SET_BYTE_ARRAY_REGION,
+            EXCEPTION_CHECK,
+        ]);
+        assert_eq!(trace(), expected, "{name}");
         assert_eq!(
             requested(),
             Some((0, argument_of(name, &probe).len() as jsize))

@@ -7,6 +7,14 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Coordinate complete Android refreshes per source from recovery through atomic
+  generation publication. Equivalent startup, manual and background triggers
+  coalesce; changed source configuration supersedes older work; cancellation is
+  linearized with activation; and credential-free status keeps fetched and ready
+  revisions, progress, terminal failure and bounded retry policy distinct. The
+  initiating source/account/configuration is sealed into generation provenance,
+  while credentials remain a separate one-call JNI argument. See
+  `doc/android-git.org`.
 - Publish source snapshots and their matching derived indexes as immutable,
   source-bound reading generations through one atomic active manifest. Reader
   leases retain their original query, document and asset paths across later

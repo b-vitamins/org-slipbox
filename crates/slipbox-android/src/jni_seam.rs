@@ -25,6 +25,10 @@ use slipbox_rpc::android::{
 use slipbox_rpc::android_git::{
     GitRefusalReason, GitResponse, MAX_GIT_REQUEST_BYTES, MAX_GIT_TEXT_BYTES, encode_git_response,
 };
+use slipbox_rpc::android_refresh::{
+    MAX_REFRESH_REQUEST_BYTES, RefreshFailureReason, RefreshResponse, RefreshRetry,
+    encode_refresh_response,
+};
 use zeroize::Zeroize;
 
 use crate::adapter::{
@@ -32,6 +36,7 @@ use crate::adapter::{
     serve_read, sessions,
 };
 use crate::android_git::{cancel, serve_materialize, serve_synchronize};
+use crate::android_refresh::{cancel_refresh, serve_refresh, serve_refresh_status};
 use crate::probe::{ProbeReport, run_fixture_probe};
 
 const ENCODE_FAILURE: &[u8] = br#"{"passed":false,"checks":[],"failure":{"stage":"encode","detail":"the probe report did not encode"}}"#;
@@ -144,6 +149,98 @@ pub unsafe extern "system" fn Java_io_github_b_1vitamins_slipbox_git_SlipboxNati
     unsafe { new_byte_array(env, &response) }
 }
 
+/// Run one complete source-scoped refresh. The optional credential is kept out
+/// of the request document and is zeroized by its Rust owner after fetch.
+///
+/// # Safety
+///
+/// Both arrays must be JVM references owned by the calling thread.
+#[allow(non_snake_case)]
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_io_github_b_1vitamins_slipbox_git_SlipboxNativeGit_nativeRefresh(
+    env: *mut JNIEnv,
+    _this: jobject,
+    request: jbyteArray,
+    credential: jbyteArray,
+) -> jbyteArray {
+    let request = match unsafe { read_refresh_request(env, request) } {
+        Argument::Bytes(request) => request,
+        Argument::Refused(refusal) => {
+            let reason = match refusal.reason {
+                RefusalReason::OutOfBounds => RefreshFailureReason::OutOfBounds,
+                _ => RefreshFailureReason::MalformedRequest,
+            };
+            return unsafe { new_byte_array(env, &refresh_refusal(reason, RefreshRetry::Never)) };
+        }
+        Argument::Pending => return ptr::null_mut(),
+    };
+    let credential = match unsafe { read_credential(env, credential) } {
+        CredentialArgument::Absent => None,
+        CredentialArgument::Bytes(credential) => Some(credential),
+        CredentialArgument::Refused => {
+            return unsafe {
+                new_byte_array(
+                    env,
+                    &refresh_refusal(
+                        RefreshFailureReason::AuthorizationFailed,
+                        RefreshRetry::Reauthorize,
+                    ),
+                )
+            };
+        }
+        CredentialArgument::Pending => return ptr::null_mut(),
+    };
+    let response = panic::catch_unwind(AssertUnwindSafe(|| serve_refresh(&request, credential)))
+        .unwrap_or_else(|_| refresh_refusal(RefreshFailureReason::Panicked, RefreshRetry::Never));
+    unsafe { new_byte_array(env, &response) }
+}
+
+/// Read current or last terminal refresh status without touching credentials,
+/// the network or source storage.
+///
+/// # Safety
+///
+/// `request` must be a JVM byte-array reference owned by the calling thread.
+#[allow(non_snake_case)]
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_io_github_b_1vitamins_slipbox_git_SlipboxNativeGit_nativeRefreshStatus(
+    env: *mut JNIEnv,
+    _this: jobject,
+    request: jbyteArray,
+) -> jbyteArray {
+    let request = match unsafe { read_refresh_request(env, request) } {
+        Argument::Bytes(request) => request,
+        Argument::Refused(refusal) => {
+            let reason = match refusal.reason {
+                RefusalReason::OutOfBounds => RefreshFailureReason::OutOfBounds,
+                _ => RefreshFailureReason::MalformedRequest,
+            };
+            let response = slipbox_rpc::android_refresh::RefreshStatusResponse {
+                version: slipbox_rpc::android_refresh::REFRESH_PROTOCOL_VERSION,
+                outcome: slipbox_rpc::android_refresh::RefreshStatusOutcome::Refused { reason },
+            };
+            return unsafe {
+                new_byte_array(
+                    env,
+                    &slipbox_rpc::android_refresh::encode_refresh_status_response(&response),
+                )
+            };
+        }
+        Argument::Pending => return ptr::null_mut(),
+    };
+    let response = panic::catch_unwind(AssertUnwindSafe(|| serve_refresh_status(&request)))
+        .unwrap_or_else(|_| {
+            let response = slipbox_rpc::android_refresh::RefreshStatusResponse {
+                version: slipbox_rpc::android_refresh::REFRESH_PROTOCOL_VERSION,
+                outcome: slipbox_rpc::android_refresh::RefreshStatusOutcome::Refused {
+                    reason: RefreshFailureReason::Panicked,
+                },
+            };
+            slipbox_rpc::android_refresh::encode_refresh_status_response(&response)
+        });
+    unsafe { new_byte_array(env, &response) }
+}
+
 /// Signal one active Git operation. Unknown and completed operations answer
 /// false and cancellation never allocates through JNI.
 ///
@@ -160,7 +257,9 @@ pub unsafe extern "system" fn Java_io_github_b_1vitamins_slipbox_git_SlipboxNati
     if unsafe { pending(env) } || operation <= 0 {
         return JNI_FALSE;
     }
-    if cancel(operation) {
+    let refresh_cancelled = cancel_refresh(operation);
+    let transport_cancelled = cancel(operation);
+    if refresh_cancelled || transport_cancelled {
         JNI_TRUE
     } else {
         JNI_FALSE
@@ -169,6 +268,10 @@ pub unsafe extern "system" fn Java_io_github_b_1vitamins_slipbox_git_SlipboxNati
 
 fn git_refusal(reason: GitRefusalReason) -> Vec<u8> {
     encode_git_response(&GitResponse::refused(reason))
+}
+
+fn refresh_refusal(reason: RefreshFailureReason, retry: RefreshRetry) -> Vec<u8> {
+    encode_refresh_response(&RefreshResponse::refused(reason, retry))
 }
 
 /// Run the fixture probe under `parent_directory` and return its report as
@@ -375,6 +478,10 @@ unsafe fn read_request(env: *mut JNIEnv, array: jbyteArray) -> Argument {
 
 unsafe fn read_git_request(env: *mut JNIEnv, array: jbyteArray) -> Argument {
     unsafe { read_request_bounded(env, array, MAX_GIT_REQUEST_BYTES) }
+}
+
+unsafe fn read_refresh_request(env: *mut JNIEnv, array: jbyteArray) -> Argument {
+    unsafe { read_request_bounded(env, array, MAX_REFRESH_REQUEST_BYTES) }
 }
 
 unsafe fn read_request_bounded(env: *mut JNIEnv, array: jbyteArray, limit: usize) -> Argument {

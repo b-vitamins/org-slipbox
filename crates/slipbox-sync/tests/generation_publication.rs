@@ -7,7 +7,10 @@ use std::sync::{Arc, Barrier};
 
 use anyhow::{Context, Result};
 use serde_json::json;
-use slipbox_core::{GenerationBinding, GenerationId, NotesFolder, SourceId};
+use slipbox_core::{
+    GenerationBinding, GenerationId, GitBranch, NotesFolder, RemoteUrl, SourceConfiguration,
+    SourceDisplayName, SourceId, SourceProvider, SourceRecord, SourceVisibility,
+};
 use slipbox_git::{
     DeltaOutcome, DeltaRequest, SnapshotOutcome, SnapshotRequest, derive_delta, materialize,
 };
@@ -222,6 +225,7 @@ fn activation_is_compare_and_swap_and_successful_retries_are_idempotent() -> Res
     let (snapshot, index) = fixture.candidates(&revision, None, None, "candidate")?;
     assert_eq!(
         PublishGenerationRequest::new(
+            fixture.record.clone(),
             GenerationBinding::new(fixture.source.clone(), GenerationId::parse("..")?),
             None,
             snapshot.clone(),
@@ -256,8 +260,41 @@ fn activation_is_compare_and_swap_and_successful_retries_are_idempotent() -> Res
     assert_eq!(created.disposition, PublicationDisposition::Published);
     assert_eq!(retried.disposition, PublicationDisposition::AlreadyActive);
     assert_eq!(created.generation.binding(), retried.generation.binding());
+    assert_eq!(created.generation.source_record(), &fixture.record);
+
+    let mut mismatched_folder: SourceConfiguration = fixture.record.clone().into();
+    mismatched_folder.notes_folder = NotesFolder::parse("elsewhere")?;
+    let (snapshot, index) = fixture.candidates(&revision, None, None, "mismatched-folder")?;
+    assert_eq!(
+        PublishGenerationRequest::new(
+            SourceRecord::new(mismatched_folder)?,
+            GenerationBinding::new(
+                fixture.source.clone(),
+                GenerationId::parse("mismatched-folder")?,
+            ),
+            Some(GenerationId::parse("g1")?),
+            snapshot,
+            index,
+        )
+        .unwrap_err(),
+        PublicationError::CandidateMismatch
+    );
 
     let other = SourceId::parse("fedcba9876543210fedcba9876543210")?;
+    let mut foreign: SourceConfiguration = fixture.record.clone().into();
+    foreign.id = other.clone();
+    let (snapshot, index) = fixture.candidates(&revision, None, None, "foreign")?;
+    assert_eq!(
+        PublishGenerationRequest::new(
+            SourceRecord::new(foreign)?,
+            GenerationBinding::new(fixture.source.clone(), GenerationId::parse("foreign")?),
+            Some(GenerationId::parse("g1")?),
+            snapshot,
+            index,
+        )
+        .unwrap_err(),
+        PublicationError::RequestRefused
+    );
     assert_eq!(
         GenerationStore::open(other, fixture.root.path().to_owned()).unwrap_err(),
         PublicationError::OwnershipMismatch
@@ -352,6 +389,7 @@ struct Fixture {
     root: TempDir,
     repository: PathBuf,
     source: SourceId,
+    record: SourceRecord,
     notes: NotesFolder,
     store: GenerationStore,
 }
@@ -371,11 +409,24 @@ impl Fixture {
         run_git_in(&repository, ["branch", "-M", "main"])?;
         let source = SourceId::parse(SOURCE)?;
         let notes = NotesFolder::parse("notes")?;
+        let record = SourceRecord::new(SourceConfiguration {
+            id: source.clone(),
+            display_name: SourceDisplayName::parse("Fixture")?,
+            provider: SourceProvider::GenericHttps,
+            visibility: SourceVisibility::Public,
+            provider_repository_id: None,
+            account: None,
+            remote: RemoteUrl::parse("https://example.invalid/fixture.git")?,
+            branch: GitBranch::parse("main")?,
+            notes_folder: notes.clone(),
+            credential: None,
+        })?;
         let store = GenerationStore::initialize(source.clone(), root.path().to_owned())?;
         Ok(Self {
             root,
             repository,
             source,
+            record,
             notes,
             store,
         })
@@ -472,6 +523,7 @@ impl Fixture {
         index: StagedIndexOutcome,
     ) -> Result<PublishGenerationRequest> {
         Ok(PublishGenerationRequest::new(
+            self.record.clone(),
             GenerationBinding::new(self.source.clone(), GenerationId::parse(generation)?),
             expected_active,
             snapshot,

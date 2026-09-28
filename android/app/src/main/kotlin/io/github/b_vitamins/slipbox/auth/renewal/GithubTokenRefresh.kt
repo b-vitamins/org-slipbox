@@ -105,7 +105,7 @@ internal class GithubTokenRefresh(
 
         val json = Json { ignoreUnknownKeys = true }
 
-        fun isReadable(status: Int): Boolean = status == 200 || status in 400..429
+        fun isReadable(status: Int): Boolean = status == 200 || status in 400..428
 
         fun isUsableToken(value: String): Boolean =
             value.isNotEmpty() &&

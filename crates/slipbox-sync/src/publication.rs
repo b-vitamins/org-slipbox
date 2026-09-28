@@ -10,7 +10,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use slipbox_core::{GenerationBinding, GenerationId, IndexStats, NotesFolder, SourceId};
+use slipbox_core::{
+    GenerationBinding, GenerationId, IndexStats, NotesFolder, SourceId, SourceRecord,
+};
 use slipbox_git::{
     MAX_REPOSITORY_PATH_BYTES, MAX_SNAPSHOT_PATH_BYTES, SNAPSHOT_CONTENT_DIRECTORY,
     SnapshotOutcome, inspect_snapshot,
@@ -22,7 +24,7 @@ use crate::{
     STAGED_INDEX_DATABASE_FILE, StageIndexError, StagedIndexOutcome, inspect_staged_index,
 };
 
-pub const GENERATION_FORMAT_VERSION: u32 = 2;
+pub const GENERATION_FORMAT_VERSION: u32 = 3;
 pub const GENERATION_STORE_FORMAT_VERSION: u32 = 1;
 pub const GENERATION_STORE_MANIFEST_FILE: &str = "generation-store.json";
 pub const GENERATIONS_DIRECTORY: &str = "generations";
@@ -64,6 +66,7 @@ pub struct GenerationContent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct GenerationRecord {
     pub(crate) binding: GenerationBinding,
+    pub(crate) source_record: SourceRecord,
     pub(crate) revision: String,
     pub(crate) previous_revision: Option<String>,
     pub(crate) notes_folder: NotesFolder,
@@ -79,6 +82,7 @@ pub(crate) struct GenerationRecord {
 /// began. Activation is compare-and-swap against that observation.
 #[derive(Debug, Clone)]
 pub struct PublishGenerationRequest {
+    source_record: SourceRecord,
     binding: GenerationBinding,
     expected_active: Option<GenerationId>,
     snapshot: SnapshotOutcome,
@@ -172,6 +176,7 @@ struct GenerationStoreManifest {
 #[serde(deny_unknown_fields)]
 pub(crate) struct GenerationManifest {
     pub(crate) version: u32,
+    pub(crate) source_record: SourceRecord,
     pub(crate) binding: GenerationBinding,
     pub(crate) expected_active: Option<GenerationId>,
     pub(crate) revision: String,
@@ -194,12 +199,14 @@ pub(crate) enum GenerationInspectionError {
 
 impl PublishGenerationRequest {
     pub fn new(
+        source_record: SourceRecord,
         binding: GenerationBinding,
         expected_active: Option<GenerationId>,
         snapshot: SnapshotOutcome,
         index: StagedIndexOutcome,
     ) -> Result<Self, PublicationError> {
-        if !generation_id_is_admitted(&binding.generation)
+        if source_record.id() != &binding.source
+            || !generation_id_is_admitted(&binding.generation)
             || expected_active
                 .as_ref()
                 .is_some_and(|generation| !generation_id_is_admitted(generation))
@@ -208,6 +215,7 @@ impl PublishGenerationRequest {
         }
         if binding.source != snapshot.source
             || binding.source != index.source
+            || source_record.notes_folder() != &snapshot.notes_folder
             || snapshot.revision != index.revision
             || snapshot.notes_folder != index.notes_folder
             || !revision_is_admitted(&snapshot.revision)
@@ -226,6 +234,7 @@ impl PublishGenerationRequest {
             return Err(PublicationError::CandidateMismatch);
         }
         Ok(Self {
+            source_record,
             binding,
             expected_active,
             snapshot,
@@ -236,6 +245,11 @@ impl PublishGenerationRequest {
     #[must_use]
     pub fn binding(&self) -> &GenerationBinding {
         &self.binding
+    }
+
+    #[must_use]
+    pub fn source_record(&self) -> &SourceRecord {
+        &self.source_record
     }
 }
 
@@ -550,6 +564,7 @@ impl GenerationStore {
         }
         let record = GenerationRecord {
             binding: manifest.binding.clone(),
+            source_record: manifest.source_record.clone(),
             revision: manifest.revision.clone(),
             previous_revision: manifest.previous_revision.clone(),
             notes_folder: manifest.notes_folder.clone(),
@@ -639,6 +654,11 @@ impl GenerationLease {
     }
 
     #[must_use]
+    pub fn source_record(&self) -> &SourceRecord {
+        &self.record.source_record
+    }
+
+    #[must_use]
     pub fn revision(&self) -> &str {
         &self.record.revision
     }
@@ -718,6 +738,7 @@ impl GenerationManifest {
     pub(crate) fn from_request(request: &PublishGenerationRequest) -> Self {
         Self {
             version: GENERATION_FORMAT_VERSION,
+            source_record: request.source_record.clone(),
             binding: request.binding.clone(),
             expected_active: request.expected_active.clone(),
             revision: request.snapshot.revision.clone(),
@@ -780,6 +801,8 @@ pub(crate) fn validate_generation_manifest(
     source: &SourceId,
 ) -> Result<(), PublicationError> {
     if manifest.version != GENERATION_FORMAT_VERSION
+        || manifest.source_record.id() != source
+        || manifest.source_record.notes_folder() != &manifest.notes_folder
         || &manifest.binding.source != source
         || !generation_id_is_admitted(&manifest.binding.generation)
         || manifest

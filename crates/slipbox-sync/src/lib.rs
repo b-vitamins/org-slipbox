@@ -1,8 +1,10 @@
 //! Candidate index construction over immutable repository snapshots.
 
 mod publication;
+mod refresh;
 
 pub use publication::*;
+pub use refresh::*;
 
 use std::collections::BTreeSet;
 use std::fs::{self, File, OpenOptions};

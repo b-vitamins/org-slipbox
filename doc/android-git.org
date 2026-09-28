@@ -6,15 +6,16 @@ The Android Git transport clones public HTTPS repositories and fetches public or
 authenticated GitHub repositories without a Git executable on the device. It is
 read-only: it creates and updates a bare object store and exposes no push or
 remote-write operation. Exact fetched revisions can then be materialized into
-immutable source-owned candidate snapshots. Source selection, publication and
-reader activation remain separate orchestration work. Exact
-changed-file inventories can be derived between tracked revisions and applied
-to an isolated candidate index before publication.
+immutable source-owned candidate snapshots. A source-scoped coordinator now
+recovers the generation store, fetches, derives exact changed-file inventories,
+materializes, stages the index and publishes one coherent generation. Source UI,
+WorkManager scheduling and reader activation remain separate application work.
 
 The object transport and immutable source views are implemented in
-=slipbox-git=; =slipbox-sync= owns staged index construction. Android owns
-operation lifetime and cancellation in =slipbox-android=; versioned transport
-documents stay in =slipbox-rpc=. Kotlin obtains a current credential from
+=slipbox-git=; =slipbox-sync= owns staged index construction, refresh
+coordination and generation publication. =slipbox-android= owns the native
+boundary; versioned transport documents stay in =slipbox-rpc=. Kotlin obtains a
+current credential from
 =CredentialRenewalOwner=, copies it into a one-call byte array, clears that
 array after JNI returns, and never puts it in request JSON.
 
@@ -173,10 +174,12 @@ boundary below.
 
 * Generation Publication
 
-=slipbox-sync= owns a version-1 store for one explicit source root. A version-2
+=slipbox-sync= owns a version-1 store for one explicit source root. A version-3
 published generation contains the complete snapshot directory, complete
-staged-index directory and a manifest binding their source, revision, notes
-folder, previous revision, snapshot counts, index schema and index counts.
+staged-index directory and a manifest binding the complete initiating source
+record, revision, notes folder, previous revision, snapshot counts, index schema
+and index counts. The source record makes branch, folder, repository, account
+and credential-reference provenance inspectable without storing a credential.
 Publication moves both
 verified candidates into a private sibling staging directory, seals and verifies
 that generation, then atomically replaces =active-generation.json=. Source,
@@ -232,6 +235,52 @@ therefore stays bounded by the active and retained generations plus work held
 by live readers, and an explicit caller-supplied free-space floor reports
 pressure without deleting readable data.
 
+* Source-Scoped Refresh Coordination
+
+=slipbox-sync= admits at most one refresh flight for each source and at most
+eight source flights process-wide. An overlapping request with the same source
+import configuration coalesces and receives the first flight's terminal result;
+it does not execute a second fetch or publication. A request with changed
+repository, branch, notes folder, provider repository, account or credential
+reference supersedes the old flight, waits for it to stop, and then starts under
+the new complete source record. Relabeling alone does not invalidate derived
+content.
+
+One Rust-owned path performs recovery, credential-policy enforcement, Git fetch,
+tree comparison, immutable materialization, staged incremental indexing and
+compare-and-swap publication. If an incremental base requires a rebuild, that
+same flight explicitly derives an initial inventory and stages a clean index;
+Kotlin never parses Org or mutates source structure. A fetched revision becomes
+ready only after the generation manifest carrying its source configuration is
+atomically active.
+
+Cancellation and configuration supersession share the transport's atomic flag
+and are checked between stages and within bounded Git, snapshot and index work.
+Activation has an explicit linearization boundary: pre-commit cancellation
+prevents activation, while cancellation that loses to an already committed
+generation returns false. A panicking leader settles coalesced waiters, releases
+its source and operation slots, and leaves the JNI boundary to report the closed
+panic reason.
+
+The version-1 =nativeRefresh= request carries a positive operation identity, an
+attempt number, the complete source record, and explicit sibling repository and
+generation-store paths. A credential is a separate optional byte array. Kotlin
+accepts one only when its renewal owner matches the source, provider, account
+and credential reference, and clears the bytes after the native call. The
+=nativeRefreshStatus= request carries only source identity and reads current or
+last terminal state from memory, so offline startup and UI status never wait for
+a token, network or filesystem.
+
+Structured status distinguishes recovering, fetching, comparing,
+materializing, indexing, publishing, ready, failed and cancelled; it carries
+the initiating source record, progress units, and separate fetched/ready
+revisions and ready generation.
+Failures distinguish authorization, rate limiting, transient transport,
+configuration, unsafe input, rebuild, storage, publication, supersession and
+cancellation. Recovery advice is one of never, reauthorize, bounded backoff,
+free storage or rebuild. Callers may make at most three attempts; transient
+backoff is 30 seconds and then 120 seconds, with no automatic fourth attempt.
+
 * Qualification
 
 =slipbox-git='s tests serve real Git smart HTTP through a loopback CGI fixture.
@@ -271,9 +320,14 @@ leased-generation deferral, bounded retention and open-asset behavior are also
 covered.
 
 The focused Kotlin tests prove that a rotated credential is the byte sequence
-given to the actual native-call seam and that its temporary byte array is then
-cleared. The APK build additionally proves the Android-only TLS initializer,
-version-matched verifier AAR, JNI export inventory and both native ABIs.
+given to the actual native-call seam, that its temporary byte array is then
+cleared, that a foreign credential owner is refused before vault access, that a
+429 retains rate-limit recovery policy, and that status lookup preserves
+fetched/ready distinction without invoking refresh. Rust concurrency tests cover
+coalescing, configuration supersession, cancellation/activation races, bounded
+retry and panic cleanup. The APK build additionally proves the Android-only TLS
+initializer, version-matched verifier AAR, JNI export inventory and both native
+ABIs.
 
 An explicit device journey proves the remaining network and filesystem path
 against real GitHub. It clones this project's public repository without a

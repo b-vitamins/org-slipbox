@@ -1124,6 +1124,22 @@ impl SourceRecord {
         self.credential.as_ref()
     }
 
+    /// Whether two records select the same repository input and authorization
+    /// context. A display-name change is deliberately excluded: relabeling a
+    /// source does not invalidate its derived corpus.
+    #[must_use]
+    pub fn has_same_import_configuration(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.provider == other.provider
+            && self.visibility == other.visibility
+            && self.provider_repository_id == other.provider_repository_id
+            && self.account == other.account
+            && self.remote == other.remote
+            && self.branch == other.branch
+            && self.notes_folder == other.notes_folder
+            && self.credential == other.credential
+    }
+
     /// Apply a validated change and report which source state may be retained.
     pub fn apply(&self, change: SourceChange) -> Result<SourceTransition, SourceChangeError> {
         let mut record = self.clone();
@@ -2274,6 +2290,14 @@ mod tests {
         assert_eq!(relabelled.retained(), RetainedSourceState::Everything);
         assert_eq!(relabelled.record().id(), record.id());
         assert_eq!(relabelled.record().remote(), record.remote());
+        assert!(record.has_same_import_configuration(relabelled.record()));
+
+        let moved = record
+            .apply(SourceChange::TrackBranch(
+                GitBranch::parse("release/0.19").expect("a branch"),
+            ))
+            .expect("a branch change is accepted");
+        assert!(!record.has_same_import_configuration(moved.record()));
     }
 
     #[test]

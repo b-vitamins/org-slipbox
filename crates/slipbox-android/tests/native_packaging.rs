@@ -58,6 +58,8 @@ const GIT_JNI_METHODS: &[&str] = &[
     "nativeCancel",
     "nativeInitialize",
     "nativeMaterialize",
+    "nativeRefresh",
+    "nativeRefreshStatus",
     "nativeSynchronize",
 ];
 

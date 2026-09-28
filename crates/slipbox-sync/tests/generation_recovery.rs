@@ -5,7 +5,10 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result};
-use slipbox_core::{GenerationBinding, GenerationId, NotesFolder, SourceId};
+use slipbox_core::{
+    GenerationBinding, GenerationId, GitBranch, NotesFolder, RemoteUrl, SourceConfiguration,
+    SourceDisplayName, SourceId, SourceProvider, SourceRecord, SourceVisibility,
+};
 use slipbox_git::{
     DeltaOutcome, DeltaRequest, SnapshotOutcome, SnapshotRequest, derive_delta, inspect_snapshot,
     materialize,
@@ -40,6 +43,7 @@ fn crash_worker() -> Result<()> {
     let snapshot = inspect_snapshot(&root.join("candidates/crash-snapshot"))?;
     let index = inspect_staged_index(&root.join("candidates/crash-index"))?;
     let request = PublishGenerationRequest::new(
+        fixture_record(source.clone())?,
         GenerationBinding::new(source, GenerationId::parse(&generation)?),
         (!expected.is_empty())
             .then(|| GenerationId::parse(&expected))
@@ -489,6 +493,7 @@ struct Fixture {
     root: TempDir,
     repository: PathBuf,
     source: SourceId,
+    record: SourceRecord,
     notes: NotesFolder,
     store: GenerationStore,
 }
@@ -508,11 +513,13 @@ impl Fixture {
         run_git_in(&repository, ["branch", "-M", "main"])?;
         let source = SourceId::parse(SOURCE)?;
         let notes = NotesFolder::parse("notes")?;
+        let record = fixture_record(source.clone())?;
         let store = GenerationStore::initialize(source.clone(), root.path().to_owned())?;
         Ok(Self {
             root,
             repository,
             source,
+            record,
             notes,
             store,
         })
@@ -608,6 +615,7 @@ impl Fixture {
         index: StagedIndexOutcome,
     ) -> Result<PublishGenerationRequest> {
         Ok(PublishGenerationRequest::new(
+            self.record.clone(),
             GenerationBinding::new(self.source.clone(), GenerationId::parse(generation)?),
             expected,
             snapshot,
@@ -652,6 +660,21 @@ impl Fixture {
         );
         Ok(())
     }
+}
+
+fn fixture_record(source: SourceId) -> Result<SourceRecord> {
+    Ok(SourceRecord::new(SourceConfiguration {
+        id: source,
+        display_name: SourceDisplayName::parse("Fixture")?,
+        provider: SourceProvider::GenericHttps,
+        visibility: SourceVisibility::Public,
+        provider_repository_id: None,
+        account: None,
+        remote: RemoteUrl::parse("https://example.invalid/fixture.git")?,
+        branch: GitBranch::parse("main")?,
+        notes_folder: NotesFolder::parse("notes")?,
+        credential: None,
+    })?)
 }
 
 fn run_git<const N: usize>(arguments: [&str; N]) -> Result<()> {

@@ -121,6 +121,20 @@ class GithubTokenRefreshTest {
     }
 
     @Test
+    fun preservesRateLimitStatusWithoutReadingItsBody() {
+        val status = 429
+        transport.answers(
+            GithubEndpoint.ACCESS_TOKEN,
+            AuthorizationReply.Answered(status, errorBody("bad_refresh_token")),
+        )
+
+        assertEquals(
+            RefreshExchange.Unavailable(RenewalFault.UnexpectedStatus(status)),
+            exchange(),
+        )
+    }
+
+    @Test
     fun reportsAnAnswerItCannotUseWithoutQuotingIt() {
         val unusable =
             listOf(

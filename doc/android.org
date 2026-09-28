@@ -11,9 +11,9 @@ metadata and history remain authoritative. An unreleased Compose shell provides
 Library and About screens; it does not yet load notes. The native adapter,
 document host, bounded Git transport, source-owned snapshot materializer,
 incremental index staging, coherent generation publication and startup recovery
-are implemented independently. Refresh coordination and reader wiring remain
-unbuilt. GitHub
-authorization and real public/private device fetches are qualified independently.
+are joined by a source-scoped refresh coordinator. WorkManager scheduling and
+reader wiring remain unbuilt. GitHub authorization and real public/private
+device fetches are qualified independently.
 Build instructions and toolchain pins are
 in [[file:android-build.org][doc/android-build.org]]; the transport and its device qualification are
 in [[file:android-git.org][doc/android-git.org]].
@@ -111,8 +111,9 @@ One writer owns each catalog path. Revision checks detect committed competing
 writes but do not serialize writers. Corrupt or unsupported documents are
 refused untouched. Same-directory rename commits a save; a subsequent
 =NotDurable= error reports the new revision and requires reload before retry.
-The catalog and Git/authentication transports are implemented independently;
-the Android shell does not yet orchestrate them into a readable generation.
+The catalog, Git/authentication transports and complete native refresh path are
+implemented independently; the Android shell does not yet schedule that path or
+open its ready generation for reading.
 
 ** One Active Corpus
 
@@ -395,6 +396,22 @@ data as a corpus.
 Refresh is requested manually, at startup, and in the background, and requests
 coalesce per source: concurrent triggers for one source produce one fetch rather
 than one fetch each.
+
+The implemented coordinator admits one flight per source and carries the
+complete initiating source record through fetch, indexing and publication.
+Equivalent overlapping triggers wait for that flight's result. A branch,
+folder, repository, account or credential-reference change supersedes older
+work and waits for it to stop before starting; work that lost that race cannot
+activate for the changed configuration. Cancellation is checked throughout the
+pipeline and linearized with atomic activation, so a cancellation either stops
+pre-commit work or loses to a ready generation without claiming it was accepted.
+
+Status lookup is memory-only and performs no credential, network or source-store
+work. It reports recovering, fetching, comparing, materializing, indexing,
+publishing, ready, failed and cancelled states with bounded progress. Fetched
+revision, ready revision and ready generation remain separate. Authentication,
+rate-limit, transient transport, storage, rebuild and configuration failures
+carry explicit recovery strategies; automatic attempts are bounded to three.
 
 Background refresh is deferrable work scheduled through WorkManager, under the
 platform's constraints on network, battery, and idle state. Execution can be
