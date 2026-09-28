@@ -15,6 +15,7 @@ import io.github.b_vitamins.slipbox.auth.renewal.RenewalRequest
 import io.github.b_vitamins.slipbox.security.SlipboxVault
 import io.github.b_vitamins.slipbox.security.VaultOutcome
 import java.io.File
+import java.nio.ByteBuffer
 import java.security.MessageDigest
 
 /** WorkManager entry point for a complete native source refresh. */
@@ -180,7 +181,7 @@ internal data class SourceRefreshPaths(val repository: File, val store: File)
 
 internal fun interface SourceRefreshStorage {
 
-    fun resolve(source: String): SourceRefreshPaths?
+    fun resolve(source: RefreshSource): SourceRefreshPaths?
 }
 
 /**
@@ -208,7 +209,7 @@ internal class SourceRefreshRuntime(
         started(operation)
         return try {
             val paths =
-                storage.resolve(source.id)
+                storage.resolve(source)
                     ?: return SourceRefreshOutcome.Refused(
                         RefreshFailure(
                             RefreshFailureReason.STORAGE_FAILED,
@@ -325,8 +326,8 @@ internal class PackagedSourceRefreshExecutor(context: Context) :
 /** Source-owned sibling paths below Android's no-backup directory. */
 internal class PackagedSourceRefreshStorage(private val context: Context) : SourceRefreshStorage {
 
-    override fun resolve(source: String): SourceRefreshPaths? {
-        if (!RefreshWorkWire.validSourceId(source)) {
+    override fun resolve(source: RefreshSource): SourceRefreshPaths? {
+        if (!RefreshWorkWire.validSourceId(source.id)) {
             return null
         }
         val privateRoot =
@@ -339,19 +340,22 @@ internal class PackagedSourceRefreshStorage(private val context: Context) : Sour
 
     companion object {
 
-        internal fun paths(privateRoot: File, source: String): SourceRefreshPaths? {
-            if (!RefreshWorkWire.validSourceId(source)) {
+        internal fun paths(privateRoot: File, source: RefreshSource): SourceRefreshPaths? {
+            if (!RefreshWorkWire.validSourceId(source.id)) {
                 return null
             }
-            val owner = digest(source)
+            val owner = sourceDigest(source.id)
             val refreshRoot = safeChild(privateRoot, REFRESH_DIRECTORY) ?: return null
             val sourceRoot = safeChild(refreshRoot, owner) ?: return null
-            val repository = safeChild(sourceRoot, REPOSITORY_NAME) ?: return null
-            val store = safeChild(sourceRoot, STORE_NAME) ?: return null
+            val configurationRoot =
+                safeChild(sourceRoot, "$CONFIGURATION_PREFIX${configurationDigest(source)}")
+                    ?: return null
+            val repository = safeChild(configurationRoot, REPOSITORY_NAME) ?: return null
+            val store = safeChild(configurationRoot, STORE_NAME) ?: return null
             return SourceRefreshPaths(repository, store)
         }
 
-        internal fun prepare(privateRoot: File, source: String): SourceRefreshPaths? {
+        internal fun prepare(privateRoot: File, source: RefreshSource): SourceRefreshPaths? {
             val paths = paths(privateRoot, source) ?: return null
             if (!paths.store.isDirectory && !paths.store.mkdirs()) {
                 return null
@@ -368,13 +372,37 @@ internal class PackagedSourceRefreshStorage(private val context: Context) : Sour
                 null
             }
 
-        private fun digest(source: String): String {
+        private fun sourceDigest(source: String): String {
             val digest = MessageDigest.getInstance("SHA-256")
             digest.update(DIGEST_LABEL.toByteArray(Charsets.UTF_8))
             digest.update(0)
             val bytes = source.toByteArray(Charsets.UTF_8)
             digest.update(bytes.size.toByte())
             digest.update(bytes)
+            return bytesToHex(digest.digest())
+        }
+
+        /** Configured inputs own distinct stores, so withdrawn jobs cannot replace new content. */
+        private fun configurationDigest(source: RefreshSource): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+            digest.update(CONFIGURATION_DIGEST_LABEL.toByteArray(Charsets.UTF_8))
+            digest.update(0)
+            listOf(
+                    source.id,
+                    source.provider.name,
+                    source.visibility.name,
+                    source.providerRepositoryId,
+                    source.account,
+                    source.remote,
+                    source.branch,
+                    source.notesFolder,
+                    source.credential,
+                )
+                .forEach { field ->
+                    val bytes = field?.toByteArray(Charsets.UTF_8)
+                    digest.update(ByteBuffer.allocate(Int.SIZE_BYTES).putInt(bytes?.size ?: -1).array())
+                    bytes?.let(digest::update)
+                }
             return bytesToHex(digest.digest())
         }
 
@@ -388,11 +416,15 @@ internal class PackagedSourceRefreshStorage(private val context: Context) : Sour
 
         private const val REFRESH_DIRECTORY = "refresh"
 
+        private const val CONFIGURATION_PREFIX = "configuration-"
+
         private const val REPOSITORY_NAME = "repository.git"
 
         private const val STORE_NAME = "store"
 
         private const val DIGEST_LABEL = "slipbox.refresh.source.1"
+
+        private const val CONFIGURATION_DIGEST_LABEL = "slipbox.refresh.configuration.1"
 
         private const val HEX = "0123456789abcdef"
     }

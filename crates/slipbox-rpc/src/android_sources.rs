@@ -5,13 +5,16 @@
 //! generation was reopened and verified.
 
 use serde::{Deserialize, Serialize};
-use slipbox_core::{GenerationBinding, IndexStats, SourceRecord};
+use slipbox_core::{GenerationBinding, IndexStats, SourceId, SourceRecord};
 
 use crate::android::{ResponseEncoding, write_bounded};
 
-pub const SOURCE_CATALOG_PROTOCOL_VERSION: u32 = 1;
+pub const SOURCE_CATALOG_PROTOCOL_VERSION: u32 = 2;
 pub const MAX_SOURCE_CATALOG_REQUEST_BYTES: usize = 32 * 1024;
-pub const MAX_SOURCE_CATALOG_RESPONSE_BYTES: usize = 64 * 1024;
+/// Covers the 256-KiB persisted catalog bound plus the response envelope and
+/// the repeated active record. The source count and every record field remain
+/// independently bounded by the domain layer.
+pub const MAX_SOURCE_CATALOG_RESPONSE_BYTES: usize = 272 * 1024;
 pub const MAX_SOURCE_CATALOG_PATH_BYTES: usize = 4_096;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,6 +39,33 @@ pub enum SourceCatalogRequest {
         store: String,
         generation: String,
     },
+    Activate {
+        version: u32,
+        catalog: String,
+        expected_revision: u64,
+        source: SourceRecord,
+        store: String,
+    },
+    Replace {
+        version: u32,
+        catalog: String,
+        expected_revision: u64,
+        previous: SourceRecord,
+        source: SourceRecord,
+        store: String,
+        generation: String,
+    },
+    Remove {
+        version: u32,
+        catalog: String,
+        expected_revision: u64,
+        source: SourceRecord,
+    },
+    Purge {
+        version: u32,
+        private_root: String,
+        source: SourceId,
+    },
 }
 
 impl SourceCatalogRequest {
@@ -44,7 +74,11 @@ impl SourceCatalogRequest {
         match self {
             Self::Load { version, .. }
             | Self::Verify { version, .. }
-            | Self::Commit { version, .. } => *version,
+            | Self::Commit { version, .. }
+            | Self::Activate { version, .. }
+            | Self::Replace { version, .. }
+            | Self::Remove { version, .. }
+            | Self::Purge { version, .. } => *version,
         }
     }
 }
@@ -71,11 +105,21 @@ impl SourceCatalogResponse {
 pub enum SourceCatalogOutcome {
     Loaded {
         revision: u64,
+        sources: Vec<SourceRecord>,
         active_source: Option<SourceRecord>,
     },
     Ready {
         revision: u64,
         ready: Box<ReadySource>,
+    },
+    Removed {
+        revision: u64,
+        sources: Vec<SourceRecord>,
+        active_source: Option<SourceRecord>,
+    },
+    Purged {
+        removed_files: u64,
+        removed_bytes: u64,
     },
     Refused {
         reason: SourceCatalogFailureReason,
@@ -105,6 +149,8 @@ pub enum SourceCatalogFailureReason {
     GenerationUnavailable,
     GenerationMismatch,
     StorageFailed,
+    InvalidChange,
+    CleanupFailed,
     EncodingFailed,
     Panicked,
 }
@@ -122,7 +168,8 @@ pub fn decode_source_catalog_request(
     }
     let paths: &[&str] = match &request {
         SourceCatalogRequest::Load { catalog, .. } => &[catalog],
-        SourceCatalogRequest::Verify { catalog, store, .. } => &[catalog, store],
+        SourceCatalogRequest::Verify { catalog, store, .. }
+        | SourceCatalogRequest::Activate { catalog, store, .. } => &[catalog, store],
         SourceCatalogRequest::Commit {
             catalog,
             store,
@@ -134,6 +181,19 @@ pub fn decode_source_catalog_request(
             }
             &[catalog, store]
         }
+        SourceCatalogRequest::Replace {
+            catalog,
+            store,
+            generation,
+            ..
+        } => {
+            if generation.is_empty() || generation.len() > 64 {
+                return Err(SourceCatalogFailureReason::MalformedRequest);
+            }
+            &[catalog, store]
+        }
+        SourceCatalogRequest::Remove { catalog, .. } => &[catalog],
+        SourceCatalogRequest::Purge { private_root, .. } => &[private_root],
     };
     if paths.iter().any(|path| path.is_empty()) {
         return Err(SourceCatalogFailureReason::MalformedRequest);
@@ -209,5 +269,44 @@ mod tests {
                 "reason": "generation-mismatch"
             })
         );
+    }
+
+    #[test]
+    fn a_full_catalog_fits_the_response_bound() {
+        let sources = (0_u128..64)
+            .map(|index| {
+                let notes_folder = vec!["f".repeat(100); 5].join("/");
+                serde_json::from_value(json!({
+                    "id": format!("{index:032x}"),
+                    "display_name": "n".repeat(100),
+                    "provider": "generic_https",
+                    "visibility": "public",
+                    "remote": format!("https://example.com/{}.git", "r".repeat(480)),
+                    "branch": "b".repeat(255),
+                    "notes_folder": notes_folder,
+                }))
+                .expect("a maximum-sized source")
+            })
+            .collect::<Vec<SourceRecord>>();
+        let response = SourceCatalogResponse {
+            version: SOURCE_CATALOG_PROTOCOL_VERSION,
+            outcome: SourceCatalogOutcome::Loaded {
+                revision: 1,
+                active_source: sources.first().cloned(),
+                sources,
+            },
+        };
+
+        let encoded = encode_source_catalog_response(&response);
+
+        assert!(encoded.len() > 64 * 1024);
+        assert!(encoded.len() <= MAX_SOURCE_CATALOG_RESPONSE_BYTES);
+        assert!(matches!(
+            serde_json::from_slice::<SourceCatalogResponse>(&encoded),
+            Ok(SourceCatalogResponse {
+                outcome: SourceCatalogOutcome::Loaded { sources, .. },
+                ..
+            }) if sources.len() == 64
+        ));
     }
 }

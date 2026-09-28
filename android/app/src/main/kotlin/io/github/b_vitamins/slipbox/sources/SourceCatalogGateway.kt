@@ -26,6 +26,26 @@ internal sealed interface SourceCatalogResult {
     ) : SourceCatalogResult
 }
 
+internal data class SourceCatalogListing(
+    val revision: Long,
+    val sources: List<RefreshSource>,
+    val activeSource: RefreshSource?,
+)
+
+internal sealed interface SourceCatalogListingResult {
+
+    data class Loaded(val listing: SourceCatalogListing) : SourceCatalogListingResult
+
+    data class Failed(val failure: SourceCatalogResult.Failed) : SourceCatalogListingResult
+}
+
+internal sealed interface SourceCacheRemovalResult {
+
+    data class Removed(val files: Long, val bytes: Long) : SourceCacheRemovalResult
+
+    data class Failed(val failure: SourceCatalogResult.Failed) : SourceCacheRemovalResult
+}
+
 private sealed interface SourceCatalogCall {
 
     data class Answer(val response: SourceCatalogResponse) : SourceCatalogCall
@@ -39,27 +59,66 @@ internal fun interface SourceActivation {
     fun commit(expectedRevision: Long, source: RefreshSource, generation: String): SourceCatalogResult
 }
 
+internal interface SourceLibraryCatalog {
+
+    fun list(): SourceCatalogListingResult
+
+    fun load(listing: SourceCatalogListing): SourceCatalogResult
+
+    fun activate(expectedRevision: Long, source: RefreshSource): SourceCatalogResult
+}
+
 internal class SourceCatalogGateway(
     context: Context,
     private val seam: NativeGitSeam = SlipboxNativeGit.seam,
-) : SourceActivation {
+) : SourceActivation, SourceLibraryCatalog {
 
     private val application = context.applicationContext
 
     fun load(): SourceCatalogResult {
+        val listing =
+            when (val listed = list()) {
+                is SourceCatalogListingResult.Loaded -> listed.listing
+                is SourceCatalogListingResult.Failed -> return listed.failure
+            }
+        return load(listing)
+    }
+
+    override fun load(listing: SourceCatalogListing): SourceCatalogResult {
         val root = privateRoot() ?: return SourceCatalogResult.Failed(fault = SourceCatalogFault.STORAGE)
-        val loaded =
-            when (val call = call(SourceCatalogRequest.Load(File(root, CATALOG_FILE).absolutePath))) {
+        val source = listing.activeSource ?: return SourceCatalogResult.Empty(listing.revision)
+        return verify(root, listing.revision, source)
+    }
+
+    override fun list(): SourceCatalogListingResult {
+        val root = privateRoot()
+            ?: return SourceCatalogListingResult.Failed(
+                SourceCatalogResult.Failed(fault = SourceCatalogFault.STORAGE),
+            )
+        return list(root)
+    }
+
+    override fun activate(expectedRevision: Long, source: RefreshSource): SourceCatalogResult {
+        val root = privateRoot() ?: return SourceCatalogResult.Failed(fault = SourceCatalogFault.STORAGE)
+        val paths =
+            PackagedSourceRefreshStorage.paths(root, source)
+                ?: return SourceCatalogResult.Failed(fault = SourceCatalogFault.STORAGE)
+        val response =
+            when (val call = call(
+                SourceCatalogRequest.Activate(
+                    catalog = File(root, CATALOG_FILE).absolutePath,
+                    expectedRevision = expectedRevision,
+                    source = source,
+                    store = paths.store.absolutePath,
+                ),
+            )) {
                 is SourceCatalogCall.Answer -> call.response
                 is SourceCatalogCall.Failed -> return call.result
             }
-        return when (loaded) {
-            is SourceCatalogResponse.Loaded -> {
-                val source = loaded.activeSource ?: return SourceCatalogResult.Empty(loaded.revision)
-                verify(root, loaded.revision, source)
-            }
-            is SourceCatalogResponse.Refused -> SourceCatalogResult.Failed(failure = loaded.reason)
-            is SourceCatalogResponse.Ready -> SourceCatalogResult.Failed(fault = SourceCatalogFault.MALFORMED)
+        return when (response) {
+            is SourceCatalogResponse.Ready -> admitted(response, source, null)
+            is SourceCatalogResponse.Refused -> SourceCatalogResult.Failed(failure = response.reason)
+            else -> SourceCatalogResult.Failed(fault = SourceCatalogFault.MALFORMED)
         }
     }
 
@@ -70,7 +129,7 @@ internal class SourceCatalogGateway(
     ): SourceCatalogResult {
         val root = privateRoot() ?: return SourceCatalogResult.Failed(fault = SourceCatalogFault.STORAGE)
         val paths =
-            PackagedSourceRefreshStorage.paths(root, source.id)
+            PackagedSourceRefreshStorage.paths(root, source)
                 ?: return SourceCatalogResult.Failed(fault = SourceCatalogFault.STORAGE)
         val request =
             SourceCatalogRequest.Commit(
@@ -103,6 +162,89 @@ internal class SourceCatalogGateway(
                 }
             }
             is SourceCatalogResponse.Loaded -> SourceCatalogResult.Failed(fault = SourceCatalogFault.MALFORMED)
+            is SourceCatalogResponse.Removed, is SourceCatalogResponse.Purged ->
+                SourceCatalogResult.Failed(fault = SourceCatalogFault.MALFORMED)
+        }
+    }
+
+    fun replace(
+        expectedRevision: Long,
+        previous: RefreshSource,
+        source: RefreshSource,
+        generation: String,
+    ): SourceCatalogResult {
+        val root = privateRoot() ?: return SourceCatalogResult.Failed(fault = SourceCatalogFault.STORAGE)
+        val paths =
+            PackagedSourceRefreshStorage.paths(root, source)
+                ?: return SourceCatalogResult.Failed(fault = SourceCatalogFault.STORAGE)
+        val response =
+            when (val call = call(
+                SourceCatalogRequest.Replace(
+                    catalog = File(root, CATALOG_FILE).absolutePath,
+                    expectedRevision = expectedRevision,
+                    previous = previous,
+                    source = source,
+                    store = paths.store.absolutePath,
+                    generation = generation,
+                ),
+            )) {
+                is SourceCatalogCall.Answer -> call.response
+                is SourceCatalogCall.Failed -> return call.result
+            }
+        return when (response) {
+            is SourceCatalogResponse.Ready -> admitted(response, source, generation)
+            is SourceCatalogResponse.Refused -> SourceCatalogResult.Failed(failure = response.reason)
+            else -> SourceCatalogResult.Failed(fault = SourceCatalogFault.MALFORMED)
+        }
+    }
+
+    fun remove(expectedRevision: Long, source: RefreshSource): SourceCatalogListingResult {
+        val root = privateRoot()
+            ?: return SourceCatalogListingResult.Failed(
+                SourceCatalogResult.Failed(fault = SourceCatalogFault.STORAGE),
+            )
+        val response =
+            when (val call = call(
+                SourceCatalogRequest.Remove(
+                    catalog = File(root, CATALOG_FILE).absolutePath,
+                    expectedRevision = expectedRevision,
+                    source = source,
+                ),
+            )) {
+                is SourceCatalogCall.Answer -> call.response
+                is SourceCatalogCall.Failed ->
+                    return SourceCatalogListingResult.Failed(call.result)
+            }
+        return when (response) {
+            is SourceCatalogResponse.Removed -> response.listingResult()
+            is SourceCatalogResponse.Refused ->
+                SourceCatalogListingResult.Failed(SourceCatalogResult.Failed(failure = response.reason))
+            else ->
+                SourceCatalogListingResult.Failed(
+                    SourceCatalogResult.Failed(fault = SourceCatalogFault.MALFORMED),
+                )
+        }
+    }
+
+    fun purge(source: RefreshSource): SourceCacheRemovalResult {
+        val root = privateRoot()
+            ?: return SourceCacheRemovalResult.Failed(
+                SourceCatalogResult.Failed(fault = SourceCatalogFault.STORAGE),
+            )
+        val response =
+            when (val call = call(SourceCatalogRequest.Purge(root.absolutePath, source.id))) {
+                is SourceCatalogCall.Answer -> call.response
+                is SourceCatalogCall.Failed -> return SourceCacheRemovalResult.Failed(call.result)
+            }
+        return when (response) {
+            is SourceCatalogResponse.Purged ->
+                SourceCacheRemovalResult.Removed(response.removedFiles, response.removedBytes)
+            is SourceCatalogResponse.Refused ->
+                SourceCacheRemovalResult.Failed(SourceCatalogResult.Failed(failure = response.reason))
+            else ->
+                SourceCacheRemovalResult.Failed(
+                    SourceCatalogResult.Failed(fault = SourceCatalogFault.MALFORMED),
+                )
         }
     }
 
@@ -112,7 +254,7 @@ internal class SourceCatalogGateway(
         source: RefreshSource,
     ): SourceCatalogResult {
         val paths =
-            PackagedSourceRefreshStorage.paths(root, source.id)
+            PackagedSourceRefreshStorage.paths(root, source)
                 ?: return SourceCatalogResult.Failed(fault = SourceCatalogFault.STORAGE)
         val response =
             when (val call = call(
@@ -129,7 +271,7 @@ internal class SourceCatalogGateway(
         return when (response) {
             is SourceCatalogResponse.Ready -> admitted(response, source, null)
             is SourceCatalogResponse.Refused -> SourceCatalogResult.Failed(failure = response.reason)
-            is SourceCatalogResponse.Loaded -> SourceCatalogResult.Failed(fault = SourceCatalogFault.MALFORMED)
+            else -> SourceCatalogResult.Failed(fault = SourceCatalogFault.MALFORMED)
         }
     }
 
@@ -170,6 +312,25 @@ internal class SourceCatalogGateway(
         return SourceCatalogCall.Answer(response)
     }
 
+    private fun list(root: File): SourceCatalogListingResult {
+        val response =
+            when (
+                val call = call(SourceCatalogRequest.Load(File(root, CATALOG_FILE).absolutePath))
+            ) {
+                is SourceCatalogCall.Answer -> call.response
+                is SourceCatalogCall.Failed -> return SourceCatalogListingResult.Failed(call.result)
+            }
+        return when (response) {
+            is SourceCatalogResponse.Loaded -> response.listingResult()
+            is SourceCatalogResponse.Refused ->
+                SourceCatalogListingResult.Failed(SourceCatalogResult.Failed(failure = response.reason))
+            else ->
+                SourceCatalogListingResult.Failed(
+                    SourceCatalogResult.Failed(fault = SourceCatalogFault.MALFORMED),
+                )
+        }
+    }
+
     private fun failed(fault: SourceCatalogFault): SourceCatalogCall.Failed =
         SourceCatalogCall.Failed(SourceCatalogResult.Failed(fault = fault))
 
@@ -184,3 +345,27 @@ internal class SourceCatalogGateway(
         const val CATALOG_FILE = "source-catalog.json"
     }
 }
+
+private fun SourceCatalogResponse.Loaded.listingResult(): SourceCatalogListingResult =
+    listingResult(revision, sources, activeSource)
+
+private fun SourceCatalogResponse.Removed.listingResult(): SourceCatalogListingResult =
+    listingResult(revision, sources, activeSource)
+
+private fun listingResult(
+    revision: Long,
+    sources: List<RefreshSource>,
+    activeSource: RefreshSource?,
+): SourceCatalogListingResult {
+    val distinct = sources.map(RefreshSource::id).distinct().size == sources.size
+    val activeIsListed = activeSource == null || sources.any { it == activeSource }
+    return if (sources.size <= MAX_CATALOG_SOURCES && distinct && activeIsListed) {
+        SourceCatalogListingResult.Loaded(SourceCatalogListing(revision, sources, activeSource))
+    } else {
+        SourceCatalogListingResult.Failed(
+            SourceCatalogResult.Failed(fault = SourceCatalogFault.FOREIGN_SOURCE),
+        )
+    }
+}
+
+private const val MAX_CATALOG_SOURCES = 64

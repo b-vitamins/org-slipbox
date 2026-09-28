@@ -32,8 +32,8 @@ internal sealed interface SourceLibraryPhase {
 
 @Stable
 internal class SourceLibraryState(
-    private val gateway: SourceCatalogGateway,
-    private val startup: (RefreshSource) -> Unit = {},
+    private val gateway: SourceLibraryCatalog,
+    private val startup: (Iterable<RefreshSource>) -> Unit = {},
     private val delivery: ImportDelivery = ImportDelivery.MainThread,
 ) : SourceGenerations, AutoCloseable {
 
@@ -41,6 +41,9 @@ internal class SourceLibraryState(
     private val reloads = AtomicLong()
 
     var phase: SourceLibraryPhase by mutableStateOf(SourceLibraryPhase.Loading)
+        private set
+
+    var catalog: SourceCatalogListing? by mutableStateOf(null)
         private set
 
     init {
@@ -52,12 +55,14 @@ internal class SourceLibraryState(
         phase = SourceLibraryPhase.Loading
         Thread(
                 {
-                    val loaded = gateway.load()
-                    if (live.get() && reloads.get() == serial && loaded is SourceCatalogResult.Active) {
-                        startup(loaded.ready.source)
-                    }
+                    val listed = gateway.list()
+                    val snapshot = (listed as? SourceCatalogListingResult.Loaded)?.listing
+                    val loaded =
+                        snapshot?.let(gateway::load)
+                            ?: (listed as SourceCatalogListingResult.Failed).failure
                     delivery.post {
                         if (live.get() && reloads.get() == serial) {
+                            catalog = snapshot
                             phase =
                                 when (loaded) {
                                     is SourceCatalogResult.Empty ->
@@ -67,6 +72,9 @@ internal class SourceLibraryState(
                                     is SourceCatalogResult.Failed -> SourceLibraryPhase.Failed(loaded)
                                 }
                         }
+                    }
+                    if (live.get() && reloads.get() == serial && snapshot != null) {
+                        startup(snapshot.sources)
                     }
                 },
                 "slipbox-source-catalog",
@@ -78,15 +86,88 @@ internal class SourceLibraryState(
     }
 
     fun activate(source: ReadySource, catalogRevision: Long) {
+        val current = catalog
+        val sources =
+            current
+                ?.sources
+                ?.map { if (it.id == source.source.id) source.source else it }
+                ?.toMutableList()
+                ?: mutableListOf()
+        if (sources.none { it.id == source.source.id }) sources.add(source.source)
+        catalog = SourceCatalogListing(catalogRevision, sources, source.source)
         phase = SourceLibraryPhase.Ready(source, catalogRevision)
     }
 
-    fun catalogRevision(): Long? =
-        when (val current = phase) {
-            is SourceLibraryPhase.Empty -> current.catalogRevision
-            is SourceLibraryPhase.Ready -> current.catalogRevision
-            is SourceLibraryPhase.Loading, is SourceLibraryPhase.Failed -> null
+    /** Publish a replaced configuration without selecting an inactive source locally. */
+    fun configured(source: ReadySource, catalogRevision: Long): Boolean {
+        val current = catalog ?: return false
+        val wasActive = current.activeSource?.id == source.source.id
+        val sources =
+            current.sources.map { candidate ->
+                if (candidate.id == source.source.id) source.source else candidate
+            }
+        val activeSource = if (wasActive) source.source else current.activeSource
+        catalog = SourceCatalogListing(catalogRevision, sources, activeSource)
+        val currentPhase = phase
+        phase =
+            when {
+                wasActive -> SourceLibraryPhase.Ready(source, catalogRevision)
+                currentPhase is SourceLibraryPhase.Ready ->
+                    SourceLibraryPhase.Ready(
+                        currentPhase.source,
+                        catalogRevision,
+                    )
+                currentPhase is SourceLibraryPhase.Empty -> SourceLibraryPhase.Empty(catalogRevision)
+                else -> currentPhase
+            }
+        return wasActive
+    }
+
+    fun select(source: RefreshSource, recipient: (SourceCatalogResult) -> Unit) {
+        val expected = catalog?.revision
+            ?: return recipient(SourceCatalogResult.Failed(fault = SourceCatalogFault.STORAGE))
+        Thread(
+                {
+                    val selected = gateway.activate(expected, source)
+                    delivery.post {
+                        if (!live.get()) return@post
+                        if (selected is SourceCatalogResult.Active) {
+                            activate(selected.ready, selected.revision)
+                        }
+                        recipient(selected)
+                    }
+                },
+                "slipbox-source-selection",
+            )
+            .apply {
+                isDaemon = true
+                start()
+            }
+    }
+
+    fun removed(listing: SourceCatalogListing) {
+        catalog = listing
+        val ready = (phase as? SourceLibraryPhase.Ready)?.source
+        phase =
+            if (ready != null && listing.activeSource?.id == ready.source.id) {
+                SourceLibraryPhase.Ready(ready, listing.revision)
+            } else {
+                SourceLibraryPhase.Empty(listing.revision)
+            }
+    }
+
+    fun cacheRemoved(source: RefreshSource) {
+        if (catalog?.activeSource?.id == source.id) {
+            phase =
+                SourceLibraryPhase.Failed(
+                    SourceCatalogResult.Failed(
+                        failure = SourceCatalogFailure.GENERATION_UNAVAILABLE,
+                    ),
+                )
         }
+    }
+
+    fun catalogRevision(): Long? = catalog?.revision
 
     override fun readyGeneration(source: String): String? =
         (phase as? SourceLibraryPhase.Ready)
@@ -108,7 +189,13 @@ internal fun rememberSourceLibraryState(): SourceLibraryState {
             val scheduler = SourceRefreshScheduler.packaged(context.applicationContext)
             SourceLibraryState(
                 gateway = SourceCatalogGateway(context),
-                startup = { source -> scheduler.startup(listOf(source)) },
+                startup = { sources ->
+                    scheduler.startup(
+                        sources.filter { source ->
+                            SourceCredentials.connected(context.applicationContext, source)
+                        },
+                    )
+                },
             )
         }
     DisposableEffect(state) { onDispose(state::close) }

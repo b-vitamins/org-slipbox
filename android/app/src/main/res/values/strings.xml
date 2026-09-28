@@ -7,6 +7,7 @@
     <string name="app_name">Slipbox</string>
 
     <string name="library_empty">No repository is connected.</string>
+    <string name="library_no_selection">Choose a configured repository to read.</string>
     <string name="library_loading">Opening your library.</string>
     <string name="library_unavailable">The library could not be opened.</string>
     <string name="library_ready">%1$s · %2$s · revision %3$s</string>
@@ -21,8 +22,10 @@
 
     <string name="action_connect">Connect</string>
     <string name="action_add_source">Add</string>
+    <string name="action_sources">Sources</string>
     <string name="action_retry">Try again</string>
     <string name="action_cancel">Cancel</string>
+    <string name="action_confirm">Confirm</string>
 
     <string name="action_about">About</string>
     <string name="action_back">Back</string>
@@ -73,4 +76,47 @@
     <string name="connection_authorization_failed">GitHub access must be renewed before this repository can be imported.</string>
     <string name="connection_catalog_failed">The imported library could not be activated.</string>
     <string name="connection_reconnect">Reconnect GitHub</string>
+
+    <string name="sources_title">Repository sources</string>
+    <string name="sources_configured">Configured repositories</string>
+    <string name="source_repository">Repository: %1$s</string>
+    <string name="source_make_active">Use this repository</string>
+    <string name="source_ready_revision">Ready revision: %1$s</string>
+    <string name="source_freshness">Freshness: %1$s</string>
+    <string name="source_recovery">Recovery: %1$s</string>
+    <string name="source_not_ready">Not downloaded</string>
+    <string name="source_freshness_ready">Ready and current</string>
+    <string name="source_freshness_offline">Ready for offline reading</string>
+    <string name="source_freshness_recovering">Recovering the last verified generation</string>
+    <string name="source_freshness_refreshing">Refresh in progress</string>
+    <string name="source_recovery_reconnect">Reconnect GitHub; downloaded notes remain readable</string>
+    <string name="source_recovery_storage">Free private storage, then try again</string>
+    <string name="source_recovery_rebuild">Rebuild the derived index</string>
+    <string name="source_recovery_retry">Wait for the bounded retry or try again</string>
+    <string name="source_recovery_manual">Review this source and try again</string>
+    <string name="source_apply_configuration">Apply branch and folder</string>
+    <string name="source_refresh_now">Refresh now</string>
+    <string name="source_selection_unavailable">That repository has no verified downloaded generation. Open it and refresh first.</string>
+    <string name="source_configuration_invalid">Enter a valid Git branch and notes folder.</string>
+    <string name="source_configuration_importing">Building the changed repository before activation.</string>
+    <string name="source_configuration_ready">The changed repository is ready.</string>
+    <string name="source_configuration_failed">The change was not activated. The previous downloaded notes remain ready.</string>
+    <string name="source_access">GitHub access</string>
+    <string name="source_reconnect">Reconnect access</string>
+    <string name="source_disconnect">Disconnect access</string>
+    <string name="source_reconnected">GitHub access was renewed.</string>
+    <string name="source_disconnected">The credential was removed. Downloaded notes remain on this device.</string>
+    <string name="source_reconnect_account_mismatch">That GitHub account does not own this source. Sign in with the original account.</string>
+    <string name="source_reconnect_failed">GitHub access could not be stored.</string>
+    <string name="source_local_data">Local data</string>
+    <string name="source_remove_cache">Remove downloaded data</string>
+    <string name="source_remove">Remove source</string>
+    <string name="source_removing">Removing the selected source data.</string>
+    <string name="source_cache_removed">Downloaded repository files, index, assets, and source reading history were removed.</string>
+    <string name="source_removed">The source and its local data were removed.</string>
+    <string name="source_removed_cleanup_failed">The source was removed, but some private local data could not be cleaned up.</string>
+    <string name="source_action_failed">The requested source change could not be completed.</string>
+    <string name="source_confirm_disconnect">Remove the stored GitHub credential for %1$s and stop refreshes? Its verified offline notes stay readable.</string>
+    <string name="source_confirm_cache">Remove %1$s downloaded repository files, derived index, assets, and source reading history? The source configuration and credential stay.</string>
+    <string name="source_confirm_remove">Remove %1$s configuration, credential, downloaded repository files, derived index, assets, and source reading history from this device?</string>
 </resources>

@@ -30,7 +30,10 @@ class SourceRefreshWorkerTest {
         val executor = RecordingExecutor()
         val root = temporary.newFolder("private")
         val paths = SourceRefreshPaths(File(root, "repository.git"), File(root, "store"))
-        val runtime = SourceRefreshRuntime(executor, SourceRefreshStorage { paths })
+        val runtime = SourceRefreshRuntime(executor, SourceRefreshStorage { requested ->
+            assertEquals(source(), requested)
+            paths
+        })
 
         val first = runtime.execute(source(), attempt = 0)
         val second = runtime.execute(source(), attempt = 1)
@@ -48,7 +51,10 @@ class SourceRefreshWorkerTest {
     @Test
     fun aStorageRefusalBacksOffOnlyWithinTheAttemptBound() {
         val executor = RecordingExecutor()
-        val runtime = SourceRefreshRuntime(executor, SourceRefreshStorage { null })
+        val runtime = SourceRefreshRuntime(executor, SourceRefreshStorage { requested ->
+            assertEquals(source(), requested)
+            null
+        })
 
         assertEquals(
             SourceRefreshOutcome.Refused(
@@ -78,7 +84,8 @@ class SourceRefreshWorkerTest {
         val runtime =
             SourceRefreshRuntime(
                 executor,
-                SourceRefreshStorage {
+                SourceRefreshStorage { requested ->
+                    assertEquals(source(), requested)
                     SourceRefreshPaths(File(root, "repository.git"), File(root, "store"))
                 },
             )
@@ -99,23 +106,33 @@ class SourceRefreshWorkerTest {
     @SuppressLint("NewApi") // This local JVM test runs on the host JDK, not an API-23 device.
     fun privatePathsAreStableOpaqueSiblingsAndRefuseAnEscapingLink() {
         val privateRoot = temporary.newFolder("no-backup")
-        val source = source().id
+        val source = source()
 
         val first = requireNotNull(PackagedSourceRefreshStorage.prepare(privateRoot, source))
         val second = requireNotNull(PackagedSourceRefreshStorage.prepare(privateRoot, source))
+        val changed =
+            requireNotNull(
+                PackagedSourceRefreshStorage.prepare(privateRoot, source.copy(branch = "next")),
+            )
 
         assertEquals(first, second)
         assertEquals(first.repository.parentFile, first.store.parentFile)
+        assertNotEquals(first.store.parentFile, changed.store.parentFile)
+        assertEquals(first.store.parentFile?.parentFile, changed.store.parentFile?.parentFile)
+        assertEquals(
+            "da037c8e07ff443a2145a7b351974f36142a4dec6301bfb77674d09377729cf1",
+            first.store.parentFile?.parentFile?.name,
+        )
         assertTrue(first.store.isDirectory)
         assertTrue(first.repository.path.startsWith(privateRoot.path + File.separator))
-        assertFalse(first.repository.path.contains(source))
-        assertNull(PackagedSourceRefreshStorage.paths(privateRoot, "../source"))
+        assertFalse(first.repository.path.contains(source.id))
+        assertNull(PackagedSourceRefreshStorage.paths(privateRoot, source.copy(id = "../source")))
 
-        val linkedSource = source().copy(id = "fedcba9876543210fedcba9876543210").id
+        val linkedSource = source.copy(id = "fedcba9876543210fedcba9876543210")
         val linkedPaths =
             requireNotNull(PackagedSourceRefreshStorage.paths(privateRoot, linkedSource))
         val outside = temporary.newFolder("outside")
-        val sourceRoot = requireNotNull(linkedPaths.repository.parentFile)
+        val sourceRoot = requireNotNull(linkedPaths.repository.parentFile?.parentFile)
         val refreshRoot = requireNotNull(sourceRoot.parentFile)
         assertTrue(refreshRoot.isDirectory || refreshRoot.mkdirs())
         Files.createSymbolicLink(sourceRoot.toPath(), outside.toPath())

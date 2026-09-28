@@ -27,6 +27,23 @@ class RefreshWorkTest {
     }
 
     @Test
+    fun completedConfigurationChangeReplacesOnlyThePeriodicLane() {
+        val queue = RecordingRefreshWorkQueue()
+        val active = RecordingActiveRefreshes()
+        val original = source()
+        val changed = original.copy(branch = "next")
+
+        val outcome = SourceRefreshScheduler(queue, active).imported(original, changed)
+
+        assertEquals(RefreshScheduleOutcome.Accepted, outcome)
+        assertEquals(listOf(original.id), active.cancelled)
+        assertEquals(
+            listOf(WorkCall(WorkKind.PERIODIC, RefreshTrigger.PERIODIC, changed, true)),
+            queue.calls,
+        )
+    }
+
+    @Test
     fun configurationInstallsBothLanesWithoutCancellingAnInitialSource() {
         val queue = RecordingRefreshWorkQueue()
         val active = RecordingActiveRefreshes()
@@ -136,6 +153,19 @@ class RefreshWorkTest {
     }
 
     @Test
+    fun destructiveRemovalWaitsForPersistentCancellation() {
+        val queue = RecordingRefreshWorkQueue()
+        val active = RecordingActiveRefreshes()
+        val source = source()
+
+        val outcome = SourceRefreshScheduler(queue, active).removeAndAwait(source.id)
+
+        assertEquals(RefreshScheduleOutcome.Accepted, outcome)
+        assertEquals(listOf(source.id), active.cancelled)
+        assertEquals(listOf(source.id), queue.awaited)
+    }
+
+    @Test
     fun invalidAndOversizedSourcesNeverReachTheQueue() {
         val queue = RecordingRefreshWorkQueue()
         val scheduler = SourceRefreshScheduler(queue, RecordingActiveRefreshes())
@@ -203,6 +233,8 @@ private class RecordingRefreshWorkQueue : RefreshWorkQueue {
 
     val removed = mutableListOf<String>()
 
+    val awaited = mutableListOf<String>()
+
     override fun oneShot(input: RefreshWorkInput, replace: Boolean) {
         calls.add(WorkCall(WorkKind.ONE_SHOT, input.trigger, input.source, replace))
     }
@@ -213,6 +245,11 @@ private class RecordingRefreshWorkQueue : RefreshWorkQueue {
 
     override fun cancel(source: String) {
         removed.add(source)
+    }
+
+    override fun cancelAndAwait(source: String): Boolean {
+        awaited.add(source)
+        return true
     }
 }
 

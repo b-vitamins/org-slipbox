@@ -144,7 +144,8 @@ class SourceRefreshWorkerDeviceTest {
         val root = File(context.cacheDir, "refresh-worker-fixture")
         return SourceRefreshRuntime(
             executor,
-            SourceRefreshStorage {
+            SourceRefreshStorage { requested ->
+                check(requested.id == SOURCE)
                 SourceRefreshPaths(File(root, "repository.git"), File(root, "store"))
             },
         )

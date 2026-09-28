@@ -151,13 +151,13 @@ class SlipboxBackStackTest {
     }
 
     @Test
-    fun switchingSourceDropsTheOtherCorpusAndKeepsTheSearch() {
+    fun switchingSourceDropsTheOtherCorpusAndItsUnboundSearch() {
         val stack = history(SlipboxRoute.Library("kant"))
         assertTrue(stack.open(note(ALPHA, "note-1")))
         assertTrue(stack.open(SlipboxRoute.SourceSettings(ALPHA)))
         assertTrue(stack.switchSource(bind(BETA)))
         assertEquals(
-            listOf(SlipboxRoute.Library("kant"), SlipboxRoute.SourceSettings(ALPHA)),
+            listOf(SlipboxRoute.Library(), SlipboxRoute.SourceSettings(ALPHA)),
             stack.entries,
         )
     }
@@ -181,13 +181,41 @@ class SlipboxBackStackTest {
 
     @Test
     fun removingASourceDropsEveryEntryNamingIt() {
-        val stack = history()
+        val stack = history(SlipboxRoute.Library("kant"))
         assertTrue(stack.open(note(ALPHA, "note-1")))
         assertTrue(stack.open(SlipboxRoute.SourceSettings(ALPHA)))
         assertTrue(stack.open(note(BETA, "note-1")))
         assertTrue(stack.removeSource(ALPHA))
         assertEquals(listOf(SlipboxRoute.Start, note(BETA, "note-1")), stack.entries)
         assertFalse(stack.removeSource(ALPHA))
+    }
+
+    @Test
+    fun partialRemovalKeepsOnlyItsSettingsEntryForTheCleanupWarning() {
+        val stack = history(SlipboxRoute.Library("kant"))
+        assertTrue(stack.open(note(ALPHA, "note-1")))
+        assertTrue(stack.open(SlipboxRoute.SourceSettings(ALPHA)))
+
+        assertTrue(stack.removeSource(ALPHA, keepSettings = true))
+
+        assertEquals(
+            listOf(SlipboxRoute.Start, SlipboxRoute.SourceSettings(ALPHA)),
+            stack.entries,
+        )
+    }
+
+    @Test
+    fun removingAnInactiveSourceDoesNotClearTheActiveSearch() {
+        val stack = history(SlipboxRoute.Library("kant"))
+        assertTrue(stack.open(note(BETA, "note-1")))
+        assertTrue(stack.open(SlipboxRoute.SourceSettings(ALPHA)))
+
+        assertTrue(stack.removeSource(ALPHA, clearSearch = false))
+
+        assertEquals(
+            listOf(SlipboxRoute.Library("kant"), note(BETA, "note-1")),
+            stack.entries,
+        )
     }
 
     @Test

@@ -122,6 +122,16 @@ generation. Rust reopens the generation, verifies its source record and exact
 generation identity, and only then saves and selects the source. A lost response
 is recovered by reloading that committed state rather than duplicating the job.
 
+Android source settings list the complete catalog while exposing details for one
+source. Selecting a source asks Rust to reopen that source's current generation
+before committing the catalog selection. A branch or notes-folder edit writes to
+a cache keyed by the complete import configuration and replaces the catalog
+record only after that cache holds the exact ready generation. A withdrawn old
+job can therefore finish only in its old configuration cache; it cannot replace
+the corpus selected by the newer record. Selecting another source drops the
+prior source's generation-bound routes and unbound library query before that
+source is displayed.
+
 ** One Active Corpus
 
 The reader may hold several configured sources but reads one corpus at a time.
@@ -519,6 +529,14 @@ Disconnecting a source is explicit about its consequences: it removes the stored
 credential and stops fetching. Removing the cache removes the corpus, its index,
 its assets, and the reading state scoped to it, and that is stated before it
 happens rather than discovered afterward.
+
+Credential disconnect, downloaded-data removal, and source removal are separate
+actions. Startup schedules a private source only when its scoped vault record is
+present, so a disconnect survives process restart. Downloaded-data removal keeps
+the catalog record and credential but cancels refresh and removes every
+configuration cache for the source. Source removal first commits the catalog
+change, then removes the source cache and credential; cleanup failure is reported
+without pretending that an already committed catalog removal was rolled back.
 
 * Owner Prerequisites
 

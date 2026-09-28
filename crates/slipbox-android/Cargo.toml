@@ -16,6 +16,7 @@ jni.workspace = true
 # The JNI surface is a fixed set of exported functions, so the raw upstream
 # bindings are enough; nothing here creates or attaches a JVM.
 jni-sys = "0.4.1"
+ring.workspace = true
 rustls-platform-verifier.workspace = true
 serde.workspace = true
 serde_json.workspace = true

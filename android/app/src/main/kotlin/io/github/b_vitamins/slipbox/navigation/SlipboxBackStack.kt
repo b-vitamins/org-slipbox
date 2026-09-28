@@ -52,19 +52,43 @@ internal class SlipboxBackStack(
         return true
     }
 
-    /** Drop reads from other sources; retain unbound routes and the library search. */
+    /** Drop reads and unbound search state that belonged to the prior active source. */
     fun switchSource(to: GenerationBinding): Boolean {
         if (!attached || !to.isCanonical()) return false
+        var changed = false
+        for (index in routes.indices) {
+            val entry = routes[index]
+            if (entry is SlipboxRoute.Library && entry.query.isNotEmpty()) {
+                routes[index] = entry.copy(query = "")
+                changed = true
+            }
+        }
         return routes.retainAll { entry ->
             val read = entry.reads
             read == null || read.source == to.source
-        }
+        } || changed
     }
 
-    /** Remove both reading and configuration entries for this source. */
-    fun removeSource(source: String): Boolean {
+    /** Remove reading/search state and, unless retained to report cleanup, source settings. */
+    fun removeSource(
+        source: String,
+        keepSettings: Boolean = false,
+        clearSearch: Boolean = true,
+    ): Boolean {
         if (!attached) return false
-        return routes.retainAll { !it.names(source) }
+        var changed = false
+        if (clearSearch) {
+            for (index in routes.indices) {
+                val entry = routes[index]
+                if (entry is SlipboxRoute.Library && entry.query.isNotEmpty()) {
+                    routes[index] = entry.copy(query = "")
+                    changed = true
+                }
+            }
+        }
+        return routes.retainAll { entry ->
+            !entry.names(source) || (keepSettings && entry is SlipboxRoute.SourceSettings)
+        } || changed
     }
 
         internal fun detach() {

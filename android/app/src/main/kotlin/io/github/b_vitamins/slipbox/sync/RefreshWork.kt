@@ -38,6 +38,7 @@ enum class RefreshTrigger {
 enum class RefreshScheduleRefusal {
     INVALID_SOURCE,
     INPUT_OVERSIZED,
+    CANCELLATION_FAILED,
 }
 
 sealed interface RefreshScheduleOutcome {
@@ -82,6 +83,11 @@ internal interface RefreshWorkQueue {
     fun periodic(input: RefreshWorkInput, replace: Boolean)
 
     fun cancel(source: String)
+
+    fun cancelAndAwait(source: String): Boolean {
+        cancel(source)
+        return true
+    }
 }
 
 /**
@@ -97,8 +103,23 @@ class SourceRefreshScheduler internal constructor(
 
     /** Continue a completed foreground import without immediately fetching it again. */
     fun imported(source: RefreshSource): RefreshScheduleOutcome {
+        return imported(null, source)
+    }
+
+    /** Replace prior recurring configuration after its foreground successor is already ready. */
+    fun imported(
+        previous: RefreshSource?,
+        source: RefreshSource,
+    ): RefreshScheduleOutcome {
         val input = input(RefreshTrigger.PERIODIC, source) ?: return refusal(source)
-        queue.periodic(input, replace = false)
+        val replaced = previous != null && !previous.hasSameImportConfiguration(source)
+        if (replaced) {
+            active.cancel(previous.id)
+            if (previous.id != source.id) {
+                queue.cancel(previous.id)
+            }
+        }
+        queue.periodic(input, replace = replaced)
         return RefreshScheduleOutcome.Accepted
     }
 
@@ -163,6 +184,19 @@ class SourceRefreshScheduler internal constructor(
         return RefreshScheduleOutcome.Accepted
     }
 
+    /** Withdraws native and persistent work before private source data is changed. */
+    fun removeAndAwait(source: String): RefreshScheduleOutcome {
+        if (!RefreshWorkWire.validSourceId(source)) {
+            return RefreshScheduleOutcome.Refused(RefreshScheduleRefusal.INVALID_SOURCE)
+        }
+        active.cancel(source)
+        return if (queue.cancelAndAwait(source)) {
+            RefreshScheduleOutcome.Accepted
+        } else {
+            RefreshScheduleOutcome.Refused(RefreshScheduleRefusal.CANCELLATION_FAILED)
+        }
+    }
+
     private fun input(trigger: RefreshTrigger, source: RefreshSource): RefreshWorkInput? {
         if (!RefreshWorkWire.validSourceId(source.id)) {
             return null
@@ -218,6 +252,20 @@ internal class WorkManagerRefreshQueue(private val workManager: WorkManager) : R
     override fun cancel(source: String) {
         workManager.cancelAllWorkByTag(RefreshWorkNames.sourceTag(source))
     }
+
+    override fun cancelAndAwait(source: String): Boolean =
+        try {
+            workManager
+                .cancelAllWorkByTag(RefreshWorkNames.sourceTag(source))
+                .result
+                .get(CANCELLATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            true
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
+        } catch (_: Exception) {
+            false
+        }
 }
 
 internal object RefreshWorkRequests {
@@ -327,3 +375,5 @@ internal fun RefreshSource.hasSameImportConfiguration(other: RefreshSource): Boo
         credential == other.credential
 
 private const val REFRESH_WORK_VERSION = 1
+
+private const val CANCELLATION_TIMEOUT_SECONDS = 30L

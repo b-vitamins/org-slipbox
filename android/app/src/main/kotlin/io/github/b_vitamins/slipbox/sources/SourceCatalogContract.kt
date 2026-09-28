@@ -18,9 +18,10 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonClassDiscriminator
 
-internal const val SOURCE_CATALOG_PROTOCOL_VERSION = 1
+internal const val SOURCE_CATALOG_PROTOCOL_VERSION = 2
 internal const val MAX_SOURCE_CATALOG_REQUEST_BYTES = 32 * 1024
-internal const val MAX_SOURCE_CATALOG_RESPONSE_BYTES = 64 * 1024
+// Persisted catalogs are bounded at 256 KiB; leave room for the response envelope.
+internal const val MAX_SOURCE_CATALOG_RESPONSE_BYTES = 272 * 1024
 
 @Serializable
 @JsonClassDiscriminator("operation")
@@ -55,6 +56,45 @@ internal sealed class SourceCatalogRequest {
         val generation: String,
         override val version: Int = SOURCE_CATALOG_PROTOCOL_VERSION,
     ) : SourceCatalogRequest()
+
+    @Serializable
+    @SerialName("activate")
+    data class Activate(
+        val catalog: String,
+        @SerialName("expected_revision") val expectedRevision: Long,
+        val source: RefreshSource,
+        val store: String,
+        override val version: Int = SOURCE_CATALOG_PROTOCOL_VERSION,
+    ) : SourceCatalogRequest()
+
+    @Serializable
+    @SerialName("replace")
+    data class Replace(
+        val catalog: String,
+        @SerialName("expected_revision") val expectedRevision: Long,
+        val previous: RefreshSource,
+        val source: RefreshSource,
+        val store: String,
+        val generation: String,
+        override val version: Int = SOURCE_CATALOG_PROTOCOL_VERSION,
+    ) : SourceCatalogRequest()
+
+    @Serializable
+    @SerialName("remove")
+    data class Remove(
+        val catalog: String,
+        @SerialName("expected_revision") val expectedRevision: Long,
+        val source: RefreshSource,
+        override val version: Int = SOURCE_CATALOG_PROTOCOL_VERSION,
+    ) : SourceCatalogRequest()
+
+    @Serializable
+    @SerialName("purge")
+    data class Purge(
+        @SerialName("private_root") val privateRoot: String,
+        val source: String,
+        override val version: Int = SOURCE_CATALOG_PROTOCOL_VERSION,
+    ) : SourceCatalogRequest()
 }
 
 @Serializable
@@ -68,6 +108,7 @@ internal sealed class SourceCatalogResponse {
     data class Loaded(
         override val version: Int,
         val revision: Long,
+        val sources: List<RefreshSource>,
         @SerialName("active_source") val activeSource: RefreshSource?,
     ) : SourceCatalogResponse()
 
@@ -77,6 +118,23 @@ internal sealed class SourceCatalogResponse {
         override val version: Int,
         val revision: Long,
         val ready: ReadySource,
+    ) : SourceCatalogResponse()
+
+    @Serializable
+    @SerialName("removed")
+    data class Removed(
+        override val version: Int,
+        val revision: Long,
+        val sources: List<RefreshSource>,
+        @SerialName("active_source") val activeSource: RefreshSource?,
+    ) : SourceCatalogResponse()
+
+    @Serializable
+    @SerialName("purged")
+    data class Purged(
+        override val version: Int,
+        @SerialName("removed_files") val removedFiles: Long,
+        @SerialName("removed_bytes") val removedBytes: Long,
     ) : SourceCatalogResponse()
 
     @Serializable
@@ -132,6 +190,12 @@ internal enum class SourceCatalogFailure {
 
     @SerialName("storage-failed")
     STORAGE_FAILED,
+
+    @SerialName("invalid-change")
+    INVALID_CHANGE,
+
+    @SerialName("cleanup-failed")
+    CLEANUP_FAILED,
 
     @SerialName("encoding-failed")
     ENCODING_FAILED,

@@ -7,6 +7,13 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Manage Android repository sources from one source-details surface. Ready
+  repositories can be selected without crossing corpus identities; branch and
+  folder changes build in configuration-isolated storage before Rust atomically
+  accepts them; reconnect, credential disconnect, downloaded-data removal and
+  complete source removal remain explicit operations with distinct effects and
+  confirmations. Repository path, ready revision, freshness and recovery stay
+  out of the reader and in source settings.
 - Connect Android to public HTTPS or selected GitHub repositories through a
   complete first-import surface. GitHub App authorization, repository/branch/
   folder selection, credential-vault handoff, cancellable stage-specific

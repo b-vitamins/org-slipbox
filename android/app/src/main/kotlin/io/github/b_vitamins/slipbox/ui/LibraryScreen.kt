@@ -22,7 +22,9 @@ internal fun LibraryScreen(
     onOpenAbout: () -> Unit,
     modifier: Modifier = Modifier,
     phase: SourceLibraryPhase = SourceLibraryPhase.Empty(0),
+    hasSources: Boolean = phase is SourceLibraryPhase.Ready,
     onConnect: () -> Unit = {},
+    onManageSources: () -> Unit = {},
     onRetry: () -> Unit = {},
 ) {
     ReadingSurface(
@@ -30,7 +32,10 @@ internal fun LibraryScreen(
         modifier = modifier,
         trailing = {
             Row(horizontalArrangement = Arrangement.spacedBy(SlipboxDimensions.headerPaddingHorizontal)) {
-                if (phase is SourceLibraryPhase.Ready) {
+                if (hasSources) {
+                    TextControl(label = stringResource(R.string.action_sources), onClick = onManageSources)
+                }
+                if (phase is SourceLibraryPhase.Ready || hasSources) {
                     TextControl(label = stringResource(R.string.action_add_source), onClick = onConnect)
                 }
                 TextControl(label = stringResource(R.string.action_about), onClick = onOpenAbout)
@@ -40,8 +45,18 @@ internal fun LibraryScreen(
         when (phase) {
             SourceLibraryPhase.Loading -> LibraryNotice(stringResource(R.string.library_loading))
             is SourceLibraryPhase.Empty -> {
-                LibraryNotice(stringResource(R.string.library_empty))
-                TextControl(label = stringResource(R.string.action_connect), onClick = onConnect)
+                LibraryNotice(
+                    stringResource(
+                        if (hasSources) R.string.library_no_selection else R.string.library_empty,
+                    ),
+                )
+                TextControl(
+                    label =
+                        stringResource(
+                            if (hasSources) R.string.action_sources else R.string.action_connect,
+                        ),
+                    onClick = if (hasSources) onManageSources else onConnect,
+                )
             }
             is SourceLibraryPhase.Ready -> {
                 Text(

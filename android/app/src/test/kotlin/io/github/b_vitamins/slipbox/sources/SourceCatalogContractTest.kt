@@ -36,7 +36,7 @@ class SourceCatalogContractTest {
     @Test
     fun strictReadyResponseDecodesAllVerifiedPathsAndCounts() {
         val response =
-            """{"version":1,"outcome":"ready","revision":3,"ready":{"source":{"id":"0123456789abcdef0123456789abcdef","display_name":"Notes","provider":"generic_https","visibility":"public","provider_repository_id":null,"account":null,"remote":"https://example.com/notes.git","branch":"main","notes_folder":"","credential":null},"binding":{"source":"0123456789abcdef0123456789abcdef","generation":"generation-8"},"revision":"0123456789012345678901234567890123456789","content_root":"/private/source","database":"/private/index/slipbox.db","stats":{"files_indexed":4,"nodes_indexed":9,"links_indexed":5}}}"""
+            """{"version":2,"outcome":"ready","revision":3,"ready":{"source":{"id":"0123456789abcdef0123456789abcdef","display_name":"Notes","provider":"generic_https","visibility":"public","provider_repository_id":null,"account":null,"remote":"https://example.com/notes.git","branch":"main","notes_folder":"","credential":null},"binding":{"source":"0123456789abcdef0123456789abcdef","generation":"generation-8"},"revision":"0123456789012345678901234567890123456789","content_root":"/private/source","database":"/private/index/slipbox.db","stats":{"files_indexed":4,"nodes_indexed":9,"links_indexed":5}}}"""
                 .toByteArray()
 
         val decoded = SourceCatalogWire.decode(response) as SourceCatalogResponse.Ready
@@ -49,9 +49,31 @@ class SourceCatalogContractTest {
     @Test(expected = SourceCatalogContractException::class)
     fun unknownResponseFieldsAreRefused() {
         SourceCatalogWire.decode(
-            """{"version":1,"outcome":"loaded","revision":0,"active_source":null,"extra":true}"""
+            """{"version":2,"outcome":"loaded","revision":0,"sources":[],"active_source":null,"extra":true}"""
                 .toByteArray(),
         )
+    }
+
+    @Test
+    fun replacementCarriesBothObservedConfigurationsAndExactGeneration() {
+        val previous = source()
+        val encoded =
+            SourceCatalogWire.encode(
+                    SourceCatalogRequest.Replace(
+                        catalog = "/private/source-catalog.json",
+                        expectedRevision = 4,
+                        previous = previous,
+                        source = previous.copy(branch = "next", notesFolder = "org"),
+                        store = "/private/configuration/store",
+                        generation = "refresh-9",
+                    ),
+                )
+                .toString(Charsets.UTF_8)
+
+        assertTrue(encoded.contains("\"operation\":\"replace\""))
+        assertTrue(encoded.contains("\"previous\":"))
+        assertTrue(encoded.contains("\"branch\":\"next\""))
+        assertTrue(encoded.contains("\"generation\":\"refresh-9\""))
     }
 
     private fun source() =
