@@ -11,9 +11,10 @@ metadata and history remain authoritative. An unreleased Compose shell provides
 Library and About screens; it does not yet load notes. The native adapter,
 document host, bounded Git transport, source-owned snapshot materializer,
 incremental index staging, coherent generation publication and startup recovery
-are joined by a source-scoped refresh coordinator. WorkManager scheduling and
-reader wiring remain unbuilt. GitHub authorization and real public/private
-device fetches are qualified independently.
+are joined by a source-scoped refresh coordinator and constrained WorkManager
+scheduling. Source connection and reader wiring remain unbuilt. GitHub
+authorization and real public/private device fetches are qualified
+independently.
 Build instructions and toolchain pins are
 in [[file:android-build.org][doc/android-build.org]]; the transport and its device qualification are
 in [[file:android-git.org][doc/android-git.org]].
@@ -413,14 +414,26 @@ revision, ready revision and ready generation remain separate. Authentication,
 rate-limit, transient transport, storage, rebuild and configuration failures
 carry explicit recovery strategies; automatic attempts are bounded to three.
 
-Background refresh is deferrable work scheduled through WorkManager, under the
-platform's constraints on network, battery, and idle state. Execution can be
-delayed or stopped by those constraints and system limits. It is best-effort: a
-push to the repository does not appear on the device at a predictable moment,
-and the reader must not present background freshness as immediate. What is on
-the device reads without a network, without a valid token, and without a
-completed refresh, and a restored reading position resolves against the ready
-generation instead of waiting for one.
+Background refresh is deferrable work scheduled through unique per-source
+WorkManager lanes. Startup and manual requests share one coalescing one-shot
+lane; a twelve-hour periodic request has a two-hour flex window. All work waits
+for a connected network and non-low storage, while startup and periodic work
+also wait for a non-low battery. A manual request is allowed on a low battery
+because it is an explicit user action. One startup snapshot admits at most eight
+sources; later sources retain periodic work and can be refreshed explicitly.
+
+Execution can be delayed or stopped by constraints, Doze and other system
+limits. Transient failures use WorkManager backoff for at most three attempts in
+one run; exhausting a periodic run leaves its later cadence intact, while
+authorization, storage and configuration failures wait for corrective action.
+Source configuration replacement cancels the old native flight and replaces
+both scheduled lanes; removal cancels every job tagged for exactly that source.
+This is best-effort periodic refresh: a push to the repository does not appear
+on the device at a predictable moment, and the reader must not present
+background freshness as immediate. What is on the device reads without a
+network, without a valid token, and without a completed refresh, and a restored
+reading position resolves against the ready generation instead of waiting for
+one.
 
 * Authorization And Private Data
 

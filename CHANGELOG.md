@@ -7,6 +7,11 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Schedule Android source refreshes through unique per-source WorkManager lanes.
+  Startup and manual requests share a coalescing one-shot lane, periodic work is
+  best-effort under network/storage/battery constraints, transient retries are
+  bounded, and source replacement or removal cancels the matching queued and
+  native work without disturbing the last readable generation.
 - Coordinate complete Android refreshes per source from recovery through atomic
   generation publication. Equivalent startup, manual and background triggers
   coalesce; changed source configuration supersedes older work; cancellation is

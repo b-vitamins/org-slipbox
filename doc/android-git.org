@@ -9,7 +9,8 @@ remote-write operation. Exact fetched revisions can then be materialized into
 immutable source-owned candidate snapshots. A source-scoped coordinator now
 recovers the generation store, fetches, derives exact changed-file inventories,
 materializes, stages the index and publishes one coherent generation. Source UI,
-WorkManager scheduling and reader activation remain separate application work.
+connection UI and reader activation remain separate application work;
+WorkManager now supplies the constrained source-scoped scheduling boundary.
 
 The object transport and immutable source views are implemented in
 =slipbox-git=; =slipbox-sync= owns staged index construction, refresh
@@ -281,6 +282,19 @@ cancellation. Recovery advice is one of never, reauthorize, bounded backoff,
 free storage or rebuild. Callers may make at most three attempts; transient
 backoff is 30 seconds and then 120 seconds, with no automatic fourth attempt.
 
+WorkManager persists only a bounded versioned source record and trigger; it
+never persists an access token. Stable unique names provide one periodic and one
+one-shot lane per source. Startup and manual triggers use the one-shot lane and
+therefore coalesce before reaching Rust; any overlap that does reach Rust is
+coalesced by the coordinator. Periodic and startup work require connected
+network, non-low storage and non-low battery, while an explicit manual refresh
+does not wait for battery-not-low. The worker resolves opaque source-owned
+sibling repository/store paths below Android no-backup storage off the main
+thread and acquires a private credential only for the blocking native call.
+Stopping work cancels its active native operation. A changed import
+configuration cancels the active flight and re-enqueues both lanes; source
+removal cancels every work item carrying that source's tag.
+
 * Qualification
 
 =slipbox-git='s tests serve real Git smart HTTP through a loopback CGI fixture.
@@ -328,6 +342,15 @@ coalescing, configuration supersession, cancellation/activation races, bounded
 retry and panic cleanup. The APK build additionally proves the Android-only TLS
 initializer, version-matched verifier AAR, JNI export inventory and both native
 ABIs.
+
+Work scheduling fixtures cover initial registration, relabel-only updates,
+configuration replacement, exact source removal, bounded startup admission,
+manual coalescing and oversized input refusal. Worker fixtures use injected
+credential-free executors to cover operation ownership, storage refusal,
+cancellation and bounded retry. Device tests instantiate the real Worker on the
+supported API stack, inspect the actual network/storage/battery/backoff request
+constraints and prove that stopping it reaches the active native-operation seam
+without blocking the UI thread.
 
 An explicit device journey proves the remaining network and filesystem path
 against real GitHub. It clones this project's public repository without a

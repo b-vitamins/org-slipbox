@@ -18,7 +18,8 @@ It uploads lint and unit-test reports and records APK digests. Gradle uses
 Gradle modules, wrapper distributions and Cargo inputs, not build outputs.
 
 =android-device= installs and launches the debug APK on one accelerated x86_64
-emulator. It runs =NativeEngineProbeTest= and =EngineAdapterTest=, requires every
+emulator. It runs =NativeEngineProbeTest=, =EngineAdapterTest= and
+=SourceRefreshWorkerDeviceTest=, requires every
 declared case to execute without skips, and checks logcat for crashes and hangs.
 Diagnostics include the APK digest, device ABI, page size, API level, launch
 output, pre-install =/data= capacity and instrumentation results. The script

@@ -285,6 +285,7 @@ dependencies {
     implementation(libs.androidx.navigation3.ui)
 
     implementation(libs.androidx.lifecycle.common)
+    implementation(libs.androidx.work.runtime)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.rustls.platform.verifier)
     implementation(libs.androidx.webkit)
@@ -295,6 +296,7 @@ dependencies {
     androidTestImplementation(libs.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.work.testing)
 
     androidTestImplementation(libs.androidx.lifecycle.runtime)
 

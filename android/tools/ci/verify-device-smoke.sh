@@ -16,7 +16,7 @@ set -eu
 CI_INPUTS_LIB=1
 . "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/inputs.sh"
 
-REQUIRED_SUITES="NativeEngineProbeTest EngineAdapterTest"
+REQUIRED_SUITES="NativeEngineProbeTest EngineAdapterTest SourceRefreshWorkerDeviceTest"
 
 TEST_SOURCE_ROOT="$MODULE/app/src/androidTest/kotlin"
 
