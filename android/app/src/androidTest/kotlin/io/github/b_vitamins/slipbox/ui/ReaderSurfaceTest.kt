@@ -13,6 +13,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -24,14 +27,21 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SdkSuppress
 import io.github.b_vitamins.slipbox.engine.NodeKind
 import io.github.b_vitamins.slipbox.engine.NodeRecord
+import io.github.b_vitamins.slipbox.ui.content.DOCUMENT_LINK
+import io.github.b_vitamins.slipbox.ui.content.DocumentFocusRequest
+import io.github.b_vitamins.slipbox.ui.content.DocumentIntent
 import io.github.b_vitamins.slipbox.ui.content.DocumentSource
 import io.github.b_vitamins.slipbox.ui.content.Notes
+import io.github.b_vitamins.slipbox.ui.content.PRESS_LINK
 import io.github.b_vitamins.slipbox.ui.content.answer
 import io.github.b_vitamins.slipbox.ui.content.awaitMounted
 import io.github.b_vitamins.slipbox.ui.content.awaitTrue
 import io.github.b_vitamins.slipbox.ui.content.documentViewIn
+import io.github.b_vitamins.slipbox.ui.content.documentViewsIn
 import io.github.b_vitamins.slipbox.ui.content.number
 import io.github.b_vitamins.slipbox.ui.content.text
+import io.github.b_vitamins.slipbox.ui.settings.ReadingPreferences
+import io.github.b_vitamins.slipbox.ui.settings.ReadingPreferencesRecord
 import io.github.b_vitamins.slipbox.ui.settings.ReadingSettings
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxAppearance
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxTheme
@@ -168,6 +178,111 @@ class ReaderSurfaceTest {
             .assertExists()
     }
 
+    @Test
+    fun noteAndGlossaryPreviewsFitTheWindowRenderMathAndExposeExplicitActions() {
+        lateinit var settings: ReadingSettings
+        var phase by mutableStateOf<ReaderPreviewPhase>(
+            ReaderPreviewPhase.Ready(preview(glossary = true, shortened = true)),
+        )
+        var focusRequest by mutableStateOf<DocumentFocusRequest?>(null)
+        var opened = 0
+        var dismissed = 0
+        composeRule.setContent {
+            settings =
+                remember {
+                    ReadingSettings(
+                        MemoryStore(
+                            ReadingPreferencesRecord.Stored(
+                                ReadingPreferences(reduceMotion = true),
+                            ),
+                        ),
+                    )
+                }
+            SlipboxTheme(appearance = settings.preferences.appearance) {
+                ReaderScreen(
+                    phase = DocumentReaderPhase.Ready(document()),
+                    settings = settings,
+                    onBack = {},
+                    onRetry = {},
+                    previewPhase = phase,
+                    focusRequest = focusRequest,
+                    onIntent = { intent ->
+                        if (intent is DocumentIntent.Glance) {
+                            phase = ReaderPreviewPhase.Ready(preview(origin = intent.origin))
+                        }
+                    },
+                    onDismissPreview = {
+                        val request = (phase as? ReaderPreviewPhase.Ready)?.preview?.request
+                        dismissed += 1
+                        phase = ReaderPreviewPhase.Hidden
+                        focusRequest = request?.let { DocumentFocusRequest(it.origin) }
+                    },
+                    onOpenPreview = {
+                        opened += 1
+                        phase = ReaderPreviewPhase.Hidden
+                    },
+                )
+            }
+        }
+
+        val pane =
+            composeRule.onNode(
+                SemanticsMatcher.expectValue(
+                    SemanticsProperties.PaneTitle,
+                    "Glossary term",
+                ),
+                useUnmergedTree = true,
+            )
+        pane.assertIsDisplayed()
+        composeRule.onNodeWithText("Derivative").assertIsDisplayed()
+        composeRule.onNodeWithText("Preview shortened. Open the note to read the complete target.")
+            .assertIsDisplayed()
+        val root = composeRule.onRoot().bounds()
+        val sheet = pane.bounds()
+        assertTrue(
+            "the preview stays inside the window: $sheet of $root",
+            sheet.left >= root.left &&
+                sheet.top >= root.top &&
+                sheet.right <= root.right &&
+                sheet.bottom <= root.bottom,
+        )
+
+        val previewView = previewView()
+        assertTrue(previewView.number("document.querySelectorAll('#document .katex').length") >= 1)
+        composeRule.mainClock.advanceTimeBy(1_000)
+        composeRule.waitForIdle()
+        Evidence.image("reader-glossary-preview", composeRule.onRoot().captureToImage())
+
+        composeRule.runOnIdle { settings.select(SlipboxAppearance.Dark) }
+        composeRule.waitForIdle()
+        previewView.awaitTrue(
+            "the preview followed the reader into dark appearance",
+            "document.querySelector('.org-document-host').dataset.theme === 'dark'",
+        )
+        Evidence.image("reader-glossary-preview-dark", composeRule.onRoot().captureToImage())
+
+        composeRule.onNodeWithText("Open term").performClick()
+        composeRule.runOnIdle { assertEquals(1, opened) }
+        composeRule.onNodeWithText("Derivative").assertDoesNotExist()
+
+        val main = shown()
+        main.answer("window.scrollTo(0, 80)")
+        val before = main.number("window.scrollY")
+        main.answer(PRESS_LINK)
+        composeRule.onNodeWithText("Target note").assertIsDisplayed()
+        Espresso.pressBack()
+        composeRule.waitForIdle()
+        composeRule.runOnIdle { assertEquals(1, dismissed) }
+        composeRule.onNodeWithText("Target note").assertDoesNotExist()
+        main.awaitTrue(
+            "dismissing the sheet restored its exact link",
+            "document.activeElement === document.querySelector('$DOCUMENT_LINK')",
+        )
+        assertEquals("focus kept the reading place", before, main.number("window.scrollY"), 0.0)
+        main.answer(SELECT_LEAD)
+        assertTrue(main.text("window.getSelection().toString()").contains("fixed point"))
+    }
+
     private fun shown(): WebView {
         composeRule.waitForIdle()
         val view =
@@ -178,6 +293,16 @@ class ReaderSurfaceTest {
             }
         view.awaitMounted()
         return view
+    }
+
+    private fun previewView(): WebView {
+        composeRule.waitForIdle()
+        val views =
+            composeRule.runOnIdle {
+                documentViewsIn(composeRule.activity.window.decorView)
+            }
+        assertEquals("the reader and preview each own one document", 2, views.size)
+        return views.last().also { it.awaitMounted() }
     }
 
     private fun document(): ReaderDocument =
@@ -219,6 +344,46 @@ class ReaderSurfaceTest {
             fileMtimeNs = 0,
             backlinkCount = 2,
             forwardLinkCount = 3,
+        )
+
+    private fun preview(
+        glossary: Boolean = false,
+        shortened: Boolean = false,
+        origin: String = "3f2a9c81-4d5e-4f60-9a1b-0c2d3e4f5061:1",
+    ): ReaderPreview =
+        ReaderPreview(
+            request =
+                ReaderPreviewRequest(
+                    target = "id:target",
+                    gesture = io.github.b_vitamins.slipbox.ui.content.DocumentGesture.Touch,
+                    originProgress = 0.4f,
+                    origin = origin,
+                ),
+            anchor =
+                node().copy(
+                    nodeKey = "file:target.org",
+                    filePath = "target.org",
+                    title = if (glossary) "Derivative" else "Target note",
+                    glossary = glossary,
+                ),
+            source =
+                DocumentSource(
+                    source = "0123456789abcdef0123456789abcdef",
+                    generation = "generation-1",
+                    id = "file:target.org",
+                    org =
+                        if (shortened) {
+                            "A rate of change with \\(f'(x)\\).\n\n" +
+                                "* Reading the term\n\n" +
+                                "The derivative describes local change and the slope of a tangent.\n\n" +
+                                "- Compare nearby values.\n" +
+                                "- Follow how a quantity moves.\n"
+                        } else {
+                            "A rate of change with \\(f'(x)\\).\n"
+                        },
+                ),
+            excerptLines = if (shortened) 12 else 1,
+            shortened = shortened,
         )
 
     private companion object {

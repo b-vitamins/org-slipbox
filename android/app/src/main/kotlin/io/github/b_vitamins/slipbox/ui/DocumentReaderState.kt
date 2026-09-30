@@ -26,6 +26,8 @@ import io.github.b_vitamins.slipbox.engine.SlipboxEngineHost
 import io.github.b_vitamins.slipbox.navigation.BoundNote
 import io.github.b_vitamins.slipbox.sources.ImportDelivery
 import io.github.b_vitamins.slipbox.sources.ReadySource
+import io.github.b_vitamins.slipbox.ui.content.DocumentFocusRequest
+import io.github.b_vitamins.slipbox.ui.content.DocumentGesture
 import io.github.b_vitamins.slipbox.ui.content.DocumentSource
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -65,11 +67,34 @@ internal data class ReaderDocument(
     val source: DocumentSource,
 )
 
+internal data class ReaderPreviewRequest(
+    val target: String,
+    val gesture: DocumentGesture,
+    val originProgress: Float,
+    val origin: String,
+)
+
+internal data class ReaderPreview(
+    val request: ReaderPreviewRequest,
+    val anchor: NodeRecord,
+    val source: DocumentSource,
+    val excerptLines: Int,
+    val shortened: Boolean,
+)
+
+internal sealed interface ReaderPreviewPhase {
+    data object Hidden : ReaderPreviewPhase
+
+    data class Loading(val request: ReaderPreviewRequest) : ReaderPreviewPhase
+
+    data class Ready(val preview: ReaderPreview) : ReaderPreviewPhase
+}
+
 internal interface BoundDocumentSource : AutoCloseable {
 
     val maxLines: Int
 
-    fun read(nodeKey: String): ReadNodeSourceResult
+    fun read(nodeKey: String, maxLines: Int = this.maxLines): ReadNodeSourceResult
 
     fun resolve(sourceNodeKey: String, target: String): DocumentLinkResolution
 }
@@ -94,13 +119,13 @@ private object NativeBoundDocumentSourceFactory : BoundDocumentSourceFactory {
             object : BoundDocumentSource {
                 override val maxLines: Int = host.contract.limits.maxNoteSourceLines
 
-                override fun read(nodeKey: String): ReadNodeSourceResult {
+                override fun read(nodeKey: String, maxLines: Int): ReadNodeSourceResult {
                     val operation =
                         ReadOperation.ReadNodeSource(
                             nodeKey = nodeKey,
                             contextBefore = 0,
                             contextAfter = 0,
-                            maxLines = maxLines,
+                            maxLines = maxLines.coerceAtMost(this.maxLines),
                         )
                     return (session.answer(operation).await() as EngineAnswer.ReadNodeSource).result
                 }
@@ -144,6 +169,12 @@ internal class DocumentReaderState(
     var linkPhase: ReaderLinkPhase by mutableStateOf(ReaderLinkPhase.Idle)
         private set
 
+    var previewPhase: ReaderPreviewPhase by mutableStateOf(ReaderPreviewPhase.Hidden)
+        private set
+
+    var focusRequest: DocumentFocusRequest? by mutableStateOf(null)
+        private set
+
     init {
         require(note.binding == ready.binding) { "the document and ready source generations differ" }
         request()
@@ -160,6 +191,7 @@ internal class DocumentReaderState(
     fun follow(target: String, completed: (DocumentLinkResolution) -> Unit) {
         if (!live.get() || phase !is DocumentReaderPhase.Ready) return
         val serial = linkRequests.incrementAndGet()
+        previewPhase = ReaderPreviewPhase.Hidden
         linkPhase = ReaderLinkPhase.Resolving
         Thread(
                 {
@@ -193,6 +225,72 @@ internal class DocumentReaderState(
                 isDaemon = true
                 start()
             }
+    }
+
+    /** Resolve and read a bounded excerpt through this reader's source-bound session. */
+    fun preview(
+        target: String,
+        gesture: DocumentGesture,
+        originProgress: Float,
+        origin: String,
+        onExternal: (DocumentLinkResolution.External) -> Boolean = { false },
+    ) {
+        if (!live.get() || phase !is DocumentReaderPhase.Ready) return
+        val request = ReaderPreviewRequest(target, gesture, originProgress, origin)
+        val serial = linkRequests.incrementAndGet()
+        linkPhase = ReaderLinkPhase.Idle
+        previewPhase = ReaderPreviewPhase.Loading(request)
+        Thread(
+                {
+                    val outcome = runCatching {
+                        val selected = checkNotNull(opened.get())
+                        when (val resolution = selected.resolve(note.nodeKey, target)) {
+                            is DocumentLinkResolution.Note -> {
+                                val answer = selected.read(resolution.nodeKey, PREVIEW_MAX_LINES)
+                                validatePreview(resolution.nodeKey, answer)
+                                PreviewResolution.Note(answer)
+                            }
+                            is DocumentLinkResolution.External -> PreviewResolution.External(resolution)
+                            DocumentLinkResolution.Missing -> PreviewResolution.Missing
+                            DocumentLinkResolution.Unsupported -> PreviewResolution.Unsupported
+                        }
+                    }
+                    delivery.post {
+                        if (!live.get() || linkRequests.get() != serial) return@post
+                        outcome.fold(
+                            onSuccess = { resolution ->
+                                acceptPreview(request, resolution, onExternal)
+                            },
+                            onFailure = {
+                                previewPhase = ReaderPreviewPhase.Hidden
+                                restorePreviewFocus(request)
+                                linkPhase = ReaderLinkPhase.Failed(request.target)
+                            },
+                        )
+                    }
+                },
+                PREVIEW_WORKER_NAME,
+            )
+            .apply {
+                isDaemon = true
+                start()
+            }
+    }
+
+    fun dismissPreview() {
+        val request = previewRequest() ?: return
+        linkRequests.incrementAndGet()
+        previewPhase = ReaderPreviewPhase.Hidden
+        linkPhase = ReaderLinkPhase.Idle
+        restorePreviewFocus(request)
+    }
+
+    fun openPreview(completed: (ReaderPreview) -> Unit) {
+        val preview = (previewPhase as? ReaderPreviewPhase.Ready)?.preview ?: return
+        linkRequests.incrementAndGet()
+        previewPhase = ReaderPreviewPhase.Hidden
+        linkPhase = ReaderLinkPhase.Idle
+        completed(preview)
     }
 
     fun externalUnavailable() {
@@ -241,6 +339,77 @@ internal class DocumentReaderState(
         require(!answer.source.truncatedBefore && !answer.source.truncatedAfter)
     }
 
+    private fun validatePreview(nodeKey: String, answer: ReadNodeSourceResult) {
+        require(answer.anchor.nodeKey == nodeKey)
+        require(answer.source.filePath == answer.anchor.filePath)
+        require(answer.source.startLine == answer.nodeStartLine)
+        require(!answer.source.truncatedBefore)
+        val expected = minOf(answer.nodeLineCount, PREVIEW_MAX_LINES.toLong())
+        require(
+            answer.source.lineCount == expected ||
+                (answer.source.totalLines == 0L &&
+                    answer.source.lineCount == 0L &&
+                    answer.nodeLineCount == 1L),
+        )
+    }
+
+    private fun acceptPreview(
+        request: ReaderPreviewRequest,
+        resolution: PreviewResolution,
+        onExternal: (DocumentLinkResolution.External) -> Boolean,
+    ) {
+        when (resolution) {
+            is PreviewResolution.Note -> {
+                previewPhase =
+                    ReaderPreviewPhase.Ready(
+                        ReaderPreview(
+                            request = request,
+                            anchor = resolution.answer.anchor,
+                            source =
+                                DocumentSource(
+                                    source = note.binding.source,
+                                    generation = note.binding.generation,
+                                    id = resolution.answer.anchor.nodeKey,
+                                    org = resolution.answer.source.content,
+                                ),
+                            excerptLines = resolution.answer.source.lineCount.toInt(),
+                            shortened = resolution.answer.source.truncatedAfter,
+                        ),
+                    )
+            }
+            is PreviewResolution.External -> {
+                previewPhase = ReaderPreviewPhase.Hidden
+                if (onExternal(resolution.resolution)) {
+                    linkPhase = ReaderLinkPhase.Idle
+                } else {
+                    restorePreviewFocus(request)
+                    linkPhase = ReaderLinkPhase.ExternalUnavailable
+                }
+            }
+            PreviewResolution.Missing -> {
+                previewPhase = ReaderPreviewPhase.Hidden
+                restorePreviewFocus(request)
+                linkPhase = ReaderLinkPhase.Missing(request.target)
+            }
+            PreviewResolution.Unsupported -> {
+                previewPhase = ReaderPreviewPhase.Hidden
+                restorePreviewFocus(request)
+                linkPhase = ReaderLinkPhase.Unsupported(request.target)
+            }
+        }
+    }
+
+    private fun previewRequest(): ReaderPreviewRequest? =
+        when (val preview = previewPhase) {
+            ReaderPreviewPhase.Hidden -> null
+            is ReaderPreviewPhase.Loading -> preview.request
+            is ReaderPreviewPhase.Ready -> preview.preview.request
+        }
+
+    private fun restorePreviewFocus(request: ReaderPreviewRequest) {
+        focusRequest = DocumentFocusRequest(request.origin)
+    }
+
     private fun ready(answer: ReadNodeSourceResult): DocumentReaderPhase =
         DocumentReaderPhase.Ready(
             ReaderDocument(
@@ -279,13 +448,30 @@ internal class DocumentReaderState(
         if (!live.compareAndSet(true, false)) return
         requests.incrementAndGet()
         linkRequests.incrementAndGet()
+        previewPhase = ReaderPreviewPhase.Hidden
         opened.getAndSet(null)?.close()
     }
 
     private companion object {
         const val WORKER_NAME = "slipbox-document-reader"
         const val LINK_WORKER_NAME = "slipbox-document-link"
+        const val PREVIEW_WORKER_NAME = "slipbox-document-preview"
+        const val PREVIEW_MAX_LINES = 12
     }
+}
+
+private sealed interface PreviewResolution {
+    data class Note(
+        val answer: ReadNodeSourceResult,
+    ) : PreviewResolution
+
+    data class External(
+        val resolution: DocumentLinkResolution.External,
+    ) : PreviewResolution
+
+    data object Missing : PreviewResolution
+
+    data object Unsupported : PreviewResolution
 }
 
 @Composable

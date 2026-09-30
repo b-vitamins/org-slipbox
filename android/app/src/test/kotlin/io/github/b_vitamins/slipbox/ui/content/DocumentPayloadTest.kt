@@ -58,6 +58,16 @@ class DocumentPayloadTest {
     }
 
     @Test
+    fun aFocusOriginCrossesAsOneQuotedArgument() {
+        val origin = "mount:7\"</script>\n"
+        val call = DocumentPayload.restoreFocus(origin)
+        assertTrue(call.startsWith("if (window.slipboxHost) window.slipboxHost.restoreFocus(\""))
+        assertTrue(call.endsWith("\");"))
+        assertFalse("a bare element opener crosses", call.contains("<"))
+        assertFalse("a line ends inside the call", call.contains("\n"))
+    }
+
+    @Test
     fun theAssetBaseIsBoundToTheMountThatIssuedIt() {
         val mount = mount(HOSTILE)
         val payload = decode(DocumentPayload.of(mount, presentation()))

@@ -10,6 +10,8 @@ let handle = null;
 let current = null;
 let queued = false;
 let restoredToken = null;
+let previewOrigin = null;
+let originSerial = 0;
 
 function state(value) {
   document.documentElement.dataset.slipboxState = value;
@@ -25,6 +27,10 @@ function report(intent) {
     return;
   }
   const link = intent.link;
+  const origin = intent.verb === "glance" ? bindOrigin(intent.origin) : null;
+  if (intent.verb === "glance" && !origin) {
+    return;
+  }
   channel.postMessage(
     JSON.stringify({
       token: current.token,
@@ -34,8 +40,35 @@ function report(intent) {
         : null,
       gesture: intent.gesture || null,
       progress: link ? readingProgress() : null,
+      origin,
     }),
   );
+}
+
+function bindOrigin(element) {
+  if (!(element instanceof HTMLElement) || !current) {
+    return null;
+  }
+  if (previewOrigin && previewOrigin !== element) {
+    delete previewOrigin.dataset.slipboxPreviewOrigin;
+  }
+  const identifier = `${current.token}:${++originSerial}`;
+  element.dataset.slipboxPreviewOrigin = identifier;
+  previewOrigin = element;
+  return identifier;
+}
+
+function restoreFocus(origin) {
+  if (
+    !current ||
+    !previewOrigin ||
+    !previewOrigin.isConnected ||
+    previewOrigin.dataset.slipboxPreviewOrigin !== origin
+  ) {
+    return false;
+  }
+  previewOrigin.focus({ preventScroll: true });
+  return document.activeElement === previewOrigin;
 }
 
 function readingProgress() {
@@ -121,6 +154,10 @@ function dispose() {
   queued = false;
   current = null;
   restoredToken = null;
+  if (previewOrigin) {
+    delete previewOrigin.dataset.slipboxPreviewOrigin;
+    previewOrigin = null;
+  }
   if (handle) {
     handle.dispose();
     handle = null;
@@ -128,7 +165,7 @@ function dispose() {
   state("disposed");
 }
 
-window.slipboxHost = { present, dispose };
+window.slipboxHost = { present, restoreFocus, dispose };
 state("loading");
 
 import("./document.js").then(

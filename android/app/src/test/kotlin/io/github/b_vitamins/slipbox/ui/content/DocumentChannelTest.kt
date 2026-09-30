@@ -13,16 +13,16 @@ class DocumentChannelTest {
     @Test
     fun theRenderersOwnVocabularyCrosses() {
         assertEquals(
-            DocumentIntent.Glance(ID_LINK, DocumentGesture.Touch, 0.25f),
-            raised("""{"token":"$TOKEN","verb":"glance","link":$ID_LINK_JSON,"gesture":"touch","progress":0.25}"""),
+            DocumentIntent.Glance(ID_LINK, DocumentGesture.Touch, 0.25f, "$TOKEN:1"),
+            raised("""{"token":"$TOKEN","verb":"glance","link":$ID_LINK_JSON,"gesture":"touch","progress":0.25,"origin":"$TOKEN:1"}"""),
         )
         assertEquals(
-            DocumentIntent.Glance(ID_LINK, DocumentGesture.Hover, 0.5f),
-            raised("""{"token":"$TOKEN","verb":"glance","link":$ID_LINK_JSON,"gesture":"hover","progress":0.5}"""),
+            DocumentIntent.Glance(ID_LINK, DocumentGesture.Hover, 0.5f, "$TOKEN:2"),
+            raised("""{"token":"$TOKEN","verb":"glance","link":$ID_LINK_JSON,"gesture":"hover","progress":0.5,"origin":"$TOKEN:2"}"""),
         )
         assertEquals(
-            DocumentIntent.Glance(ID_LINK, DocumentGesture.Focus, 0.75f),
-            raised("""{"token":"$TOKEN","verb":"glance","link":$ID_LINK_JSON,"gesture":"focus","progress":0.75}"""),
+            DocumentIntent.Glance(ID_LINK, DocumentGesture.Focus, 0.75f, "$TOKEN:3"),
+            raised("""{"token":"$TOKEN","verb":"glance","link":$ID_LINK_JSON,"gesture":"focus","progress":0.75,"origin":"$TOKEN:3"}"""),
         )
         assertEquals(
             DocumentIntent.Pin(ID_LINK, 0f),
@@ -101,7 +101,11 @@ class DocumentChannelTest {
                 """{"token":"$TOKEN","verb":"glance","link":$ID_LINK_JSON}""",
                 """{"token":"$TOKEN","verb":"glance","link":$ID_LINK_JSON,"gesture":"drag"}""",
                 """{"token":"$TOKEN","verb":"glance","gesture":"touch"}""",
+                """{"token":"$TOKEN","verb":"glance","link":$ID_LINK_JSON,"gesture":"touch","progress":0.5}""",
+                """{"token":"$TOKEN","verb":"glance","link":$ID_LINK_JSON,"gesture":"touch","progress":0.5,"origin":"$OTHER_TOKEN:1"}""",
+                """{"token":"$TOKEN","verb":"glance","link":$ID_LINK_JSON,"gesture":"touch","progress":0.5,"origin":"$TOKEN:not-a-number"}""",
                 """{"token":"$TOKEN","verb":"pin","link":$ID_LINK_JSON,"gesture":"touch"}""",
+                """{"token":"$TOKEN","verb":"pin","link":$ID_LINK_JSON,"progress":0.5,"origin":"$TOKEN:1"}""",
                 """{"token":"$TOKEN","verb":"pin","link":$ID_LINK_JSON,"progress":-0.1}""",
                 """{"token":"$TOKEN","verb":"pin","link":$ID_LINK_JSON,"progress":1.1}""",
                 """{"token":"$TOKEN","verb":"pin","link":$ID_LINK_JSON,"progress":null}""",

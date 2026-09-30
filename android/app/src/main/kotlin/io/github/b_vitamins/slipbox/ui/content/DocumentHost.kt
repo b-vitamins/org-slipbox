@@ -38,6 +38,8 @@ internal class DocumentHost(
     private var mount: DocumentMount? = null
 
     private var pending: Presented? = null
+    private var pendingFocus: String? = null
+    private var restoredFocus: String? = null
     private var ready = false
     private var retired = false
 
@@ -75,6 +77,17 @@ internal class DocumentHost(
         }
     }
 
+    fun restoreFocus(request: DocumentFocusRequest?) {
+        val origin = request?.origin ?: return
+        if (origin == restoredFocus || retired) return
+        restoredFocus = origin
+        if (ready) {
+            view.evaluateJavascript(DocumentPayload.restoreFocus(origin), null)
+        } else {
+            pendingFocus = origin
+        }
+    }
+
     /** Retires the token before renderer teardown and WebView destruction. */
     fun dispose() {
         if (retired) {
@@ -83,6 +96,7 @@ internal class DocumentHost(
         retired = true
         mount = null
         pending = null
+        pendingFocus = null
         if (ready) {
             ready = false
             view.evaluateJavascript(DocumentPayload.DISPOSE) { view.destroy() }
@@ -98,6 +112,10 @@ internal class DocumentHost(
             DocumentPayload.present(presented.mount, presented.presentation),
             null,
         )
+        pendingFocus?.let { origin ->
+            pendingFocus = null
+            view.evaluateJavascript(DocumentPayload.restoreFocus(origin), null)
+        }
     }
 
     private fun openAsset(token: String, target: String): DocumentAsset? {

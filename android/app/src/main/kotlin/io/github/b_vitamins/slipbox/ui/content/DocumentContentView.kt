@@ -6,6 +6,7 @@
 package io.github.b_vitamins.slipbox.ui.content
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -23,6 +24,7 @@ internal fun DocumentContentView(
     presentation: DocumentPresentation,
     modifier: Modifier = Modifier,
     initialProgress: Float = 0f,
+    restoreFocus: DocumentFocusRequest? = null,
     onIntent: (DocumentIntent) -> Unit = {},
     resolveAsset: DocumentAssetResolver = NoAssets,
 ) {
@@ -43,6 +45,7 @@ internal fun DocumentContentView(
                         },
                 )
             }
+        LaunchedEffect(host, restoreFocus) { host.restoreFocus(restoreFocus) }
         AndroidView(
             factory = { host.view },
             modifier = modifier,

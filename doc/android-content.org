@@ -53,6 +53,7 @@ DocumentContentView(
     source = DocumentSource(source, generation, id, org, baseLevel = 2),
     presentation = presentation,
     initialProgress = restoredProgress,
+    restoreFocus = dismissedPreviewOrigin,
     onIntent = { intent -> /* application navigation */ },
     resolveAsset = DocumentAssetResolver { binding, target -> /* bytes or null */ },
 )
@@ -64,12 +65,12 @@ view issues its own opaque mount token. Any source-field change retires that
 token; presentation-only changes retain it. Callback and resolver replacements
 use their latest values without rebuilding the view.
 
-| Intent    | Payload          | Caller action                     |
-|-----------+------------------+-----------------------------------|
-| =Glance=  | link, gesture and viewport | open a contextual preview |
-| =Pin=     | link and viewport | open beside its origin           |
-| =Go=      | link and viewport | open as a fresh root              |
-| =Dismiss= | none             | withdraw the standing preview     |
+| Intent    | Payload                         | Caller action                 |
+|-----------+---------------------------------+-------------------------------|
+| =Glance=  | link, gesture, viewport, origin | open a contextual preview     |
+| =Pin=     | link and viewport               | open beside its origin        |
+| =Go=      | link and viewport               | open as a fresh root          |
+| =Dismiss= | none                            | withdraw the standing preview |
 
 The =slipboxDocument= message channel validates origin, main frame, live token
 and payload shape before delivering an intent. Unknown fields, verbs and
@@ -77,6 +78,13 @@ gestures are refused; messages are bounded to 4096 characters. Diagnostics name
 the failed check, never the note-derived payload. No native evaluator, RPC
 dispatcher, engine or credential object is exposed. A WebView without the typed
 message-listener feature renders without navigation callbacks.
+
+A glance origin is an opaque, mount-bound identifier for the exact link element,
+not note content or a selector supplied by the note. After a native preview is
+dismissed, the caller may return it through =restoreFocus=. The host focuses only
+the still-connected element carrying that exact identifier and prevents the
+focus operation from scrolling the document. Retired mounts and replaced
+origins cannot receive focus.
 
 ID links, indexed node keys, relative Org files and heading selectors all use
 that typed channel; they are not asset requests. The Android host also

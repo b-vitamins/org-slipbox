@@ -31,6 +31,13 @@ internal object DocumentPayload {
 
     const val DISPOSE = "if (window.slipboxHost) window.slipboxHost.dispose();"
 
+    fun restoreFocus(origin: String): String =
+        buildString {
+            append("if (window.slipboxHost) window.slipboxHost.restoreFocus(")
+            appendQuoted(origin)
+            append(");")
+        }
+
     fun of(mount: DocumentMount, presentation: DocumentPresentation): String =
         buildString {
             append("{\"token\":")

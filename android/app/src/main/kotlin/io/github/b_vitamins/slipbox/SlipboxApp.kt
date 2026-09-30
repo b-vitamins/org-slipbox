@@ -94,6 +94,13 @@ private fun productionDestinations(
                 val reader = rememberDocumentReaderState(readerRoute.note, ready)
                 val context = LocalContext.current
                 val external = remember(context) { SystemExternalLinkHandoff(context) }
+                val openExternal: (DocumentLinkResolution.External, Float) -> Boolean =
+                    { resolution, progress ->
+                        backStack.rememberReadingPlace(
+                            readerRoute,
+                            ReadingAnchor(progress = progress),
+                        ) && external.open(resolution.url)
+                    }
                 val follow: (String, Float) -> Unit = { target, progress ->
                     reader.follow(target) { resolution ->
                         when (resolution) {
@@ -104,12 +111,7 @@ private fun productionDestinations(
                                     originAnchor = ReadingAnchor(progress = progress),
                                 )
                             is DocumentLinkResolution.External -> {
-                                val current =
-                                    backStack.rememberReadingPlace(
-                                        readerRoute,
-                                        ReadingAnchor(progress = progress),
-                                    )
-                                if (current && !external.open(resolution.url)) {
+                                if (!openExternal(resolution, progress)) {
                                     reader.externalUnavailable()
                                 }
                             }
@@ -125,16 +127,37 @@ private fun productionDestinations(
                     onBack = { backStack.back() },
                     onRetry = reader::retry,
                     linkPhase = reader.linkPhase,
+                    previewPhase = reader.previewPhase,
+                    focusRequest = reader.focusRequest,
                     initialProgress = readerRoute.anchor.progress,
                     onIntent = { intent ->
                         when (intent) {
                             is DocumentIntent.Glance ->
                                 if (intent.gesture == DocumentGesture.Touch) {
-                                    follow(intent.link.target, intent.progress)
+                                    reader.preview(
+                                        target = intent.link.target,
+                                        gesture = intent.gesture,
+                                        originProgress = intent.progress,
+                                        origin = intent.origin,
+                                        onExternal = { resolution ->
+                                            openExternal(resolution, intent.progress)
+                                        },
+                                    )
                                 }
                             is DocumentIntent.Pin -> follow(intent.link.target, intent.progress)
                             is DocumentIntent.Go -> follow(intent.link.target, intent.progress)
-                            DocumentIntent.Dismiss -> Unit
+                            DocumentIntent.Dismiss -> reader.dismissPreview()
+                        }
+                    },
+                    onDismissPreview = reader::dismissPreview,
+                    onOpenPreview = {
+                        reader.openPreview { preview ->
+                            backStack.follow(
+                                origin = readerRoute,
+                                targetNodeKey = preview.anchor.nodeKey,
+                                originAnchor =
+                                    ReadingAnchor(progress = preview.request.originProgress),
+                            )
                         }
                     },
                 )

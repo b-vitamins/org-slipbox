@@ -29,6 +29,13 @@ internal fun documentViewIn(root: View): WebView? =
         else -> null
     }
 
+internal fun documentViewsIn(root: View): List<WebView> =
+    when (root) {
+        is WebView -> listOf(root)
+        is ViewGroup -> (0 until root.childCount).flatMap { documentViewsIn(root.getChildAt(it)) }
+        else -> emptyList()
+    }
+
 internal fun WebView.answer(script: String): String {
     val answered = ArrayBlockingQueue<String>(1)
     InstrumentationRegistry.getInstrumentation().runOnMainSync {

@@ -67,6 +67,7 @@ internal sealed interface DocumentIntent {
         val link: DocumentLink,
         val gesture: DocumentGesture,
         val progress: Float = 0f,
+        val origin: String,
     ) : DocumentIntent
 
     data class Pin(val link: DocumentLink, val progress: Float = 0f) : DocumentIntent
@@ -75,6 +76,10 @@ internal sealed interface DocumentIntent {
 
     data object Dismiss : DocumentIntent
 }
+
+/** One renderer-issued origin to refocus after its native preview closes. */
+@Immutable
+internal data class DocumentFocusRequest(val origin: String)
 
 internal class DocumentAsset(val mimeType: String, val bytes: ByteArray)
 

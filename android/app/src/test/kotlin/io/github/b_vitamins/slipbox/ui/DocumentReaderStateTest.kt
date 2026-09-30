@@ -25,10 +25,12 @@ import io.github.b_vitamins.slipbox.sources.ReadySourceStats
 import io.github.b_vitamins.slipbox.sync.RefreshProvider
 import io.github.b_vitamins.slipbox.sync.RefreshSource
 import io.github.b_vitamins.slipbox.sync.RefreshVisibility
+import io.github.b_vitamins.slipbox.ui.content.DocumentGesture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -46,7 +48,7 @@ class DocumentReaderStateTest {
                     BoundDocumentSourceFactory { source ->
                         opened = source
                         source(answer = answer()).also { document ->
-                            document.onRead = { asked = it }
+                            document.onRead = { nodeKey, _ -> asked = nodeKey }
                         }
                     },
             )
@@ -233,6 +235,150 @@ class DocumentReaderStateTest {
         state.close()
     }
 
+    @Test
+    fun aPreviewResolvesAndReadsABoundedTargetInTheOriginatingGeneration() {
+        val ready = ready("generation-preview")
+        val target = "file:term.org"
+        val term = previewAnswer(target, glossary = true, shortened = true)
+        val reads = mutableListOf<Pair<String, Int>>()
+        var resolution: Pair<String, String>? = null
+        val source = source(answer())
+        source.onResolve = { nodeKey, asked ->
+            resolution = nodeKey to asked
+            DocumentLinkResolution.Note(target)
+        }
+        source.onRead = { nodeKey, maxLines -> reads += nodeKey to maxLines }
+        source.answerFor = { nodeKey, _ -> if (nodeKey == target) term else answer() }
+        val state = state(ready = ready, factory = BoundDocumentSourceFactory { source })
+        await { state.phase is DocumentReaderPhase.Ready }
+
+        state.preview(
+            target = "id:derivative",
+            gesture = DocumentGesture.Touch,
+            originProgress = 0.625f,
+            origin = "$MOUNT:1",
+        )
+        await { state.previewPhase is ReaderPreviewPhase.Ready }
+
+        val preview = (state.previewPhase as ReaderPreviewPhase.Ready).preview
+        assertEquals(NODE_KEY to "id:derivative", resolution)
+        assertEquals(target to 12, reads.last())
+        assertEquals("generation-preview", preview.source.binding.generation)
+        assertEquals(SOURCE, preview.source.binding.source)
+        assertEquals(target, preview.source.binding.id)
+        assertTrue(preview.anchor.glossary)
+        assertEquals(12, preview.excerptLines)
+        assertTrue(preview.shortened)
+        assertEquals(0.625f, preview.request.originProgress)
+        state.close()
+    }
+
+    @Test
+    fun dismissRestoresTheExactOriginAndOpenUsesTheResolvedTargetWithoutResolvingAgain() {
+        val target = "heading:other.org:4"
+        val source = source(answer())
+        var resolutions = 0
+        source.onResolve = { _, _ ->
+            resolutions += 1
+            DocumentLinkResolution.Note(target)
+        }
+        source.answerFor = { nodeKey, _ ->
+            if (nodeKey == target) previewAnswer(target) else answer()
+        }
+        val state = state(factory = BoundDocumentSourceFactory { source })
+        await { state.phase is DocumentReaderPhase.Ready }
+
+        state.preview("file:other.org::*Target", DocumentGesture.Touch, 0.4f, "$MOUNT:7")
+        await { state.previewPhase is ReaderPreviewPhase.Ready }
+        state.dismissPreview()
+
+        assertEquals(ReaderPreviewPhase.Hidden, state.previewPhase)
+        assertEquals("$MOUNT:7", state.focusRequest?.origin)
+
+        state.preview("file:other.org::*Target", DocumentGesture.Focus, 0.4f, "$MOUNT:8")
+        await { state.previewPhase is ReaderPreviewPhase.Ready }
+        var opened: ReaderPreview? = null
+        state.openPreview { opened = it }
+
+        assertEquals(target, opened?.anchor?.nodeKey)
+        assertEquals(0.4f, opened?.request?.originProgress)
+        assertEquals(2, resolutions)
+        assertEquals(ReaderPreviewPhase.Hidden, state.previewPhase)
+        assertEquals("$MOUNT:7", state.focusRequest?.origin)
+        state.close()
+    }
+
+    @Test
+    fun previewFailuresLeaveTheReaderReadyAndRestoreItsOrigin() {
+        val source = source(answer())
+        source.onResolve = { _, _ -> DocumentLinkResolution.Missing }
+        val state = state(factory = BoundDocumentSourceFactory { source })
+        await { state.phase is DocumentReaderPhase.Ready }
+
+        state.preview("file:missing.org", DocumentGesture.Touch, 0.2f, "$MOUNT:3")
+        await { state.linkPhase is ReaderLinkPhase.Missing }
+
+        assertTrue(state.phase is DocumentReaderPhase.Ready)
+        assertEquals(ReaderPreviewPhase.Hidden, state.previewPhase)
+        assertEquals("$MOUNT:3", state.focusRequest?.origin)
+        state.close()
+    }
+
+    @Test
+    fun anExternalTouchLinkKeepsItsOrdinaryBrowserHandoff() {
+        val external = DocumentLinkResolution.External("https://example.org/paper")
+        val source = source(answer())
+        source.onResolve = { _, _ -> external }
+        val state = state(factory = BoundDocumentSourceFactory { source })
+        await { state.phase is DocumentReaderPhase.Ready }
+        var handedOff: DocumentLinkResolution.External? = null
+
+        state.preview(
+            target = external.url,
+            gesture = DocumentGesture.Touch,
+            originProgress = 0.3f,
+            origin = "$MOUNT:5",
+            onExternal = { resolution ->
+                handedOff = resolution
+                true
+            },
+        )
+        await { handedOff != null }
+
+        assertEquals(external, handedOff)
+        assertEquals(ReaderPreviewPhase.Hidden, state.previewPhase)
+        assertEquals(ReaderLinkPhase.Idle, state.linkPhase)
+        assertNull(state.focusRequest)
+        state.close()
+    }
+
+    @Test
+    fun dismissingALoadingPreviewSuppressesItsLateRead() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val target = "file:later.org"
+        val source = source(answer())
+        source.onResolve = { _, _ ->
+            entered.countDown()
+            release.await(5, TimeUnit.SECONDS)
+            DocumentLinkResolution.Note(target)
+        }
+        source.answerFor = { nodeKey, _ ->
+            if (nodeKey == target) previewAnswer(target) else answer()
+        }
+        val state = state(factory = BoundDocumentSourceFactory { source })
+        await { state.phase is DocumentReaderPhase.Ready }
+
+        state.preview("id:later", DocumentGesture.Touch, 0.1f, "$MOUNT:4")
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        state.dismissPreview()
+        release.countDown()
+
+        assertEquals(ReaderPreviewPhase.Hidden, state.previewPhase)
+        assertEquals("$MOUNT:4", state.focusRequest?.origin)
+        state.close()
+    }
+
     private fun state(
         ready: ReadySource = ready("generation-a"),
         factory: BoundDocumentSourceFactory,
@@ -260,16 +406,17 @@ class DocumentReaderStateTest {
     ) : BoundDocumentSource {
 
         var beforeRead: () -> Unit = {}
-        var onRead: (String) -> Unit = {}
+        var onRead: (String, Int) -> Unit = { _, _ -> }
+        var answerFor: (String, Int) -> ReadNodeSourceResult = { _, _ -> checkNotNull(answer) }
         var onResolve: (String, String) -> DocumentLinkResolution = { _, _ ->
             DocumentLinkResolution.Unsupported
         }
 
-        override fun read(nodeKey: String): ReadNodeSourceResult {
+        override fun read(nodeKey: String, maxLines: Int): ReadNodeSourceResult {
             beforeRead()
-            onRead(nodeKey)
+            onRead(nodeKey, maxLines)
             failure?.let { throw it }
-            return checkNotNull(answer)
+            return answerFor(nodeKey, maxLines)
         }
 
         override fun resolve(sourceNodeKey: String, target: String): DocumentLinkResolution =
@@ -312,6 +459,40 @@ class DocumentReaderStateTest {
             nodeStartLine = 1,
             nodeLineCount = 1,
         )
+
+    private fun previewAnswer(
+        nodeKey: String,
+        glossary: Boolean = false,
+        shortened: Boolean = false,
+    ): ReadNodeSourceResult {
+        val lines = if (shortened) 12L else 1L
+        val path =
+            nodeKey.substringAfter(':').let { value ->
+                if (nodeKey.startsWith("heading:")) value.substringBeforeLast(':') else value
+            }
+        val anchor =
+            node().copy(
+                nodeKey = nodeKey,
+                filePath = path,
+                title = if (glossary) "Derivative" else "Target",
+                glossary = glossary,
+            )
+        return ReadNodeSourceResult(
+            anchor = anchor,
+            source =
+                SourceSlice(
+                    filePath = anchor.filePath,
+                    startLine = 1,
+                    lineCount = lines,
+                    totalLines = if (shortened) 120 else 1,
+                    content = if (glossary) "A rate of change.\n" else "Target body.\n",
+                    truncatedBefore = false,
+                    truncatedAfter = shortened,
+                ),
+            nodeStartLine = 1,
+            nodeLineCount = if (shortened) 120 else 1,
+        )
+    }
 
     private fun node(): NodeRecord =
         NodeRecord(
@@ -370,5 +551,6 @@ class DocumentReaderStateTest {
     private companion object {
         const val SOURCE = "0123456789abcdef0123456789abcdef"
         const val NODE_KEY = "file:note.org"
+        const val MOUNT = "3f2a9c81-4d5e-4f60-9a1b-0c2d3e4f5061"
     }
 }

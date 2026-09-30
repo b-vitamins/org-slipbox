@@ -7,6 +7,11 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Preview linked Android notes and glossary terms in a bounded native sheet.
+  Preview excerpts are read through the originating source-generation session,
+  reuse the complete document renderer for math and prose, and open the already
+  resolved target without a second lookup. Dismissal and failed reads restore
+  the exact link and reading place; touch selection and copy remain native.
 - Follow source-aware links from complete Android documents. Rust resolves Org
   IDs, indexed node keys, relative Org files and heading selectors inside the
   originating source generation; HTTP(S) pages cross a credential-free browser

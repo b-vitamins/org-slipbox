@@ -56,7 +56,7 @@ internal object DocumentChannel {
         if (token == null || raised.token != token) {
             return DocumentEvent.Refused(DocumentRefusal.Binding)
         }
-        val intent = raised.intent() ?: return DocumentEvent.Refused(DocumentRefusal.Shape)
+        val intent = raised.intent(token) ?: return DocumentEvent.Refused(DocumentRefusal.Shape)
         return DocumentEvent.Raised(intent)
     }
 }
@@ -75,36 +75,45 @@ private data class RaisedIntent(
     val link: RaisedLink? = null,
     val gesture: String? = null,
     val progress: Float? = null,
+    val origin: String? = null,
 )
 
-private fun RaisedIntent.intent(): DocumentIntent? =
+private fun RaisedIntent.intent(token: String): DocumentIntent? =
     when (verb) {
         "glance" -> {
             val asked = DocumentGesture.of(gesture)
             val target = link?.link()
             val position = progress?.takeIf { it.isFinite() && it in 0f..1f }
-            if (asked == null || target == null || position == null) {
+            val raisedFrom = origin?.validOrigin(token)
+            if (asked == null || target == null || position == null || raisedFrom == null) {
                 null
             } else {
-                DocumentIntent.Glance(target, asked, position)
+                DocumentIntent.Glance(target, asked, position, raisedFrom)
             }
         }
         "pin" ->
             link?.link()
-                ?.takeIf { gesture == null }
+                ?.takeIf { gesture == null && origin == null }
                 ?.let { target -> progress?.valid()?.let { DocumentIntent.Pin(target, it) } }
         "go" ->
             link?.link()
-                ?.takeIf { gesture == null }
+                ?.takeIf { gesture == null && origin == null }
                 ?.let { target -> progress?.valid()?.let { DocumentIntent.Go(target, it) } }
         "dismiss" ->
             DocumentIntent.Dismiss.takeIf {
-                link == null && gesture == null && progress == null
+                link == null && gesture == null && progress == null && origin == null
             }
         else -> null
     }
 
 private fun Float.valid(): Float? = takeIf { isFinite() && this in 0f..1f }
+
+private fun String.validOrigin(token: String): String? {
+    val prefix = "$token:"
+    if (!startsWith(prefix) || length > ORIGIN_LIMIT) return null
+    val serial = substring(prefix.length)
+    return takeIf { serial.isNotEmpty() && serial.all(Char::isDigit) }
+}
 
 private fun RaisedLink.link(): DocumentLink? {
     if (target.isEmpty() || reference.isEmpty() || id?.isEmpty() == true) {
@@ -112,3 +121,5 @@ private fun RaisedLink.link(): DocumentLink? {
     }
     return DocumentLink(id = id, target = target, reference = reference)
 }
+
+private const val ORIGIN_LIMIT = 96

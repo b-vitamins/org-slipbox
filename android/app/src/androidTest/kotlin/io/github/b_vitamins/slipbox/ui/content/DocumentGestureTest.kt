@@ -9,6 +9,9 @@ import android.os.Build
 import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -37,6 +40,8 @@ class DocumentGestureTest {
 
     private val raised = Gestures()
 
+    private var focusRequest by mutableStateOf<DocumentFocusRequest?>(null)
+
     private lateinit var view: WebView
 
     @Before
@@ -58,6 +63,7 @@ class DocumentGestureTest {
                         availableWidth = 411.dp,
                     ),
                 modifier = Modifier.fillMaxSize().testTag(DOCUMENT_TAG),
+                restoreFocus = focusRequest,
                 onIntent = raised,
             )
         }
@@ -92,16 +98,50 @@ class DocumentGestureTest {
     @Test
     fun aTouchAsksForAPreviewAndEscapeWithdrawsIt() {
         view.answer(PRESS_LINK)
-        assertEquals(
-            "the preview the reader asked for, and how they asked",
-            DocumentIntent.Glance(SETTLED, DocumentGesture.Touch),
-            raised.awaited(1).first(),
-        )
+        val preview = raised.awaited(1).first() as DocumentIntent.Glance
+        assertEquals("the preview target", SETTLED, preview.link)
+        assertEquals("how the reader asked", DocumentGesture.Touch, preview.gesture)
+        assertEquals("where the preview returns focus", "${view.mountToken()}:1", preview.origin)
         view.answer(WITHDRAW_PREVIEW)
         assertEquals(
             "which the escape key withdraws",
             DocumentIntent.Dismiss,
             raised.awaited(2).last(),
+        )
+    }
+
+    @Test
+    fun dismissingANativePreviewRestoresItsExactLinkWithoutMovingTheDocument() {
+        view.answer("window.scrollTo(0, 80)")
+        view.answer(PRESS_LINK)
+        val preview = raised.awaited(1).first() as DocumentIntent.Glance
+        assertEquals(
+            preview.origin,
+            view.text("document.querySelector('$DOCUMENT_LINK').dataset.slipboxPreviewOrigin"),
+        )
+        view.answer(
+            "const other = document.createElement('button');" +
+                "other.id = 'other-focus'; document.body.append(other); other.focus();",
+        )
+        view.awaitTrue(
+            "the origin yielded focus before restoration",
+            "document.activeElement.id === 'other-focus'",
+        )
+        view.answer("window.scrollTo(0, 80)")
+        val before = view.number("window.scrollY")
+
+        composeRule.runOnIdle { focusRequest = DocumentFocusRequest(preview.origin) }
+        composeRule.waitForIdle()
+        view.awaitTrue(
+            "the exact preview origin regained focus",
+            "document.activeElement === document.querySelector('$DOCUMENT_LINK')",
+        )
+
+        assertEquals(
+            "restoring focus kept the reading place",
+            before,
+            view.number("window.scrollY"),
+            0.0,
         )
     }
 

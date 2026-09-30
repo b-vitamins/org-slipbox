@@ -13,11 +13,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -32,6 +34,7 @@ import io.github.b_vitamins.slipbox.R
 import io.github.b_vitamins.slipbox.engine.NodeKind
 import io.github.b_vitamins.slipbox.engine.NodeRecord
 import io.github.b_vitamins.slipbox.ui.content.DocumentContentView
+import io.github.b_vitamins.slipbox.ui.content.DocumentFocusRequest
 import io.github.b_vitamins.slipbox.ui.content.DocumentIntent
 import io.github.b_vitamins.slipbox.ui.document.rememberDocumentPresentation
 import io.github.b_vitamins.slipbox.ui.settings.ReadingSettings
@@ -49,15 +52,41 @@ internal fun ReaderScreen(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
     linkPhase: ReaderLinkPhase = ReaderLinkPhase.Idle,
+    previewPhase: ReaderPreviewPhase = ReaderPreviewPhase.Hidden,
+    focusRequest: DocumentFocusRequest? = null,
     initialProgress: Float = 0f,
     onIntent: (DocumentIntent) -> Unit = {},
+    onDismissPreview: () -> Unit = {},
+    onOpenPreview: () -> Unit = {},
 ) {
     val document = (phase as? DocumentReaderPhase.Ready)?.document
     var appearanceVisible by rememberSaveable { mutableStateOf(false) }
     val appearanceControl = remember { FocusRequester() }
+    val documentControl = remember { FocusRequester() }
+    var deliveredFocus by remember { mutableStateOf<DocumentFocusRequest?>(null) }
+    LaunchedEffect(focusRequest) {
+        if (focusRequest == null) {
+            deliveredFocus = null
+            return@LaunchedEffect
+        }
+        // Let the reveal release native focus before addressing its DOM origin.
+        withFrameNanos {}
+        deliveredFocus = focusRequest
+    }
     val motion = SlipboxMotion(rememberPlatformMotionScale(), settings.preferences.reduceMotion)
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val readingWidth = minOf(maxWidth, SlipboxDimensions.readingMeasure)
+        val excerptLines =
+            ((previewPhase as? ReaderPreviewPhase.Ready)?.preview?.excerptLines ?: 1)
+                .coerceIn(1, 12)
+        val naturalPreviewHeight = (96 + excerptLines * 24).dp
+        val previewHeight =
+            minOf(
+                maxHeight * 0.42f,
+                300.dp,
+                maxOf(160.dp, naturalPreviewHeight),
+            )
+        val previewVisible = previewPhase != ReaderPreviewPhase.Hidden
         val presentation =
             rememberDocumentPresentation(
                 appearance = settings.preferences.appearance,
@@ -66,7 +95,7 @@ internal fun ReaderScreen(
             )
         ReadingSurface(
             title = document?.anchor?.title ?: stringResource(R.string.reader_title),
-            obscured = appearanceVisible,
+            obscured = appearanceVisible || previewVisible,
             scrollable = document == null,
             contentPadding =
                 if (document == null) {
@@ -95,6 +124,15 @@ internal fun ReaderScreen(
                     motion = motion,
                     onDismiss = { appearanceVisible = false },
                     restoreFocusTo = appearanceControl,
+                )
+                ReaderPreviewSheet(
+                    phase = previewPhase,
+                    presentation = presentation,
+                    motion = motion,
+                    documentHeight = previewHeight,
+                    onDismiss = onDismissPreview,
+                    onOpen = onOpenPreview,
+                    restoreFocusTo = documentControl,
                 )
             },
         ) {
@@ -135,7 +173,13 @@ internal fun ReaderScreen(
                         source = phase.document.source,
                         presentation = presentation,
                         initialProgress = initialProgress,
-                        modifier = Modifier.fillMaxWidth().weight(1f).testTag(READER_DOCUMENT_TAG),
+                        restoreFocus = deliveredFocus,
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .focusRequester(documentControl)
+                                .testTag(READER_DOCUMENT_TAG),
                         onIntent = onIntent,
                     )
                 }

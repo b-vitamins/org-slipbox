@@ -44,6 +44,12 @@
     <string name="reader_link_unsupported">This reader cannot open “%1$s”.</string>
     <string name="reader_link_failed">The target “%1$s” could not be resolved.</string>
     <string name="reader_link_browser_unavailable">No browser is available for this link.</string>
+    <string name="reader_preview_loading">Loading preview.</string>
+    <string name="reader_preview_note">Note preview</string>
+    <string name="reader_preview_glossary">Glossary term</string>
+    <string name="reader_preview_shortened">Preview shortened. Open the note to read the complete target.</string>
+    <string name="reader_preview_open_note">Open note</string>
+    <string name="reader_preview_open_term">Open term</string>
     <string name="reader_metadata_description">%1$s, %2$s, %3$s</string>
     <plurals name="reader_backlinks">
         <item quantity="one">%d backlink</item>

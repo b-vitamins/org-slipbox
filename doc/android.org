@@ -407,6 +407,15 @@ reachable; the current production build presents Library, repository Connection
 and Source Settings, source-bound Reader, and About. Connection is temporary
 context, not permanent instructional content on Library.
 
+A finger tap on an internal note or glossary link raises a bounded native preview
+instead of committing navigation. The excerpt is read through the open reader's
+source-generation session and rendered by the same document bundle, including
+math; opening it uses that already-resolved target and records the originating
+viewport. Back, the scrim and the single text dismissal action close the sheet,
+return focus to the exact link and retain its scroll position. Cursor and
+keyboard activation keep their ordinary follow behavior, and no long-press
+recognizer competes with WebView text selection or copy.
+
 * Synchronization And Freshness
 
 ** Git Is The Protocol
