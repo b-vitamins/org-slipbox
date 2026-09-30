@@ -12,6 +12,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import io.github.b_vitamins.slipbox.engine.GenerationBinding
+import io.github.b_vitamins.slipbox.engine.NodeRecord
 
 /** Ready generations bind new/restored routes; existing entries keep their binding. */
 internal fun interface SourceGenerations {
@@ -28,6 +29,7 @@ internal class SlipboxBackStack(
     restored: List<SlipboxRoute>,
     private val availability: DestinationAvailability,
     private val generations: SourceGenerations,
+    private val trails: ReadingTrailSink = ReadingTrailSink.None,
 ) {
     private val routes = mutableStateListOf(SlipboxRoute.Start).apply {
         for (route in restored) appendRoute(route)
@@ -43,6 +45,7 @@ internal class SlipboxBackStack(
         if (!attached) return false
         val bound = bindRoute(route, availability, generations) ?: return false
         routes.appendRoute(bound)
+        (bound as? SlipboxRoute.Reader)?.let { persist(it.note.binding.source) }
         return true
     }
 
@@ -50,10 +53,26 @@ internal class SlipboxBackStack(
     fun rememberReadingPlace(origin: SlipboxRoute.Reader, anchor: ReadingAnchor): Boolean {
         if (!attached || !anchor.isCanonical()) return false
         val presented = routes.lastOrNull() as? SlipboxRoute.Reader ?: return false
-        if (presented.place != origin.place || presented.note.binding != origin.note.binding) {
+        if (!presented.samePlace(origin) || presented.note.binding != origin.note.binding) {
             return false
         }
+        if (presented.anchor == anchor) return true
         routes[routes.lastIndex] = presented.copy(anchor = anchor)
+        persist(presented.note.binding.source)
+        return true
+    }
+
+    /** Replace a restored hint with the identity answered by the current generation. */
+    fun reconcileReadingNote(origin: SlipboxRoute.Reader, resolved: NodeRecord): Boolean {
+        if (!attached) return false
+        val presented = routes.lastOrNull() as? SlipboxRoute.Reader ?: return false
+        if (!presented.samePlace(origin) || presented.note.binding != origin.note.binding) {
+            return false
+        }
+        val note = presented.note.resolvedBy(resolved)
+        if (note == presented.note) return true
+        routes[routes.lastIndex] = presented.copy(note = note)
+        persist(note.binding.source)
         return true
     }
 
@@ -74,25 +93,33 @@ internal class SlipboxBackStack(
 
         val existing =
             routes.indexOfLast { route ->
-                route.place == target.place && route.reads == target.reads
+                route.samePlace(target) && route.reads == target.reads
             }
         if (existing >= 0) {
             while (routes.lastIndex > existing) routes.removeAt(routes.lastIndex)
         } else {
             routes.add(target)
         }
+        persist(origin.note.binding.source)
         return true
     }
 
     fun back(): Boolean {
         if (!attached || routes.size <= 1) return false
-        routes.removeAt(routes.lastIndex)
+        val removed = routes.removeAt(routes.lastIndex)
+        (removed as? SlipboxRoute.Reader)?.let { persist(it.note.binding.source) }
         return true
     }
 
     /** Drop reads and unbound search state that belonged to the prior active source. */
     fun switchSource(to: GenerationBinding): Boolean {
         if (!attached || !to.isCanonical()) return false
+        routes
+            .filterIsInstance<SlipboxRoute.Reader>()
+            .map { it.note.binding.source }
+            .filter { it != to.source }
+            .distinct()
+            .forEach(::persist)
         var changed = false
         for (index in routes.indices) {
             val entry = routes[index]
@@ -124,13 +151,27 @@ internal class SlipboxBackStack(
                 }
             }
         }
-        return routes.retainAll { entry ->
+        val removed = routes.retainAll { entry ->
             !entry.names(source) || (keepSettings && entry is SlipboxRoute.SourceSettings)
-        } || changed
+        }
+        if (removed) trails.save(source, emptyList())
+        return removed || changed
     }
 
     internal fun detach() {
+        routes
+            .filterIsInstance<SlipboxRoute.Reader>()
+            .map { it.note.binding.source }
+            .distinct()
+            .forEach(::persist)
         attached = false
+    }
+
+    private fun persist(source: String) {
+        trails.save(
+            source,
+            routes.filterIsInstance<SlipboxRoute.Reader>().filter { it.note.binding.source == source },
+        )
     }
 }
 
@@ -139,6 +180,8 @@ internal class SlipboxBackStack(
 internal fun rememberSlipboxBackStack(
     availability: DestinationAvailability,
     generations: SourceGenerations = SourceGenerations.None,
+    restored: List<SlipboxRoute> = emptyList(),
+    trails: ReadingTrailSink = ReadingTrailSink.None,
 ): SlipboxBackStack {
     val backStack = rememberSaveable(
         saver = listSaver<SlipboxBackStack, String>(
@@ -148,11 +191,17 @@ internal fun rememberSlipboxBackStack(
                     restored = restoreRoutes(it, availability, generations),
                     availability = availability,
                     generations = generations,
+                    trails = trails,
                 )
             },
         ),
     ) {
-        SlipboxBackStack(emptyList(), availability, generations)
+        SlipboxBackStack(
+            restoreRoutes(saveRoutes(restored), availability, generations),
+            availability,
+            generations,
+            trails,
+        )
     }
     DisposableEffect(backStack) { onDispose(backStack::detach) }
     return backStack

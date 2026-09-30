@@ -76,37 +76,83 @@ private data class RaisedIntent(
     val gesture: String? = null,
     val progress: Float? = null,
     val origin: String? = null,
+    val position: RaisedPosition? = null,
 )
 
-private fun RaisedIntent.intent(token: String): DocumentIntent? =
-    when (verb) {
+@Serializable
+private data class RaisedPosition(
+    val mark: String = "",
+    val progress: Float,
+    val offset: Float = 0f,
+)
+
+private fun RaisedIntent.intent(token: String): DocumentIntent? {
+    val readingPosition = position?.valid()
+    if (position != null && readingPosition == null) return null
+    return when (verb) {
         "glance" -> {
             val asked = DocumentGesture.of(gesture)
             val target = link?.link()
             val position = progress?.takeIf { it.isFinite() && it in 0f..1f }
             val raisedFrom = origin?.validOrigin(token)
-            if (asked == null || target == null || position == null || raisedFrom == null) {
+            if (asked == null ||
+                target == null ||
+                position == null ||
+                raisedFrom == null ||
+                !position.matches(readingPosition)
+            ) {
                 null
             } else {
-                DocumentIntent.Glance(target, asked, position, raisedFrom)
+                DocumentIntent.Glance(target, asked, position, raisedFrom, readingPosition)
             }
         }
         "pin" ->
             link?.link()
                 ?.takeIf { gesture == null && origin == null }
-                ?.let { target -> progress?.valid()?.let { DocumentIntent.Pin(target, it) } }
+                ?.let { target ->
+                    progress
+                        ?.valid()
+                        ?.takeIf { it.matches(readingPosition) }
+                        ?.let { DocumentIntent.Pin(target, it, readingPosition) }
+                }
         "go" ->
             link?.link()
                 ?.takeIf { gesture == null && origin == null }
-                ?.let { target -> progress?.valid()?.let { DocumentIntent.Go(target, it) } }
+                ?.let { target ->
+                    progress
+                        ?.valid()
+                        ?.takeIf { it.matches(readingPosition) }
+                        ?.let { DocumentIntent.Go(target, it, readingPosition) }
+                }
+        "position" ->
+            readingPosition?.let(DocumentIntent::Position).takeIf {
+                link == null && gesture == null && progress == null && origin == null
+            }
         "dismiss" ->
             DocumentIntent.Dismiss.takeIf {
-                link == null && gesture == null && progress == null && origin == null
+                link == null &&
+                    gesture == null &&
+                    progress == null &&
+                    origin == null &&
+                    position == null
             }
         else -> null
     }
+}
 
 private fun Float.valid(): Float? = takeIf { isFinite() && this in 0f..1f }
+
+private fun Float.matches(position: DocumentPosition?): Boolean =
+    position == null || position.progress == this
+
+private fun RaisedPosition.valid(): DocumentPosition? {
+    if (mark.length > MARK_LIMIT || mark.any(Char::isISOControl)) return null
+    return DocumentPosition(
+        mark = mark,
+        progress = progress.valid() ?: return null,
+        offset = offset.valid() ?: return null,
+    )
+}
 
 private fun String.validOrigin(token: String): String? {
     val prefix = "$token:"
@@ -123,3 +169,5 @@ private fun RaisedLink.link(): DocumentLink? {
 }
 
 private const val ORIGIN_LIMIT = 96
+
+private const val MARK_LIMIT = 128

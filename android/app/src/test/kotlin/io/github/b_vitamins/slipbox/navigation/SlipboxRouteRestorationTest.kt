@@ -150,7 +150,7 @@ class SlipboxRouteRestorationTest {
         val restored = restore(saved, generations = ready(ALPHA to "g9")).single()
         assertEquals(bind(ALPHA, "g9"), restored.reads)
         assertEquals(ReadingAnchor("h2", 0.5f), (restored as SlipboxRoute.Reader).anchor)
-        assertEquals("$ALPHA:reading_reference:note-1", restored.note.reference)
+        assertEquals("$ALPHA:reading_key:note-1", restored.note.reference)
     }
 
     @Test

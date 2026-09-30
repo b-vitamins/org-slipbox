@@ -45,7 +45,16 @@ internal fun bindRoute(
 }
 
 internal fun MutableList<SlipboxRoute>.appendRoute(route: SlipboxRoute) {
-    if (isNotEmpty() && last().place == route.place) set(lastIndex, route) else add(route)
+    if (isNotEmpty() && last().samePlace(route)) set(lastIndex, route) else add(route)
+}
+
+internal fun SlipboxRoute.samePlace(other: SlipboxRoute): Boolean {
+    if (this is SlipboxRoute.Reader && other is SlipboxRoute.Reader) {
+        if (note.binding.source != other.note.binding.source) return false
+        return note.nodeKey == other.note.nodeKey ||
+            (note.explicitId != null && note.explicitId == other.note.explicitId)
+    }
+    return place == other.place
 }
 
 private fun decodeRoute(saved: String): SlipboxRoute? =

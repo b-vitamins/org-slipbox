@@ -14,6 +14,7 @@ mod links;
 mod nodes;
 mod occurrences;
 mod packs;
+mod reading;
 mod refs;
 mod reviews;
 mod schema;

@@ -10,7 +10,6 @@ import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -30,6 +29,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -46,7 +46,7 @@ class DocumentMountTest {
 
     private var mounted by mutableStateOf(true)
     private var dark by mutableStateOf(false)
-    private var initialProgress by mutableFloatStateOf(0f)
+    private var initialPosition by mutableStateOf(DocumentPosition())
     private var source by
         mutableStateOf(
             DocumentSource(
@@ -64,7 +64,7 @@ class DocumentMountTest {
             if (mounted) {
                 DocumentContentView(
                     source = source,
-                    initialProgress = initialProgress,
+                    initialPosition = initialPosition,
                     presentation =
                         documentPresentation(
                             density = LocalDensity.current,
@@ -90,6 +90,9 @@ class DocumentMountTest {
         assertNotEquals("the reader put focus on a link", "none", focused)
         val place = view.number("window.scrollY")
         val token = view.mountToken()
+        val position = raised.awaited(1).filterIsInstance<DocumentIntent.Position>().lastOrNull()
+        assertTrue("scrolling reported a stable reading block", position?.position?.mark?.isNotEmpty() == true)
+        raised.forget()
 
         repaint(view, dark = true)
 
@@ -159,7 +162,7 @@ class DocumentMountTest {
         val view = shown()
         val token = view.mountToken()
         composeRule.runOnIdle {
-            initialProgress = 0.6f
+            initialPosition = DocumentPosition(progress = 0.6f)
             source = source.copy(generation = "2")
         }
         composeRule.waitForIdle()
@@ -170,10 +173,43 @@ class DocumentMountTest {
         )
         val restored = view.number(NORMALIZED_SCROLL)
 
-        composeRule.runOnIdle { initialProgress = 0.1f }
+        composeRule.runOnIdle { initialPosition = DocumentPosition(progress = 0.1f) }
         composeRule.waitForIdle()
 
         assertEquals("recomposition did not jump the live document", restored, view.number(NORMALIZED_SCROLL), 0.02)
+    }
+
+    @Test
+    fun aChangedDocumentRestoresAnUnchangedReadingBlockBeforeItsViewportFallback() {
+        val view = shown()
+        view.answer("window.scrollTo(0, 900);")
+        view.awaitTrue("the reader went down the note", "window.scrollY >= 899")
+        val saved =
+            raised
+                .awaited(1)
+                .filterIsInstance<DocumentIntent.Position>()
+                .last()
+                .position
+        assertTrue(saved.mark.isNotEmpty())
+        raised.forget()
+
+        composeRule.runOnIdle {
+            initialPosition = saved
+            source =
+                source.copy(
+                    generation = "2",
+                    org = "* A newly inserted preface\n\nNew opening material.\n\n${source.org}",
+                )
+        }
+        composeRule.waitForIdle()
+
+        val restored =
+            raised
+                .awaited(1)
+                .filterIsInstance<DocumentIntent.Position>()
+                .last()
+                .position
+        assertEquals("the unchanged rendered block was restored", saved.mark, restored.mark)
     }
 
     @Test

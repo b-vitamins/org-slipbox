@@ -271,6 +271,19 @@ impl Database {
     }
 
     pub fn note_by_key(&self, node_key: &str) -> Result<Option<NodeRecord>> {
+        if let Some(note) = self.note_by_exact_key(node_key)? {
+            return Ok(Some(note));
+        }
+        let Some(previous_path) = node_key.strip_prefix("file:") else {
+            return Ok(None);
+        };
+        let Some(current_path) = self.current_reading_file_path(previous_path)? else {
+            return Ok(None);
+        };
+        self.note_by_exact_key(&format!("file:{current_path}"))
+    }
+
+    fn note_by_exact_key(&self, node_key: &str) -> Result<Option<NodeRecord>> {
         let sql = format!(
             "SELECT {}
                FROM nodes AS n

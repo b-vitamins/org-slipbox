@@ -81,7 +81,10 @@ class DocumentPayloadTest {
         assertEquals(mount.source.id, source?.get("id")?.jsonPrimitive?.content)
         assertEquals(mount.source.generation, source?.get("generation")?.jsonPrimitive?.content)
         assertEquals("2", source?.get("baseLevel")?.jsonPrimitive?.content)
-        assertEquals("0.375", payload["initialProgress"]?.jsonPrimitive?.content)
+        val position = payload["initialPosition"]?.jsonObject
+        assertEquals("8ea203f1:0", position?.get("mark")?.jsonPrimitive?.content)
+        assertEquals("0.375", position?.get("progress")?.jsonPrimitive?.content)
+        assertEquals("0.25", position?.get("offset")?.jsonPrimitive?.content)
     }
 
     @Test
@@ -112,7 +115,7 @@ class DocumentPayloadTest {
                     filePath = "notes/note-1.org",
                     org = source,
                 ),
-            initialProgress = 0.375f,
+            initialPosition = DocumentPosition("8ea203f1:0", 0.375f, 0.25f),
         )
 
     private fun presentation(dark: Boolean = false, fontScale: Float = 1f): DocumentPresentation =

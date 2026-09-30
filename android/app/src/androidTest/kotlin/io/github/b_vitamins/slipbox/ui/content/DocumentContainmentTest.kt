@@ -147,11 +147,9 @@ class DocumentContainmentTest {
             0.0,
         )
         assertEquals("while the bundle it loaded was served", 200.0, view.number(status("host.js")), 0.0)
-        assertEquals(
-            "the external page was reported without navigating the view",
-            listOf(DocumentIntent.Go(EXTERNAL)),
-            raised.reported(),
-        )
+        val external = raised.reported().single() as DocumentIntent.Go
+        assertEquals("the external page was reported without navigating the view", EXTERNAL, external.link)
+        assertTrue("the handoff retains its reading block", external.position?.mark?.isNotEmpty() == true)
         assertTrue("and no asset was asked for", store.asks().isEmpty())
         Evidence.record(
             "content-navigation",

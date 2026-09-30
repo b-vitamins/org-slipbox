@@ -52,7 +52,7 @@ the shared renderer's untrusted KaTeX options and semantic MathML output.
 DocumentContentView(
     source = DocumentSource(source, generation, id, filePath, org, baseLevel = 2),
     presentation = presentation,
-    initialProgress = restoredProgress,
+    initialPosition = DocumentPosition(mark, restoredProgress, blockOffset),
     restoreFocus = dismissedPreviewOrigin,
     onIntent = { intent -> /* application navigation */ },
     resolveAsset = DocumentAssetResolver { binding, target -> /* bytes or null */ },
@@ -65,12 +65,13 @@ view issues its own opaque mount token. Any source-field change retires that
 token; presentation-only changes retain it. Callback and resolver replacements
 use their latest values without rebuilding the view.
 
-| Intent    | Payload                         | Caller action                 |
-|-----------+---------------------------------+-------------------------------|
-| =Glance=  | link, gesture, viewport, origin | open a contextual preview     |
-| =Pin=     | link and viewport               | open beside its origin        |
-| =Go=      | link and viewport               | open as a fresh root          |
-| =Dismiss= | none                            | withdraw the standing preview |
+| Intent     | Payload                                  | Caller action                 |
+|------------+------------------------------------------+-------------------------------|
+| =Position= | block mark, relative offset and viewport | retain the live reading place |
+| =Glance=   | link, gesture, position, origin          | open a contextual preview     |
+| =Pin=      | link and position                        | open beside its origin        |
+| =Go=       | link and position                        | open as a fresh root          |
+| =Dismiss=  | none                                     | withdraw the standing preview |
 
 The =slipboxDocument= message channel validates origin, main frame, live token
 and payload shape before delivering an intent. Unknown fields, verbs and
@@ -125,9 +126,12 @@ The host applies its CSS variables and fixes =textZoom= at 100: Android font
 scaling is already incorporated, including nonlinear large-text scaling.
 Presentation updates preserve document nodes, scroll, focus and previews.
 Source changes use the renderer's =update= contract and withdraw old previews.
-One normalized =initialProgress= is applied after a new mount lays out; later
-recomposition of that live mount never reapplies it. Link intents snapshot the
-current normalized viewport so native Back can restore the origin.
+One initial reading position is applied after a new mount lays out. An unchanged
+rendered block is found by a bounded content mark and restored at its relative
+offset; changed or missing blocks fall back to the normalized document
+viewport. Later recomposition of that live mount never reapplies it. Scroll and
+link intents snapshot both forms so native Back and process restoration can
+return to a useful origin without putting state in Org.
 Disposal retires the token, invokes renderer teardown and destroys the WebView;
 the caller withdraws its own preview when removing the content view.
 

@@ -13,11 +13,18 @@ import java.util.Locale
 internal data class DocumentMount(
     val token: String,
     val source: DocumentSource,
-    val initialProgress: Float = 0f,
+    val initialPosition: DocumentPosition = DocumentPosition(),
 ) {
     init {
-        require(initialProgress.isFinite() && initialProgress in 0f..1f) {
-            "document progress must be finite and between zero and one"
+        require(
+            initialPosition.mark.length <= 1024 &&
+                initialPosition.mark.none(Char::isISOControl) &&
+                initialPosition.progress.isFinite() &&
+                initialPosition.progress in 0f..1f &&
+                initialPosition.offset.isFinite() &&
+                initialPosition.offset in 0f..1f,
+        ) {
+            "document position must be canonical"
         }
     }
 
@@ -52,7 +59,10 @@ internal object DocumentPayload {
             appendQuoted(mount.source.org)
             append(",\"baseLevel\":").append(mount.source.baseLevel)
             append("},\"presentation\":").append(presentation.toJson())
-            append(",\"initialProgress\":").append(mount.initialProgress)
+            append(",\"initialPosition\":{\"mark\":")
+            appendQuoted(mount.initialPosition.mark)
+            append(",\"progress\":").append(mount.initialPosition.progress)
+            append(",\"offset\":").append(mount.initialPosition.offset).append('}')
             append(",\"assetBase\":")
             appendQuoted(DocumentOrigin.assetBase(mount.token))
             append('}')

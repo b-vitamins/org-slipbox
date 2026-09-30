@@ -34,7 +34,7 @@ class SlipboxRouteTest {
     fun aReadingReferenceNamesTheSourceAndKeyAndNotTheGeneration() {
         val first = note(ALPHA, "note-1", generation = "2026-09-14T10-15-00")
         val rebuilt = note(ALPHA, "note-1", generation = "2026-09-14T18-40-00")
-        assertEquals("$ALPHA:reading_reference:note-1", first.note.reference)
+        assertEquals("$ALPHA:reading_key:note-1", first.note.reference)
         assertEquals(first.note.reference, rebuilt.note.reference)
         assertEquals(first.place, rebuilt.place)
         assertNotEquals(first.reads, rebuilt.reads)

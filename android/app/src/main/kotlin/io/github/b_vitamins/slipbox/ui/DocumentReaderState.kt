@@ -29,6 +29,7 @@ import io.github.b_vitamins.slipbox.sources.ReadySource
 import io.github.b_vitamins.slipbox.ui.content.AttachmentOpenResult
 import io.github.b_vitamins.slipbox.ui.content.DocumentFocusRequest
 import io.github.b_vitamins.slipbox.ui.content.DocumentGesture
+import io.github.b_vitamins.slipbox.ui.content.DocumentPosition
 import io.github.b_vitamins.slipbox.ui.content.DocumentSource
 import io.github.b_vitamins.slipbox.ui.content.ReaderAttachment
 import java.util.concurrent.atomic.AtomicBoolean
@@ -84,6 +85,7 @@ internal data class ReaderPreviewRequest(
     val gesture: DocumentGesture,
     val originProgress: Float,
     val origin: String,
+    val originPosition: DocumentPosition? = null,
 )
 
 internal data class ReaderPreview(
@@ -107,6 +109,10 @@ internal interface BoundDocumentSource : AutoCloseable {
     val maxLines: Int
 
     fun read(nodeKey: String, maxLines: Int = this.maxLines): ReadNodeSourceResult
+
+    fun findById(id: String): NodeRecord? = null
+
+    fun findByKey(nodeKey: String): NodeRecord? = null
 
     fun resolve(sourceNodeKey: String, target: String): DocumentLinkResolution
 }
@@ -141,6 +147,14 @@ private object NativeBoundDocumentSourceFactory : BoundDocumentSourceFactory {
                         )
                     return (session.answer(operation).await() as EngineAnswer.ReadNodeSource).result
                 }
+
+                override fun findById(id: String): NodeRecord? =
+                    (session.answer(ReadOperation.NodeFromId(id)).await() as EngineAnswer.NodeFromId)
+                        .result
+
+                override fun findByKey(nodeKey: String): NodeRecord? =
+                    (session.answer(ReadOperation.NodeFromKey(nodeKey)).await() as EngineAnswer.NodeFromKey)
+                        .result
 
                 override fun resolve(
                     sourceNodeKey: String,
@@ -201,14 +215,15 @@ internal class DocumentReaderState(
 
     /** Resolve against this reader's exact source generation, never the later active source. */
     fun follow(target: String, completed: (DocumentLinkResolution) -> Unit) {
-        if (!live.get() || phase !is DocumentReaderPhase.Ready) return
+        val origin = (phase as? DocumentReaderPhase.Ready)?.document?.anchor?.nodeKey ?: return
+        if (!live.get()) return
         val serial = linkRequests.incrementAndGet()
         previewPhase = ReaderPreviewPhase.Hidden
         linkPhase = ReaderLinkPhase.Resolving
         Thread(
                 {
                     val outcome = runCatching {
-                        checkNotNull(opened.get()).resolve(note.nodeKey, target)
+                        checkNotNull(opened.get()).resolve(origin, target)
                     }
                     delivery.post {
                         if (!live.get() || linkRequests.get() != serial) return@post
@@ -289,10 +304,12 @@ internal class DocumentReaderState(
         gesture: DocumentGesture,
         originProgress: Float,
         origin: String,
+        originPosition: DocumentPosition? = null,
         onExternal: (DocumentLinkResolution.External) -> Boolean = { false },
     ) {
-        if (!live.get() || phase !is DocumentReaderPhase.Ready) return
-        val request = ReaderPreviewRequest(target, gesture, originProgress, origin)
+        val sourceNodeKey = (phase as? DocumentReaderPhase.Ready)?.document?.anchor?.nodeKey ?: return
+        if (!live.get()) return
+        val request = ReaderPreviewRequest(target, gesture, originProgress, origin, originPosition)
         val serial = linkRequests.incrementAndGet()
         linkPhase = ReaderLinkPhase.Idle
         previewPhase = ReaderPreviewPhase.Loading(request)
@@ -300,7 +317,7 @@ internal class DocumentReaderState(
                 {
                     val outcome = runCatching {
                         val selected = checkNotNull(opened.get())
-                        when (val resolution = selected.resolve(note.nodeKey, target)) {
+                        when (val resolution = selected.resolve(sourceNodeKey, target)) {
                             is DocumentLinkResolution.Note -> {
                                 val answer = selected.read(resolution.nodeKey, PREVIEW_MAX_LINES)
                                 validatePreview(resolution.nodeKey, answer)
@@ -367,7 +384,15 @@ internal class DocumentReaderState(
                             source.close()
                         }
                         val selected = checkNotNull(opened.get())
-                        selected.read(note.nodeKey).also(::validate)
+                        val resolved =
+                            if (note.explicitId != null) {
+                                selected.findById(note.explicitId)
+                                    ?: throw MissingStableDocumentIdentity()
+                            } else {
+                                selected.findByKey(note.nodeKey)
+                            }
+                        val nodeKey = resolved?.nodeKey ?: note.nodeKey
+                        selected.read(nodeKey).also { validate(nodeKey, it) }
                     }
                     delivery.post {
                         if (!live.get() || requests.get() != serial) return@post
@@ -382,8 +407,8 @@ internal class DocumentReaderState(
             }
     }
 
-    private fun validate(answer: ReadNodeSourceResult) {
-        require(answer.anchor.nodeKey == note.nodeKey)
+    private fun validate(nodeKey: String, answer: ReadNodeSourceResult) {
+        require(answer.anchor.nodeKey == nodeKey)
         require(answer.source.filePath == answer.anchor.filePath)
         require(answer.source.startLine == answer.nodeStartLine)
         require(
@@ -475,7 +500,7 @@ internal class DocumentReaderState(
                     DocumentSource(
                         source = note.binding.source,
                         generation = note.binding.generation,
-                        id = note.nodeKey,
+                        id = answer.anchor.nodeKey,
                         filePath = answer.anchor.filePath,
                         org = answer.source.content,
                     ),
@@ -484,6 +509,8 @@ internal class DocumentReaderState(
 
     private fun failed(failure: Throwable): DocumentReaderPhase =
         when {
+            failure is MissingStableDocumentIdentity -> DocumentReaderPhase.NotFound
+
             failure is EngineRefusedException &&
                 failure.refusal.reason == RefusalReason.ENGINE_REFUSED &&
                 failure.refusal.engine?.kind == EngineRefusalKind.NOT_FOUND ->
@@ -501,6 +528,8 @@ internal class DocumentReaderState(
 
             else -> DocumentReaderPhase.Failed
         }
+
+    private class MissingStableDocumentIdentity : Exception()
 
     override fun close() {
         if (!live.compareAndSet(true, false)) return
@@ -539,7 +568,7 @@ internal fun rememberDocumentReaderState(
     ready: ReadySource,
 ): DocumentReaderState {
     val state =
-        remember(note, ready.binding, ready.contentRoot, ready.database) {
+        remember(note.reference, ready.binding, ready.contentRoot, ready.database) {
             DocumentReaderState(note, ready)
         }
     DisposableEffect(state) { onDispose(state::close) }

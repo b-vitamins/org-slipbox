@@ -36,6 +36,22 @@ class DocumentChannelTest {
             DocumentIntent.Dismiss,
             raised("""{"token":"$TOKEN","verb":"dismiss","link":null,"gesture":null}"""),
         )
+        assertEquals(
+            DocumentIntent.Position(DocumentPosition("8ea203f1:0", 0.625f, 0.2f)),
+            raised(
+                """{"token":"$TOKEN","verb":"position","position":{"mark":"8ea203f1:0","progress":0.625,"offset":0.2}}""",
+            ),
+        )
+        assertEquals(
+            DocumentIntent.Go(
+                FILE_LINK,
+                0.75f,
+                DocumentPosition("f148a221:1", 0.75f, 0.4f),
+            ),
+            raised(
+                """{"token":"$TOKEN","verb":"go","link":$FILE_LINK_JSON,"progress":0.75,"position":{"mark":"f148a221:1","progress":0.75,"offset":0.4}}""",
+            ),
+        )
     }
 
     @Test
@@ -111,6 +127,12 @@ class DocumentChannelTest {
                 """{"token":"$TOKEN","verb":"pin","link":$ID_LINK_JSON,"progress":null}""",
                 """{"token":"$TOKEN","verb":"dismiss","link":$ID_LINK_JSON}""",
                 """{"token":"$TOKEN","verb":"dismiss","gesture":"touch"}""",
+                """{"token":"$TOKEN","verb":"position"}""",
+                """{"token":"$TOKEN","verb":"position","progress":0.5,"position":{"progress":0.5}}""",
+                """{"token":"$TOKEN","verb":"position","position":{"mark":"a","progress":-0.1}}""",
+                """{"token":"$TOKEN","verb":"position","position":{"mark":"a","progress":0.5,"offset":1.1}}""",
+                """{"token":"$TOKEN","verb":"go","link":$FILE_LINK_JSON,"progress":0.5,"position":{"progress":0.6}}""",
+                """{"token":"$TOKEN","verb":"dismiss","position":{"progress":0.5}}""",
             )
         for (message in malformed) {
             assertEquals("$message was carried", DocumentRefusal.Shape, refusal(message))

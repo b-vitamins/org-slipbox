@@ -33,10 +33,12 @@ import androidx.compose.ui.unit.dp
 import io.github.b_vitamins.slipbox.R
 import io.github.b_vitamins.slipbox.engine.NodeKind
 import io.github.b_vitamins.slipbox.engine.NodeRecord
+import io.github.b_vitamins.slipbox.navigation.ReadingAnchor
 import io.github.b_vitamins.slipbox.ui.content.DocumentAssetResolver
 import io.github.b_vitamins.slipbox.ui.content.DocumentContentView
 import io.github.b_vitamins.slipbox.ui.content.DocumentFocusRequest
 import io.github.b_vitamins.slipbox.ui.content.DocumentIntent
+import io.github.b_vitamins.slipbox.ui.content.DocumentPosition
 import io.github.b_vitamins.slipbox.ui.document.rememberDocumentPresentation
 import io.github.b_vitamins.slipbox.ui.settings.ReadingSettings
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxDimensions
@@ -57,7 +59,7 @@ internal fun ReaderScreen(
     linkPhase: ReaderLinkPhase = ReaderLinkPhase.Idle,
     previewPhase: ReaderPreviewPhase = ReaderPreviewPhase.Hidden,
     focusRequest: DocumentFocusRequest? = null,
-    initialProgress: Float = 0f,
+    initialAnchor: ReadingAnchor = ReadingAnchor.Start,
     onIntent: (DocumentIntent) -> Unit = {},
     resolveAsset: DocumentAssetResolver = NoReaderAssets,
     onDismissPreview: () -> Unit = {},
@@ -177,7 +179,12 @@ internal fun ReaderScreen(
                     DocumentContentView(
                         source = phase.document.source,
                         presentation = presentation,
-                        initialProgress = initialProgress,
+                        initialPosition =
+                            DocumentPosition(
+                                mark = initialAnchor.mark,
+                                progress = initialAnchor.progress,
+                                offset = initialAnchor.offset,
+                            ),
                         restoreFocus = deliveredFocus,
                         modifier =
                             Modifier

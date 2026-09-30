@@ -33,6 +33,7 @@ const MAX_STAGED_INDEX_MANIFEST_BYTES: u64 = 64 * 1024;
 pub struct StageIndexRequest {
     snapshot: SnapshotOutcome,
     delta: DeltaOutcome,
+    reading_renames: Vec<(String, String)>,
     base: Option<PathBuf>,
     destination: PathBuf,
 }
@@ -68,12 +69,22 @@ impl StageIndexRequest {
         {
             return Err(StageIndexError::RequestRefused);
         }
+        let reading_renames = reading_renames(&delta);
         Ok(Self {
             snapshot,
             delta,
+            reading_renames,
             base,
             destination,
         })
+    }
+
+    /// Preserve proven moves from the incremental comparison when a schema
+    /// rebuild replaces the indexing delta with an initial inventory.
+    #[must_use]
+    pub(crate) fn with_reading_renames(mut self, delta: &DeltaOutcome) -> Self {
+        self.reading_renames = reading_renames(delta);
+        self
     }
 
     #[must_use]
@@ -110,6 +121,7 @@ pub struct StagedIndexOutcome {
     pub stats: IndexStats,
     pub parsed_org_files: u64,
     pub removed_file_paths: u64,
+    pub reading_file_renames: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -165,6 +177,8 @@ struct StagedIndexManifest {
     stats: IndexStats,
     parsed_org_files: u64,
     removed_file_paths: u64,
+    #[serde(default)]
+    reading_file_renames: u64,
 }
 
 #[derive(Debug)]
@@ -274,6 +288,9 @@ pub fn stage_index(
     database
         .sync_file_indexes(&parsed)
         .map_err(|_| StageIndexError::IndexFailed)?;
+    database
+        .record_reading_file_renames(&request.reading_renames)
+        .map_err(|_| StageIndexError::IndexFailed)?;
     check_cancelled(cancelled)?;
     progress(StageIndexProgress {
         stage: StageIndexProgressStage::Verifying,
@@ -298,6 +315,7 @@ pub fn stage_index(
         stats,
         parsed_org_files: plan.parse.len() as u64,
         removed_file_paths: plan.remove.len() as u64,
+        reading_file_renames: request.reading_renames.len() as u64,
     };
     write_manifest(staging.path(), &manifest)?;
     check_cancelled(cancelled)?;
@@ -437,6 +455,7 @@ fn outcome_matches_request(
         && outcome.index_schema == INDEX_SCHEMA_VERSION
         && outcome.parsed_org_files == plan.parse.len() as u64
         && outcome.removed_file_paths == plan.remove.len() as u64
+        && outcome.reading_file_renames == request.reading_renames.len() as u64
 }
 
 fn outcome_from_manifest(
@@ -455,7 +474,17 @@ fn outcome_from_manifest(
         stats: manifest.stats,
         parsed_org_files: manifest.parsed_org_files,
         removed_file_paths: manifest.removed_file_paths,
+        reading_file_renames: manifest.reading_file_renames,
     }
+}
+
+fn reading_renames(delta: &DeltaOutcome) -> Vec<(String, String)> {
+    delta
+        .renamed
+        .iter()
+        .filter(|rename| rename.kind == DeltaFileKind::Org)
+        .map(|rename| (rename.from.clone(), rename.to.clone()))
+        .collect()
 }
 
 fn read_manifest(directory: &Path) -> Result<StagedIndexManifest, StageIndexError> {

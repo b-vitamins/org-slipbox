@@ -74,6 +74,10 @@ Moving points to [[id:beta-id][Beta]].
 Stable points to [[id:alpha-id][Alpha]].
 "#,
     )?;
+    fixture.write(
+        "notes/trail.org",
+        "#+title: Reading trail\n\nStable prose.\n",
+    )?;
     fixture.write_bytes("assets/old.png", b"image bytes")?;
     let previous = fixture.commit_all("initial corpus")?;
     let previous_snapshot = fixture.snapshot(&previous, "snapshot-previous")?;
@@ -126,6 +130,7 @@ Gamma points to [[id:alpha-id][Alpha revised]].
 "#,
     )?;
     fixture.rename("assets/old.png", "assets/new.png")?;
+    fixture.rename("notes/trail.org", "notes/trail-moved.org")?;
     let revision = fixture.commit_all("mixed repository delta")?;
     let incremental_snapshot = fixture.snapshot(&revision, "snapshot-incremental")?;
     let full_snapshot = fixture.snapshot(&revision, "snapshot-full")?;
@@ -144,8 +149,8 @@ Gamma points to [[id:alpha-id][Alpha revised]].
         "index-full",
     )?;
 
-    assert_eq!(incremental.parsed_org_files, 4);
-    assert_eq!(incremental.removed_file_paths, 2);
+    assert_eq!(incremental.parsed_org_files, 5);
+    assert_eq!(incremental.removed_file_paths, 3);
     assert_databases_equivalent(
         &incremental.database,
         &full.database,
@@ -153,6 +158,7 @@ Gamma points to [[id:alpha-id][Alpha revised]].
     )?;
 
     let database = Database::open(&incremental.database)?;
+    assert_eq!(incremental.reading_file_renames, 1);
     assert!(database.node_from_id("delete-id")?.is_none());
     assert!(database.file_record("notes/delete.org")?.is_none());
     assert!(database.file_record("notes/rename.org")?.is_none());
@@ -163,6 +169,13 @@ Gamma points to [[id:alpha-id][Alpha revised]].
             .file_path,
         "notes/moved.org"
     );
+    assert_eq!(
+        database
+            .note_by_key("file:notes/trail.org")?
+            .context("reading alias for renamed file note")?
+            .node_key,
+        "file:notes/trail-moved.org"
+    );
     assert!(
         database
             .search_nodes("obsolete vocabulary", 20, None)?
@@ -171,6 +184,66 @@ Gamma points to [[id:alpha-id][Alpha revised]].
     assert_eq!(
         database.search_occurrence_document_paths("granite", 20, 0)?,
         vec!["notes/beta.org"]
+    );
+    drop(database);
+
+    fixture.rename("notes/trail-moved.org", "notes/trail-final.org")?;
+    let chained_revision = fixture.commit_all("move the trail again")?;
+    let chained = fixture.stage(
+        fixture.snapshot(&chained_revision, "snapshot-chained")?,
+        fixture.delta(&revision, &chained_revision)?,
+        Some(
+            incremental
+                .database
+                .parent()
+                .context("incremental directory")?
+                .to_owned(),
+        ),
+        "index-chained",
+    )?;
+    let database = Database::open(&chained.database)?;
+    for previous in ["trail.org", "trail-moved.org"] {
+        assert_eq!(
+            database
+                .note_by_key(&format!("file:notes/{previous}"))?
+                .context("chained reading alias")?
+                .node_key,
+            "file:notes/trail-final.org"
+        );
+    }
+    drop(database);
+
+    fixture.write(
+        "notes/trail.org",
+        "#+title: Reused path\n\nDifferent note.\n",
+    )?;
+    let reused_revision = fixture.commit_all("reuse the original path")?;
+    let reused = fixture.stage(
+        fixture.snapshot(&reused_revision, "snapshot-reused")?,
+        fixture.delta(&chained_revision, &reused_revision)?,
+        Some(
+            chained
+                .database
+                .parent()
+                .context("chained directory")?
+                .to_owned(),
+        ),
+        "index-reused",
+    )?;
+    let database = Database::open(&reused.database)?;
+    assert_eq!(
+        database
+            .note_by_key("file:notes/trail.org")?
+            .context("current key wins over a reading alias")?
+            .title,
+        "Reused path"
+    );
+    assert_eq!(
+        database
+            .note_by_key("file:notes/trail-moved.org")?
+            .context("unreused alias retains the moved note")?
+            .node_key,
+        "file:notes/trail-final.org"
     );
     Ok(())
 }

@@ -185,7 +185,8 @@ loaded and rendered; corpus discovery remains the bounded Rust inventory above.
 ** Source-Bound Link Following
 
 The document renderer reports a link target verbatim together with the current
-normalized viewport position. The native reader asks Rust to resolve it through
+rendered-block mark, relative block offset and normalized viewport fallback.
+The native reader asks Rust to resolve it through
 the read session already bound to the document's source and generation. A later
 active-source change therefore cannot redirect an in-flight or historical link.
 Rust owns the supported grammar: Org IDs, indexed file and heading keys,
@@ -265,10 +266,14 @@ reader fetches, and nothing it does reaches the repository or the notes in it.
 | bookmarks, reading trails, reading preferences | the device | durable user reading state, separate from source configuration, credentials, and rebuildable caches |
 
 Device-owned reading state is not a second authoritative corpus and not an Org
-write. It refers to notes by key and source identity and holds no note content
-of its own, so it survives an index rebuild, a re-clone, and a fetch that
-rewrites history. What it can lose is a reference to a note the repository
-deleted, and that is reported as unavailable rather than silently dropped.
+write. A bounded trail lives under its source-owned no-backup root, outside
+replaceable index generations. It refers to notes by source identity and stable
+Org ID where one exists, otherwise by node key plus Rust's source-proven file
+rename hints, and holds no note content of its own. It therefore survives an
+index rebuild, a re-clone, and a fetch that rewrites history. Reopening binds
+the trail to the currently verified generation. A deleted stable identity is
+reported as unavailable rather than falling through to an unrelated note that
+later reused its path.
 
 Source configuration belongs to System. It is runtime configuration beside the
 root, the database, and the daemon, in the bucket that already owns those, not a
@@ -421,6 +426,14 @@ keys against an active source. Saved entries retain search and reading position;
 restoration binds them to the source's ready generation and drops unavailable
 entries independently. Source switches discard reads from other corpora; source
 removal also discards configuration entries naming it.
+
+The active source's bounded reader path is also saved outside Android instance
+state, so a cold process restores the same document and useful block-relative
+position offline. The trail is loaded before navigation consumes restored
+routes. Scroll changes are coalesced onto a background writer; index rebuilds
+never own or remove the file, while complete source removal removes its whole
+source root. The source identity is present in both the path and the strict
+payload, preventing an equal note key in another repository from being shown.
 
 One native history handles destination callbacks, system Back and predictive
 Back. Presented sheets dismiss before the destination; cancelled gestures leave

@@ -24,7 +24,8 @@ class SlipboxBackStackTest {
         vararg restored: SlipboxRoute,
         available: SlipboxDestinations = everything,
         generations: SourceGenerations = ready(ALPHA to "g1", BETA to "g1"),
-    ) = SlipboxBackStack(restored.toList(), available, generations)
+        trails: ReadingTrailSink = ReadingTrailSink.None,
+    ) = SlipboxBackStack(restored.toList(), available, generations, trails)
 
     @Test
     fun aHistoryOfNothingBeginsInTheLibrary() {
@@ -66,6 +67,38 @@ class SlipboxBackStackTest {
         assertEquals(ReadingAnchor("figure-2", 0.5f), presented.anchor)
         assertTrue(stack.back())
         assertEquals(listOf(SlipboxRoute.Start), stack.entries)
+    }
+
+    @Test
+    fun livePositionsAndBackPersistOnlyTheSourceScopedReaderPath() {
+        val saved = mutableListOf<Pair<String, List<SlipboxRoute.Reader>>>()
+        val origin = note(ALPHA, "note-1")
+        val stack = history(origin, trails = ReadingTrailSink { source, routes -> saved += source to routes })
+
+        assertTrue(stack.rememberReadingPlace(origin, ReadingAnchor("block:0", 0.4f, 0.2f)))
+        assertEquals(ALPHA, saved.last().first)
+        assertEquals(ReadingAnchor("block:0", 0.4f, 0.2f), saved.last().second.single().anchor)
+
+        assertTrue(stack.back())
+        assertTrue(saved.last().second.isEmpty())
+    }
+
+    @Test
+    fun anExplicitIdentityPreventsAChangedKeyFromGrowingThePresentedPath() {
+        val first =
+            SlipboxRoute.Reader(
+                BoundNote(bind(ALPHA), "file:before.org", "stable-id", "before.org"),
+            )
+        val moved =
+            SlipboxRoute.Reader(
+                BoundNote(bind(ALPHA), "file:after.org", "stable-id", "after.org"),
+            )
+        val stack = history(first)
+
+        assertTrue(stack.open(moved))
+
+        assertEquals(2, stack.entries.size)
+        assertEquals("file:after.org", (stack.current as SlipboxRoute.Reader).note.nodeKey)
     }
 
     @Test

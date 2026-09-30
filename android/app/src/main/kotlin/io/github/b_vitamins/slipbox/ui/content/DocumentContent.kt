@@ -64,6 +64,14 @@ internal enum class DocumentGesture(val verb: String) {
     }
 }
 
+/** Stable rendered block plus bounded fallbacks for changed document geometry. */
+@Immutable
+internal data class DocumentPosition(
+    val mark: String = "",
+    val progress: Float = 0f,
+    val offset: Float = 0f,
+)
+
 /** Navigation requests only; the caller owns destinations and previews. */
 internal sealed interface DocumentIntent {
     data class Glance(
@@ -71,11 +79,22 @@ internal sealed interface DocumentIntent {
         val gesture: DocumentGesture,
         val progress: Float = 0f,
         val origin: String,
+        val position: DocumentPosition? = null,
     ) : DocumentIntent
 
-    data class Pin(val link: DocumentLink, val progress: Float = 0f) : DocumentIntent
+    data class Pin(
+        val link: DocumentLink,
+        val progress: Float = 0f,
+        val position: DocumentPosition? = null,
+    ) : DocumentIntent
 
-    data class Go(val link: DocumentLink, val progress: Float = 0f) : DocumentIntent
+    data class Go(
+        val link: DocumentLink,
+        val progress: Float = 0f,
+        val position: DocumentPosition? = null,
+    ) : DocumentIntent
+
+    data class Position(val position: DocumentPosition) : DocumentIntent
 
     data object Dismiss : DocumentIntent
 }

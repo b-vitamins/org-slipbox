@@ -82,7 +82,9 @@ class DocumentGestureTest {
     fun theKeyboardOpensALinkAndTheAppDecidesWhatItOpens() {
         view.answer(OPEN_LINK)
         val reported = raised.awaited(2)
-        assertEquals("the link the app is told to open", DocumentIntent.Pin(SETTLED), reported.last())
+        val opened = reported.last() as DocumentIntent.Pin
+        assertEquals("the link the app is told to open", SETTLED, opened.link)
+        assertTrue("the link carries its reading block", opened.position?.mark?.isNotEmpty() == true)
         assertTrue(
             "nothing else was raised but the withdrawal that precedes opening: $reported",
             reported.dropLast(1).all { it == DocumentIntent.Dismiss },
@@ -150,13 +152,16 @@ class DocumentGestureTest {
     fun orgAndExternalTargetsBothCrossTheTypedChannel() {
         view.answer("Array.from(document.querySelectorAll('#document a')).find(a => " +
             "a.textContent === 'the next note').click();")
-        val org = raised.awaited(2).last()
-        assertEquals(DocumentIntent.Pin(NEXT), org)
+        val org = raised.awaited(2).last() as DocumentIntent.Pin
+        assertEquals(NEXT, org.link)
+        assertTrue(org.position?.mark?.isNotEmpty() == true)
 
         raised.forget()
         view.answer("Array.from(document.querySelectorAll('#document a')).find(a => " +
             "a.textContent === 'the paper').click();")
-        assertEquals(DocumentIntent.Go(EXTERNAL), raised.awaited(1).single())
+        val external = raised.awaited(1).single() as DocumentIntent.Go
+        assertEquals(EXTERNAL, external.link)
+        assertTrue(external.position?.mark?.isNotEmpty() == true)
     }
 
     @Test

@@ -16,8 +16,10 @@ internal fun SlipboxNavigation(
     destinations: SlipboxDestinations,
     motion: SlipboxMotion,
     generations: SourceGenerations = SourceGenerations.None,
+    restored: List<SlipboxRoute> = emptyList(),
+    trails: ReadingTrailSink = ReadingTrailSink.None,
 ) {
-    val backStack = rememberSlipboxBackStack(destinations, generations)
+    val backStack = rememberSlipboxBackStack(destinations, generations, restored, trails)
     NavDisplay(
         backStack = backStack.entries,
         onBack = { backStack.back() },

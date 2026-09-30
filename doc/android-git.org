@@ -155,8 +155,9 @@ directory and renames it into its immutable destination only after SQLite
 verification, WAL checkpointing and completion-manifest persistence. The
 manifest binds format version 1, source identity, current and previous
 revisions, notes folder, index schema, final file/node/link counts, and the
-number of parsed and removed paths. Reopening a candidate verifies both the
-database and its recorded counts before accepting it.
+number of parsed, removed and source-proven renamed Org paths. Reopening a
+candidate verifies both the database and its recorded counts before accepting
+it.
 
 An initial import parses every Org path in the initial delta into a new current
 schema. A later import uses SQLite's online-backup API to copy the previous
@@ -166,6 +167,9 @@ file-syncs only added, modified and renamed-to Org paths from the new immutable
 snapshot. Asset-only changes advance the candidate revision without invoking
 the Org parser or modifying derived rows. Git has no file mtime, so repository
 index rows use a deterministic zero mtime and therefore match a clean rebuild.
+An Org rename also collapses earlier file-key aliases onto its current path.
+Exact current keys always win, and aliases whose target was deleted are removed,
+so a reading reference cannot drift onto a later, unrelated file.
 
 No file-level update calls whole-root prune logic. Failure or cancellation can
 only alter the temporary candidate; the completed base database and manifest

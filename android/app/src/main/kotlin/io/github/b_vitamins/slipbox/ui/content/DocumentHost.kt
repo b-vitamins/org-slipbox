@@ -55,7 +55,7 @@ internal class DocumentHost(
     fun present(
         source: DocumentSource,
         presentation: DocumentPresentation,
-        initialProgress: Float = 0f,
+        initialPosition: DocumentPosition = DocumentPosition(),
     ) {
         if (retired) {
             return
@@ -65,7 +65,7 @@ internal class DocumentHost(
             if (live != null && live.source == source) {
                 live
             } else {
-                DocumentMount(token(), source, initialProgress)
+                DocumentMount(token(), source, initialPosition)
             }
         mount = next
         view.setBackgroundColor(background(presentation.theme))

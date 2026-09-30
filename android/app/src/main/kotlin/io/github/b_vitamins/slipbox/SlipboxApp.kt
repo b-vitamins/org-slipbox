@@ -6,6 +6,8 @@
 package io.github.b_vitamins.slipbox
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import io.github.b_vitamins.slipbox.engine.DocumentLinkResolution
@@ -15,6 +17,7 @@ import io.github.b_vitamins.slipbox.navigation.SlipboxDestinations
 import io.github.b_vitamins.slipbox.navigation.SlipboxNavigation
 import io.github.b_vitamins.slipbox.navigation.SlipboxRoute
 import io.github.b_vitamins.slipbox.navigation.SlipboxSurface
+import io.github.b_vitamins.slipbox.navigation.rememberReadingTrailSession
 import io.github.b_vitamins.slipbox.navigation.slipboxDestinations
 import io.github.b_vitamins.slipbox.sources.SourceCatalogResult
 import io.github.b_vitamins.slipbox.sources.SourceLibraryPhase
@@ -30,6 +33,7 @@ import io.github.b_vitamins.slipbox.ui.rememberDocumentReaderState
 import io.github.b_vitamins.slipbox.ui.rememberNotesInventoryState
 import io.github.b_vitamins.slipbox.ui.content.DocumentGesture
 import io.github.b_vitamins.slipbox.ui.content.DocumentIntent
+import io.github.b_vitamins.slipbox.ui.content.DocumentPosition
 import io.github.b_vitamins.slipbox.ui.content.RepositoryAssets
 import io.github.b_vitamins.slipbox.ui.content.SystemExternalLinkHandoff
 import io.github.b_vitamins.slipbox.ui.content.isRepositoryAssetTarget
@@ -46,7 +50,36 @@ fun SlipboxApp() {
     val destinations = remember(settings, library) { productionDestinations(settings, library) }
     val motion = SlipboxMotion(rememberPlatformMotionScale(), settings.preferences.reduceMotion)
     SlipboxTheme(appearance = settings.preferences.appearance) {
-        SlipboxNavigation(destinations = destinations, motion = motion, generations = library)
+        when (val phase = library.phase) {
+            SourceLibraryPhase.Loading ->
+                LibraryScreen(
+                    phase = phase,
+                    hasSources = library.catalog?.sources?.isNotEmpty() == true,
+                    onOpenAbout = {},
+                )
+            is SourceLibraryPhase.Ready -> {
+                val trail = rememberReadingTrailSession(phase.source.binding)
+                key(phase.source.binding) {
+                    if (trail == null) {
+                        LibraryScreen(
+                            phase = SourceLibraryPhase.Loading,
+                            hasSources = true,
+                            onOpenAbout = {},
+                        )
+                    } else {
+                        SlipboxNavigation(
+                            destinations = destinations,
+                            motion = motion,
+                            generations = library,
+                            restored = trail.restored,
+                            trails = trail.sink,
+                        )
+                    }
+                }
+            }
+            else ->
+                SlipboxNavigation(destinations = destinations, motion = motion, generations = library)
+        }
     }
 }
 
@@ -73,7 +106,16 @@ private fun productionDestinations(
                 onRetryInventory = { inventory?.retry() },
                 onOpenNote = { note ->
                     ready?.let {
-                        backStack.open(SlipboxRoute.Reader(BoundNote(it.binding, note.nodeKey)))
+                        backStack.open(
+                            SlipboxRoute.Reader(
+                                BoundNote(
+                                    binding = it.binding,
+                                    nodeKey = note.nodeKey,
+                                    explicitId = note.explicitId,
+                                    filePath = note.filePath,
+                                ),
+                            ),
+                        )
                     }
                 },
                 onOpenAbout = { backStack.open(SlipboxRoute.About) },
@@ -94,30 +136,34 @@ private fun productionDestinations(
                 )
             } else {
                 val reader = rememberDocumentReaderState(readerRoute.note, ready)
+                val resolved = (reader.phase as? DocumentReaderPhase.Ready)?.document?.anchor
+                LaunchedEffect(readerRoute, resolved) {
+                    resolved?.let { backStack.reconcileReadingNote(readerRoute, it) }
+                }
                 val context = LocalContext.current
                 val external = remember(context) { SystemExternalLinkHandoff(context) }
                 val assets =
                     remember(context, ready.binding, ready.contentRoot) {
                         RepositoryAssets.packaged(context, ready.binding, ready.contentRoot)
                     }
-                val openExternal: (DocumentLinkResolution.External, Float) -> Boolean =
-                    { resolution, progress ->
+                val openExternal: (DocumentLinkResolution.External, DocumentPosition) -> Boolean =
+                    { resolution, position ->
                         backStack.rememberReadingPlace(
                             readerRoute,
-                            ReadingAnchor(progress = progress),
+                            position.toReadingAnchor(),
                         ) && external.open(resolution.url)
                     }
-                val follow: (String, Float) -> Unit = { target, progress ->
+                val follow: (String, DocumentPosition) -> Unit = { target, position ->
                     reader.follow(target) { resolution ->
                         when (resolution) {
                             is DocumentLinkResolution.Note ->
                                 backStack.follow(
                                     origin = readerRoute,
                                     targetNodeKey = resolution.nodeKey,
-                                    originAnchor = ReadingAnchor(progress = progress),
+                                    originAnchor = position.toReadingAnchor(),
                                 )
                             is DocumentLinkResolution.External -> {
-                                if (!openExternal(resolution, progress)) {
+                                if (!openExternal(resolution, position)) {
                                     reader.externalUnavailable()
                                 }
                             }
@@ -136,7 +182,7 @@ private fun productionDestinations(
                     linkPhase = reader.linkPhase,
                     previewPhase = reader.previewPhase,
                     focusRequest = reader.focusRequest,
-                    initialProgress = readerRoute.anchor.progress,
+                    initialAnchor = readerRoute.anchor,
                     onIntent = { intent ->
                         when (intent) {
                             is DocumentIntent.Glance ->
@@ -146,8 +192,13 @@ private fun productionDestinations(
                                         gesture = intent.gesture,
                                         originProgress = intent.progress,
                                         origin = intent.origin,
+                                        originPosition = intent.position,
                                         onExternal = { resolution ->
-                                            openExternal(resolution, intent.progress)
+                                            openExternal(
+                                                resolution,
+                                                intent.position
+                                                    ?: DocumentPosition(progress = intent.progress),
+                                            )
                                         },
                                     )
                                 }
@@ -155,14 +206,27 @@ private fun productionDestinations(
                                 if (isRepositoryAssetTarget(intent.link.target)) {
                                     reader.openAttachment(intent.link.target, assets)
                                 } else {
-                                    follow(intent.link.target, intent.progress)
+                                    follow(
+                                        intent.link.target,
+                                        intent.position
+                                            ?: DocumentPosition(progress = intent.progress),
+                                    )
                                 }
                             is DocumentIntent.Go ->
                                 if (isRepositoryAssetTarget(intent.link.target)) {
                                     reader.openAttachment(intent.link.target, assets)
                                 } else {
-                                    follow(intent.link.target, intent.progress)
+                                    follow(
+                                        intent.link.target,
+                                        intent.position
+                                            ?: DocumentPosition(progress = intent.progress),
+                                    )
                                 }
+                            is DocumentIntent.Position ->
+                                backStack.rememberReadingPlace(
+                                    readerRoute,
+                                    intent.position.toReadingAnchor(),
+                                )
                             DocumentIntent.Dismiss -> reader.dismissPreview()
                         }
                     },
@@ -173,7 +237,8 @@ private fun productionDestinations(
                                 origin = readerRoute,
                                 targetNodeKey = preview.anchor.nodeKey,
                                 originAnchor =
-                                    ReadingAnchor(progress = preview.request.originProgress),
+                                    preview.request.originPosition?.toReadingAnchor()
+                                        ?: ReadingAnchor(progress = preview.request.originProgress),
                             )
                         }
                     },
@@ -266,3 +331,6 @@ private fun productionDestinations(
             AboutScreen(onBack = { backStack.back() }, settings = settings)
         }
     }
+
+private fun DocumentPosition.toReadingAnchor(): ReadingAnchor =
+    ReadingAnchor(mark = mark, progress = progress, offset = offset)

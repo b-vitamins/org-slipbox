@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::Database;
 
-pub const INDEX_SCHEMA_VERSION: i32 = 24;
+pub const INDEX_SCHEMA_VERSION: i32 = 25;
 
 impl Database {
     pub(crate) fn migrate(&self) -> Result<()> {
@@ -44,12 +44,18 @@ impl Database {
              DROP TABLE IF EXISTS node_fts;
              DROP TABLE IF EXISTS nodes;
              DROP TABLE IF EXISTS files;
+             DROP TABLE IF EXISTS reading_file_renames;
 
              CREATE TABLE IF NOT EXISTS files (
                path TEXT PRIMARY KEY,
                title TEXT NOT NULL,
                mtime_ns INTEGER NOT NULL
              );
+
+             CREATE TABLE IF NOT EXISTS reading_file_renames (
+               previous_file_path TEXT PRIMARY KEY,
+               current_file_path TEXT NOT NULL
+             ) WITHOUT ROWID;
 
              CREATE TABLE IF NOT EXISTS nodes (
                id INTEGER PRIMARY KEY,

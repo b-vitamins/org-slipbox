@@ -26,6 +26,7 @@ import io.github.b_vitamins.slipbox.sync.RefreshProvider
 import io.github.b_vitamins.slipbox.sync.RefreshSource
 import io.github.b_vitamins.slipbox.sync.RefreshVisibility
 import io.github.b_vitamins.slipbox.ui.content.DocumentGesture
+import io.github.b_vitamins.slipbox.ui.content.DocumentPosition
 import io.github.b_vitamins.slipbox.ui.content.AttachmentOpenResult
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -149,6 +150,56 @@ class DocumentReaderStateTest {
             (current.phase as DocumentReaderPhase.Ready).document.source.org,
         )
         current.close()
+    }
+
+    @Test
+    fun aStableIdWinsAfterRenameAndLaterLinksUseTheResolvedKey() {
+        val movedKey = "file:moved.org"
+        val moved =
+            answer().copy(
+                anchor =
+                    node().copy(
+                        nodeKey = movedKey,
+                        explicitId = "stable-id",
+                        filePath = "moved.org",
+                    ),
+                source = answer().source.copy(filePath = "moved.org"),
+            )
+        var resolvedFrom: String? = null
+        val source = source(moved)
+        source.onFindId = { id -> moved.anchor.takeIf { id == "stable-id" } }
+        source.onResolve = { nodeKey, _ ->
+            resolvedFrom = nodeKey
+            DocumentLinkResolution.Missing
+        }
+        val state =
+            state(
+                note = BoundNote(ready("generation-a").binding, NODE_KEY, "stable-id", "note.org"),
+                factory = BoundDocumentSourceFactory { source },
+            )
+        await { state.phase is DocumentReaderPhase.Ready }
+
+        assertEquals(movedKey, (state.phase as DocumentReaderPhase.Ready).document.anchor.nodeKey)
+        state.follow("id:missing") {}
+        await { state.linkPhase is ReaderLinkPhase.Missing }
+        assertEquals(movedKey, resolvedFrom)
+        state.close()
+    }
+
+    @Test
+    fun aMissingStableIdNeverFallsThroughToAReusedFileKey() {
+        var reads = 0
+        val source = source(answer()).also { it.onRead = { _, _ -> reads += 1 } }
+        val state =
+            state(
+                note = BoundNote(ready("generation-a").binding, NODE_KEY, "deleted-id", "note.org"),
+                factory = BoundDocumentSourceFactory { source },
+            )
+
+        await { state.phase == DocumentReaderPhase.NotFound }
+
+        assertEquals(0, reads)
+        state.close()
     }
 
     @Test
@@ -314,6 +365,7 @@ class DocumentReaderStateTest {
             gesture = DocumentGesture.Touch,
             originProgress = 0.625f,
             origin = "$MOUNT:1",
+            originPosition = DocumentPosition("paragraph:0", 0.625f, 0.25f),
         )
         await { state.previewPhase is ReaderPreviewPhase.Ready }
 
@@ -327,6 +379,7 @@ class DocumentReaderStateTest {
         assertEquals(12, preview.excerptLines)
         assertTrue(preview.shortened)
         assertEquals(0.625f, preview.request.originProgress)
+        assertEquals("paragraph:0", preview.request.originPosition?.mark)
         state.close()
     }
 
@@ -438,10 +491,11 @@ class DocumentReaderStateTest {
 
     private fun state(
         ready: ReadySource = ready("generation-a"),
+        note: BoundNote = BoundNote(ready.binding, NODE_KEY),
         factory: BoundDocumentSourceFactory,
     ): DocumentReaderState =
         DocumentReaderState(
-            note = BoundNote(ready.binding, NODE_KEY),
+            note = note,
             ready = ready,
             factory = factory,
             delivery = ImportDelivery { it() },
@@ -465,6 +519,8 @@ class DocumentReaderStateTest {
         var beforeRead: () -> Unit = {}
         var onRead: (String, Int) -> Unit = { _, _ -> }
         var answerFor: (String, Int) -> ReadNodeSourceResult = { _, _ -> checkNotNull(answer) }
+        var onFindId: (String) -> NodeRecord? = { null }
+        var onFindKey: (String) -> NodeRecord? = { null }
         var onResolve: (String, String) -> DocumentLinkResolution = { _, _ ->
             DocumentLinkResolution.Unsupported
         }
@@ -475,6 +531,10 @@ class DocumentReaderStateTest {
             failure?.let { throw it }
             return answerFor(nodeKey, maxLines)
         }
+
+        override fun findById(id: String): NodeRecord? = onFindId(id)
+
+        override fun findByKey(nodeKey: String): NodeRecord? = onFindKey(nodeKey)
 
         override fun resolve(sourceNodeKey: String, target: String): DocumentLinkResolution =
             onResolve(sourceNodeKey, target)

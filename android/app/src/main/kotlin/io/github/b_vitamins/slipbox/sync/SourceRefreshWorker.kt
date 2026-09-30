@@ -364,6 +364,22 @@ internal class PackagedSourceRefreshStorage(private val context: Context) : Sour
             return verified.takeIf { it.store.isDirectory }
         }
 
+        /** Durable device-owned reading state, outside replaceable configuration generations. */
+        internal fun readingTrailFile(privateRoot: File, source: String): File? {
+            if (!RefreshWorkWire.validSourceId(source)) return null
+            val refreshRoot = safeChild(privateRoot, REFRESH_DIRECTORY) ?: return null
+            val sourceRoot = safeChild(refreshRoot, sourceDigest(source)) ?: return null
+            val readingRoot = safeChild(sourceRoot, READING_DIRECTORY) ?: return null
+            return safeChild(readingRoot, READING_TRAIL_FILE)
+        }
+
+        internal fun prepareReadingTrailFile(privateRoot: File, source: String): File? {
+            val file = readingTrailFile(privateRoot, source) ?: return null
+            val parent = file.parentFile ?: return null
+            if (!parent.isDirectory && !parent.mkdirs()) return null
+            return readingTrailFile(privateRoot, source)?.takeIf { it.parentFile?.isDirectory == true }
+        }
+
         private fun safeChild(parent: File, name: String): File? =
             try {
                 val expected = File(parent.canonicalFile, name).absoluteFile
@@ -421,6 +437,10 @@ internal class PackagedSourceRefreshStorage(private val context: Context) : Sour
         private const val REPOSITORY_NAME = "repository.git"
 
         private const val STORE_NAME = "store"
+
+        private const val READING_DIRECTORY = "reading"
+
+        private const val READING_TRAIL_FILE = "trail.json"
 
         private const val DIGEST_LABEL = "slipbox.refresh.source.1"
 

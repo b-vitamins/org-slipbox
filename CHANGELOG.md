@@ -7,6 +7,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Restore source-scoped Android reading trails after process death and index
+  replacement without writing Org metadata. Trails retain stable note IDs or
+  proven file-renames plus rendered block-relative positions and bounded
+  viewport fallbacks; current generations reconcile renamed notes, missing
+  notes remain unavailable, source identities cannot collide, and Back keeps a
+  bounded path without accumulating the active note.
 - Read repository images and attachments from the exact Android source
   generation that supplied their note. Bare PNG, JPEG, GIF and WebP links render
   inline through the isolated local-content origin; explicit image and UTF-8

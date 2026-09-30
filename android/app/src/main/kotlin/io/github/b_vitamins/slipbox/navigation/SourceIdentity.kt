@@ -6,6 +6,7 @@
 package io.github.b_vitamins.slipbox.navigation
 
 import io.github.b_vitamins.slipbox.engine.GenerationBinding
+import io.github.b_vitamins.slipbox.engine.NodeRecord
 import kotlinx.serialization.Serializable
 
 private const val SOURCE_IDENTITY_CHARS = 32
@@ -14,15 +15,27 @@ private const val MAX_GENERATION_CHARS = 64
 
 private const val MAX_KEY_CHARS = 1024
 
-private const val READING_REFERENCE = "reading_reference"
+private const val READING_ID = "reading_id"
+
+private const val READING_KEY = "reading_key"
 
 /** A source-scoped note key bound to the generation that answered for it. */
 @Serializable
-internal data class BoundNote(val binding: GenerationBinding, val nodeKey: String) {
+internal data class BoundNote(
+    val binding: GenerationBinding,
+    val nodeKey: String,
+    val explicitId: String? = null,
+    val filePath: String = "",
+) {
 
     /** Reading-state identity, stable across generation replacement. */
     val reference: String
-        get() = "${binding.source}:$READING_REFERENCE:$nodeKey"
+        get() =
+            explicitId?.let { "${binding.source}:$READING_ID:$it" }
+                ?: "${binding.source}:$READING_KEY:$nodeKey"
+
+    fun resolvedBy(node: NodeRecord): BoundNote =
+        copy(nodeKey = node.nodeKey, explicitId = node.explicitId, filePath = node.filePath)
 }
 
 /** Restorable mark and normalized viewport position, without note content. */
@@ -32,6 +45,8 @@ internal data class ReadingAnchor(
     val mark: String = "",
     /** Normalized viewport position, from zero to one. */
     val progress: Float = 0f,
+    /** Position inside the marked block, from zero to one. */
+    val offset: Float = 0f,
 ) {
     internal companion object {
         val Start = ReadingAnchor()
@@ -55,7 +70,11 @@ internal fun isSavedText(value: String): Boolean =
     value.length <= MAX_KEY_CHARS && value.isPrintable()
 
 internal fun ReadingAnchor.isCanonical(): Boolean =
-    isSavedText(mark) && progress in 0f..1f
+    isSavedText(mark) &&
+        progress.isFinite() &&
+        progress in 0f..1f &&
+        offset.isFinite() &&
+        offset in 0f..1f
 
 private fun Char.isAsciiAlphanumeric(): Boolean =
     this in '0'..'9' || this in 'a'..'z' || this in 'A'..'Z'

@@ -616,6 +616,7 @@ pub fn refresh_repository(
 
     let mut delta = derive_refresh_delta(context, ready.as_ref(), &fetched.revision, control)
         .map_err(|error| map_delta(error, context.attempt))?;
+    let publication_delta = delta.clone();
     let stem = format!("refresh-{}", context.operation);
     let snapshot_path = store.candidates_root().join(format!("{stem}-source"));
     let index_path = store.candidates_root().join(format!("{stem}-index"));
@@ -654,12 +655,12 @@ pub fn refresh_repository(
                 control.cancelled(),
             )
             .map_err(|error| map_delta(error, context.attempt))?;
-            stage_index(
-                &StageIndexRequest::new(snapshot.clone(), delta, None, index_path)
-                    .map_err(|error| map_index(error, context.attempt))?,
-                control.cancelled(),
-                |progress| report_index(control, progress, &fetched.revision, ready.as_ref()),
-            )
+            let rebuilt = StageIndexRequest::new(snapshot.clone(), delta, None, index_path)
+                .map_err(|error| map_index(error, context.attempt))?
+                .with_reading_renames(&publication_delta);
+            stage_index(&rebuilt, control.cancelled(), |progress| {
+                report_index(control, progress, &fetched.revision, ready.as_ref())
+            })
             .map_err(|error| map_index(error, context.attempt))?
         }
         Err(error) => return Err(map_index(error, context.attempt)),

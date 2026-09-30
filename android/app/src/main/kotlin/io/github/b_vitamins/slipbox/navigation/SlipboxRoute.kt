@@ -97,7 +97,11 @@ internal fun SlipboxRoute.isCanonical(): Boolean =
     when (this) {
         is SlipboxRoute.Library -> isSavedText(query)
         is SlipboxRoute.Reader ->
-            note.binding.isCanonical() && isKeyText(note.nodeKey) && anchor.isCanonical()
+            note.binding.isCanonical() &&
+                isKeyText(note.nodeKey) &&
+                (note.explicitId == null || isKeyText(note.explicitId)) &&
+                (note.filePath.isEmpty() || isKeyText(note.filePath)) &&
+                anchor.isCanonical()
 
         is SlipboxRoute.Glossary ->
             binding.isCanonical() && (term == null || isKeyText(term)) && isSavedText(query)
