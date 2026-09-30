@@ -203,6 +203,29 @@ Following a note already present in the reading path rewinds to its existing
 entry rather than adding a duplicate, and a stale callback from a route that is
 no longer presented cannot mutate the path.
 
+** Repository Images And Attachments
+
+The reader resolves an asset relative to the file that contains its link, under
+the source identity and exact generation mounted with that document. A relative
+=../assets/diagram.png= may leave the selected notes folder but cannot leave the
+immutable repository content root. The resolver rejects another source or
+generation, absolute and escaping paths, ambiguous separators, selectors,
+symlinks, non-files and bytes whose signature does not match their admitted
+format. No source path crosses into the document or an external application.
+
+A bare PNG, JPEG, GIF or WebP link renders inline through the isolated local
+content origin. Inline reads are limited to 12 MiB; a failed image retains its
+file name as accessible fallback text. Explicit image and UTF-8 text links may
+open in an installed viewer up to the snapshot's 32 MiB per-asset limit. The
+reader copies only that requested file to a bounded private cache slot and grants
+one opaque =content:= URI read-only; the provider is not exported and exposes no
+repository directory, source credential or broad storage root. Missing,
+unsupported, over-limit and unavailable-viewer outcomes remain distinct.
+
+HTTP(S), =data:=, =blob:= and executable formats are never interpreted as
+repository assets. Remote URLs continue through the explicit browser handoff;
+an Org document cannot make the asset loader fetch them as image subresources.
+
 ** Eligibility And Diagnostics
 
 Plain Org text is the initial supported note format. Everything else is an

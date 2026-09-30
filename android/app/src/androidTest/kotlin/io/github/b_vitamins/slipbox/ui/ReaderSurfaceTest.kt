@@ -5,6 +5,7 @@
 
 package io.github.b_vitamins.slipbox.ui
 
+import android.graphics.Color
 import android.os.Build
 import android.webkit.WebView
 import androidx.activity.ComponentActivity
@@ -28,6 +29,7 @@ import androidx.test.filters.SdkSuppress
 import io.github.b_vitamins.slipbox.engine.NodeKind
 import io.github.b_vitamins.slipbox.engine.NodeRecord
 import io.github.b_vitamins.slipbox.ui.content.DOCUMENT_LINK
+import io.github.b_vitamins.slipbox.ui.content.DocumentAssetResolver
 import io.github.b_vitamins.slipbox.ui.content.DocumentFocusRequest
 import io.github.b_vitamins.slipbox.ui.content.DocumentIntent
 import io.github.b_vitamins.slipbox.ui.content.DocumentSource
@@ -39,6 +41,7 @@ import io.github.b_vitamins.slipbox.ui.content.awaitTrue
 import io.github.b_vitamins.slipbox.ui.content.documentViewIn
 import io.github.b_vitamins.slipbox.ui.content.documentViewsIn
 import io.github.b_vitamins.slipbox.ui.content.number
+import io.github.b_vitamins.slipbox.ui.content.pngAsset
 import io.github.b_vitamins.slipbox.ui.content.text
 import io.github.b_vitamins.slipbox.ui.settings.ReadingPreferences
 import io.github.b_vitamins.slipbox.ui.settings.ReadingPreferencesRecord
@@ -148,6 +151,92 @@ class ReaderSurfaceTest {
     }
 
     @Test
+    fun aRepositoryImageSettlesIntoTheReadingMeasureInLightAndDark() {
+        lateinit var settings: ReadingSettings
+        val illustrated =
+            document().let { document ->
+                document.copy(
+                    source =
+                        document.source.copy(
+                            org =
+                                "The source keeps the diagram beside the note, available offline.\n\n" +
+                                    "[[file:../assets/field-map.png]]\n\n" +
+                                    "The reading path continues without leaving the page.",
+                        ),
+                )
+            }
+        val resolver =
+            DocumentAssetResolver { binding, target ->
+                check(binding == illustrated.source.binding)
+                check(target == "file:../assets/field-map.png")
+                pngAsset(360, Color.rgb(76, 111, 132))
+            }
+        composeRule.setContent {
+            settings = remember { ReadingSettings(MemoryStore()) }
+            SlipboxTheme(appearance = settings.preferences.appearance) {
+                ReaderScreen(
+                    phase = DocumentReaderPhase.Ready(illustrated),
+                    settings = settings,
+                    onBack = {},
+                    onRetry = {},
+                    resolveAsset = resolver,
+                )
+            }
+        }
+
+        val view = shown()
+        view.awaitTrue(
+            "the repository image decoded inside the reading column",
+            "document.querySelector('img.org-image__content')?.complete === true && " +
+                "document.querySelector('img.org-image__content')?.naturalWidth === 360",
+        )
+        waitForImagePaint(view, "light")
+        assertEquals(
+            "the image fills no more than the reading measure",
+            288.0,
+            view.number(
+                "document.querySelector('img.org-image__content').getBoundingClientRect().width",
+            ),
+            0.0,
+        )
+        assertEquals(
+            "field-map.png",
+            view.text("document.querySelector('img.org-image__content').alt"),
+        )
+        composeRule.waitForIdle()
+        Evidence.image("reader-repository-image-light", composeRule.onRoot().captureToImage())
+
+        composeRule.onNodeWithText("Appearance").performClick()
+        composeRule.onNodeWithText("Dark").performClick()
+        Espresso.pressBack()
+        composeRule.waitForIdle()
+        view.awaitTrue(
+            "the repository image retained the selected dark reading surface",
+            "document.querySelector('.org-document-host').dataset.theme === 'dark'",
+        )
+        waitForImagePaint(view, "dark")
+        composeRule.waitForIdle()
+        Evidence.image("reader-repository-image-dark", composeRule.onRoot().captureToImage())
+    }
+
+    private fun waitForImagePaint(view: WebView, marker: String) {
+        view.answer(
+            "(function () {" +
+                "  const image = document.querySelector('img.org-image__content');" +
+                "  image.decode().then(function () {" +
+                "    requestAnimationFrame(function () { requestAnimationFrame(function () {" +
+                "      document.documentElement.dataset.imagePaint = '$marker';" +
+                "    }); });" +
+                "  });" +
+                "})();",
+        )
+        view.awaitTrue(
+            "the repository image reached the $marker painted frame",
+            "document.documentElement.dataset.imagePaint === '$marker'",
+        )
+    }
+
+    @Test
     fun unresolvedDocumentLinksStayInTheReaderWithContext() {
         lateinit var settings: ReadingSettings
         var linkPhase by
@@ -175,6 +264,20 @@ class ReaderSurfaceTest {
         }
         composeRule
             .onNodeWithText("This reader cannot open “javascript:alert(1)”.")
+            .assertExists()
+
+        composeRule.runOnIdle {
+            linkPhase = ReaderLinkPhase.AssetMissing("field-notes.txt")
+        }
+        composeRule
+            .onNodeWithText("“field-notes.txt” is not present in this repository version.")
+            .assertExists()
+
+        composeRule.runOnIdle {
+            linkPhase = ReaderLinkPhase.AssetOversized("atlas.png", 32L * 1024L * 1024L)
+        }
+        composeRule
+            .onNodeWithText("“atlas.png” exceeds the 32 MB attachment limit.")
             .assertExists()
     }
 
@@ -313,6 +416,7 @@ class ReaderSurfaceTest {
                     source = "0123456789abcdef0123456789abcdef",
                     generation = "generation-1",
                     id = "file:note.org",
+                    filePath = "notes/note.org",
                     org = Notes.RICH + "\n\nThe complete final paragraph.",
                 ),
         )
@@ -371,6 +475,7 @@ class ReaderSurfaceTest {
                     source = "0123456789abcdef0123456789abcdef",
                     generation = "generation-1",
                     id = "file:target.org",
+                    filePath = "notes/target.org",
                     org =
                         if (shortened) {
                             "A rate of change with \\(f'(x)\\).\n\n" +

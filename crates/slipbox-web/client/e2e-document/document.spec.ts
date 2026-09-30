@@ -174,7 +174,7 @@ test("typesets the document from its own stylesheet and bundled fonts", async ({
   await expect(paragraph).toHaveCSS("font-size", "17px");
   // The body stack is the platform's own; nothing is downloaded for prose.
   expect(await paragraph.evaluate((el) => getComputedStyle(el).fontFamily)).toContain(
-    "system-ui",
+    "-apple-system",
   );
 
   // The mono stack lands on the block; the agent's own rule for `pre` holds the
@@ -617,6 +617,37 @@ test("anchors an asset the host resolved and refuses a hostile resolution", asyn
 
   await update(page, "one", { assets: { "file:media/plot.png": "//example.org/plot.png" } });
   await expect(page.locator(".org-document a")).toHaveCount(0);
+});
+
+test("renders a resolved bare image inline and names a failed image", async ({ page }) => {
+  await page.route("**/media/plot.png", (route) =>
+    route.fulfill({
+      contentType: "image/png",
+      body: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        "base64",
+      ),
+    }),
+  );
+  await openHost(page);
+  await clearHost(page);
+  await mount(page, {
+    handle: "one",
+    source: "[[file:media/plot.png]]\n",
+    assets: { "file:media/plot.png": "/media/plot.png" },
+  });
+
+  const image = page.getByRole("img", { name: "plot.png" });
+  await expect(image).toBeVisible();
+  await expect(image).toHaveAttribute("src", "/media/plot.png");
+  await expect(page.getByRole("link", { name: "Open image: plot.png" })).toBeVisible();
+  expect(await image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(1);
+
+  await update(page, "one", {
+    assets: { "file:media/plot.png": "/media/missing.png" },
+  });
+  await expect(page.getByRole("img", { name: "Image unavailable: plot.png" })).toBeVisible();
+  await expect(page.locator(".org-image__label")).toHaveText("plot.png");
 });
 
 test("refuses a resolution a browser would read as another authority", async ({

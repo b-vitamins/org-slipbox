@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import io.github.b_vitamins.slipbox.R
 import io.github.b_vitamins.slipbox.engine.NodeKind
 import io.github.b_vitamins.slipbox.engine.NodeRecord
+import io.github.b_vitamins.slipbox.ui.content.DocumentAssetResolver
 import io.github.b_vitamins.slipbox.ui.content.DocumentContentView
 import io.github.b_vitamins.slipbox.ui.content.DocumentFocusRequest
 import io.github.b_vitamins.slipbox.ui.content.DocumentIntent
@@ -43,6 +44,8 @@ import io.github.b_vitamins.slipbox.ui.theme.SlipboxMotion
 import io.github.b_vitamins.slipbox.ui.theme.rememberPlatformMotionScale
 
 internal const val READER_DOCUMENT_TAG = "reader-document"
+
+private val NoReaderAssets = DocumentAssetResolver { _, _ -> null }
 
 @Composable
 internal fun ReaderScreen(
@@ -56,6 +59,7 @@ internal fun ReaderScreen(
     focusRequest: DocumentFocusRequest? = null,
     initialProgress: Float = 0f,
     onIntent: (DocumentIntent) -> Unit = {},
+    resolveAsset: DocumentAssetResolver = NoReaderAssets,
     onDismissPreview: () -> Unit = {},
     onOpenPreview: () -> Unit = {},
 ) {
@@ -132,6 +136,7 @@ internal fun ReaderScreen(
                     documentHeight = previewHeight,
                     onDismiss = onDismissPreview,
                     onOpen = onOpenPreview,
+                    resolveAsset = resolveAsset,
                     restoreFocusTo = documentControl,
                 )
             },
@@ -181,6 +186,7 @@ internal fun ReaderScreen(
                                 .focusRequester(documentControl)
                                 .testTag(READER_DOCUMENT_TAG),
                         onIntent = onIntent,
+                        resolveAsset = resolveAsset,
                     )
                 }
             }
@@ -200,6 +206,20 @@ private fun ReaderLinkNotice(phase: ReaderLinkPhase) {
             is ReaderLinkPhase.Failed -> stringResource(R.string.reader_link_failed, phase.target)
             ReaderLinkPhase.ExternalUnavailable ->
                 stringResource(R.string.reader_link_browser_unavailable)
+            is ReaderLinkPhase.AssetMissing ->
+                stringResource(R.string.reader_asset_missing, phase.label)
+            is ReaderLinkPhase.AssetUnsupported ->
+                stringResource(R.string.reader_asset_unsupported, phase.label)
+            is ReaderLinkPhase.AssetOversized ->
+                stringResource(
+                    R.string.reader_asset_too_large,
+                    phase.label,
+                    phase.maxBytes / (1024L * 1024L),
+                )
+            is ReaderLinkPhase.AssetViewerUnavailable ->
+                stringResource(R.string.reader_asset_viewer_unavailable, phase.label)
+            is ReaderLinkPhase.AssetFailed ->
+                stringResource(R.string.reader_asset_failed, phase.label)
         }
     Text(
         text = text,

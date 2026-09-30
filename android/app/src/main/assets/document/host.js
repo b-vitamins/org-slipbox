@@ -101,7 +101,18 @@ function restorePosition() {
 }
 
 function assetHref(target) {
-  return current ? current.assetBase + encodeURIComponent(target) : null;
+  if (!current) {
+    return null;
+  }
+  const bytes = new TextEncoder().encode(target);
+  if (bytes.length === 0 || bytes.length > 4096) {
+    return null;
+  }
+  let encoded = "";
+  for (const byte of bytes) {
+    encoded += byte.toString(16).padStart(2, "0");
+  }
+  return current.assetBase + encoded;
 }
 
 function options() {
@@ -127,6 +138,20 @@ function paint() {
   document.documentElement.style.setProperty(
     "color-scheme",
     current.presentation.theme,
+  );
+  paintViewportLimits();
+}
+
+function paintViewportLimits() {
+  const height = window.visualViewport
+    ? window.visualViewport.height
+    : window.innerHeight;
+  if (!Number.isFinite(height) || height <= 0) {
+    return;
+  }
+  element().style.setProperty(
+    "--document-image-max-height",
+    `${Math.min(height * 0.68, 720)}px`,
   );
 }
 
@@ -166,6 +191,7 @@ function dispose() {
 }
 
 window.slipboxHost = { present, restoreFocus, dispose };
+window.addEventListener("resize", paintViewportLimits);
 state("loading");
 
 import("./document.js").then(

@@ -67,6 +67,7 @@ class DocumentReadingTest {
                             source = "test-source",
                             generation = "1",
                             id = "reading",
+                            filePath = "notes/reading.org",
                             org = Notes.RICH,
                         ),
                     presentation = presented,

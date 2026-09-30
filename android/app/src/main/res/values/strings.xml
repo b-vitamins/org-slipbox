@@ -44,6 +44,11 @@
     <string name="reader_link_unsupported">This reader cannot open “%1$s”.</string>
     <string name="reader_link_failed">The target “%1$s” could not be resolved.</string>
     <string name="reader_link_browser_unavailable">No browser is available for this link.</string>
+    <string name="reader_asset_missing">“%1$s” is not present in this repository version.</string>
+    <string name="reader_asset_unsupported">“%1$s” is not a supported offline attachment.</string>
+    <string name="reader_asset_too_large">“%1$s” exceeds the %2$d MB attachment limit.</string>
+    <string name="reader_asset_viewer_unavailable">No installed app can open “%1$s”.</string>
+    <string name="reader_asset_failed">“%1$s” could not be opened.</string>
     <string name="reader_preview_loading">Loading preview.</string>
     <string name="reader_preview_note">Note preview</string>
     <string name="reader_preview_glossary">Glossary term</string>

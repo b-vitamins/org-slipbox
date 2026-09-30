@@ -26,9 +26,11 @@ import io.github.b_vitamins.slipbox.engine.SlipboxEngineHost
 import io.github.b_vitamins.slipbox.navigation.BoundNote
 import io.github.b_vitamins.slipbox.sources.ImportDelivery
 import io.github.b_vitamins.slipbox.sources.ReadySource
+import io.github.b_vitamins.slipbox.ui.content.AttachmentOpenResult
 import io.github.b_vitamins.slipbox.ui.content.DocumentFocusRequest
 import io.github.b_vitamins.slipbox.ui.content.DocumentGesture
 import io.github.b_vitamins.slipbox.ui.content.DocumentSource
+import io.github.b_vitamins.slipbox.ui.content.ReaderAttachment
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
@@ -60,6 +62,16 @@ internal sealed interface ReaderLinkPhase {
     data class Failed(val target: String) : ReaderLinkPhase
 
     data object ExternalUnavailable : ReaderLinkPhase
+
+    data class AssetMissing(val label: String) : ReaderLinkPhase
+
+    data class AssetUnsupported(val label: String) : ReaderLinkPhase
+
+    data class AssetOversized(val label: String, val maxBytes: Long) : ReaderLinkPhase
+
+    data class AssetViewerUnavailable(val label: String) : ReaderLinkPhase
+
+    data class AssetFailed(val label: String) : ReaderLinkPhase
 }
 
 internal data class ReaderDocument(
@@ -227,6 +239,50 @@ internal class DocumentReaderState(
             }
     }
 
+    /** Open one explicit attachment from this mounted document's exact generation. */
+    fun openAttachment(target: String, attachment: ReaderAttachment) {
+        val document = (phase as? DocumentReaderPhase.Ready)?.document ?: return
+        if (!live.get()) return
+        val serial = linkRequests.incrementAndGet()
+        previewPhase = ReaderPreviewPhase.Hidden
+        linkPhase = ReaderLinkPhase.Resolving
+        Thread(
+                {
+                    val outcome = runCatching { attachment.open(document.source.binding, target) }
+                    delivery.post {
+                        if (!live.get() || linkRequests.get() != serial) return@post
+                        linkPhase =
+                            outcome.fold(
+                                onSuccess = { result ->
+                                    when (result) {
+                                        AttachmentOpenResult.Opened -> ReaderLinkPhase.Idle
+                                        is AttachmentOpenResult.Missing ->
+                                            ReaderLinkPhase.AssetMissing(result.label)
+                                        is AttachmentOpenResult.Unsupported ->
+                                            ReaderLinkPhase.AssetUnsupported(result.label)
+                                        is AttachmentOpenResult.Oversized ->
+                                            ReaderLinkPhase.AssetOversized(
+                                                result.label,
+                                                result.maxBytes,
+                                            )
+                                        is AttachmentOpenResult.ViewerUnavailable ->
+                                            ReaderLinkPhase.AssetViewerUnavailable(result.label)
+                                        is AttachmentOpenResult.Failed ->
+                                            ReaderLinkPhase.AssetFailed(result.label)
+                                    }
+                                },
+                                onFailure = { ReaderLinkPhase.AssetFailed(target) },
+                            )
+                    }
+                },
+                ASSET_WORKER_NAME,
+            )
+            .apply {
+                isDaemon = true
+                start()
+            }
+    }
+
     /** Resolve and read a bounded excerpt through this reader's source-bound session. */
     fun preview(
         target: String,
@@ -370,6 +426,7 @@ internal class DocumentReaderState(
                                     source = note.binding.source,
                                     generation = note.binding.generation,
                                     id = resolution.answer.anchor.nodeKey,
+                                    filePath = resolution.answer.anchor.filePath,
                                     org = resolution.answer.source.content,
                                 ),
                             excerptLines = resolution.answer.source.lineCount.toInt(),
@@ -419,6 +476,7 @@ internal class DocumentReaderState(
                         source = note.binding.source,
                         generation = note.binding.generation,
                         id = note.nodeKey,
+                        filePath = answer.anchor.filePath,
                         org = answer.source.content,
                     ),
             ),
@@ -456,6 +514,7 @@ internal class DocumentReaderState(
         const val WORKER_NAME = "slipbox-document-reader"
         const val LINK_WORKER_NAME = "slipbox-document-link"
         const val PREVIEW_WORKER_NAME = "slipbox-document-preview"
+        const val ASSET_WORKER_NAME = "slipbox-document-asset"
         const val PREVIEW_MAX_LINES = 12
     }
 }

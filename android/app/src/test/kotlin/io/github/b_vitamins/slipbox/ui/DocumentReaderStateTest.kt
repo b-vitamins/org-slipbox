@@ -26,6 +26,7 @@ import io.github.b_vitamins.slipbox.sync.RefreshProvider
 import io.github.b_vitamins.slipbox.sync.RefreshSource
 import io.github.b_vitamins.slipbox.sync.RefreshVisibility
 import io.github.b_vitamins.slipbox.ui.content.DocumentGesture
+import io.github.b_vitamins.slipbox.ui.content.AttachmentOpenResult
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -63,6 +64,7 @@ class DocumentReaderStateTest {
         assertEquals(SOURCE, document.source.binding.source)
         assertEquals("generation-a", document.source.binding.generation)
         assertEquals(NODE_KEY, document.source.binding.id)
+        assertEquals("note.org", document.source.binding.filePath)
         state.close()
     }
 
@@ -205,6 +207,61 @@ class DocumentReaderStateTest {
         missing.close()
         unsupported.close()
         failed.close()
+    }
+
+    @Test
+    fun attachmentOutcomesStayBoundToTheMountedDocumentAndRemainDistinct() {
+        val state = state(factory = BoundDocumentSourceFactory { source(answer()) })
+        await { state.phase is DocumentReaderPhase.Ready }
+        var asked: Pair<io.github.b_vitamins.slipbox.ui.content.DocumentBinding, String>? = null
+        val target = "file:assets/diagram.png"
+
+        state.openAttachment(target) { binding, openedTarget ->
+            asked = binding to openedTarget
+            AttachmentOpenResult.Missing("diagram.png")
+        }
+        await { state.linkPhase is ReaderLinkPhase.AssetMissing }
+
+        assertEquals(target, asked?.second)
+        assertEquals(SOURCE, asked?.first?.source)
+        assertEquals("generation-a", asked?.first?.generation)
+        assertEquals("note.org", asked?.first?.filePath)
+        assertEquals(ReaderLinkPhase.AssetMissing("diagram.png"), state.linkPhase)
+
+        state.openAttachment(target) { _, _ ->
+            AttachmentOpenResult.Oversized("diagram.png", 32L * 1024L * 1024L)
+        }
+        await { state.linkPhase is ReaderLinkPhase.AssetOversized }
+        assertEquals(
+            ReaderLinkPhase.AssetOversized("diagram.png", 32L * 1024L * 1024L),
+            state.linkPhase,
+        )
+        state.close()
+    }
+
+    @Test
+    fun aLaterNavigationSuppressesALateAttachmentReply() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val source = source(answer())
+        source.onResolve = { _, _ -> DocumentLinkResolution.Note("file:next.org") }
+        val state = state(factory = BoundDocumentSourceFactory { source })
+        await { state.phase is DocumentReaderPhase.Ready }
+
+        state.openAttachment("file:slow.png") { _, _ ->
+            entered.countDown()
+            release.await(5, TimeUnit.SECONDS)
+            AttachmentOpenResult.Missing("slow.png")
+        }
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        var followed: DocumentLinkResolution? = null
+        state.follow("file:next.org") { followed = it }
+        await { followed != null }
+        release.countDown()
+
+        assertEquals(DocumentLinkResolution.Note("file:next.org"), followed)
+        assertEquals(ReaderLinkPhase.Idle, state.linkPhase)
+        state.close()
     }
 
     @Test

@@ -7,6 +7,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Read repository images and attachments from the exact Android source
+  generation that supplied their note. Bare PNG, JPEG, GIF and WebP links render
+  inline through the isolated local-content origin; explicit image and UTF-8
+  text attachments cross one opaque, read-only content grant. Missing,
+  unsupported and oversized assets remain named, while source escapes,
+  symlinks, cross-source reads and remote fetches are refused.
 - Preview linked Android notes and glossary terms in a bounded native sheet.
   Preview excerpts are read through the originating source-generation session,
   reuse the complete document renderer for math and prose, and open the already
@@ -93,8 +99,8 @@ The format follows Keep a Changelog, and this project follows SemVer.
 - Embed the bundled Org renderer in an isolated Android content view, with
   explicit presentation, validated navigation intents and source-bound local
   assets. Package verified renderer bytes and fonts in both APK variants;
-  the production reader now supplies its exact source, generation and note
-  identity. Repository asset resolution remains separate. See
+  the production reader supplies its exact source, generation, note identity
+  and repository-relative file context. See
   `doc/android-content.org`.
 - Add source-aware Android routes with restorable search and reading positions,
   explicit source-transition policies and shared system/predictive Back handling.

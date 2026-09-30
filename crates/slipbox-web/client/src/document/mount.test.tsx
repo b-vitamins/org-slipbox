@@ -632,6 +632,34 @@ describe("mountOrgDocument", () => {
     expect(documentOf(host).querySelector("a")).toBeNull();
   });
 
+  it("renders a resolved bare repository image with a useful accessible name", () => {
+    const host = hostElement();
+    mountOrgDocument(host, {
+      content: { source: "[[file:media/plot.png]]\n" },
+      resolveAsset: (target) =>
+        target === "file:media/plot.png" ? "media/plot.png" : null,
+    });
+
+    const image = documentOf(host).querySelector("img.org-image__content");
+    expect(image?.getAttribute("src")).toBe("media/plot.png");
+    expect(image?.getAttribute("alt")).toBe("plot.png");
+    expect(image?.closest("a")?.getAttribute("aria-label")).toBe(
+      "Open image: plot.png",
+    );
+  });
+
+  it("keeps a bare image as readable text when no source resolver admits it", () => {
+    const host = hostElement();
+    mountOrgDocument(host, {
+      content: { source: "[[file:media/plot.png]]\n" },
+    });
+
+    expect(documentOf(host).querySelector("img")).toBeNull();
+    expect(documentOf(host).querySelector(".org-link--inert")?.textContent).toBe(
+      "file:media/plot.png",
+    );
+  });
+
   it("renders TeX that defeats KaTeX as raw source, keeping the prose around it", () => {
     const runaway = "\\sqrt{".repeat(2000);
     const host = hostElement();

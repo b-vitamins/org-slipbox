@@ -23,6 +23,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.zIndex
 import io.github.b_vitamins.slipbox.R
+import io.github.b_vitamins.slipbox.ui.content.DocumentAssetResolver
 import io.github.b_vitamins.slipbox.ui.content.DocumentContentView
 import io.github.b_vitamins.slipbox.ui.document.DocumentPresentation
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxDimensions
@@ -30,6 +31,8 @@ import io.github.b_vitamins.slipbox.ui.theme.SlipboxMotion
 
 internal const val READER_PREVIEW_SHEET_TAG = "reader-preview-sheet"
 internal const val READER_PREVIEW_DOCUMENT_TAG = "reader-preview-document"
+
+private val NoPreviewAssets = DocumentAssetResolver { _, _ -> null }
 
 /** A bounded native reveal around the same document renderer used by the reader. */
 @Composable
@@ -40,6 +43,7 @@ internal fun ReaderPreviewSheet(
     documentHeight: Dp,
     onDismiss: () -> Unit,
     onOpen: () -> Unit,
+    resolveAsset: DocumentAssetResolver = NoPreviewAssets,
     restoreFocusTo: FocusRequester? = null,
 ) {
     val preview = (phase as? ReaderPreviewPhase.Ready)?.preview
@@ -79,6 +83,7 @@ internal fun ReaderPreviewSheet(
                 DocumentContentView(
                     source = phase.preview.source,
                     presentation = presentation,
+                    resolveAsset = resolveAsset,
                     modifier =
                         Modifier
                             .fillMaxWidth()

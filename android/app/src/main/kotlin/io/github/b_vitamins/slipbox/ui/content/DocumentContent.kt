@@ -13,6 +13,7 @@ internal data class DocumentBinding(
     val source: String,
     val generation: String,
     val id: String,
+    val filePath: String,
 )
 
 /** Org input; changing any field retires the mount token. */
@@ -21,6 +22,7 @@ internal data class DocumentSource(
     val source: String,
     val generation: String,
     val id: String,
+    val filePath: String,
     val org: String,
     val baseLevel: Int = DEFAULT_BASE_LEVEL,
 ) {
@@ -28,12 +30,13 @@ internal data class DocumentSource(
         require(source.isNotBlank()) { "a document source carries no source identity" }
         require(generation.isNotBlank()) { "a document source carries no generation" }
         require(id.isNotBlank()) { "a document source carries no id" }
+        require(filePath.isNotBlank()) { "a document source carries no file path" }
         require(baseLevel in HIGHEST_LEVEL..LOWEST_LEVEL) {
             "a document base level outside $HIGHEST_LEVEL..$LOWEST_LEVEL: $baseLevel"
         }
     }
 
-    val binding: DocumentBinding get() = DocumentBinding(source, generation, id)
+    val binding: DocumentBinding get() = DocumentBinding(source, generation, id, filePath)
 
     internal companion object {
         const val DEFAULT_BASE_LEVEL = 2

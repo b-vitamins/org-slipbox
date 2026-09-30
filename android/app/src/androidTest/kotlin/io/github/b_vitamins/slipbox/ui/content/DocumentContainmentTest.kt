@@ -50,6 +50,7 @@ class DocumentContainmentTest {
                         source = "test-source",
                         generation = "7",
                         id = "hostile",
+                        filePath = "notes/hostile.org",
                         org = Notes.HOSTILE,
                     ),
                 presentation =

@@ -53,6 +53,7 @@ class DocumentGestureTest {
                         source = "test-source",
                         generation = "3",
                         id = "gestures",
+                        filePath = "notes/gestures.org",
                         org = Notes.RICH,
                     ),
                 presentation =
@@ -197,7 +198,7 @@ class DocumentGestureTest {
         val hrefs = view.strings(HREFS)
         assertEquals("one target the renderer cannot follow", 1, hrefs.size)
         assertEquals(
-            "${DocumentOrigin.assetBase(token)}file%3Adiagram.png",
+            documentAssetUrl(token, "file:diagram.png"),
             hrefs.single(),
         )
     }

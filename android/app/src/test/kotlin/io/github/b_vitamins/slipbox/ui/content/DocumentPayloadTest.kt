@@ -109,6 +109,7 @@ class DocumentPayloadTest {
                     source = "source-1",
                     generation = "generation-7",
                     id = "note-1",
+                    filePath = "notes/note-1.org",
                     org = source,
                 ),
             initialProgress = 0.375f,

@@ -49,6 +49,7 @@ class DocumentViewSettingsTest {
                         source = "test-source",
                         generation = "1",
                         id = "settings",
+                        filePath = "notes/settings.org",
                         org = Notes.RICH,
                     ),
                 presentation =

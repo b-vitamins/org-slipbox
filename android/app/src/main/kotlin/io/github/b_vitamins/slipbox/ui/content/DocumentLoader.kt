@@ -64,6 +64,7 @@ internal class DocumentAssetHandler(
 ) : WebViewAssetLoader.PathHandler {
     override fun handle(path: String): WebResourceResponse? {
         val request = documentAssetRequest(path) ?: return null
+        if (!admittedInlineAssetTarget(request.target)) return null
         val asset = source.open(request.token, request.target) ?: return null
         val mimeType = admittedAssetType(asset.mimeType) ?: return null
         return DocumentResponses.of(mimeType, bundleEncoding(mimeType), asset.bytes)

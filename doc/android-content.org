@@ -50,7 +50,7 @@ the shared renderer's untrusted KaTeX options and semantic MathML output.
 
 #+begin_src kotlin
 DocumentContentView(
-    source = DocumentSource(source, generation, id, org, baseLevel = 2),
+    source = DocumentSource(source, generation, id, filePath, org, baseLevel = 2),
     presentation = presentation,
     initialProgress = restoredProgress,
     restoreFocus = dismissedPreviewOrigin,
@@ -94,13 +94,29 @@ normal browser navigation. Modifier and auxiliary-button activation remains
 outside the typed channel and is subject to the embedding host's navigation
 policy.
 
-Asset lookup receives =DocumentBinding= and the verbatim Org target, such as
-=file:diagram.png=, on the loader thread. The host rejects invalid token/path
-segments and stale mounts. The resolver must enforce repository containment and
-interpret the target relative to the bound document; it must never use the
-currently selected source instead. An in-flight lookup retains its captured
-binding. Null results and refused MIME types return =404=. PNG, JPEG, GIF, WebP
-and plain text are admitted; executable formats, including HTML and SVG, are not.
+Asset lookup receives =DocumentBinding=, including the document's
+repository-relative file path, and the verbatim Org target, such as
+=file:../assets/diagram.png=, on the loader thread. The URL carries the UTF-8
+target as one bounded hexadecimal component, so its slashes and =..= are opaque
+to the local origin. The host rejects invalid encodings and stale mounts; the
+resolver normalizes relative components and enforces repository containment.
+It never uses the currently selected source. An in-flight lookup retains its
+captured binding. Null results and refused MIME types return =404=.
+
+The production resolver accepts signature-matching PNG, JPEG, GIF and WebP
+images up to 12 MiB for inline display. A bare resolved image is responsive,
+bounded to the reading viewport and carries a useful filename-based accessible
+name; a load failure becomes a quiet named unavailable state. Labeled file links
+retain their established anchor behavior, and a missing resolver preserves the
+web renderer's readable inert text.
+
+Explicit image and UTF-8 text attachments may be handed to another application
+up to 32 MiB. The file is copied from the mounted generation to an opaque private
+cache slot, then shared through one non-exported =FileProvider= URI with only
+=FLAG_GRANT_READ_URI_PERMISSION=. The provider root contains staged attachments,
+not repository content; the intent carries one URI in both data and =ClipData=.
+Executable formats, including HTML and SVG, are never served. HTTP(S) targets do
+not enter the asset resolver and remain explicit browser navigation.
 
 * Presentation and lifetime
 

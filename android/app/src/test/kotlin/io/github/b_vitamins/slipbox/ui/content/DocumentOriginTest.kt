@@ -75,16 +75,20 @@ class DocumentOriginTest {
     fun anAssetRequestNamesOneMountAndOneTarget() {
         assertEquals(
             DocumentAssetRequest(TOKEN, "diagram.png"),
-            documentAssetRequest("$TOKEN/diagram.png"),
+            documentAssetRequest(documentAssetPath(TOKEN, "diagram.png")),
         )
         assertEquals(
-            DocumentAssetRequest(TOKEN, "figures/diagram.png"),
-            documentAssetRequest("$TOKEN/figures/diagram.png"),
+            DocumentAssetRequest(TOKEN, "file:../figures/diagram one.png"),
+            documentAssetRequest(documentAssetPath(TOKEN, "file:../figures/diagram one.png")),
+        )
+        assertEquals(
+            "https://appassets.androidplatform.net/asset/$TOKEN/66696c653a6469616772616d2e706e67",
+            documentAssetUrl(TOKEN, "file:diagram.png"),
         )
     }
 
     @Test
-    fun anAssetRequestNamingNoLiveMountOrWalkingOutIsRefused() {
+    fun anAssetRequestNamingNoLiveMountOrOpaqueTargetIsRefused() {
         for (path in
             listOf(
                 "diagram.png",
@@ -93,6 +97,9 @@ class DocumentOriginTest {
                 "$TOKEN/figures/../../../etc/hosts",
                 "$TOKEN/./diagram.png",
                 "$TOKEN//diagram.png",
+                "$TOKEN/0",
+                "$TOKEN/gg",
+                "$TOKEN/c328",
                 "${TOKEN.uppercase()}/diagram.png",
                 "not-a-token/diagram.png",
                 "$TOKEN-more/diagram.png",
@@ -107,9 +114,9 @@ class DocumentOriginTest {
     fun anAssetIsSomethingAReaderLooksAtAndNothingThatRuns() {
         assertEquals("image/png", admittedAssetType("image/png"))
         assertEquals("image/jpeg", admittedAssetType("IMAGE/JPEG"))
-        assertEquals("text/plain", admittedAssetType("text/plain; charset=utf-8"))
         for (declared in
             listOf(
+                "text/plain",
                 "text/html",
                 "image/svg+xml",
                 "text/javascript",
@@ -119,6 +126,11 @@ class DocumentOriginTest {
         ) {
             assertNull("$declared was served", admittedAssetType(declared))
         }
+        assertEquals(true, admittedInlineAssetTarget("file:../assets/Diagram.PNG"))
+        assertEquals(true, admittedInlineAssetTarget("FILE:../assets/Diagram.PNG"))
+        assertEquals(false, admittedInlineAssetTarget("file:page.html"))
+        assertEquals(false, admittedInlineAssetTarget("file:diagram.svg"))
+        assertEquals(false, admittedInlineAssetTarget("https://example.org/diagram.png"))
     }
 
     private companion object {

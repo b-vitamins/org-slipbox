@@ -4,7 +4,14 @@
  * links retain normal browser behavior unless an embedding host intercepts them.
  */
 
-import { For, Show, type Component } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  Show,
+  type Component,
+} from "solid-js";
 
 import { useAssetResolver } from "./assets.jsx";
 import { GrammarLink, isBrowserGesture } from "./GrammarLink.jsx";
@@ -21,6 +28,94 @@ import "./org.css";
 
 type LinkNode = Extract<Inline, { type: "link" }>;
 
+const IMAGE_TARGET = /\.(?:png|jpe?g|gif|webp)$/i;
+
+function plainText(nodes: readonly Inline[]): string {
+  return nodes
+    .map((node) => {
+      switch (node.type) {
+        case "text":
+        case "verbatim":
+          return node.value;
+        case "bold":
+        case "italic":
+          return plainText(node.children);
+        case "math":
+          return node.tex;
+        case "link":
+          return plainText(node.label);
+        default:
+          return "";
+      }
+    })
+    .join("")
+    .trim();
+}
+
+function bareImage(node: LinkNode): boolean {
+  return (
+    IMAGE_TARGET.test(node.target.split("::", 1)[0] ?? "") &&
+    node.label.length === 1 &&
+    node.label[0]?.type === "text" &&
+    node.label[0].value === node.target
+  );
+}
+
+function imageLabel(node: LinkNode): string {
+  const described = plainText(node.label);
+  if (described !== node.target && described !== "") {
+    return described;
+  }
+  const path = node.target.replace(/^file:/i, "").split("::", 1)[0] ?? "";
+  return path.split(/[\\/]/).pop() || "Repository image";
+}
+
+const ResolvedImage: Component<{
+  node: LinkNode;
+  href: string;
+  follow: (event: MouseEvent) => void;
+}> = (props) => {
+  const [failed, setFailed] = createSignal(false);
+  createEffect(() => {
+    props.href;
+    setFailed(false);
+  });
+  const label = (): string => imageLabel(props.node);
+  return (
+    <Show
+      when={!failed()}
+      fallback={
+        <span
+          class="org-image org-image--unavailable"
+          role="img"
+          aria-label={`Image unavailable: ${label()}`}
+        >
+          <span class="org-image__state">Image unavailable</span>
+          <span class="org-image__label">{label()}</span>
+        </span>
+      }
+    >
+      <span class="org-image">
+        <a
+          class="org-image__link"
+          href={props.href}
+          aria-label={`Open image: ${label()}`}
+          onClick={props.follow}
+        >
+          <img
+            class="org-image__content"
+            src={props.href}
+            alt={label()}
+            loading="lazy"
+            decoding="async"
+            onError={() => setFailed(true)}
+          />
+        </a>
+      </span>
+    </Show>
+  );
+};
+
 /**
  * Render a target the document cannot follow itself: as an anchor where the host
  * resolves it to a URL of an admitted scheme, and otherwise as readable inert text.
@@ -28,10 +123,10 @@ type LinkNode = Extract<Inline, { type: "link" }>;
 const ExternalLink: Component<{ node: LinkNode }> = (props) => {
   const resolveAsset = useAssetResolver();
   const navigation = useNavigation();
-  const asset = (): string | null => {
+  const asset = createMemo((): string | null => {
     const resolved = resolveAsset(props.node.target);
     return resolved === null ? null : resolvedAssetHref(resolved);
-  };
+  });
   const follow = (event: MouseEvent): void => {
     if (isBrowserGesture(event)) {
       return;
@@ -40,6 +135,7 @@ const ExternalLink: Component<{ node: LinkNode }> = (props) => {
       event.preventDefault();
     }
   };
+  const image = (): string | null => (bareImage(props.node) ? asset() : null);
   return (
     <Show
       when={followableHref(props.node.target)}
@@ -56,9 +152,18 @@ const ExternalLink: Component<{ node: LinkNode }> = (props) => {
           }
         >
           {(href) => (
-            <a class="org-link org-link--asset" href={href()}>
-              <RenderInline nodes={props.node.label} />
-            </a>
+            <Show
+              when={image()}
+              fallback={
+                <a class="org-link org-link--asset" href={href()} onClick={follow}>
+                  <RenderInline nodes={props.node.label} />
+                </a>
+              }
+            >
+              {(imageHref) => (
+                <ResolvedImage node={props.node} href={imageHref()} follow={follow} />
+              )}
+            </Show>
           )}
         </Show>
       }

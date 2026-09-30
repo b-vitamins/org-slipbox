@@ -30,7 +30,9 @@ import io.github.b_vitamins.slipbox.ui.rememberDocumentReaderState
 import io.github.b_vitamins.slipbox.ui.rememberNotesInventoryState
 import io.github.b_vitamins.slipbox.ui.content.DocumentGesture
 import io.github.b_vitamins.slipbox.ui.content.DocumentIntent
+import io.github.b_vitamins.slipbox.ui.content.RepositoryAssets
 import io.github.b_vitamins.slipbox.ui.content.SystemExternalLinkHandoff
+import io.github.b_vitamins.slipbox.ui.content.isRepositoryAssetTarget
 import io.github.b_vitamins.slipbox.ui.settings.ReadingSettings
 import io.github.b_vitamins.slipbox.ui.settings.rememberReadingSettings
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxMotion
@@ -94,6 +96,10 @@ private fun productionDestinations(
                 val reader = rememberDocumentReaderState(readerRoute.note, ready)
                 val context = LocalContext.current
                 val external = remember(context) { SystemExternalLinkHandoff(context) }
+                val assets =
+                    remember(context, ready.binding, ready.contentRoot) {
+                        RepositoryAssets.packaged(context, ready.binding, ready.contentRoot)
+                    }
                 val openExternal: (DocumentLinkResolution.External, Float) -> Boolean =
                     { resolution, progress ->
                         backStack.rememberReadingPlace(
@@ -126,6 +132,7 @@ private fun productionDestinations(
                     settings = settings,
                     onBack = { backStack.back() },
                     onRetry = reader::retry,
+                    resolveAsset = assets,
                     linkPhase = reader.linkPhase,
                     previewPhase = reader.previewPhase,
                     focusRequest = reader.focusRequest,
@@ -144,8 +151,18 @@ private fun productionDestinations(
                                         },
                                     )
                                 }
-                            is DocumentIntent.Pin -> follow(intent.link.target, intent.progress)
-                            is DocumentIntent.Go -> follow(intent.link.target, intent.progress)
+                            is DocumentIntent.Pin ->
+                                if (isRepositoryAssetTarget(intent.link.target)) {
+                                    reader.openAttachment(intent.link.target, assets)
+                                } else {
+                                    follow(intent.link.target, intent.progress)
+                                }
+                            is DocumentIntent.Go ->
+                                if (isRepositoryAssetTarget(intent.link.target)) {
+                                    reader.openAttachment(intent.link.target, assets)
+                                } else {
+                                    follow(intent.link.target, intent.progress)
+                                }
                             DocumentIntent.Dismiss -> reader.dismissPreview()
                         }
                     },

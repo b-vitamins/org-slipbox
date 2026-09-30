@@ -214,6 +214,7 @@ class DocumentAppearanceTest {
                 source = "test-source",
                 generation = "1",
                 id = "appearance",
+                filePath = "notes/appearance.org",
                 org = Notes.RICH,
             )
 

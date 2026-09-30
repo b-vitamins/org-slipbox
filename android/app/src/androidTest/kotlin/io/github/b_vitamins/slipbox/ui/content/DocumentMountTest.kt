@@ -53,6 +53,7 @@ class DocumentMountTest {
                 source = "test-source",
                 generation = "1",
                 id = "mount",
+                filePath = "notes/mount.org",
                 org = Notes.TALL,
             ),
         )
@@ -129,6 +130,7 @@ class DocumentMountTest {
                     source = "test-source",
                     generation = "2",
                     id = "mount",
+                    filePath = "notes/mount.org",
                     org = Notes.ASSETS,
                 )
         }

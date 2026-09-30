@@ -56,6 +56,7 @@ class DocumentAssetTest {
                 source = "test-source",
                 generation = "4",
                 id = "assets",
+                filePath = "notes/assets.org",
                 org = Notes.ASSETS,
             ),
         )
@@ -103,10 +104,12 @@ class DocumentAssetTest {
         )
         assertTrue(
             "under the binding of the document that asked",
-            store.asks().all { it.binding == DocumentBinding("test-source", "4", "assets") },
+            store.asks().all {
+                it.binding == DocumentBinding("test-source", "4", "assets", "notes/assets.org")
+            },
         )
-        assertEquals("a miss is a refusal, not a fallback", 404.0, view.number(status("missing.png")), 0.0)
-        assertEquals("a hit is served", 200.0, view.number(status("diagram.png")), 0.0)
+        assertEquals("a miss is a refusal, not a fallback", 404.0, view.number(status(hrefs[2])), 0.0)
+        assertEquals("a hit is served", 200.0, view.number(status(hrefs[0])), 0.0)
         Evidence.record(
             "content-assets",
             Record()
@@ -119,14 +122,18 @@ class DocumentAssetTest {
 
     @Test
     fun bytesADocumentCouldRunAreRefusedWhateverTheStoreCallsThem() {
-        val base = DocumentOrigin.assetBase(view.mountToken())
-        assertEquals("failed", view.probeImage("${base}page.html"))
+        val token = view.mountToken()
+        for (target in REFUSED_TARGETS) {
+            val url = documentAssetUrl(token, target)
+            assertEquals("failed", view.probeImage(url))
+            assertEquals(404.0, view.number(status(url)), 0.0)
+        }
         assertTrue("a document was asked for: ${store.asks()}", store.asks().isEmpty())
-        assertEquals(404.0, view.number(status("page.html")), 0.0)
 
         for (target in DISGUISED) {
-            assertEquals("$target was served", "failed", view.probeImage("$base$target"))
-            assertEquals("$target was not refused", 404.0, view.number(status(target)), 0.0)
+            val url = documentAssetUrl(token, target)
+            assertEquals("$target was served", "failed", view.probeImage(url))
+            assertEquals("$target was not refused", 404.0, view.number(status(url)), 0.0)
         }
         assertEquals(
             "the store was asked for each, and every answer refused on its type",
@@ -136,7 +143,7 @@ class DocumentAssetTest {
         Evidence.record(
             "content-asset-types",
             Record()
-                .text("refusedBeforeTheStore", "page.html")
+                .text("refusedBeforeTheStore", REFUSED_TARGETS.joinToString(" "))
                 .text("refusedOnTheirType", DISGUISED.joinToString(" "))
                 .count("asked", store.asks().size),
         )
@@ -144,9 +151,9 @@ class DocumentAssetTest {
 
     @Test
     fun aTargetThatWalksOutIsRefusedBeforeTheStoreIsAsked() {
-        val base = DocumentOrigin.assetBase(view.mountToken())
+        val token = view.mountToken()
         for (walk in WALKS) {
-            assertEquals("$walk was answered", "failed", view.probeImage("$base$walk"))
+            assertEquals("$walk was answered", "failed", view.probeImage("${DocumentOrigin.assetBase(token)}$walk"))
         }
         assertTrue("the store was asked to walk: ${store.asks()}", store.asks().isEmpty())
     }
@@ -161,6 +168,7 @@ class DocumentAssetTest {
                     source = "test-source",
                     generation = "5",
                     id = "assets",
+                    filePath = "notes/assets.org",
                     org = Notes.ASSETS,
                 )
         }
@@ -179,8 +187,41 @@ class DocumentAssetTest {
         assertEquals("the same bytes under the new binding", "loaded ${DIAGRAM}x$DIAGRAM", view.probeImage(reissued))
         assertEquals(
             "asked for under the generation that is mounted now",
-            AssetAsk(DocumentBinding("test-source", "5", "assets"), "file:diagram.png"),
+            AssetAsk(
+                DocumentBinding("test-source", "5", "assets", "notes/assets.org"),
+                "file:diagram.png",
+            ),
             store.asks().single(),
+        )
+    }
+
+    @Test
+    fun aBareImageIsReadableInlineAndAMissingOneKeepsItsUsefulName() {
+        composeRule.runOnIdle {
+            source =
+                source.copy(
+                    org =
+                        "A diagram follows.\n\n" +
+                            "[[file:diagram.png]]\n\n" +
+                            "[[file:missing.png]]\n",
+                )
+        }
+        composeRule.waitForIdle()
+        view.awaitTrue(
+            "the available image decoded and the missing image settled",
+            "document.querySelector('img.org-image__content')?.complete === true && " +
+                "document.querySelector('.org-image--unavailable') !== null",
+        )
+
+        assertEquals("the available image", "diagram.png", view.text("document.querySelector('img.org-image__content').alt"))
+        assertEquals(DIAGRAM.toDouble(), view.number("document.querySelector('img.org-image__content').naturalWidth"), 0.0)
+        assertEquals(
+            "Image unavailable: missing.png",
+            view.text("document.querySelector('.org-image--unavailable').getAttribute('aria-label')"),
+        )
+        assertEquals(
+            listOf("file:diagram.png", "file:missing.png"),
+            store.asks().takeLast(2).map { it.target },
         )
     }
 
@@ -194,7 +235,8 @@ class DocumentAssetTest {
             "<svg xmlns=\"http://www.w3.org/2000/svg\">" +
                 "<script>window.slipboxOwned = true;</script></svg>"
 
-        val DISGUISED = listOf("figure.png", "figure.svg")
+        val REFUSED_TARGETS = listOf("page.html", "figure.svg")
+        val DISGUISED = listOf("figure.png")
 
         val WALKS =
             listOf(
@@ -207,9 +249,9 @@ class DocumentAssetTest {
             "JSON.stringify(Array.from(" +
                 "document.querySelectorAll('#document a.org-link--asset')).map(a => a.href))"
 
-        fun status(name: String): String =
+        fun status(url: String): String =
             "Number((performance.getEntriesByType('resource')" +
-                ".filter(entry => entry.name.indexOf(${name.quoted()}) >= 0).pop() || {})" +
+                ".filter(entry => entry.name === ${url.quoted()}).pop() || {})" +
                 ".responseStatus || 0)"
     }
 }
