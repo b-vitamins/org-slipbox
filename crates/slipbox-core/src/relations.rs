@@ -234,6 +234,59 @@ pub struct ForwardLinkRecord {
     pub explanation: ExplorationExplanation,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DirectedRelationDirection {
+    Incoming,
+    Outgoing,
+    Bidirectional,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DirectedRelationRecord {
+    pub note: NodeRecord,
+    pub direction: DirectedRelationDirection,
+    /// Bounded leading body text from the related note, or an establishing link
+    /// line when the related note has no indexed body prose.
+    pub preview: String,
+}
+
+/// Parameters for walking one note's distinct directed neighbors in filing order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DirectedRelationsParams {
+    pub node_key: String,
+    #[serde(default = "default_backlink_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub after: Option<String>,
+}
+
+impl DirectedRelationsParams {
+    #[must_use]
+    pub fn normalized_limit(&self) -> usize {
+        self.limit.clamp(1, 1_000)
+    }
+
+    #[must_use]
+    pub fn normalized_after(&self) -> Option<&str> {
+        self.after
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
+}
+
+/// One bounded page with counts over the complete distinct-note inventory.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DirectedRelationsResult {
+    pub relations: Vec<DirectedRelationRecord>,
+    pub total: u64,
+    pub incoming_total: u64,
+    pub outgoing_total: u64,
+    pub has_more: bool,
+    pub next_position: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReflinksParams {
     pub node_key: String,

@@ -7,6 +7,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Browse all directed Android note relations as a distinct-note inventory.
+  Rust collapses duplicate link occurrences, preserves incoming, outgoing and
+  bidirectional meaning, supplies exact direction counts and filing-order
+  keyset pages, and never silently stops at a UI cutoff. Reader loads the
+  source-generation-bound surface only on demand, names every direction in
+  text, continues explicitly, and reuses bounded target preview and navigation.
 - Keep Android bookmarks and recent reading as bounded, source-scoped native
   state outside the derived index. Library offers a restrained Continue Reading
   path plus explicit per-item removal and scoped clear actions; Reader adds or

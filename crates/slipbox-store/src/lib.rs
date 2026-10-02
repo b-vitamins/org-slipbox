@@ -4,6 +4,7 @@ mod artifacts;
 mod audits;
 mod backlinks;
 mod comparison;
+mod directed_relations;
 mod exploration;
 mod files;
 mod forward_links;
@@ -26,6 +27,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
+pub use directed_relations::{DirectedRelationPage, DirectedRelationPosition};
 pub use nodes::{
     GlossaryPage, GlossaryPosition, NotePage, NotePosition, note_owners_by_anchor_key,
 };

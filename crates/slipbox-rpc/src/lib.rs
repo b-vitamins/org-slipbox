@@ -50,6 +50,7 @@ pub const METHOD_RESOLVE_DOCUMENT_LINK: &str = "slipbox/resolveDocumentLink";
 pub const METHOD_NOTE_CONTEXT: &str = "slipbox/noteContext";
 pub const METHOD_BACKLINKS: &str = "slipbox/backlinks";
 pub const METHOD_FORWARD_LINKS: &str = "slipbox/forwardLinks";
+pub const METHOD_DIRECTED_RELATIONS: &str = "slipbox/directedRelations";
 pub const METHOD_REFLINKS: &str = "slipbox/reflinks";
 pub const METHOD_UNLINKED_REFERENCES: &str = "slipbox/unlinkedReferences";
 pub const METHOD_EXPLORE: &str = "slipbox/explore";

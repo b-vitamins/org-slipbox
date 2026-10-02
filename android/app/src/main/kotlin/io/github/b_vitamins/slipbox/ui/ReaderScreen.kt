@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -29,10 +30,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.b_vitamins.slipbox.R
+import io.github.b_vitamins.slipbox.engine.DirectedRelationRecord
 import io.github.b_vitamins.slipbox.engine.NodeKind
 import io.github.b_vitamins.slipbox.engine.NodeRecord
 import io.github.b_vitamins.slipbox.navigation.ReadingAnchor
@@ -68,11 +69,19 @@ internal fun ReaderScreen(
     onOpenPreview: () -> Unit = {},
     bookmarked: Boolean = false,
     onToggleBookmark: () -> Unit = {},
+    relationsPhase: DirectedRelationsPhase = DirectedRelationsPhase.Idle,
+    onOpenRelations: () -> Unit = {},
+    onRetryRelations: () -> Unit = {},
+    onLoadMoreRelations: () -> Unit = {},
+    onPreviewRelation: (DirectedRelationRecord) -> Unit = {},
+    onOpenRelation: (DirectedRelationRecord) -> Unit = {},
 ) {
     val document = (phase as? DocumentReaderPhase.Ready)?.document
     var appearanceVisible by rememberSaveable { mutableStateOf(false) }
     val appearanceControl = remember { FocusRequester() }
+    val relationsControl = remember { FocusRequester() }
     val documentControl = remember { FocusRequester() }
+    var relationsVisible by rememberSaveable { mutableStateOf(false) }
     var deliveredFocus by remember { mutableStateOf<DocumentFocusRequest?>(null) }
     LaunchedEffect(focusRequest) {
         if (focusRequest == null) {
@@ -105,7 +114,7 @@ internal fun ReaderScreen(
             )
         ReadingSurface(
             title = document?.anchor?.title ?: stringResource(R.string.reader_title),
-            obscured = appearanceVisible || previewVisible,
+            obscured = appearanceVisible || previewVisible || relationsVisible,
             scrollable = document == null,
             contentPadding =
                 if (document == null) {
@@ -161,6 +170,23 @@ internal fun ReaderScreen(
                     onDismiss = { appearanceVisible = false },
                     restoreFocusTo = appearanceControl,
                 )
+                DirectedRelationsSheet(
+                    visible = relationsVisible,
+                    phase = relationsPhase,
+                    motion = motion,
+                    onDismiss = { relationsVisible = false },
+                    onRetry = onRetryRelations,
+                    onLoadMore = onLoadMoreRelations,
+                    onPreview = { relation ->
+                        relationsVisible = false
+                        onPreviewRelation(relation)
+                    },
+                    onOpen = { relation ->
+                        relationsVisible = false
+                        onOpenRelation(relation)
+                    },
+                    restoreFocusTo = relationsControl,
+                )
                 ReaderPreviewSheet(
                     phase = previewPhase,
                     presentation = presentation,
@@ -204,7 +230,14 @@ internal fun ReaderScreen(
                 }
 
                 is DocumentReaderPhase.Ready -> {
-                    ReaderMetadata(phase.document.anchor)
+                    ReaderMetadata(
+                        anchor = phase.document.anchor,
+                        relationsControl = relationsControl,
+                        onRelations = {
+                            relationsVisible = true
+                            onOpenRelations()
+                        },
+                    )
                     ReaderLinkNotice(linkPhase)
                     DocumentContentView(
                         source = phase.document.source,
@@ -276,38 +309,40 @@ private fun ReaderLinkNotice(phase: ReaderLinkPhase) {
 }
 
 @Composable
-private fun ReaderMetadata(anchor: NodeRecord) {
+private fun ReaderMetadata(
+    anchor: NodeRecord,
+    relationsControl: FocusRequester,
+    onRelations: () -> Unit,
+) {
     val location =
         when (anchor.kind) {
             NodeKind.FILE -> anchor.filePath
             NodeKind.HEADING -> "${anchor.filePath} · ${anchor.outlinePath}"
         }
-    val backlinks =
-        pluralStringResource(
-            R.plurals.reader_backlinks,
-            anchor.backlinkCount.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-            anchor.backlinkCount,
-        )
-    val links =
-        pluralStringResource(
-            R.plurals.reader_links,
-            anchor.forwardLinkCount.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-            anchor.forwardLinkCount,
-        )
-    val description = stringResource(R.string.reader_metadata_description, location, backlinks, links)
-    Text(
-        text = "$location · $backlinks · $links",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    Row(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .padding(
                     horizontal = SlipboxDimensions.readingPadding,
-                    vertical = SlipboxDimensions.headerPaddingVertical,
-                )
-                .semantics { contentDescription = description },
-    )
+                    vertical = SlipboxDimensions.headerPaddingVertical / 2,
+                ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = location,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        TextControl(
+            label = stringResource(R.string.reader_relations),
+            onClick = onRelations,
+            modifier = Modifier.focusRequester(relationsControl),
+        )
+    }
 }
 
 @Composable

@@ -203,6 +203,20 @@
       "unique": false
     }
   },
+  "read_directed_relations": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "directedRelations",
+      "node_key": "heading:alpha.org:3",
+      "limit": 50,
+      "after": null
+    }
+  },
   "read_explore": {
     "version": 1,
     "handle": 7,

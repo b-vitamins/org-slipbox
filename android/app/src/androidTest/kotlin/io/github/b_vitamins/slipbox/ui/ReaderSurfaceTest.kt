@@ -23,9 +23,12 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SdkSuppress
+import io.github.b_vitamins.slipbox.engine.DirectedRelationDirection
+import io.github.b_vitamins.slipbox.engine.DirectedRelationRecord
 import io.github.b_vitamins.slipbox.engine.NodeKind
 import io.github.b_vitamins.slipbox.engine.NodeRecord
 import io.github.b_vitamins.slipbox.ui.content.DOCUMENT_LINK
@@ -78,7 +81,8 @@ class ReaderSurfaceTest {
         }
 
         composeRule.onNodeWithText("A complete note").assertExists()
-        composeRule.onNodeWithText("note.org · 2 backlinks · 3 links").assertExists()
+        composeRule.onNodeWithText("note.org").assertExists()
+        composeRule.onNodeWithText("Relations").assertExists()
         val view = shown()
         assertEquals(1.0, view.number("document.querySelectorAll('#document table').length"), 0.0)
         assertEquals(1.0, view.number("document.querySelectorAll('#document pre code').length"), 0.0)
@@ -142,6 +146,58 @@ class ReaderSurfaceTest {
         composeRule.onNodeWithContentDescription("Remove bookmark").performClick()
         composeRule.onNodeWithContentDescription("Bookmark").assertIsDisplayed()
         composeRule.runOnIdle { assertEquals(2, toggles) }
+    }
+
+    @Test
+    fun relationsNameEveryDirectionAndExposeExplicitContinuationAndPreview() {
+        lateinit var settings: ReadingSettings
+        var activations = 0
+        var continuations = 0
+        var previewed: DirectedRelationRecord? = null
+        val incoming = relation("Incoming note", DirectedRelationDirection.INCOMING)
+        val outgoing = relation("Outgoing note", DirectedRelationDirection.OUTGOING)
+        val bidirectional = relation("Mutual note", DirectedRelationDirection.BIDIRECTIONAL)
+        val relations =
+            DirectedRelationsPhase.Ready(
+                relations = listOf(incoming, outgoing, bidirectional),
+                total = 5,
+                incomingTotal = 3,
+                outgoingTotal = 3,
+                hasMore = true,
+                nextPosition = "after-mutual",
+            )
+        composeRule.setContent {
+            settings = remember { ReadingSettings(MemoryStore()) }
+            SlipboxTheme(appearance = settings.preferences.appearance) {
+                ReaderScreen(
+                    phase = DocumentReaderPhase.Ready(document()),
+                    settings = settings,
+                    onBack = {},
+                    onRetry = {},
+                    relationsPhase = relations,
+                    onOpenRelations = { activations += 1 },
+                    onLoadMoreRelations = { continuations += 1 },
+                    onPreviewRelation = { previewed = it },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Relations").performClick()
+        composeRule.onNodeWithText("5 related notes").assertIsDisplayed()
+        composeRule.onNodeWithText("3 incoming · 3 outgoing").assertIsDisplayed()
+        composeRule.onNodeWithText("Links to this note").assertExists()
+        composeRule.onNodeWithText("Linked from this note").assertExists()
+        composeRule.onNodeWithText("Links both ways").assertExists()
+        composeRule.runOnIdle { assertEquals(1, activations) }
+        Evidence.image("reader-directed-relations", composeRule.onRoot().captureToImage())
+
+        composeRule.onNodeWithText("Show more relations").performScrollTo().performClick()
+        composeRule.onNodeWithText("Incoming note").performScrollTo().performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, continuations)
+            assertEquals(incoming, previewed)
+        }
+        composeRule.onNodeWithText("5 related notes").assertDoesNotExist()
     }
 
     @Test
@@ -479,6 +535,23 @@ class ReaderSurfaceTest {
             fileMtimeNs = 0,
             backlinkCount = 2,
             forwardLinkCount = 3,
+        )
+
+    private fun relation(
+        title: String,
+        direction: DirectedRelationDirection,
+    ): DirectedRelationRecord =
+        DirectedRelationRecord(
+            note =
+                node().copy(
+                    nodeKey = "file:${title.lowercase().replace(' ', '-')}.org",
+                    filePath = "related/${title.lowercase().replace(' ', '-')}.org",
+                    title = title,
+                    backlinkCount = 0,
+                    forwardLinkCount = 0,
+                ),
+            direction = direction,
+            preview = "A short excerpt that makes this relation intelligible.",
         )
 
     private fun preview(

@@ -211,6 +211,35 @@ data class ForwardLinkRecord(
 )
 
 @Serializable
+enum class DirectedRelationDirection {
+    @SerialName("incoming")
+    INCOMING,
+
+    @SerialName("outgoing")
+    OUTGOING,
+
+    @SerialName("bidirectional")
+    BIDIRECTIONAL,
+}
+
+@Serializable
+data class DirectedRelationRecord(
+    val note: NodeRecord,
+    val direction: DirectedRelationDirection,
+    val preview: String,
+)
+
+@Serializable
+data class DirectedRelationsResult(
+    val relations: List<DirectedRelationRecord>,
+    val total: Long,
+    @SerialName("incoming_total") val incomingTotal: Long,
+    @SerialName("outgoing_total") val outgoingTotal: Long,
+    @SerialName("has_more") val hasMore: Boolean,
+    @SerialName("next_position") val nextPosition: String?,
+)
+
+@Serializable
 data class ReflinkRecord(
     @SerialName("source_anchor") val sourceAnchor: NodeRecord,
     val row: Long,
@@ -474,6 +503,10 @@ sealed class EngineAnswer {
     data class ForwardLinks(val result: ForwardLinksResult) : EngineAnswer(), ReadAnswer
 
     @Serializable
+    @SerialName("directedRelations")
+    data class DirectedRelations(val result: DirectedRelationsResult) : EngineAnswer(), ReadAnswer
+
+    @Serializable
     @SerialName("explore")
     data class Explore(val result: ExploreResult) : EngineAnswer(), ReadAnswer
 
@@ -503,6 +536,7 @@ internal fun ReadOperation.answerIn(answer: EngineAnswer): ReadAnswer? =
         is ReadOperation.GlossaryTerm -> answer as? EngineAnswer.GlossaryTerm
         is ReadOperation.Backlinks -> answer as? EngineAnswer.Backlinks
         is ReadOperation.ForwardLinks -> answer as? EngineAnswer.ForwardLinks
+        is ReadOperation.DirectedRelations -> answer as? EngineAnswer.DirectedRelations
         is ReadOperation.Explore -> answer as? EngineAnswer.Explore
     }
 

@@ -310,24 +310,40 @@ internal class DocumentReaderState(
         val sourceNodeKey = (phase as? DocumentReaderPhase.Ready)?.document?.anchor?.nodeKey ?: return
         if (!live.get()) return
         val request = ReaderPreviewRequest(target, gesture, originProgress, origin, originPosition)
+        requestPreview(request, onExternal) { selected ->
+            when (val resolution = selected.resolve(sourceNodeKey, target)) {
+                is DocumentLinkResolution.Note -> selected.preview(resolution.nodeKey)
+                is DocumentLinkResolution.External -> PreviewResolution.External(resolution)
+                DocumentLinkResolution.Missing -> PreviewResolution.Missing
+                DocumentLinkResolution.Unsupported -> PreviewResolution.Unsupported
+            }
+        }
+    }
+
+    /** Read a known relation target through this reader's source-bound session. */
+    fun previewNode(
+        nodeKey: String,
+        gesture: DocumentGesture,
+        originProgress: Float,
+        origin: String,
+        originPosition: DocumentPosition? = null,
+    ) {
+        if (phase !is DocumentReaderPhase.Ready || !live.get()) return
+        val request = ReaderPreviewRequest(nodeKey, gesture, originProgress, origin, originPosition)
+        requestPreview(request) { selected -> selected.preview(nodeKey) }
+    }
+
+    private fun requestPreview(
+        request: ReaderPreviewRequest,
+        onExternal: (DocumentLinkResolution.External) -> Boolean = { false },
+        answer: (BoundDocumentSource) -> PreviewResolution,
+    ) {
         val serial = linkRequests.incrementAndGet()
         linkPhase = ReaderLinkPhase.Idle
         previewPhase = ReaderPreviewPhase.Loading(request)
         Thread(
                 {
-                    val outcome = runCatching {
-                        val selected = checkNotNull(opened.get())
-                        when (val resolution = selected.resolve(sourceNodeKey, target)) {
-                            is DocumentLinkResolution.Note -> {
-                                val answer = selected.read(resolution.nodeKey, PREVIEW_MAX_LINES)
-                                validatePreview(resolution.nodeKey, answer)
-                                PreviewResolution.Note(answer)
-                            }
-                            is DocumentLinkResolution.External -> PreviewResolution.External(resolution)
-                            DocumentLinkResolution.Missing -> PreviewResolution.Missing
-                            DocumentLinkResolution.Unsupported -> PreviewResolution.Unsupported
-                        }
-                    }
+                    val outcome = runCatching { answer(checkNotNull(opened.get())) }
                     delivery.post {
                         if (!live.get() || linkRequests.get() != serial) return@post
                         outcome.fold(
@@ -348,6 +364,12 @@ internal class DocumentReaderState(
                 isDaemon = true
                 start()
             }
+    }
+
+    private fun BoundDocumentSource.preview(nodeKey: String): PreviewResolution.Note {
+        val answer = read(nodeKey, PREVIEW_MAX_LINES)
+        validatePreview(nodeKey, answer)
+        return PreviewResolution.Note(answer)
     }
 
     fun dismissPreview() {

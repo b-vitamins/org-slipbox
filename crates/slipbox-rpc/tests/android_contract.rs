@@ -8,11 +8,11 @@ use serde::ser::{Error as _, SerializeSeq as _};
 use serde::{Serialize, Serializer};
 use serde_json::{Value, json};
 use slipbox_core::{
-    BacklinksParams, ExplorationLens, ExploreParams, ForwardLinksParams, GenerationBinding,
-    GenerationId, GlossaryTermParams, IndexFileParams, IndexedFilesResult, ListGlossaryTermsParams,
-    ListNotesParams, NodeFromIdParams, NodeFromKeyParams, ReadNodeSourceParams,
-    ResolveDocumentLinkParams, SearchGlossaryParams, SearchNodeContentParams, SearchNodesParams,
-    SearchNodesSort, SourceId,
+    BacklinksParams, DirectedRelationsParams, ExplorationLens, ExploreParams, ForwardLinksParams,
+    GenerationBinding, GenerationId, GlossaryTermParams, IndexFileParams, IndexedFilesResult,
+    ListGlossaryTermsParams, ListNotesParams, NodeFromIdParams, NodeFromKeyParams,
+    ReadNodeSourceParams, ResolveDocumentLinkParams, SearchGlossaryParams, SearchNodeContentParams,
+    SearchNodesParams, SearchNodesSort, SourceId,
 };
 use slipbox_rpc::android::{
     ADAPTER_LIMITS, ADAPTER_PROTOCOL_VERSION, AdapterBound, AdapterCapability, AdapterContract,
@@ -141,6 +141,11 @@ fn every_read_operation() -> Vec<ReadOperation> {
             node_key: "heading:alpha.org:3".to_owned(),
             limit: 200,
             unique: false,
+        }),
+        ReadOperation::DirectedRelations(DirectedRelationsParams {
+            node_key: "heading:alpha.org:3".to_owned(),
+            limit: 50,
+            after: None,
         }),
         ReadOperation::Explore(ExploreParams {
             node_key: "heading:alpha.org:3".to_owned(),
@@ -864,6 +869,11 @@ fn each_bound_admits_its_last_value_and_refuses_the_first_beyond_it() {
             limit: relation,
             unique: false,
         }),
+        ReadOperation::DirectedRelations(DirectedRelationsParams {
+            node_key: "heading:alpha.org:3".to_owned(),
+            limit: relation,
+            after: None,
+        }),
         ReadOperation::Explore(ExploreParams {
             node_key: "heading:alpha.org:3".to_owned(),
             lens: ExplorationLens::Refs,
@@ -941,6 +951,14 @@ fn each_bound_admits_its_last_value_and_refuses_the_first_beyond_it() {
                 node_key: "heading:alpha.org:3".to_owned(),
                 limit: 0,
                 unique: false,
+            }),
+            AdapterBound::RelationEntries,
+        ),
+        (
+            ReadOperation::DirectedRelations(DirectedRelationsParams {
+                node_key: "heading:alpha.org:3".to_owned(),
+                limit: relation + 1,
+                after: None,
             }),
             AdapterBound::RelationEntries,
         ),

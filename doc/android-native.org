@@ -33,12 +33,13 @@ parsing, including escaped-equivalent names.
 
 | Capability  | Opened by                      | Admits                        |
 |-------------+--------------------------------+-------------------------------|
-| read        | =nativeOpenReadSession=        | thirteen read-only operations |
+| read        | =nativeOpenReadSession=        | sixteen read-only operations  |
 | maintenance | =nativeOpenMaintenanceSession= | =index= and =indexFile=       |
 
 Reading covers status, bounded node and content search, node lookup by identifier
 and by key, complete node source, glossary listing, search and lookup, backward
-and forward links, and one live exploration; a test holds that inventory to the
+and forward links, a unified paged directed-relation inventory, and one live
+exploration; a test holds that inventory to the
 engine's own =OperationMutation::ReadOnly= judgement. Maintenance admits initial
 fixture indexing and one file's update or removal. Capture, grading, Org and
 durable writes, external programs and every unknown operation are refused through
@@ -55,7 +56,7 @@ is never reused, and a retired handle is distinguished from one never allocated.
 | =max_request_bytes=     |   65536 | the request array, bounded before reading   |
 | =max_response_bytes=    | 4194304 | the answer, bounded as written and as read  |
 | =max_page_entries=      |     200 | one search or listing page                  |
-| =max_relation_entries=  |    1000 | one direction of links                      |
+| =max_relation_entries=  |    1000 | one relation query page                     |
 | =max_note_source_lines= |    1000 | one note's source, which stays complete     |
 | =max_context_lines=     |     200 | context around a node's source              |
 | =max_path_bytes=        |    4096 | each path a session is opened for           |

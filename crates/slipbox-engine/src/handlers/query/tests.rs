@@ -10,12 +10,12 @@ use slipbox_core::{
     BUILT_IN_WORKFLOW_UNRESOLVED_SWEEP_ID, BUILT_IN_WORKFLOW_WEAK_INTEGRATION_REVIEW_ID,
     CompareNotesParams, ComparisonConnectorDirection, CorpusAuditEntry, CorpusAuditKind,
     CorpusAuditResult, DanglingLinkAuditRecord, DeleteExplorationArtifactResult,
-    DeleteReviewRunResult, DeleteWorkbenchPackResult, DocumentLinkResolution,
-    ExecuteExplorationArtifactResult, ExecutedExplorationArtifactPayload,
-    ExplorationArtifactMetadata, ExplorationArtifactPayload, ExplorationArtifactResult,
-    ExplorationEntry, ExplorationExplanation, ExplorationLens, ExplorationSectionKind,
-    ExploreParams, ExploreResult, GlossaryTermResult, GradeTermResult, GraphParams,
-    ImportWorkbenchPackResult, ListExplorationArtifactsResult, ListNotesResult,
+    DeleteReviewRunResult, DeleteWorkbenchPackResult, DirectedRelationDirection,
+    DirectedRelationsResult, DocumentLinkResolution, ExecuteExplorationArtifactResult,
+    ExecutedExplorationArtifactPayload, ExplorationArtifactMetadata, ExplorationArtifactPayload,
+    ExplorationArtifactResult, ExplorationEntry, ExplorationExplanation, ExplorationLens,
+    ExplorationSectionKind, ExploreParams, ExploreResult, GlossaryTermResult, GradeTermResult,
+    GraphParams, ImportWorkbenchPackResult, ListExplorationArtifactsResult, ListNotesResult,
     ListReviewRoutinesResult, ListReviewRunsResult, ListWorkbenchPacksResult, ListWorkflowsResult,
     MarkReviewFindingResult, NodeKind, NoteComparisonEntry, NoteComparisonExplanation,
     NoteComparisonGroup, NoteComparisonResult, NoteComparisonSectionKind, NoteContextResult,
@@ -42,7 +42,7 @@ use tempfile::TempDir;
 
 use super::{
     compare_notes, corpus_audit, delete_exploration_artifact, delete_review_run,
-    delete_workbench_pack, diff_review_runs, execute_compare_notes_query,
+    delete_workbench_pack, diff_review_runs, directed_relations, execute_compare_notes_query,
     execute_exploration_artifact, execute_explore_query, execute_saved_exploration_artifact,
     execute_saved_exploration_artifact_by_id, execute_workflow_spec, exploration_artifact, explore,
     export_workbench_pack, glossary_term, import_workbench_pack, list_exploration_artifacts,
@@ -4851,6 +4851,52 @@ fn note_context_totals_relations_by_note_where_the_stored_counts_total_links() {
     assert_eq!(context.note.forward_link_count, 2);
     assert_eq!(context.forward_links.len(), 1);
     assert_eq!(context.forward_link_note_total, 1);
+}
+
+#[test]
+fn directed_relations_page_distinct_notes_and_preserve_both_directions() {
+    let (_workspace, mut state, alpha_key) = doubled_link_state();
+
+    let first: DirectedRelationsResult = serde_json::from_value(
+        directed_relations(
+            &mut state,
+            json!({ "node_key": alpha_key.as_str(), "limit": 1 }),
+        )
+        .expect("the first relation page should resolve"),
+    )
+    .expect("the first relation page should decode");
+
+    assert_eq!(first.total, 2);
+    assert_eq!(first.incoming_total, 2);
+    assert_eq!(first.outgoing_total, 1);
+    assert_eq!(first.relations.len(), 1);
+    assert_eq!(
+        first.relations[0].direction,
+        DirectedRelationDirection::Bidirectional,
+    );
+    assert!(first.has_more);
+
+    let second: DirectedRelationsResult = serde_json::from_value(
+        directed_relations(
+            &mut state,
+            json!({
+                "node_key": alpha_key.as_str(),
+                "limit": 1,
+                "after": first.next_position,
+            }),
+        )
+        .expect("the continuation relation page should resolve"),
+    )
+    .expect("the continuation relation page should decode");
+
+    assert_eq!(second.total, 2);
+    assert_eq!(second.relations.len(), 1);
+    assert_eq!(
+        second.relations[0].direction,
+        DirectedRelationDirection::Incoming,
+    );
+    assert!(!second.has_more);
+    assert_eq!(second.next_position, None);
 }
 
 #[test]

@@ -16,11 +16,11 @@ use slipbox_rpc::android::{
     MAINTENANCE_VOCABULARY, READ_VOCABULARY,
 };
 use slipbox_rpc::{
-    METHOD_BACKLINKS, METHOD_EXPLORE, METHOD_FORWARD_LINKS, METHOD_GLOSSARY_TERM, METHOD_INDEX,
-    METHOD_INDEX_FILE, METHOD_INDEXED_FILES, METHOD_LIST_GLOSSARY_TERMS, METHOD_LIST_NOTES,
-    METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_READ_NODE_SOURCE,
-    METHOD_RESOLVE_DOCUMENT_LINK, METHOD_SEARCH_GLOSSARY, METHOD_SEARCH_NODE_CONTENT,
-    METHOD_SEARCH_NODES,
+    METHOD_BACKLINKS, METHOD_DIRECTED_RELATIONS, METHOD_EXPLORE, METHOD_FORWARD_LINKS,
+    METHOD_GLOSSARY_TERM, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_INDEXED_FILES,
+    METHOD_LIST_GLOSSARY_TERMS, METHOD_LIST_NOTES, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY,
+    METHOD_READ_NODE_SOURCE, METHOD_RESOLVE_DOCUMENT_LINK, METHOD_SEARCH_GLOSSARY,
+    METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES,
 };
 use tempfile::TempDir;
 
@@ -596,6 +596,14 @@ fn no_declared_bound_is_exceeded_and_none_is_silently_narrowed() {
         ),
         (
             json!({"kind": "forwardLinks", "node_key": key, "limit": 0}),
+            Some("relation-entries"),
+        ),
+        (
+            json!({"kind": "directedRelations", "node_key": key, "limit": relations}),
+            None,
+        ),
+        (
+            json!({"kind": "directedRelations", "node_key": key, "limit": relations + 1}),
             Some("relation-entries"),
         ),
         (
@@ -1347,6 +1355,11 @@ fn read_cases(keys: &Keys) -> Vec<(Value, &'static str, Value)> {
         (
             json!({"kind": "forwardLinks", "node_key": alpha, "limit": 50}),
             METHOD_FORWARD_LINKS,
+            json!({"node_key": alpha, "limit": 50}),
+        ),
+        (
+            json!({"kind": "directedRelations", "node_key": alpha, "limit": 50}),
+            METHOD_DIRECTED_RELATIONS,
             json!({"node_key": alpha, "limit": 50}),
         ),
         (

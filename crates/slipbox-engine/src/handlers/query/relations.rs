@@ -1,17 +1,18 @@
 use std::collections::BTreeSet;
 
 use slipbox_core::{
-    AgendaParams, AgendaResult, BacklinksParams, BacklinksResult, ForwardLinksParams,
-    ForwardLinksResult, GraphParams, GraphResult, NodeFromRefParams, RefRecord, ReflinksParams,
-    ReflinksResult, SearchOccurrencesParams, SearchOccurrencesResult, SearchRefsParams,
-    SearchRefsResult, SearchTagsParams, SearchTagsResult, UnlinkedReferencesParams,
-    UnlinkedReferencesResult,
+    AgendaParams, AgendaResult, BacklinksParams, BacklinksResult, DirectedRelationsParams,
+    DirectedRelationsResult, ForwardLinksParams, ForwardLinksResult, GraphParams, GraphResult,
+    NodeFromRefParams, RefRecord, ReflinksParams, ReflinksResult, SearchOccurrencesParams,
+    SearchOccurrencesResult, SearchRefsParams, SearchRefsResult, SearchTagsParams,
+    SearchTagsResult, UnlinkedReferencesParams, UnlinkedReferencesResult,
 };
 use slipbox_rpc::{JsonRpcError, JsonRpcErrorObject};
+use slipbox_store::DirectedRelationPosition;
 
 use crate::occurrences_query::query_occurrences;
 use crate::reflinks_query::query_reflinks;
-use crate::rpc::{internal_error, parse_params, to_value};
+use crate::rpc::{internal_error, invalid_params, parse_params, to_value};
 use crate::state::ServerState;
 use crate::unlinked_references_query::query_unlinked_references;
 
@@ -84,6 +85,33 @@ pub(crate) fn forward_links(
         .forward_links(&params.node_key, params.normalized_limit(), params.unique)
         .map_err(|error| internal_error(error.context("failed to query forward links")))?;
     to_value(ForwardLinksResult { forward_links })
+}
+
+pub(crate) fn directed_relations(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: DirectedRelationsParams = parse_params(params)?;
+    let focus = state.known_note_for_node_or_anchor(&params.node_key, "relation focus")?;
+    let after = match params.normalized_after() {
+        Some(token) => Some(
+            DirectedRelationPosition::parse(token)
+                .ok_or_else(|| invalid_params("invalid directed-relation position"))?,
+        ),
+        None => None,
+    };
+    let page = state
+        .database
+        .directed_relations(&focus, params.normalized_limit(), after.as_ref())
+        .map_err(|error| internal_error(error.context("failed to query directed relations")))?;
+    to_value(DirectedRelationsResult {
+        relations: page.relations,
+        total: page.total,
+        incoming_total: page.incoming_total,
+        outgoing_total: page.outgoing_total,
+        has_more: page.has_more,
+        next_position: page.next_position,
+    })
 }
 
 pub(crate) fn reflinks(

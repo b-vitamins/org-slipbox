@@ -64,22 +64,37 @@
     <string name="reader_preview_shortened">Preview shortened. Open the note to read the complete target.</string>
     <string name="reader_preview_open_note">Open note</string>
     <string name="reader_preview_open_term">Open term</string>
-    <string name="reader_metadata_description">%1$s, %2$s, %3$s</string>
-    <plurals name="reader_backlinks">
-        <item quantity="one">%d backlink</item>
-        <item quantity="other">%d backlinks</item>
+    <string name="reader_relations">Relations</string>
+    <string name="reader_relations_loading">Loading relations.</string>
+    <string name="reader_relations_loading_more">Loading more relations.</string>
+    <string name="reader_relations_empty">No other notes link to or from this note.</string>
+    <string name="reader_relations_unavailable">Relations could not be loaded.</string>
+    <string name="reader_relations_more_unavailable">More relations could not be loaded.</string>
+    <string name="reader_relation_counts">%1$s · %2$s</string>
+    <plurals name="reader_incoming_relations">
+        <item quantity="one">%d incoming</item>
+        <item quantity="other">%d incoming</item>
     </plurals>
-    <plurals name="reader_links">
-        <item quantity="one">%d link</item>
-        <item quantity="other">%d links</item>
+    <plurals name="reader_outgoing_relations">
+        <item quantity="one">%d outgoing</item>
+        <item quantity="other">%d outgoing</item>
     </plurals>
-
+    <string name="reader_relation_incoming">Links to this note</string>
+    <string name="reader_relation_outgoing">Linked from this note</string>
+    <string name="reader_relation_bidirectional">Links both ways</string>
+    <string name="reader_relation_preview">Preview %1$s</string>
+    <plurals name="reader_related_notes">
+        <item quantity="one">%d related note</item>
+        <item quantity="other">%d related notes</item>
+    </plurals>
     <string name="action_connect">Connect</string>
     <string name="action_add_source">Add</string>
     <string name="action_sources">Sources</string>
     <string name="action_retry">Try again</string>
     <string name="action_cancel">Cancel</string>
     <string name="action_confirm">Confirm</string>
+    <string name="action_open">Open</string>
+    <string name="action_show_more_relations">Show more relations</string>
 
     <string name="action_about">About</string>
     <string name="action_back">Back</string>

@@ -25,8 +25,8 @@ pub(crate) use notes::{
     search_node_content, search_nodes,
 };
 pub(crate) use relations::{
-    agenda, backlinks, forward_links, graph_dot, node_from_ref, reflinks, search_occurrences,
-    search_refs, search_tags, unlinked_references,
+    agenda, backlinks, directed_relations, forward_links, graph_dot, node_from_ref, reflinks,
+    search_occurrences, search_refs, search_tags, unlinked_references,
 };
 pub(crate) use reviews::{
     corpus_audit, delete_review_run, diff_review_runs, list_review_runs, mark_review_finding,

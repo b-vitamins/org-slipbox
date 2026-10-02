@@ -384,6 +384,33 @@ class DocumentReaderStateTest {
     }
 
     @Test
+    fun aKnownRelationTargetPreviewsByCanonicalKeyWithoutLinkResolution() {
+        val target = "heading:related.org:4"
+        val reads = mutableListOf<Pair<String, Int>>()
+        var resolutions = 0
+        val source = source(answer())
+        source.onResolve = { _, _ ->
+            resolutions += 1
+            DocumentLinkResolution.Missing
+        }
+        source.onRead = { nodeKey, maxLines -> reads += nodeKey to maxLines }
+        source.answerFor = { nodeKey, _ ->
+            if (nodeKey == target) previewAnswer(target) else answer()
+        }
+        val state = state(factory = BoundDocumentSourceFactory { source })
+        await { state.phase is DocumentReaderPhase.Ready }
+
+        state.previewNode(target, DocumentGesture.Touch, 0.5f, "relation:$target")
+        await { state.previewPhase is ReaderPreviewPhase.Ready }
+
+        val preview = (state.previewPhase as ReaderPreviewPhase.Ready).preview
+        assertEquals(target, preview.anchor.nodeKey)
+        assertEquals(target to 12, reads.last())
+        assertEquals(0, resolutions)
+        state.close()
+    }
+
+    @Test
     fun dismissRestoresTheExactOriginAndOpenUsesTheResolvedTargetWithoutResolvingAgain() {
         val target = "heading:other.org:4"
         val source = source(answer())

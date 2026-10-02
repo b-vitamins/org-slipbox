@@ -100,6 +100,11 @@ internal object EngineOperations {
                 "answered_forward_links",
             ),
             AdmittedOperation(
+                ReadOperation.DirectedRelations(NODE_KEY, 50, null),
+                "read_directed_relations",
+                "answered_directed_relations",
+            ),
+            AdmittedOperation(
                 ReadOperation.Explore(NODE_KEY, ExplorationLens.STRUCTURE, 200, true),
                 "read_explore",
                 "answered_explore",

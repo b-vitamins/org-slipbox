@@ -174,6 +174,21 @@ class EngineAdapterTest {
         assertEquals(beta.nodeKey, destination.destinationNote.nodeKey)
         assertEquals(ExplorationExplanation.ForwardLink, destination.explanation)
 
+        val related =
+            answered<EngineAnswer.DirectedRelations>(
+                read,
+                ReadOperation.DirectedRelations(beta.nodeKey, 20),
+            ).result
+        val relation = related.relations.single()
+        assertEquals(alpha.nodeKey, relation.note.nodeKey)
+        assertEquals(DirectedRelationDirection.INCOMING, relation.direction)
+        assertTrue(relation.preview, relation.preview.isNotBlank())
+        assertEquals(1L, related.total)
+        assertEquals(1L, related.incomingTotal)
+        assertEquals(0L, related.outgoingTotal)
+        assertFalse(related.hasMore)
+        assertNull(related.nextPosition)
+
         val lens = ReadOperation.Explore(beta.nodeKey, ExplorationLens.STRUCTURE, 20, true)
         val exploration = answered<EngineAnswer.Explore>(read, lens).result
         assertEquals(ExplorationLens.STRUCTURE, exploration.lens)

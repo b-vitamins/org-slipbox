@@ -28,11 +28,13 @@ import io.github.b_vitamins.slipbox.sources.SourceLibraryState
 import io.github.b_vitamins.slipbox.sources.rememberSourceLibraryState
 import io.github.b_vitamins.slipbox.ui.AboutScreen
 import io.github.b_vitamins.slipbox.ui.ConnectionScreen
+import io.github.b_vitamins.slipbox.ui.DirectedRelationsPhase
 import io.github.b_vitamins.slipbox.ui.DocumentReaderPhase
 import io.github.b_vitamins.slipbox.ui.LibraryScreen
 import io.github.b_vitamins.slipbox.ui.ReaderScreen
 import io.github.b_vitamins.slipbox.ui.SourceSettingsScreen
 import io.github.b_vitamins.slipbox.ui.rememberDocumentReaderState
+import io.github.b_vitamins.slipbox.ui.rememberDirectedRelationsState
 import io.github.b_vitamins.slipbox.ui.rememberNotesInventoryState
 import io.github.b_vitamins.slipbox.ui.content.DocumentGesture
 import io.github.b_vitamins.slipbox.ui.content.DocumentIntent
@@ -158,7 +160,9 @@ private fun productionDestinations(
             } else {
                 val reader = rememberDocumentReaderState(readerRoute.note, ready)
                 val resolved = (reader.phase as? DocumentReaderPhase.Ready)?.document?.anchor
-                val resolvedNote = resolved?.let(readerRoute.note::resolvedBy) ?: readerRoute.note
+                val resolvedBound = resolved?.let(readerRoute.note::resolvedBy)
+                val resolvedNote = resolvedBound ?: readerRoute.note
+                val relations = rememberDirectedRelationsState(resolvedBound, ready)
                 LaunchedEffect(resolved?.nodeKey, resolved?.explicitId) {
                     resolved?.let {
                         backStack.reconcileReadingNote(readerRoute, it)
@@ -279,6 +283,34 @@ private fun productionDestinations(
                                 originAnchor = anchor,
                             )
                         }
+                    },
+                    relationsPhase = relations?.phase ?: DirectedRelationsPhase.Idle,
+                    onOpenRelations = { relations?.activate() },
+                    onRetryRelations = { relations?.retry() },
+                    onLoadMoreRelations = { relations?.loadMore() },
+                    onPreviewRelation = { relation ->
+                        val anchor = readerRoute.anchor
+                        reader.previewNode(
+                            nodeKey = relation.note.nodeKey,
+                            gesture = DocumentGesture.Touch,
+                            originProgress = anchor.progress,
+                            origin = "relation:${relation.note.nodeKey}",
+                            originPosition =
+                                DocumentPosition(
+                                    mark = anchor.mark,
+                                    progress = anchor.progress,
+                                    offset = anchor.offset,
+                                ),
+                        )
+                    },
+                    onOpenRelation = { relation ->
+                        val anchor = readerRoute.anchor
+                        readingReturns?.rememberReadingPlace(resolvedNote, anchor)
+                        backStack.follow(
+                            origin = readerRoute,
+                            targetNodeKey = relation.note.nodeKey,
+                            originAnchor = anchor,
+                        )
                     },
                 )
             }

@@ -817,7 +817,7 @@ pub struct GlossaryPosition {
 
 const TERM_POSITION_TAG: &str = "term";
 const DUE_POSITION_TAG: &str = "due";
-const POSITION_SEPARATOR: char = '.';
+pub(crate) const POSITION_SEPARATOR: char = '.';
 
 impl GlossaryPosition {
     #[must_use]
@@ -887,11 +887,11 @@ impl GlossaryPosition {
     }
 }
 
-fn encode_field(field: &str) -> String {
+pub(crate) fn encode_field(field: &str) -> String {
     field.bytes().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn decode_field(field: &str) -> Option<String> {
+pub(crate) fn decode_field(field: &str) -> Option<String> {
     let digits = field.as_bytes();
     if digits.len() % 2 != 0 {
         return None;

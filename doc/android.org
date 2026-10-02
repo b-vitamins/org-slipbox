@@ -14,8 +14,9 @@ document host, bounded Git transport, source-owned snapshot materializer,
 incremental index staging, coherent generation publication and startup recovery
 are joined to source connection through the source-scoped refresh coordinator;
 WorkManager supplies constrained later refreshes. Note inventory and reader
-pages are generation-bound and Rust-paged, and selected notes open through a
-complete source-bound Rust read in the bundled document renderer. GitHub
+pages and directed relations are generation-bound and Rust-paged, and selected
+notes open through a complete source-bound Rust read in the bundled document
+renderer. GitHub
 authorization and real public/private device fetches are qualified
 independently.
 Build instructions and toolchain pins are
@@ -176,8 +177,8 @@ declared line or response-byte bound gets an actionable unsupported-size state;
 missing, loading, unavailable-generation and other failure states remain
 distinct. There is no silent maximum-line cut.
 
-The native title, file/outline location and relation counts use the anchor from
-that same answer. The document mount and every later asset request carry the
+The native title and file/outline location use the anchor from that same answer.
+The document mount and every later asset request carry the
 same source identity, generation and note key. Closing or replacing the route
 retires its session owner before a late reply can publish, so a reply for one
 note or generation cannot appear under another. Only the selected document is
@@ -204,6 +205,32 @@ Following a note first saves the origin's viewport. Back restores that position.
 Following a note already present in the reading path rewinds to its existing
 entry rather than adding a duplicate, and a stale callback from a route that is
 no longer presented cannot mutate the path.
+
+** Directed Relations
+
+Reader opens Relations only on explicit request for a resolved note. Rust
+unifies inbound and outbound indexed links by related note key, so repeated
+occurrences produce one row and a note linked in both directions remains one
+=bidirectional= row. The total is the distinct-note union; incoming and outgoing
+totals count membership in their respective directions and may therefore sum to
+more than the union. Every row names its direction in text and carries bounded
+leading prose from the related note, with its establishing link line as an
+empty-body fallback, rather than relying on color or an icon.
+
+The result follows canonical filing order through an opaque keyset cursor.
+Android asks for 24 rows at a time, verifies stable totals and unique keys across
+page boundaries, and requests another page only through the visible =Show more
+relations= action. A continuation failure retains prior rows and retries the
+same cursor. Rust uses the focused note's indexed link edges and the ordered
+node index; Kotlin neither scans nor sorts the corpus. The adapter's declared
+relation bound remains an explicit ceiling on any one request, not an invisible
+end to the inventory.
+
+Tapping a row reads a bounded preview of that canonical node key through the
+already-open document session; =Open= follows the same source-generation-bound
+key while preserving the origin viewport. Replacing the note or ready
+generation disposes the relation page owner, so its late replies cannot enter a
+later reader.
 
 ** Repository Images And Attachments
 
