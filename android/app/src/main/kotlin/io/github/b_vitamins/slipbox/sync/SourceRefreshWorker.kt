@@ -380,6 +380,23 @@ internal class PackagedSourceRefreshStorage(private val context: Context) : Sour
             return readingTrailFile(privateRoot, source)?.takeIf { it.parentFile?.isDirectory == true }
         }
 
+        /** Durable bookmarks and recents share the source scope, not an index generation. */
+        internal fun readingReturnsFile(privateRoot: File, source: String): File? {
+            if (!RefreshWorkWire.validSourceId(source)) return null
+            val refreshRoot = safeChild(privateRoot, REFRESH_DIRECTORY) ?: return null
+            val sourceRoot = safeChild(refreshRoot, sourceDigest(source)) ?: return null
+            val readingRoot = safeChild(sourceRoot, READING_DIRECTORY) ?: return null
+            return safeChild(readingRoot, READING_RETURNS_FILE)
+        }
+
+        internal fun prepareReadingReturnsFile(privateRoot: File, source: String): File? {
+            val file = readingReturnsFile(privateRoot, source) ?: return null
+            val parent = file.parentFile ?: return null
+            if (!parent.isDirectory && !parent.mkdirs()) return null
+            return readingReturnsFile(privateRoot, source)
+                ?.takeIf { it.parentFile?.isDirectory == true }
+        }
+
         private fun safeChild(parent: File, name: String): File? =
             try {
                 val expected = File(parent.canonicalFile, name).absoluteFile
@@ -441,6 +458,8 @@ internal class PackagedSourceRefreshStorage(private val context: Context) : Sour
         private const val READING_DIRECTORY = "reading"
 
         private const val READING_TRAIL_FILE = "trail.json"
+
+        private const val READING_RETURNS_FILE = "returns.json"
 
         private const val DIGEST_LABEL = "slipbox.refresh.source.1"
 

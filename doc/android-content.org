@@ -131,7 +131,9 @@ rendered block is found by a bounded content mark and restored at its relative
 offset; changed or missing blocks fall back to the normalized document
 viewport. Later recomposition of that live mount never reapplies it. Scroll and
 link intents snapshot both forms so native Back and process restoration can
-return to a useful origin without putting state in Org.
+return to a useful origin without putting state in Org. The same coalesced
+position updates advance source-scoped recent reading and a bookmarked note's
+return position; clearing either list changes only native local state.
 Disposal retires the token, invokes renderer teardown and destroys the WebView;
 the caller withdraws its own preview when removing the content view.
 

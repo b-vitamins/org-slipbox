@@ -114,6 +114,37 @@ class ReaderSurfaceTest {
     }
 
     @Test
+    fun bookmarkStateIsAnExplicitReaderActionWithoutObscuringThePage() {
+        lateinit var settings: ReadingSettings
+        var bookmarked by mutableStateOf(false)
+        var toggles = 0
+        composeRule.setContent {
+            settings = remember { ReadingSettings(MemoryStore()) }
+            SlipboxTheme(appearance = settings.preferences.appearance) {
+                ReaderScreen(
+                    phase = DocumentReaderPhase.Ready(document()),
+                    settings = settings,
+                    onBack = {},
+                    onRetry = {},
+                    bookmarked = bookmarked,
+                    onToggleBookmark = {
+                        toggles += 1
+                        bookmarked = !bookmarked
+                    },
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Bookmark").performClick()
+        composeRule.onNodeWithContentDescription("Remove bookmark").assertIsDisplayed()
+        shown()
+        Evidence.image("reader-bookmarked", composeRule.onRoot().captureToImage())
+        composeRule.onNodeWithContentDescription("Remove bookmark").performClick()
+        composeRule.onNodeWithContentDescription("Bookmark").assertIsDisplayed()
+        composeRule.runOnIdle { assertEquals(2, toggles) }
+    }
+
+    @Test
     fun loadingMissingOverLimitAndFailedReadsAreExplicit() {
         lateinit var settings: ReadingSettings
         var retries = 0

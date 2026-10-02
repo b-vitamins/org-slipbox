@@ -7,6 +7,8 @@ package io.github.b_vitamins.slipbox.ui
 
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -64,6 +66,8 @@ internal fun ReaderScreen(
     resolveAsset: DocumentAssetResolver = NoReaderAssets,
     onDismissPreview: () -> Unit = {},
     onOpenPreview: () -> Unit = {},
+    bookmarked: Boolean = false,
+    onToggleBookmark: () -> Unit = {},
 ) {
     val document = (phase as? DocumentReaderPhase.Ready)?.document
     var appearanceVisible by rememberSaveable { mutableStateOf(false) }
@@ -117,11 +121,37 @@ internal fun ReaderScreen(
                 )
             },
             trailing = {
-                TextControl(
-                    label = stringResource(R.string.action_appearance),
-                    onClick = { appearanceVisible = true },
-                    modifier = Modifier.focusRequester(appearanceControl),
-                )
+                Row(
+                    horizontalArrangement =
+                        Arrangement.spacedBy(SlipboxDimensions.headerPaddingHorizontal),
+                ) {
+                    if (document != null) {
+                        IconControl(
+                            icon =
+                                painterResource(
+                                    if (bookmarked) {
+                                        R.drawable.ic_bookmark
+                                    } else {
+                                        R.drawable.ic_bookmark_outline
+                                    },
+                                ),
+                            label =
+                                stringResource(
+                                    if (bookmarked) {
+                                        R.string.action_bookmarked
+                                    } else {
+                                        R.string.action_bookmark
+                                    },
+                                ),
+                            onClick = onToggleBookmark,
+                        )
+                    }
+                    TextControl(
+                        label = stringResource(R.string.action_appearance),
+                        onClick = { appearanceVisible = true },
+                        modifier = Modifier.focusRequester(appearanceControl),
+                    )
+                }
             },
             overlay = {
                 AppearanceSheet(

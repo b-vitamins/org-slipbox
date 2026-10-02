@@ -13,22 +13,29 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import io.github.b_vitamins.slipbox.R
 import io.github.b_vitamins.slipbox.engine.NodeKind
 import io.github.b_vitamins.slipbox.engine.NodeRecord
+import io.github.b_vitamins.slipbox.navigation.ReadingReturn
+import io.github.b_vitamins.slipbox.navigation.ReadingReturnAvailability
+import io.github.b_vitamins.slipbox.navigation.ReadingReturnsSnapshot
 import io.github.b_vitamins.slipbox.sources.SourceLibraryPhase
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxDimensions
+import kotlin.math.roundToInt
 
 @Composable
 internal fun LibraryScreen(
@@ -43,6 +50,12 @@ internal fun LibraryScreen(
     onLoadMore: () -> Unit = {},
     onRetryInventory: () -> Unit = {},
     onOpenNote: (NodeRecord) -> Unit = {},
+    readingReturns: ReadingReturnsSnapshot? = null,
+    onOpenReadingReturn: (ReadingReturn) -> Unit = {},
+    onRemoveBookmark: (ReadingReturn) -> Unit = {},
+    onRemoveRecent: (ReadingReturn) -> Unit = {},
+    onClearBookmarks: () -> Unit = {},
+    onClearRecents: () -> Unit = {},
 ) {
     ReadingSurface(
         title = stringResource(R.string.app_name),
@@ -103,6 +116,12 @@ internal fun LibraryScreen(
                     onLoadMore = onLoadMore,
                     onRetry = onRetryInventory,
                     onOpenNote = onOpenNote,
+                    readingReturns = readingReturns,
+                    onOpenReadingReturn = onOpenReadingReturn,
+                    onRemoveBookmark = onRemoveBookmark,
+                    onRemoveRecent = onRemoveRecent,
+                    onClearBookmarks = onClearBookmarks,
+                    onClearRecents = onClearRecents,
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -120,30 +139,52 @@ private fun NotesInventory(
     onLoadMore: () -> Unit,
     onRetry: () -> Unit,
     onOpenNote: (NodeRecord) -> Unit,
+    readingReturns: ReadingReturnsSnapshot?,
+    onOpenReadingReturn: (ReadingReturn) -> Unit,
+    onRemoveBookmark: (ReadingReturn) -> Unit,
+    onRemoveRecent: (ReadingReturn) -> Unit,
+    onClearBookmarks: () -> Unit,
+    onClearRecents: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    when (phase) {
-        NotesInventoryPhase.Loading ->
-            LibraryNotice(stringResource(R.string.notes_loading))
-        NotesInventoryPhase.Empty ->
-            LibraryNotice(stringResource(R.string.notes_empty))
-        NotesInventoryPhase.Failed -> {
-            LibraryNotice(stringResource(R.string.notes_unavailable), problem = true)
-            TextControl(label = stringResource(R.string.action_retry), onClick = onRetry)
-        }
-        is NotesInventoryPhase.Ready -> {
-            Text(
-                text =
-                    pluralStringResource(
-                        R.plurals.library_notes,
-                        phase.total.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-                        phase.total,
-                    ),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.semantics { heading() },
-            )
-            LazyColumn(modifier = modifier.fillMaxWidth()) {
+    LazyColumn(modifier = modifier.fillMaxWidth()) {
+        readingReturnItems(
+            snapshot = readingReturns,
+            onOpen = onOpenReadingReturn,
+            onRemoveBookmark = onRemoveBookmark,
+            onRemoveRecent = onRemoveRecent,
+            onClearBookmarks = onClearBookmarks,
+            onClearRecents = onClearRecents,
+        )
+        when (phase) {
+            NotesInventoryPhase.Loading ->
+                item(key = "notes-loading") {
+                    LibraryNotice(stringResource(R.string.notes_loading))
+                }
+            NotesInventoryPhase.Empty ->
+                item(key = "notes-empty") {
+                    LibraryNotice(stringResource(R.string.notes_empty))
+                }
+            NotesInventoryPhase.Failed -> {
+                item(key = "notes-failed") {
+                    LibraryNotice(stringResource(R.string.notes_unavailable), problem = true)
+                    TextControl(label = stringResource(R.string.action_retry), onClick = onRetry)
+                }
+            }
+            is NotesInventoryPhase.Ready -> {
+                item(key = "notes-heading") {
+                    Text(
+                        text =
+                            pluralStringResource(
+                                R.plurals.library_notes,
+                                phase.total.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                                phase.total,
+                            ),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.semantics { heading() },
+                    )
+                }
                 items(items = phase.notes, key = NodeRecord::nodeKey) { note ->
                     NoteInventoryRow(note, onClick = { onOpenNote(note) })
                     HorizontalDivider(
@@ -173,6 +214,165 @@ private fun NotesInventory(
             }
         }
     }
+}
+
+private fun LazyListScope.readingReturnItems(
+    snapshot: ReadingReturnsSnapshot?,
+    onOpen: (ReadingReturn) -> Unit,
+    onRemoveBookmark: (ReadingReturn) -> Unit,
+    onRemoveRecent: (ReadingReturn) -> Unit,
+    onClearBookmarks: () -> Unit,
+    onClearRecents: () -> Unit,
+) {
+    snapshot ?: return
+    val continuing = snapshot.recents.firstOrNull()
+    if (continuing != null) {
+        item(key = "reading-continue-heading") {
+            ReadingSectionHeading(
+                title = stringResource(R.string.reading_continue),
+                action = stringResource(R.string.action_clear_recents),
+                onAction = onClearRecents,
+            )
+        }
+        item(key = "reading-continue:${continuing.note.reference}") {
+            ReadingReturnRow(
+                entry = continuing,
+                onOpen = { onOpen(continuing) },
+                onRemove = { onRemoveRecent(continuing) },
+            )
+        }
+    }
+    if (snapshot.bookmarks.isNotEmpty()) {
+        item(key = "reading-bookmarks-heading") {
+            ReadingSectionHeading(
+                title = stringResource(R.string.reading_bookmarks),
+                action = stringResource(R.string.action_clear_bookmarks),
+                onAction = onClearBookmarks,
+            )
+        }
+        items(
+            items = snapshot.bookmarks,
+            key = { "bookmark:${it.note.reference}" },
+        ) { entry ->
+            ReadingReturnRow(
+                entry = entry,
+                onOpen = { onOpen(entry) },
+                onRemove = { onRemoveBookmark(entry) },
+            )
+        }
+    }
+    val earlier = snapshot.recents.drop(1)
+    if (earlier.isNotEmpty()) {
+        item(key = "reading-recents-heading") {
+            ReadingSectionHeading(title = stringResource(R.string.reading_recent))
+        }
+        items(
+            items = earlier,
+            key = { "recent:${it.note.reference}" },
+        ) { entry ->
+            ReadingReturnRow(
+                entry = entry,
+                onOpen = { onOpen(entry) },
+                onRemove = { onRemoveRecent(entry) },
+            )
+        }
+    }
+    if (continuing != null || snapshot.bookmarks.isNotEmpty()) {
+        item(key = "reading-divider") {
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = SlipboxDimensions.headerPaddingVertical),
+                thickness = SlipboxDimensions.hairline,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReadingSectionHeading(
+    title: String,
+    action: String? = null,
+    onAction: () -> Unit = {},
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.weight(1f).semantics { heading() },
+        )
+        if (action != null) TextControl(label = action, onClick = onAction)
+    }
+}
+
+@Composable
+private fun ReadingReturnRow(
+    entry: ReadingReturn,
+    onOpen: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    val available = entry.availability == ReadingReturnAvailability.Available
+    val detail =
+        when (entry.availability) {
+            ReadingReturnAvailability.Checking -> stringResource(R.string.reading_checking)
+            ReadingReturnAvailability.Missing -> stringResource(R.string.reading_missing)
+            ReadingReturnAvailability.Unavailable -> stringResource(R.string.reading_unavailable)
+            ReadingReturnAvailability.Available -> {
+                val progress = (entry.anchor.progress * 100).roundToInt()
+                val location = entry.note.filePath.ifEmpty { entry.note.nodeKey }
+                if (progress > 0) {
+                    stringResource(R.string.reading_location_progress, location, progress)
+                } else {
+                    location
+                }
+            }
+        }
+    Row(
+        modifier = Modifier.fillMaxWidth().heightIn(min = SlipboxDimensions.touchTarget),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .clickable(enabled = available, onClick = onOpen)
+                    .padding(vertical = SlipboxDimensions.headerPaddingVertical),
+        ) {
+            Text(
+                text = entry.title,
+                style = MaterialTheme.typography.bodyLarge,
+                color =
+                    if (available) {
+                        MaterialTheme.colorScheme.onBackground
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+            )
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.bodySmall,
+                color =
+                    if (entry.availability == ReadingReturnAvailability.Missing) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+            )
+        }
+        val removeDescription = stringResource(R.string.reading_remove_description, entry.title)
+        TextControl(
+            label = stringResource(R.string.action_remove),
+            onClick = onRemove,
+            modifier = Modifier.semantics { contentDescription = removeDescription },
+        )
+    }
+    HorizontalDivider(
+        thickness = SlipboxDimensions.hairline,
+        color = MaterialTheme.colorScheme.outline,
+    )
 }
 
 @Composable

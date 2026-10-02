@@ -34,7 +34,8 @@ Git repository, on the device, offline once a corpus is ready.
 It reads notes, unified note and glossary search, the glossary and the read-only
 facts of a term's review drawer, links and contextual previews, directed
 relations and explicit exploration, filing and outline context, repository-local
-images and attachments, and reading trails and bookmarks the device owns.
+images and attachments, and reading trails, bookmarks, and recent reading the
+device owns.
 
 These are non-goals, deliberately excluded rather than merely unbuilt:
 
@@ -263,7 +264,7 @@ reader fetches, and nothing it does reaches the repository or the notes in it.
 | glossary definitions, the `#+glossary:` marker, and the `GLOSSARY_STATUS` and `SR_*` drawer keys | Org files in the repository | read-only; a schedule is displayed as a fact, never graded or rescheduled |
 | relations, refs, tags, planning dates | Org files in the repository | read-only, through the derived index |
 | the derived index and cached assets | the device | rebuildable from fetched source at any time |
-| bookmarks, reading trails, reading preferences | the device | durable user reading state, separate from source configuration, credentials, and rebuildable caches |
+| bookmarks, recent reading, reading trails, reading preferences | the device | durable user reading state, separate from source configuration, credentials, and rebuildable caches |
 
 Device-owned reading state is not a second authoritative corpus and not an Org
 write. A bounded trail lives under its source-owned no-backup root, outside
@@ -434,6 +435,16 @@ routes. Scroll changes are coalesced onto a background writer; index rebuilds
 never own or remove the file, while complete source removal removes its whole
 source root. The source identity is present in both the path and the strict
 payload, preventing an equal note key in another repository from being shown.
+
+Bookmarks and recent reading use a second bounded record beside the trail under
+that same source-owned root. Library exposes the newest recent item as Continue
+Reading, followed by plain bookmark and earlier-reading rows rather than a
+dashboard or collection taxonomy. Every row can be removed, each list can be
+cleared explicitly, and Reader can add or remove the current note's bookmark.
+Those actions remove only device state. On generation replacement, stable Org
+IDs resolve first and source-proven file renames resolve key-only entries;
+deleted identities remain named but unavailable and never fall through to a
+different note that reused their old path.
 
 One native history handles destination callbacks, system Back and predictive
 Back. Presented sheets dismiss before the destination; cancelled gestures leave

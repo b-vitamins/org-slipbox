@@ -29,6 +29,15 @@
         <item quantity="other">%d notes</item>
     </plurals>
 
+    <string name="reading_continue">Continue reading</string>
+    <string name="reading_bookmarks">Bookmarks</string>
+    <string name="reading_recent">Recent</string>
+    <string name="reading_checking">Checking the current repository…</string>
+    <string name="reading_missing">Not present in this repository version</string>
+    <string name="reading_unavailable">Could not verify against this repository version</string>
+    <string name="reading_location_progress">%1$s · %2$d%%</string>
+    <string name="reading_remove_description">Remove %1$s from this list</string>
+
     <string name="reader_title">Reading</string>
     <string name="reader_loading">Loading note.</string>
     <string name="reader_not_found">This note is not present in this repository version.</string>
@@ -74,6 +83,11 @@
 
     <string name="action_about">About</string>
     <string name="action_back">Back</string>
+    <string name="action_bookmark">Bookmark</string>
+    <string name="action_bookmarked">Remove bookmark</string>
+    <string name="action_remove">Remove</string>
+    <string name="action_clear_bookmarks">Clear bookmarks</string>
+    <string name="action_clear_recents">Clear recent</string>
     <string name="action_appearance">Appearance</string>
     <string name="action_dismiss">Dismiss</string>
 
@@ -157,11 +171,11 @@
     <string name="source_remove_cache">Remove downloaded data</string>
     <string name="source_remove">Remove source</string>
     <string name="source_removing">Removing the selected source data.</string>
-    <string name="source_cache_removed">Downloaded repository files, index, assets, and source reading history were removed.</string>
+    <string name="source_cache_removed">Downloaded repository files, index, assets, bookmarks, and recent reading were removed.</string>
     <string name="source_removed">The source and its local data were removed.</string>
     <string name="source_removed_cleanup_failed">The source was removed, but some private local data could not be cleaned up.</string>
     <string name="source_action_failed">The requested source change could not be completed.</string>
     <string name="source_confirm_disconnect">Remove the stored GitHub credential for %1$s and stop refreshes? Its verified offline notes stay readable.</string>
-    <string name="source_confirm_cache">Remove %1$s downloaded repository files, derived index, assets, and source reading history? The source configuration and credential stay.</string>
-    <string name="source_confirm_remove">Remove %1$s configuration, credential, downloaded repository files, derived index, assets, and source reading history from this device?</string>
+    <string name="source_confirm_cache">Remove %1$s downloaded repository files, derived index, assets, bookmarks, and recent reading? The source configuration and credential stay.</string>
+    <string name="source_confirm_remove">Remove %1$s configuration, credential, downloaded repository files, derived index, assets, bookmarks, and recent reading from this device?</string>
 </resources>

@@ -69,7 +69,8 @@ class SourceSettingsSurfaceTest {
         composeRule.onNodeWithText("Remove downloaded data").performScrollTo().performClick()
         composeRule
             .onNodeWithText(
-                "Remove owner/notes downloaded repository files, derived index, assets, and source reading history? The source configuration and credential stay.",
+                "Remove owner/notes downloaded repository files, derived index, assets, " +
+                    "bookmarks, and recent reading? The source configuration and credential stay.",
             )
             .assertExists()
         composeRule.onNodeWithText("Confirm").performScrollTo().assertIsDisplayed()

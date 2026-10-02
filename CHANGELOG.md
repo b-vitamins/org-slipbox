@@ -7,6 +7,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Keep Android bookmarks and recent reading as bounded, source-scoped native
+  state outside the derived index. Library offers a restrained Continue Reading
+  path plus explicit per-item removal and scoped clear actions; Reader adds or
+  removes a bookmark without touching Org. Current generations reconcile stable
+  IDs and source-proven renames, while deleted notes remain visibly unavailable
+  and equal keys in another source remain separate.
 - Restore source-scoped Android reading trails after process death and index
   replacement without writing Org metadata. Trails retain stable note IDs or
   proven file-renames plus rendered block-relative positions and bounded

@@ -13,11 +13,14 @@ import androidx.compose.ui.platform.LocalContext
 import io.github.b_vitamins.slipbox.engine.DocumentLinkResolution
 import io.github.b_vitamins.slipbox.navigation.BoundNote
 import io.github.b_vitamins.slipbox.navigation.ReadingAnchor
+import io.github.b_vitamins.slipbox.navigation.ReadingReturnAvailability
+import io.github.b_vitamins.slipbox.navigation.ReadingReturnsState
 import io.github.b_vitamins.slipbox.navigation.SlipboxDestinations
 import io.github.b_vitamins.slipbox.navigation.SlipboxNavigation
 import io.github.b_vitamins.slipbox.navigation.SlipboxRoute
 import io.github.b_vitamins.slipbox.navigation.SlipboxSurface
 import io.github.b_vitamins.slipbox.navigation.rememberReadingTrailSession
+import io.github.b_vitamins.slipbox.navigation.rememberReadingReturnsState
 import io.github.b_vitamins.slipbox.navigation.slipboxDestinations
 import io.github.b_vitamins.slipbox.sources.SourceCatalogResult
 import io.github.b_vitamins.slipbox.sources.SourceLibraryPhase
@@ -47,7 +50,6 @@ import io.github.b_vitamins.slipbox.ui.theme.rememberPlatformMotionScale
 fun SlipboxApp() {
     val settings = rememberReadingSettings()
     val library = rememberSourceLibraryState()
-    val destinations = remember(settings, library) { productionDestinations(settings, library) }
     val motion = SlipboxMotion(rememberPlatformMotionScale(), settings.preferences.reduceMotion)
     SlipboxTheme(appearance = settings.preferences.appearance) {
         when (val phase = library.phase) {
@@ -59,8 +61,13 @@ fun SlipboxApp() {
                 )
             is SourceLibraryPhase.Ready -> {
                 val trail = rememberReadingTrailSession(phase.source.binding)
+                val readingReturns = rememberReadingReturnsState(phase.source)
+                val destinations =
+                    remember(settings, library, readingReturns) {
+                        productionDestinations(settings, library, readingReturns)
+                    }
                 key(phase.source.binding) {
-                    if (trail == null) {
+                    if (trail == null || readingReturns == null) {
                         LibraryScreen(
                             phase = SourceLibraryPhase.Loading,
                             hasSources = true,
@@ -77,8 +84,11 @@ fun SlipboxApp() {
                     }
                 }
             }
-            else ->
+            else -> {
+                val destinations =
+                    remember(settings, library) { productionDestinations(settings, library) }
                 SlipboxNavigation(destinations = destinations, motion = motion, generations = library)
+            }
         }
     }
 }
@@ -86,6 +96,7 @@ fun SlipboxApp() {
 private fun productionDestinations(
     settings: ReadingSettings,
     library: SourceLibraryState,
+    readingReturns: ReadingReturnsState? = null,
 ): SlipboxDestinations =
     slipboxDestinations {
         surface(SlipboxSurface.Library) { _, backStack ->
@@ -118,6 +129,16 @@ private fun productionDestinations(
                         )
                     }
                 },
+                readingReturns = readingReturns?.snapshot,
+                onOpenReadingReturn = { entry ->
+                    if (entry.availability == ReadingReturnAvailability.Available) {
+                        backStack.open(SlipboxRoute.Reader(entry.note, entry.anchor))
+                    }
+                },
+                onRemoveBookmark = { readingReturns?.removeBookmark(it) },
+                onRemoveRecent = { readingReturns?.removeRecent(it) },
+                onClearBookmarks = { readingReturns?.clearBookmarks() },
+                onClearRecents = { readingReturns?.clearRecents() },
                 onOpenAbout = { backStack.open(SlipboxRoute.About) },
             )
         }
@@ -137,8 +158,12 @@ private fun productionDestinations(
             } else {
                 val reader = rememberDocumentReaderState(readerRoute.note, ready)
                 val resolved = (reader.phase as? DocumentReaderPhase.Ready)?.document?.anchor
-                LaunchedEffect(readerRoute, resolved) {
-                    resolved?.let { backStack.reconcileReadingNote(readerRoute, it) }
+                val resolvedNote = resolved?.let(readerRoute.note::resolvedBy) ?: readerRoute.note
+                LaunchedEffect(resolved?.nodeKey, resolved?.explicitId) {
+                    resolved?.let {
+                        backStack.reconcileReadingNote(readerRoute, it)
+                        readingReturns?.recordRecent(it, readerRoute.anchor)
+                    }
                 }
                 val context = LocalContext.current
                 val external = remember(context) { SystemExternalLinkHandoff(context) }
@@ -148,20 +173,25 @@ private fun productionDestinations(
                     }
                 val openExternal: (DocumentLinkResolution.External, DocumentPosition) -> Boolean =
                     { resolution, position ->
-                        backStack.rememberReadingPlace(
-                            readerRoute,
-                            position.toReadingAnchor(),
-                        ) && external.open(resolution.url)
+                        val anchor = position.toReadingAnchor()
+                        val remembered = backStack.rememberReadingPlace(readerRoute, anchor)
+                        if (remembered) readingReturns?.rememberReadingPlace(resolvedNote, anchor)
+                        remembered && external.open(resolution.url)
                     }
                 val follow: (String, DocumentPosition) -> Unit = { target, position ->
                     reader.follow(target) { resolution ->
                         when (resolution) {
-                            is DocumentLinkResolution.Note ->
+                            is DocumentLinkResolution.Note -> {
+                                readingReturns?.rememberReadingPlace(
+                                    resolvedNote,
+                                    position.toReadingAnchor(),
+                                )
                                 backStack.follow(
                                     origin = readerRoute,
                                     targetNodeKey = resolution.nodeKey,
                                     originAnchor = position.toReadingAnchor(),
                                 )
+                            }
                             is DocumentLinkResolution.External -> {
                                 if (!openExternal(resolution, position)) {
                                     reader.externalUnavailable()
@@ -178,6 +208,8 @@ private fun productionDestinations(
                     settings = settings,
                     onBack = { backStack.back() },
                     onRetry = reader::retry,
+                    bookmarked = readingReturns?.isBookmarked(resolvedNote) == true,
+                    onToggleBookmark = { resolved?.let { readingReturns?.toggleBookmark(it) } },
                     resolveAsset = assets,
                     linkPhase = reader.linkPhase,
                     previewPhase = reader.previewPhase,
@@ -222,23 +254,29 @@ private fun productionDestinations(
                                             ?: DocumentPosition(progress = intent.progress),
                                     )
                                 }
-                            is DocumentIntent.Position ->
-                                backStack.rememberReadingPlace(
+                            is DocumentIntent.Position -> {
+                                val anchor = intent.position.toReadingAnchor()
+                                if (backStack.rememberReadingPlace(
                                     readerRoute,
-                                    intent.position.toReadingAnchor(),
-                                )
+                                    anchor,
+                                )) {
+                                    readingReturns?.rememberReadingPlace(resolvedNote, anchor)
+                                }
+                            }
                             DocumentIntent.Dismiss -> reader.dismissPreview()
                         }
                     },
                     onDismissPreview = reader::dismissPreview,
                     onOpenPreview = {
                         reader.openPreview { preview ->
+                            val anchor =
+                                preview.request.originPosition?.toReadingAnchor()
+                                    ?: ReadingAnchor(progress = preview.request.originProgress)
+                            readingReturns?.rememberReadingPlace(resolvedNote, anchor)
                             backStack.follow(
                                 origin = readerRoute,
                                 targetNodeKey = preview.anchor.nodeKey,
-                                originAnchor =
-                                    preview.request.originPosition?.toReadingAnchor()
-                                        ?: ReadingAnchor(progress = preview.request.originProgress),
+                                originAnchor = anchor,
                             )
                         }
                     },
@@ -304,6 +342,7 @@ private fun productionDestinations(
                     },
                     onCacheRemoved = { source ->
                         val wasActive = library.catalog?.activeSource?.id == source.id
+                        if (readingReturns?.source == source.id) readingReturns.clearAll()
                         library.cacheRemoved(source)
                         backStack.removeSource(source.id, clearSearch = wasActive)
                         while (backStack.current is SlipboxRoute.SourceSettings) {
@@ -312,6 +351,7 @@ private fun productionDestinations(
                     },
                     onSourceRemoved = { listing, source, cleanupComplete ->
                         val wasActive = library.catalog?.activeSource?.id == source.id
+                        if (readingReturns?.source == source.id) readingReturns.clearAll()
                         library.removed(listing)
                         backStack.removeSource(
                             source.id,
