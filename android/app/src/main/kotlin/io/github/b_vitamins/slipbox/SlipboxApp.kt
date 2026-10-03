@@ -30,15 +30,21 @@ import io.github.b_vitamins.slipbox.ui.AboutScreen
 import io.github.b_vitamins.slipbox.ui.ConnectionScreen
 import io.github.b_vitamins.slipbox.ui.DirectedRelationsPhase
 import io.github.b_vitamins.slipbox.ui.DocumentReaderPhase
+import io.github.b_vitamins.slipbox.ui.GlossaryInventoryPhase
+import io.github.b_vitamins.slipbox.ui.GlossaryInventoryState
+import io.github.b_vitamins.slipbox.ui.GlossaryScreen
 import io.github.b_vitamins.slipbox.ui.LibraryScreen
 import io.github.b_vitamins.slipbox.ui.MentionDiscoveryPhase
 import io.github.b_vitamins.slipbox.ui.ReaderExplorationPhase
 import io.github.b_vitamins.slipbox.ui.ReaderScreen
+import io.github.b_vitamins.slipbox.ui.ReaderSurfaceKind
 import io.github.b_vitamins.slipbox.ui.RelatedDiscoveryPhase
 import io.github.b_vitamins.slipbox.ui.SourceSettingsScreen
 import io.github.b_vitamins.slipbox.ui.rememberDocumentReaderState
 import io.github.b_vitamins.slipbox.ui.rememberDirectedRelationsState
 import io.github.b_vitamins.slipbox.ui.rememberNotesInventoryState
+import io.github.b_vitamins.slipbox.ui.rememberGlossaryInventoryState
+import io.github.b_vitamins.slipbox.ui.rememberGlossaryTermReaderState
 import io.github.b_vitamins.slipbox.ui.rememberReaderDiscoveryState
 import io.github.b_vitamins.slipbox.ui.rememberReaderExplorationState
 import io.github.b_vitamins.slipbox.ui.content.DocumentGesture
@@ -69,9 +75,10 @@ fun SlipboxApp() {
             is SourceLibraryPhase.Ready -> {
                 val trail = rememberReadingTrailSession(phase.source.binding)
                 val readingReturns = rememberReadingReturnsState(phase.source)
+                val glossary = rememberGlossaryInventoryState(phase.source)
                 val destinations =
-                    remember(settings, library, readingReturns) {
-                        productionDestinations(settings, library, readingReturns)
+                    remember(settings, library, readingReturns, glossary) {
+                        productionDestinations(settings, library, readingReturns, glossary)
                     }
                 key(phase.source.binding) {
                     if (trail == null || readingReturns == null) {
@@ -104,6 +111,7 @@ private fun productionDestinations(
     settings: ReadingSettings,
     library: SourceLibraryState,
     readingReturns: ReadingReturnsState? = null,
+    glossary: GlossaryInventoryState? = null,
 ): SlipboxDestinations =
     slipboxDestinations {
         surface(SlipboxSurface.Library) { _, backStack ->
@@ -135,6 +143,9 @@ private fun productionDestinations(
                             ),
                         )
                     }
+                },
+                onOpenGlossary = {
+                    ready?.let { backStack.open(SlipboxRoute.Glossary(it.binding)) }
                 },
                 readingReturns = readingReturns?.snapshot,
                 onOpenReadingReturn = { entry ->
@@ -393,6 +404,125 @@ private fun productionDestinations(
                             targetNodeKey = note.nodeKey,
                             originAnchor = anchor,
                         )
+                    },
+                )
+            }
+        }
+        surface(SlipboxSurface.Glossary) { route, backStack ->
+            val glossaryRoute = route as SlipboxRoute.Glossary
+            val ready =
+                (library.phase as? SourceLibraryPhase.Ready)
+                    ?.source
+                    ?.takeIf { it.binding == glossaryRoute.binding }
+            val termKey = glossaryRoute.term
+            if (ready == null) {
+                ReaderScreen(
+                    phase = DocumentReaderPhase.SourceUnavailable,
+                    settings = settings,
+                    kind = ReaderSurfaceKind.GlossaryTerm,
+                    onBack = { backStack.back() },
+                    onRetry = {},
+                )
+            } else if (termKey == null) {
+                GlossaryScreen(
+                    phase = glossary?.phase ?: GlossaryInventoryPhase.Dormant,
+                    onBack = { backStack.back() },
+                    onActivate = { glossary?.activate() },
+                    onLoadMore = { glossary?.loadMore() },
+                    onRetry = { glossary?.retry() },
+                    onOpenTerm = { term ->
+                        backStack.open(glossaryRoute.copy(term = term.nodeKey))
+                    },
+                )
+            } else {
+                val reader =
+                    rememberGlossaryTermReaderState(
+                        BoundNote(binding = glossaryRoute.binding, nodeKey = termKey),
+                        ready,
+                    )
+                val context = LocalContext.current
+                val external = remember(context) { SystemExternalLinkHandoff(context) }
+                val assets =
+                    remember(context, ready.binding, ready.contentRoot) {
+                        RepositoryAssets.packaged(context, ready.binding, ready.contentRoot)
+                    }
+                val openExternal: (DocumentLinkResolution.External) -> Boolean = { resolution ->
+                    external.open(resolution.url)
+                }
+                val follow: (String) -> Unit = { target ->
+                    reader.follow(target) { resolution ->
+                        when (resolution) {
+                            is DocumentLinkResolution.Note ->
+                                backStack.open(
+                                    SlipboxRoute.Reader(
+                                        BoundNote(glossaryRoute.binding, resolution.nodeKey),
+                                    ),
+                                )
+                            is DocumentLinkResolution.External ->
+                                if (!openExternal(resolution)) reader.externalUnavailable()
+                            DocumentLinkResolution.Missing,
+                            DocumentLinkResolution.Unsupported,
+                            -> Unit
+                        }
+                    }
+                }
+                ReaderScreen(
+                    phase = reader.phase,
+                    settings = settings,
+                    kind = ReaderSurfaceKind.GlossaryTerm,
+                    onBack = { backStack.back() },
+                    onRetry = reader::retry,
+                    resolveAsset = assets,
+                    linkPhase = reader.linkPhase,
+                    previewPhase = reader.previewPhase,
+                    focusRequest = reader.focusRequest,
+                    onIntent = { intent ->
+                        when (intent) {
+                            is DocumentIntent.Glance ->
+                                if (intent.gesture == DocumentGesture.Touch) {
+                                    reader.preview(
+                                        target = intent.link.target,
+                                        gesture = intent.gesture,
+                                        originProgress = intent.progress,
+                                        origin = intent.origin,
+                                        originPosition = intent.position,
+                                        onExternal = openExternal,
+                                    )
+                                }
+                            is DocumentIntent.Pin ->
+                                if (isRepositoryAssetTarget(intent.link.target)) {
+                                    reader.openAttachment(intent.link.target, assets)
+                                } else {
+                                    follow(intent.link.target)
+                                }
+                            is DocumentIntent.Go ->
+                                if (isRepositoryAssetTarget(intent.link.target)) {
+                                    reader.openAttachment(intent.link.target, assets)
+                                } else {
+                                    follow(intent.link.target)
+                                }
+                            is DocumentIntent.Position -> Unit
+                            DocumentIntent.Dismiss -> reader.dismissPreview()
+                        }
+                    },
+                    onDismissPreview = reader::dismissPreview,
+                    onOpenPreview = {
+                        reader.openPreview { preview ->
+                            if (preview.anchor.glossary) {
+                                backStack.open(glossaryRoute.copy(term = preview.anchor.nodeKey))
+                            } else {
+                                backStack.open(
+                                    SlipboxRoute.Reader(
+                                        BoundNote(
+                                            binding = glossaryRoute.binding,
+                                            nodeKey = preview.anchor.nodeKey,
+                                            explicitId = preview.anchor.explicitId,
+                                            filePath = preview.anchor.filePath,
+                                        ),
+                                    ),
+                                )
+                            }
+                        }
                     },
                 )
             }

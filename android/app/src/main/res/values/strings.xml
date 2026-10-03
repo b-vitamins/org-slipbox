@@ -16,6 +16,18 @@
     <string name="notes_empty">This repository contains no notes.</string>
     <string name="notes_unavailable">Notes could not be loaded.</string>
     <string name="notes_more_unavailable">More notes could not be loaded.</string>
+    <string name="glossary_title">Glossary</string>
+    <string name="glossary_library_detail">Browse every indexed term and its complete definition.</string>
+    <string name="glossary_loading">Loading glossary.</string>
+    <string name="glossary_loading_more">Loading more terms.</string>
+    <string name="glossary_empty">This repository contains no glossary terms.</string>
+    <string name="glossary_unavailable">The glossary could not be loaded.</string>
+    <string name="glossary_more_unavailable">More terms could not be loaded.</string>
+    <string name="glossary_aliases">Also %1$s</string>
+    <plurals name="glossary_terms">
+        <item quantity="one">%d term</item>
+        <item quantity="other">%d terms</item>
+    </plurals>
     <plurals name="library_files">
         <item quantity="one">%d file</item>
         <item quantity="other">%d files</item>
@@ -48,6 +60,16 @@
         <item quantity="other">This note exceeds the offline reader’s current limit of %d lines. Reduce or split it, then refresh the repository.</item>
     </plurals>
     <string name="reader_unavailable">This note could not be loaded.</string>
+    <string name="glossary_term_title">Definition</string>
+    <string name="glossary_term_loading">Loading definition.</string>
+    <string name="glossary_term_not_found">This term is not present in this repository version.</string>
+    <string name="glossary_term_source_unavailable">This repository version is no longer available. Go back and reopen the term.</string>
+    <string name="glossary_term_too_large">This definition exceeds the offline reader’s current size limit. Reduce or split it, then refresh the repository.</string>
+    <plurals name="glossary_term_too_many_lines">
+        <item quantity="one">This definition exceeds the offline reader’s current limit of %d line. Reduce or split it, then refresh the repository.</item>
+        <item quantity="other">This definition exceeds the offline reader’s current limit of %d lines. Reduce or split it, then refresh the repository.</item>
+    </plurals>
+    <string name="glossary_term_unavailable">This definition could not be loaded.</string>
     <string name="reader_link_resolving">Opening link…</string>
     <string name="reader_link_missing">No indexed target was found for “%1$s”.</string>
     <string name="reader_link_unsupported">This reader cannot open “%1$s”.</string>
@@ -119,6 +141,13 @@
     <string name="reader_explore">Explore</string>
     <string name="reader_note_info">Info</string>
     <string name="reader_note_details">Note details</string>
+    <string name="glossary_term_info">Details</string>
+    <string name="glossary_term_details">Term details</string>
+    <string name="glossary_identity">Identity</string>
+    <string name="glossary_canonical_term">Canonical term</string>
+    <string name="glossary_alias_label">Aliases</string>
+    <string name="glossary_node_key">Indexed identity</string>
+    <string name="glossary_generation">Generation</string>
     <string name="reader_outline">Outline</string>
     <string name="reader_current_heading">Current</string>
     <string name="reader_filed_position">Filed %1$d of %2$d</string>

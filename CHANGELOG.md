@@ -7,6 +7,13 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Browse and read the complete glossary in the Android app. The source-bound
+  inventory follows every Rust keyset page without duplicates; exact term
+  definitions reuse the full offline Org, math, link and preview surface while
+  canonical identity, aliases and generation context stay behind native
+  details. Definitions own the compact reading canvas, term switches start at
+  fresh content, Back restores the prior list place, and no review or write
+  action is exposed.
 - Reveal Android note context without crowding the reading surface. One
   source-generation-bound answer supplies the addressed heading, rendered
   outline, canonical filing position and real neighbors; outline actions focus

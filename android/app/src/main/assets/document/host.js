@@ -204,6 +204,8 @@ function restorePosition() {
           scroller.scrollTop = position.progress * extent;
         } else if (Number.isInteger(current.initialHeadingIndex)) {
           revealHeading(current.initialHeadingIndex, false);
+        } else {
+          scroller.scrollTop = 0;
         }
       }
     });

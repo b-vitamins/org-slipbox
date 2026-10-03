@@ -54,6 +54,11 @@ internal sealed interface DocumentReaderPhase {
     data object Failed : DocumentReaderPhase
 }
 
+internal enum class DocumentReaderKind {
+    Note,
+    GlossaryTerm,
+}
+
 internal sealed interface ReaderLinkPhase {
     data object Idle : ReaderLinkPhase
 
@@ -124,6 +129,9 @@ internal interface BoundDocumentSource : AutoCloseable {
 
     fun findByKey(nodeKey: String): NodeRecord? = null
 
+    fun glossaryTerm(nodeKey: String): NodeRecord? =
+        findByKey(nodeKey)?.takeIf(NodeRecord::glossary)
+
     fun resolve(sourceNodeKey: String, target: String): DocumentLinkResolution
 }
 
@@ -178,6 +186,11 @@ private object NativeBoundDocumentSourceFactory : BoundDocumentSourceFactory {
                     (session.answer(ReadOperation.NodeFromKey(nodeKey)).await() as EngineAnswer.NodeFromKey)
                         .result
 
+                override fun glossaryTerm(nodeKey: String): NodeRecord? =
+                    (session.answer(ReadOperation.GlossaryTerm(nodeKey)).await() as EngineAnswer.GlossaryTerm)
+                        .result
+                        .term
+
                 override fun resolve(
                     sourceNodeKey: String,
                     target: String,
@@ -197,11 +210,12 @@ private object NativeBoundDocumentSourceFactory : BoundDocumentSourceFactory {
     }
 }
 
-/** Owns one complete document read for exactly one note in one ready generation. */
+/** Owns one complete document read for one note or exact glossary term in one generation. */
 @Stable
 internal class DocumentReaderState(
     private val note: BoundNote,
     private val ready: ReadySource,
+    private val kind: DocumentReaderKind = DocumentReaderKind.Note,
     private val factory: BoundDocumentSourceFactory = NativeBoundDocumentSourceFactory,
     private val delivery: ImportDelivery = ImportDelivery.MainThread,
 ) : AutoCloseable {
@@ -428,19 +442,14 @@ internal class DocumentReaderState(
                             source.close()
                         }
                         val selected = checkNotNull(opened.get())
-                        val resolved =
-                            if (note.explicitId != null) {
-                                selected.findById(note.explicitId)
-                                    ?: throw MissingStableDocumentIdentity()
-                            } else {
-                                selected.findByKey(note.nodeKey)
-                            }
-                        val nodeKey = resolved?.nodeKey ?: note.nodeKey
-                        selected.context(nodeKey).also { validate(nodeKey, it) }
+                        when (kind) {
+                            DocumentReaderKind.Note -> selected.readNote()
+                            DocumentReaderKind.GlossaryTerm -> selected.readGlossaryTerm()
+                        }
                     }
                     delivery.post {
                         if (!live.get() || requests.get() != serial) return@post
-                        phase = outcome.fold(::ready, ::failed)
+                        phase = outcome.fold({ DocumentReaderPhase.Ready(it) }, ::failed)
                     }
                 },
                 WORKER_NAME,
@@ -449,6 +458,42 @@ internal class DocumentReaderState(
                 isDaemon = true
                 start()
             }
+    }
+
+    private fun BoundDocumentSource.readNote(): ReaderDocument {
+        val resolved =
+            if (note.explicitId != null) {
+                findById(note.explicitId) ?: throw MissingStableDocumentIdentity()
+            } else {
+                findByKey(note.nodeKey)
+            }
+        val nodeKey = resolved?.nodeKey ?: note.nodeKey
+        val answer = context(nodeKey)
+        validate(nodeKey, answer)
+        return ready(answer)
+    }
+
+    private fun BoundDocumentSource.readGlossaryTerm(): ReaderDocument {
+        val term = glossaryTerm(note.nodeKey) ?: throw MissingStableDocumentIdentity()
+        val answer = read(term.nodeKey)
+        validateGlossaryTerm(term, answer, maxLines)
+        return ReaderDocument(
+            anchor = term,
+            source =
+                DocumentSource(
+                    source = note.binding.source,
+                    generation = note.binding.generation,
+                    id = term.nodeKey,
+                    filePath = term.filePath,
+                    org = answer.source.content,
+                    baseLevel =
+                        term.level
+                            .toInt()
+                            .coerceIn(DocumentSource.HIGHEST_LEVEL, DocumentSource.LOWEST_LEVEL),
+                ),
+            sourceName = ready.source.displayName,
+            revision = ready.revision,
+        )
     }
 
     private fun validate(nodeKey: String, answer: NoteContextResult) {
@@ -486,6 +531,25 @@ internal class DocumentReaderState(
                     answer.source.lineCount == 0L &&
                     answer.nodeLineCount == 1L),
         )
+    }
+
+    private fun validateGlossaryTerm(
+        term: NodeRecord,
+        answer: ReadNodeSourceResult,
+        maxLines: Int,
+    ) {
+        require(answer.anchor == term)
+        require(answer.source.filePath == term.filePath)
+        require(answer.source.startLine == answer.nodeStartLine)
+        require(!answer.source.truncatedBefore)
+        val complete =
+            answer.source.lineCount == answer.nodeLineCount ||
+                (answer.source.totalLines == 0L &&
+                    answer.source.lineCount == 0L &&
+                    answer.nodeLineCount == 1L)
+        if (answer.source.truncatedAfter || !complete) {
+            throw UnsupportedDocumentSize(maxLines)
+        }
     }
 
     private fun acceptPreview(
@@ -546,29 +610,30 @@ internal class DocumentReaderState(
         focusRequest = DocumentFocusRequest(request.origin)
     }
 
-    private fun ready(answer: NoteContextResult): DocumentReaderPhase =
-        DocumentReaderPhase.Ready(
-            ReaderDocument(
-                anchor = answer.note,
-                source =
-                    DocumentSource(
-                        source = note.binding.source,
-                        generation = note.binding.generation,
-                        id = answer.note.nodeKey,
-                        filePath = answer.note.filePath,
-                        org = answer.source.content,
-                    ),
-                addressedAnchor = answer.anchor,
-                outline = answer.outline,
-                place = answer.place,
-                sourceName = ready.source.displayName,
-                revision = ready.revision,
-            ),
+    private fun ready(answer: NoteContextResult): ReaderDocument =
+        ReaderDocument(
+            anchor = answer.note,
+            source =
+                DocumentSource(
+                    source = note.binding.source,
+                    generation = note.binding.generation,
+                    id = answer.note.nodeKey,
+                    filePath = answer.note.filePath,
+                    org = answer.source.content,
+                ),
+            addressedAnchor = answer.anchor,
+            outline = answer.outline,
+            place = answer.place,
+            sourceName = ready.source.displayName,
+            revision = ready.revision,
         )
 
     private fun failed(failure: Throwable): DocumentReaderPhase =
         when {
             failure is MissingStableDocumentIdentity -> DocumentReaderPhase.NotFound
+
+            failure is UnsupportedDocumentSize ->
+                DocumentReaderPhase.UnsupportedSize(failure.maxLines)
 
             failure is EngineRefusedException &&
                 failure.refusal.reason == RefusalReason.ENGINE_REFUSED &&
@@ -589,6 +654,8 @@ internal class DocumentReaderState(
         }
 
     private class MissingStableDocumentIdentity : Exception()
+
+    private class UnsupportedDocumentSize(val maxLines: Int) : Exception()
 
     override fun close() {
         if (!live.compareAndSet(true, false)) return
@@ -629,6 +696,19 @@ internal fun rememberDocumentReaderState(
     val state =
         remember(note.reference, ready.binding, ready.contentRoot, ready.database) {
             DocumentReaderState(note, ready)
+        }
+    DisposableEffect(state) { onDispose(state::close) }
+    return state
+}
+
+@Composable
+internal fun rememberGlossaryTermReaderState(
+    note: BoundNote,
+    ready: ReadySource,
+): DocumentReaderState {
+    val state =
+        remember(note.reference, ready.binding, ready.contentRoot, ready.database) {
+            DocumentReaderState(note, ready, kind = DocumentReaderKind.GlossaryTerm)
         }
     DisposableEffect(state) { onDispose(state::close) }
     return state

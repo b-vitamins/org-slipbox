@@ -35,6 +35,7 @@ import io.github.b_vitamins.slipbox.ui.theme.SlipboxMotion
 @Composable
 internal fun ReaderContextSheet(
     document: ReaderDocument?,
+    kind: ReaderSurfaceKind = ReaderSurfaceKind.Note,
     visible: Boolean,
     motion: SlipboxMotion,
     onDismiss: () -> Unit,
@@ -46,7 +47,14 @@ internal fun ReaderContextSheet(
     restoreFocusTo: FocusRequester? = null,
 ) {
     ContextualSheet(
-        title = stringResource(R.string.reader_note_details),
+        title =
+            stringResource(
+                if (kind == ReaderSurfaceKind.GlossaryTerm) {
+                    R.string.glossary_term_details
+                } else {
+                    R.string.reader_note_details
+                },
+            ),
         visible = visible,
         motion = motion,
         onDismiss = onDismiss,
@@ -63,23 +71,45 @@ internal fun ReaderContextSheet(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(SlipboxDimensions.headerPaddingHorizontal),
         ) {
-            TextControl(
-                label = stringResource(R.string.reader_explore),
-                onClick = onExplore,
-            )
-            TextControl(
-                label = stringResource(R.string.reader_relations),
-                onClick = onRelations,
-            )
+            if (kind == ReaderSurfaceKind.Note) {
+                TextControl(
+                    label = stringResource(R.string.reader_explore),
+                    onClick = onExplore,
+                )
+                TextControl(
+                    label = stringResource(R.string.reader_relations),
+                    onClick = onRelations,
+                )
+            }
             TextControl(
                 label = stringResource(R.string.action_appearance),
                 onClick = onAppearance,
             )
         }
 
+        if (kind == ReaderSurfaceKind.GlossaryTerm) {
+            ContextSectionTitle(stringResource(R.string.glossary_identity))
+            MetadataRow(stringResource(R.string.glossary_canonical_term), note.anchor.title)
+            if (note.anchor.aliases.isNotEmpty()) {
+                MetadataRow(
+                    stringResource(R.string.glossary_alias_label),
+                    note.anchor.aliases.joinToString(" · "),
+                )
+            }
+            MetadataRow(
+                label = stringResource(R.string.glossary_node_key),
+                value = note.anchor.nodeKey,
+                monospace = true,
+            )
+        }
+
         val outline =
-            note.outline.withIndex().filter { (_, anchor) ->
-                anchor.nodeKey != note.anchor.nodeKey
+            if (kind == ReaderSurfaceKind.Note) {
+                note.outline.withIndex().filter { (_, anchor) ->
+                    anchor.nodeKey != note.anchor.nodeKey
+                }
+            } else {
+                emptyList()
             }
         if (outline.isNotEmpty()) {
             ContextSectionTitle(stringResource(R.string.reader_outline))
@@ -94,7 +124,7 @@ internal fun ReaderContextSheet(
             }
         }
 
-        val place = note.place
+        val place = note.place.takeIf { kind == ReaderSurfaceKind.Note }
         val neighbors = listOfNotNull(place?.earlier, place?.later)
         if (place != null && place.total > 1 && neighbors.isNotEmpty()) {
             ContextSectionTitle(
@@ -118,6 +148,13 @@ internal fun ReaderContextSheet(
 
         ContextSectionTitle(stringResource(R.string.reader_source_details))
         MetadataRow(stringResource(R.string.reader_source), note.sourceName)
+        if (kind == ReaderSurfaceKind.GlossaryTerm) {
+            MetadataRow(
+                label = stringResource(R.string.glossary_generation),
+                value = note.source.binding.generation,
+                monospace = true,
+            )
+        }
         MetadataRow(stringResource(R.string.reader_file), note.anchor.filePath)
         note.anchor.outlinePath.takeIf(String::isNotBlank)?.let { path ->
             MetadataRow(stringResource(R.string.reader_outline_path), path)

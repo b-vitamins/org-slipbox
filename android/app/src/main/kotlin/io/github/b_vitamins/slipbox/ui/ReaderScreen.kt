@@ -52,6 +52,11 @@ internal const val READER_DOCUMENT_TAG = "reader-document"
 
 private val NoReaderAssets = DocumentAssetResolver { _, _ -> null }
 
+internal enum class ReaderSurfaceKind {
+    Note,
+    GlossaryTerm,
+}
+
 @Composable
 internal fun ReaderScreen(
     phase: DocumentReaderPhase,
@@ -59,6 +64,7 @@ internal fun ReaderScreen(
     onBack: () -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
+    kind: ReaderSurfaceKind = ReaderSurfaceKind.Note,
     linkPhase: ReaderLinkPhase = ReaderLinkPhase.Idle,
     previewPhase: ReaderPreviewPhase = ReaderPreviewPhase.Hidden,
     focusRequest: DocumentFocusRequest? = null,
@@ -136,7 +142,15 @@ internal fun ReaderScreen(
                 availableWidth = readingWidth,
             )
         ReadingSurface(
-            title = document?.anchor?.title ?: stringResource(R.string.reader_title),
+            title =
+                document?.anchor?.title
+                    ?: stringResource(
+                        if (kind == ReaderSurfaceKind.GlossaryTerm) {
+                            R.string.glossary_term_title
+                        } else {
+                            R.string.reader_title
+                        },
+                    ),
             obscured =
                 appearanceVisible ||
                     previewVisible ||
@@ -162,7 +176,7 @@ internal fun ReaderScreen(
                     horizontalArrangement =
                         Arrangement.spacedBy(SlipboxDimensions.headerPaddingHorizontal),
                 ) {
-                    if (document != null) {
+                    if (document != null && kind == ReaderSurfaceKind.Note) {
                         IconControl(
                             icon =
                                 painterResource(
@@ -182,8 +196,17 @@ internal fun ReaderScreen(
                                 ),
                             onClick = onToggleBookmark,
                         )
+                    }
+                    if (document != null) {
                         TextControl(
-                            label = stringResource(R.string.reader_note_info),
+                            label =
+                                stringResource(
+                                    if (kind == ReaderSurfaceKind.GlossaryTerm) {
+                                        R.string.glossary_term_info
+                                    } else {
+                                        R.string.reader_note_info
+                                    },
+                                ),
                             onClick = {
                                 contextActionTaken = false
                                 contextVisible = true
@@ -210,6 +233,7 @@ internal fun ReaderScreen(
                 )
                 ReaderContextSheet(
                     document = document,
+                    kind = kind,
                     visible = contextVisible,
                     motion = motion,
                     onDismiss = { contextVisible = false },
@@ -307,22 +331,58 @@ internal fun ReaderScreen(
         ) {
             when (phase) {
                 DocumentReaderPhase.Loading ->
-                    ReaderNotice(stringResource(R.string.reader_loading))
+                    ReaderNotice(
+                        stringResource(
+                            if (kind == ReaderSurfaceKind.GlossaryTerm) {
+                                R.string.glossary_term_loading
+                            } else {
+                                R.string.reader_loading
+                            },
+                        ),
+                    )
 
                 DocumentReaderPhase.NotFound ->
-                    ReaderNotice(stringResource(R.string.reader_not_found), problem = true)
+                    ReaderNotice(
+                        stringResource(
+                            if (kind == ReaderSurfaceKind.GlossaryTerm) {
+                                R.string.glossary_term_not_found
+                            } else {
+                                R.string.reader_not_found
+                            },
+                        ),
+                        problem = true,
+                    )
 
                 DocumentReaderPhase.SourceUnavailable ->
-                    ReaderNotice(stringResource(R.string.reader_source_unavailable), problem = true)
+                    ReaderNotice(
+                        stringResource(
+                            if (kind == ReaderSurfaceKind.GlossaryTerm) {
+                                R.string.glossary_term_source_unavailable
+                            } else {
+                                R.string.reader_source_unavailable
+                            },
+                        ),
+                        problem = true,
+                    )
 
                 is DocumentReaderPhase.UnsupportedSize ->
                     ReaderNotice(
                         text =
                             if (phase.maxLines == null) {
-                                stringResource(R.string.reader_too_large)
+                                stringResource(
+                                    if (kind == ReaderSurfaceKind.GlossaryTerm) {
+                                        R.string.glossary_term_too_large
+                                    } else {
+                                        R.string.reader_too_large
+                                    },
+                                )
                             } else {
                                 pluralStringResource(
-                                    R.plurals.reader_too_many_lines,
+                                    if (kind == ReaderSurfaceKind.GlossaryTerm) {
+                                        R.plurals.glossary_term_too_many_lines
+                                    } else {
+                                        R.plurals.reader_too_many_lines
+                                    },
                                     phase.maxLines,
                                     phase.maxLines,
                                 )
@@ -331,7 +391,16 @@ internal fun ReaderScreen(
                     )
 
                 DocumentReaderPhase.Failed -> {
-                    ReaderNotice(stringResource(R.string.reader_unavailable), problem = true)
+                    ReaderNotice(
+                        stringResource(
+                            if (kind == ReaderSurfaceKind.GlossaryTerm) {
+                                R.string.glossary_term_unavailable
+                            } else {
+                                R.string.reader_unavailable
+                            },
+                        ),
+                        problem = true,
+                    )
                     TextControl(label = stringResource(R.string.action_retry), onClick = onRetry)
                 }
 

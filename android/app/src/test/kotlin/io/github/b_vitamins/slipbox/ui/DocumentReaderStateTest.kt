@@ -122,6 +122,55 @@ class DocumentReaderStateTest {
     }
 
     @Test
+    fun aGlossaryReadUsesTheCanonicalTermAndItsExactCompleteSource() {
+        val term =
+            node().copy(
+                nodeKey = "heading:terms.org:7",
+                filePath = "terms.org",
+                title = "Fixed point",
+                outlinePath = "Analysis/Fixed point",
+                aliases = listOf("invariant point"),
+                glossary = true,
+                level = 3,
+                line = 7,
+                kind = NodeKind.HEADING,
+            )
+        val exact =
+            ReadNodeSourceResult(
+                anchor = term,
+                source =
+                    SourceSlice(
+                        filePath = term.filePath,
+                        startLine = 7,
+                        lineCount = 3,
+                        totalLines = 20,
+                        content = "*** Fixed point\nA point where \$f(x)=x\$.\n",
+                        truncatedBefore = false,
+                        truncatedAfter = false,
+                    ),
+                nodeStartLine = 7,
+                nodeLineCount = 3,
+            )
+        val source = source(exact).also { it.onFindKey = { key -> term.takeIf { key == term.nodeKey } } }
+        val state =
+            state(
+                note = BoundNote(ready("generation-a").binding, term.nodeKey),
+                kind = DocumentReaderKind.GlossaryTerm,
+                factory = BoundDocumentSourceFactory { source },
+            )
+
+        await { state.phase is DocumentReaderPhase.Ready }
+
+        val document = (state.phase as DocumentReaderPhase.Ready).document
+        assertEquals(term, document.anchor)
+        assertEquals(exact.source.content, document.source.org)
+        assertEquals(3, document.source.baseLevel)
+        assertEquals("generation-a", document.source.binding.generation)
+        assertNull(document.place)
+        state.close()
+    }
+
+    @Test
     fun closingAWithdrawnNoteSuppressesItsLateReply() {
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
@@ -524,11 +573,13 @@ class DocumentReaderStateTest {
     private fun state(
         ready: ReadySource = ready("generation-a"),
         note: BoundNote = BoundNote(ready.binding, NODE_KEY),
+        kind: DocumentReaderKind = DocumentReaderKind.Note,
         factory: BoundDocumentSourceFactory,
     ): DocumentReaderState =
         DocumentReaderState(
             note = note,
             ready = ready,
+            kind = kind,
             factory = factory,
             delivery = ImportDelivery { it() },
         )

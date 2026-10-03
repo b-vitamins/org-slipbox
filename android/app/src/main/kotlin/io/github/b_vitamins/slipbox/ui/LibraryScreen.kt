@@ -50,6 +50,7 @@ internal fun LibraryScreen(
     onLoadMore: () -> Unit = {},
     onRetryInventory: () -> Unit = {},
     onOpenNote: (NodeRecord) -> Unit = {},
+    onOpenGlossary: () -> Unit = {},
     readingReturns: ReadingReturnsSnapshot? = null,
     onOpenReadingReturn: (ReadingReturn) -> Unit = {},
     onRemoveBookmark: (ReadingReturn) -> Unit = {},
@@ -116,6 +117,7 @@ internal fun LibraryScreen(
                     onLoadMore = onLoadMore,
                     onRetry = onRetryInventory,
                     onOpenNote = onOpenNote,
+                    onOpenGlossary = onOpenGlossary,
                     readingReturns = readingReturns,
                     onOpenReadingReturn = onOpenReadingReturn,
                     onRemoveBookmark = onRemoveBookmark,
@@ -139,6 +141,7 @@ private fun NotesInventory(
     onLoadMore: () -> Unit,
     onRetry: () -> Unit,
     onOpenNote: (NodeRecord) -> Unit,
+    onOpenGlossary: () -> Unit,
     readingReturns: ReadingReturnsSnapshot?,
     onOpenReadingReturn: (ReadingReturn) -> Unit,
     onRemoveBookmark: (ReadingReturn) -> Unit,
@@ -148,6 +151,18 @@ private fun NotesInventory(
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(modifier = modifier.fillMaxWidth()) {
+        item(key = "open-glossary") {
+            LibraryDestinationRow(
+                title = stringResource(R.string.glossary_title),
+                detail = stringResource(R.string.glossary_library_detail),
+                onClick = onOpenGlossary,
+            )
+            HorizontalDivider(
+                modifier = Modifier.padding(bottom = SlipboxDimensions.headerPaddingVertical),
+                thickness = SlipboxDimensions.hairline,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
         readingReturnItems(
             snapshot = readingReturns,
             onOpen = onOpenReadingReturn,
@@ -213,6 +228,29 @@ private fun NotesInventory(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun LibraryDestinationRow(title: String, detail: String, onClick: () -> Unit) {
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = SlipboxDimensions.touchTarget)
+                .clickable(onClick = onClick)
+                .padding(vertical = SlipboxDimensions.headerPaddingVertical),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Text(
+            text = detail,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
