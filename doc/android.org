@@ -232,6 +232,30 @@ key while preserving the origin viewport. Replacing the note or ready
 generation disposes the relation page owner, so its late replies cannot enter a
 later reader.
 
+** On-demand Relation Discovery
+
+Related notes and Unlinked mentions are collapsed inside Relations until the
+reader explicitly reveals either section. Composing, mounting, scrolling and
+reopening an already answered section issue no query. Refresh is likewise an
+explicit action. Each section owns an independent cancellable read session
+bound to the displayed note's source generation, so failure or cancellation in
+one leaves the reading column, directed inventory and other discovery intact.
+
+Related notes use the Rust =bridges= exploration lens. Android groups candidates
+by the first connector's node identity (titles need not be unique), retains the
+complete bridge explanation, and removes node keys already present in the
+directed inventory. The first display selects eight strongest candidates while
+preserving connector and engine order; =Show more= changes only this display
+bound. The lens request ranks at most 50 candidates and states that separate
+query bound when reached.
+
+Unlinked mentions use Rust's indexed occurrence query with a 200-occurrence
+scan bound. Android groups all distinct occurrences under the canonical source
+note, keeps their source anchor, row, column and explanation, and highlights the
+exact complete match at the engine's one-based Unicode character column with a
+literal fallback. The initial display bound is eight source notes, not eight
+occurrences; continuation copy never presents either bound as a corpus total.
+
 ** Repository Images And Attachments
 
 The reader resolves an asset relative to the file that contains its link, under

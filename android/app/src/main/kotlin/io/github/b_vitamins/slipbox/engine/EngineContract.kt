@@ -270,6 +270,13 @@ sealed class ReadOperation {
     ) : ReadOperation()
 
     @Serializable
+    @SerialName("unlinkedReferences")
+    data class UnlinkedReferences(
+        @SerialName("node_key") val nodeKey: String,
+        val limit: Int,
+    ) : ReadOperation()
+
+    @Serializable
     @SerialName("explore")
     data class Explore(
         @SerialName("node_key") val nodeKey: String,

@@ -31,11 +31,14 @@ import io.github.b_vitamins.slipbox.ui.ConnectionScreen
 import io.github.b_vitamins.slipbox.ui.DirectedRelationsPhase
 import io.github.b_vitamins.slipbox.ui.DocumentReaderPhase
 import io.github.b_vitamins.slipbox.ui.LibraryScreen
+import io.github.b_vitamins.slipbox.ui.MentionDiscoveryPhase
 import io.github.b_vitamins.slipbox.ui.ReaderScreen
+import io.github.b_vitamins.slipbox.ui.RelatedDiscoveryPhase
 import io.github.b_vitamins.slipbox.ui.SourceSettingsScreen
 import io.github.b_vitamins.slipbox.ui.rememberDocumentReaderState
 import io.github.b_vitamins.slipbox.ui.rememberDirectedRelationsState
 import io.github.b_vitamins.slipbox.ui.rememberNotesInventoryState
+import io.github.b_vitamins.slipbox.ui.rememberReaderDiscoveryState
 import io.github.b_vitamins.slipbox.ui.content.DocumentGesture
 import io.github.b_vitamins.slipbox.ui.content.DocumentIntent
 import io.github.b_vitamins.slipbox.ui.content.DocumentPosition
@@ -163,6 +166,7 @@ private fun productionDestinations(
                 val resolvedBound = resolved?.let(readerRoute.note::resolvedBy)
                 val resolvedNote = resolvedBound ?: readerRoute.note
                 val relations = rememberDirectedRelationsState(resolvedBound, ready)
+                val discoveries = rememberReaderDiscoveryState(resolvedBound, ready)
                 LaunchedEffect(resolved?.nodeKey, resolved?.explicitId) {
                     resolved?.let {
                         backStack.reconcileReadingNote(readerRoute, it)
@@ -309,6 +313,38 @@ private fun productionDestinations(
                         backStack.follow(
                             origin = readerRoute,
                             targetNodeKey = relation.note.nodeKey,
+                            originAnchor = anchor,
+                        )
+                    },
+                    relatedPhase = discoveries?.related ?: RelatedDiscoveryPhase.Idle,
+                    mentionPhase = discoveries?.mentions ?: MentionDiscoveryPhase.Idle,
+                    onRevealRelated = { discoveries?.revealRelated() },
+                    onRefreshRelated = { discoveries?.refreshRelated() },
+                    onShowAllRelated = { discoveries?.showAllRelated() },
+                    onRevealMentions = { discoveries?.revealMentions() },
+                    onRefreshMentions = { discoveries?.refreshMentions() },
+                    onShowAllMentions = { discoveries?.showAllMentions() },
+                    onPreviewDiscovered = { note ->
+                        val anchor = readerRoute.anchor
+                        reader.previewNode(
+                            nodeKey = note.nodeKey,
+                            gesture = DocumentGesture.Touch,
+                            originProgress = anchor.progress,
+                            origin = "relation:${note.nodeKey}",
+                            originPosition =
+                                DocumentPosition(
+                                    mark = anchor.mark,
+                                    progress = anchor.progress,
+                                    offset = anchor.offset,
+                                ),
+                        )
+                    },
+                    onOpenDiscovered = { note ->
+                        val anchor = readerRoute.anchor
+                        readingReturns?.rememberReadingPlace(resolvedNote, anchor)
+                        backStack.follow(
+                            origin = readerRoute,
+                            targetNodeKey = note.nodeKey,
                             originAnchor = anchor,
                         )
                     },

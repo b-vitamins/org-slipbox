@@ -105,6 +105,11 @@ internal object EngineOperations {
                 "answered_directed_relations",
             ),
             AdmittedOperation(
+                ReadOperation.UnlinkedReferences(NODE_KEY, 200),
+                "read_unlinked_references",
+                "answered_unlinked_references",
+            ),
+            AdmittedOperation(
                 ReadOperation.Explore(NODE_KEY, ExplorationLens.STRUCTURE, 200, true),
                 "read_explore",
                 "answered_explore",

@@ -83,6 +83,39 @@
     <string name="reader_relation_outgoing">Linked from this note</string>
     <string name="reader_relation_bidirectional">Links both ways</string>
     <string name="reader_relation_preview">Preview %1$s</string>
+    <string name="reader_related_discovery">Related notes</string>
+    <string name="reader_related_loading">Ranking related notes.</string>
+    <string name="reader_related_empty">No unlinked note stands beside this one.</string>
+    <string name="reader_related_unavailable">Related notes could not be loaded.</string>
+    <string name="reader_related_via">Via %1$s</string>
+    <plurals name="reader_related_query_bound">
+        <item quantity="one">Ranked the first %d candidate; more may exist.</item>
+        <item quantity="other">Ranked the first %d candidates; more may exist.</item>
+    </plurals>
+    <plurals name="reader_related_connectors">
+        <item quantity="one">Through %d note</item>
+        <item quantity="other">Through %d notes</item>
+    </plurals>
+    <plurals name="reader_show_more_related">
+        <item quantity="one">Show %d more related note</item>
+        <item quantity="other">Show %d more related notes</item>
+    </plurals>
+    <string name="reader_unlinked_mentions">Unlinked mentions</string>
+    <string name="reader_mentions_loading">Scanning indexed notes for mentions.</string>
+    <string name="reader_mentions_empty">No unlinked mention appears in the indexed notes.</string>
+    <string name="reader_mentions_unavailable">Unlinked mentions could not be loaded.</string>
+    <plurals name="reader_mentions_query_bound">
+        <item quantity="one">Scanned the first %d occurrence; more may exist.</item>
+        <item quantity="other">Scanned the first %d occurrences; more may exist.</item>
+    </plurals>
+    <plurals name="reader_mentions_in_note">
+        <item quantity="one">%d mention</item>
+        <item quantity="other">%d mentions</item>
+    </plurals>
+    <plurals name="reader_show_more_mention_sources">
+        <item quantity="one">Show %d more source note</item>
+        <item quantity="other">Show %d more source notes</item>
+    </plurals>
     <plurals name="reader_related_notes">
         <item quantity="one">%d related note</item>
         <item quantity="other">%d related notes</item>
@@ -95,6 +128,9 @@
     <string name="action_confirm">Confirm</string>
     <string name="action_open">Open</string>
     <string name="action_show_more_relations">Show more relations</string>
+    <string name="action_refresh">Refresh</string>
+    <string name="action_show_section">Show</string>
+    <string name="action_hide_section">Hide</string>
 
     <string name="action_about">About</string>
     <string name="action_back">Back</string>

@@ -261,6 +261,11 @@ data class UnlinkedReferenceRecord(
 )
 
 @Serializable
+data class UnlinkedReferencesResult(
+    @SerialName("unlinked_references") val unlinkedReferences: List<UnlinkedReferenceRecord>,
+)
+
+@Serializable
 data class BridgeEvidenceRecord(
     @SerialName("node_key") val nodeKey: String,
     @SerialName("explicit_id") val explicitId: String?,
@@ -507,6 +512,10 @@ sealed class EngineAnswer {
     data class DirectedRelations(val result: DirectedRelationsResult) : EngineAnswer(), ReadAnswer
 
     @Serializable
+    @SerialName("unlinkedReferences")
+    data class UnlinkedReferences(val result: UnlinkedReferencesResult) : EngineAnswer(), ReadAnswer
+
+    @Serializable
     @SerialName("explore")
     data class Explore(val result: ExploreResult) : EngineAnswer(), ReadAnswer
 
@@ -537,6 +546,7 @@ internal fun ReadOperation.answerIn(answer: EngineAnswer): ReadAnswer? =
         is ReadOperation.Backlinks -> answer as? EngineAnswer.Backlinks
         is ReadOperation.ForwardLinks -> answer as? EngineAnswer.ForwardLinks
         is ReadOperation.DirectedRelations -> answer as? EngineAnswer.DirectedRelations
+        is ReadOperation.UnlinkedReferences -> answer as? EngineAnswer.UnlinkedReferences
         is ReadOperation.Explore -> answer as? EngineAnswer.Explore
     }
 

@@ -75,6 +75,16 @@ internal fun ReaderScreen(
     onLoadMoreRelations: () -> Unit = {},
     onPreviewRelation: (DirectedRelationRecord) -> Unit = {},
     onOpenRelation: (DirectedRelationRecord) -> Unit = {},
+    relatedPhase: RelatedDiscoveryPhase = RelatedDiscoveryPhase.Idle,
+    mentionPhase: MentionDiscoveryPhase = MentionDiscoveryPhase.Idle,
+    onRevealRelated: () -> Unit = {},
+    onRefreshRelated: () -> Unit = {},
+    onShowAllRelated: () -> Unit = {},
+    onRevealMentions: () -> Unit = {},
+    onRefreshMentions: () -> Unit = {},
+    onShowAllMentions: () -> Unit = {},
+    onPreviewDiscovered: (NodeRecord) -> Unit = {},
+    onOpenDiscovered: (NodeRecord) -> Unit = {},
 ) {
     val document = (phase as? DocumentReaderPhase.Ready)?.document
     var appearanceVisible by rememberSaveable { mutableStateOf(false) }
@@ -171,6 +181,7 @@ internal fun ReaderScreen(
                     restoreFocusTo = appearanceControl,
                 )
                 DirectedRelationsSheet(
+                    noteKey = document?.anchor?.nodeKey,
                     visible = relationsVisible,
                     phase = relationsPhase,
                     motion = motion,
@@ -184,6 +195,22 @@ internal fun ReaderScreen(
                     onOpen = { relation ->
                         relationsVisible = false
                         onOpenRelation(relation)
+                    },
+                    relatedPhase = relatedPhase,
+                    mentionPhase = mentionPhase,
+                    onRevealRelated = onRevealRelated,
+                    onRefreshRelated = onRefreshRelated,
+                    onShowAllRelated = onShowAllRelated,
+                    onRevealMentions = onRevealMentions,
+                    onRefreshMentions = onRefreshMentions,
+                    onShowAllMentions = onShowAllMentions,
+                    onPreviewDiscovered = { note ->
+                        relationsVisible = false
+                        onPreviewDiscovered(note)
+                    },
+                    onOpenDiscovered = { note ->
+                        relationsVisible = false
+                        onOpenDiscovered(note)
                     },
                     restoreFocusTo = relationsControl,
                 )

@@ -20,7 +20,7 @@ use slipbox_rpc::{
     METHOD_GLOSSARY_TERM, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_INDEXED_FILES,
     METHOD_LIST_GLOSSARY_TERMS, METHOD_LIST_NOTES, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY,
     METHOD_READ_NODE_SOURCE, METHOD_RESOLVE_DOCUMENT_LINK, METHOD_SEARCH_GLOSSARY,
-    METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES,
+    METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES, METHOD_UNLINKED_REFERENCES,
 };
 use tempfile::TempDir;
 
@@ -1360,6 +1360,11 @@ fn read_cases(keys: &Keys) -> Vec<(Value, &'static str, Value)> {
         (
             json!({"kind": "directedRelations", "node_key": alpha, "limit": 50}),
             METHOD_DIRECTED_RELATIONS,
+            json!({"node_key": alpha, "limit": 50}),
+        ),
+        (
+            json!({"kind": "unlinkedReferences", "node_key": alpha, "limit": 50}),
+            METHOD_UNLINKED_REFERENCES,
             json!({"node_key": alpha, "limit": 50}),
         ),
         (

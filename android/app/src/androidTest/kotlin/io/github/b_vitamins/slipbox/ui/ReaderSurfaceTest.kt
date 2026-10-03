@@ -29,8 +29,18 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SdkSuppress
 import io.github.b_vitamins.slipbox.engine.DirectedRelationDirection
 import io.github.b_vitamins.slipbox.engine.DirectedRelationRecord
+import io.github.b_vitamins.slipbox.engine.AnchorExplorationRecord
+import io.github.b_vitamins.slipbox.engine.BridgeEvidenceRecord
+import io.github.b_vitamins.slipbox.engine.ExplorationEntry
+import io.github.b_vitamins.slipbox.engine.ExplorationExplanation
+import io.github.b_vitamins.slipbox.engine.ExplorationLens
+import io.github.b_vitamins.slipbox.engine.ExplorationSection
+import io.github.b_vitamins.slipbox.engine.ExplorationSectionKind
+import io.github.b_vitamins.slipbox.engine.ExploreResult
 import io.github.b_vitamins.slipbox.engine.NodeKind
 import io.github.b_vitamins.slipbox.engine.NodeRecord
+import io.github.b_vitamins.slipbox.engine.UnlinkedReferenceRecord
+import io.github.b_vitamins.slipbox.engine.UnlinkedReferencesResult
 import io.github.b_vitamins.slipbox.ui.content.DOCUMENT_LINK
 import io.github.b_vitamins.slipbox.ui.content.DocumentAssetResolver
 import io.github.b_vitamins.slipbox.ui.content.DocumentFocusRequest
@@ -198,6 +208,90 @@ class ReaderSurfaceTest {
             assertEquals(incoming, previewed)
         }
         composeRule.onNodeWithText("5 related notes").assertDoesNotExist()
+    }
+
+    @Test
+    fun relatedNotesAndGroupedMentionsRevealOnlyWhenAsked() {
+        lateinit var settings: ReadingSettings
+        var relatedReveals = 0
+        var mentionReveals = 0
+        val direct = relation("Direct duplicate", DirectedRelationDirection.INCOMING)
+        val latent = relation("Latent connection", DirectedRelationDirection.OUTGOING).note
+        val related =
+            RelatedDiscoveryPhase.Ready(
+                ExploreResult(
+                    lens = ExplorationLens.BRIDGES,
+                    sections =
+                        listOf(
+                            ExplorationSection(
+                                kind = ExplorationSectionKind.BRIDGE_CANDIDATES,
+                                entries =
+                                    listOf(
+                                        bridgeCandidate(direct.note, "Bridge note"),
+                                        bridgeCandidate(latent, "Bridge note"),
+                                    ),
+                            ),
+                        ),
+                ),
+            )
+        val source =
+            node().copy(
+                nodeKey = "file:source.org",
+                filePath = "source.org",
+                title = "A source note",
+            )
+        val mentions =
+            MentionDiscoveryPhase.Ready(
+                UnlinkedReferencesResult(
+                    listOf(
+                        mention(source, 8, "The idea returns to A complete note here."),
+                        mention(source, 13, "A complete note also appears in this conclusion."),
+                    ),
+                ),
+            )
+        composeRule.setContent {
+            settings = remember { ReadingSettings(MemoryStore()) }
+            SlipboxTheme(appearance = settings.preferences.appearance) {
+                ReaderScreen(
+                    phase = DocumentReaderPhase.Ready(document()),
+                    settings = settings,
+                    onBack = {},
+                    onRetry = {},
+                    relationsPhase =
+                        DirectedRelationsPhase.Ready(
+                            relations = listOf(direct),
+                            total = 1,
+                            incomingTotal = 1,
+                            outgoingTotal = 0,
+                            hasMore = false,
+                            nextPosition = null,
+                        ),
+                    relatedPhase = related,
+                    mentionPhase = mentions,
+                    onRevealRelated = { relatedReveals += 1 },
+                    onRevealMentions = { mentionReveals += 1 },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Relations").performClick()
+        composeRule.onNodeWithText("Latent connection").assertDoesNotExist()
+        composeRule.runOnIdle {
+            assertEquals(0, relatedReveals)
+            assertEquals(0, mentionReveals)
+        }
+
+        composeRule.onNodeWithText("Related notes").performScrollTo().performClick()
+        composeRule.onNodeWithText("Latent connection").assertIsDisplayed()
+        composeRule.onNodeWithText("Direct duplicate").assertIsDisplayed()
+        composeRule.onNodeWithText("Unlinked mentions").performScrollTo().performClick()
+        composeRule.onNodeWithText("A source note").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("2 mentions").performScrollTo().assertIsDisplayed()
+        composeRule.runOnIdle {
+            assertEquals(1, relatedReveals)
+            assertEquals(1, mentionReveals)
+        }
+        Evidence.image("reader-related-and-mentions", composeRule.onRoot().captureToImage())
     }
 
     @Test
@@ -552,6 +646,36 @@ class ReaderSurfaceTest {
                 ),
             direction = direction,
             preview = "A short excerpt that makes this relation intelligible.",
+        )
+
+    private fun bridgeCandidate(note: NodeRecord, connector: String): ExplorationEntry =
+        ExplorationEntry.Anchor(
+            AnchorExplorationRecord(
+                anchor = note,
+                explanation =
+                    ExplorationExplanation.BridgeCandidate(
+                        references = emptyList(),
+                        viaNotes =
+                            listOf(
+                                BridgeEvidenceRecord(
+                                    nodeKey = "file:${connector.lowercase().replace(' ', '-')}.org",
+                                    explicitId = null,
+                                    title = connector,
+                                ),
+                            ),
+                    ),
+            ),
+        )
+
+    private fun mention(note: NodeRecord, row: Long, preview: String): UnlinkedReferenceRecord =
+        UnlinkedReferenceRecord(
+            sourceNote = note,
+            sourceAnchor = note,
+            row = row,
+            col = preview.indexOf("A complete note").toLong() + 1,
+            preview = preview,
+            matchedText = "A complete note",
+            explanation = ExplorationExplanation.UnlinkedReference("A complete note"),
         )
 
     private fun preview(

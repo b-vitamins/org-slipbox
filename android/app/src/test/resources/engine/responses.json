@@ -29,6 +29,7 @@
       "backlinks",
       "forwardLinks",
       "directedRelations",
+      "unlinkedReferences",
       "explore"
     ],
     "maintenance_operations": [
@@ -964,6 +965,21 @@
         "outgoing_total": 2,
         "has_more": true,
         "next_position": "fixture-relation-cursor"
+      }
+    }
+  },
+  "answered_unlinked_references": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "unlinkedReferences",
+      "result": {
+        "unlinked_references": []
       }
     }
   },
@@ -2851,6 +2867,7 @@
       "max_queued_requests": 32
     },
     "read_operations": [
+      "unlinkedReferences",
       "explore",
       "directedRelations",
       "forwardLinks",

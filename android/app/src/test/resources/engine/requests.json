@@ -232,6 +232,19 @@
       "unique": true
     }
   },
+  "read_unlinked_references": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "unlinkedReferences",
+      "node_key": "heading:alpha.org:3",
+      "limit": 200
+    }
+  },
   "maintain_index": {
     "version": 1,
     "handle": 8,

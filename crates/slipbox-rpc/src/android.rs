@@ -17,7 +17,7 @@ use slipbox_core::{
     ListNotesParams, ListNotesResult, NodeFromIdParams, NodeFromKeyParams, NodeRecord,
     ReadNodeSourceParams, ReadNodeSourceResult, ResolveDocumentLinkParams, SearchGlossaryParams,
     SearchGlossaryResult, SearchNodeContentParams, SearchNodeContentResult, SearchNodesParams,
-    SearchNodesResult, StatusInfo,
+    SearchNodesResult, StatusInfo, UnlinkedReferencesParams, UnlinkedReferencesResult,
 };
 
 use crate::{
@@ -26,6 +26,7 @@ use crate::{
     METHOD_INDEXED_FILES, METHOD_LIST_GLOSSARY_TERMS, METHOD_LIST_NOTES, METHOD_NODE_FROM_ID,
     METHOD_NODE_FROM_KEY, METHOD_READ_NODE_SOURCE, METHOD_RESOLVE_DOCUMENT_LINK,
     METHOD_SEARCH_GLOSSARY, METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES, METHOD_STATUS,
+    METHOD_UNLINKED_REFERENCES,
 };
 
 /// The supported Android adapter protocol version.
@@ -223,6 +224,8 @@ operation_vocabulary! {
         ForwardLinks, "forwardLinks", METHOD_FORWARD_LINKS, ForwardLinksParams, ForwardLinksResult;
         DirectedRelations, "directedRelations", METHOD_DIRECTED_RELATIONS,
             DirectedRelationsParams, DirectedRelationsResult;
+        UnlinkedReferences, "unlinkedReferences", METHOD_UNLINKED_REFERENCES,
+            UnlinkedReferencesParams, UnlinkedReferencesResult;
         Explore, "explore", METHOD_EXPLORE, ExploreParams, ExploreResult;
     }
 }
@@ -295,6 +298,7 @@ impl ReadOperation {
             Self::Backlinks(params) => relation_bound(params.limit),
             Self::ForwardLinks(params) => relation_bound(params.limit),
             Self::DirectedRelations(params) => relation_bound(params.limit),
+            Self::UnlinkedReferences(params) => relation_bound(params.limit),
             Self::Explore(params) => relation_bound(params.limit),
             Self::ReadNodeSource(params) => source_bound(params),
             Self::ResolveDocumentLink(params) => (params.source_node_key.len()

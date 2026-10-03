@@ -87,7 +87,7 @@ class EngineAdapterTest {
         val status = answered<EngineAnswer.Status>(read, ReadOperation.Status).result
         assertEquals(3L, status.filesIndexed)
         assertEquals(5L, status.nodesIndexed)
-        assertEquals(1L, status.linksIndexed)
+        assertEquals(2L, status.linksIndexed)
         assertTrue("$status", status.notesIndexed in 1..status.nodesIndexed)
         assertTrue(status.version, status.version.isNotBlank())
         assertEquals(corpus.canonicalPath, File(status.root).canonicalPath)
@@ -189,6 +189,19 @@ class EngineAdapterTest {
         assertFalse(related.hasMore)
         assertNull(related.nextPosition)
 
+        val mentions =
+            answered<EngineAnswer.UnlinkedReferences>(
+                read,
+                ReadOperation.UnlinkedReferences(beta.nodeKey, 20),
+            ).result.unlinkedReferences
+        val mention = mentions.single()
+        assertEquals(riemann.nodeKey, mention.sourceNote.nodeKey)
+        assertEquals("Target heading", mention.matchedText)
+        assertEquals(
+            ExplorationExplanation.UnlinkedReference("Target heading"),
+            mention.explanation,
+        )
+
         val lens = ReadOperation.Explore(beta.nodeKey, ExplorationLens.STRUCTURE, 20, true)
         val exploration = answered<EngineAnswer.Explore>(read, lens).result
         assertEquals(ExplorationLens.STRUCTURE, exploration.lens)
@@ -198,6 +211,19 @@ class EngineAdapterTest {
         val entry = typed<ExplorationEntry.Backlink>(section.entries.single())
         assertEquals(alpha.nodeKey, entry.record.sourceNote.nodeKey)
         assertEquals(ExplorationExplanation.Backlink, entry.record.explanation)
+
+        val bridgeLens = ReadOperation.Explore(beta.nodeKey, ExplorationLens.BRIDGES, 20)
+        val bridges = answered<EngineAnswer.Explore>(read, bridgeLens).result
+        val candidate =
+            typed<ExplorationEntry.Anchor>(
+                bridges.sections
+                    .single { it.kind == ExplorationSectionKind.BRIDGE_CANDIDATES }
+                    .entries
+                    .single(),
+            )
+        assertEquals(riemann.nodeKey, candidate.record.anchor.nodeKey)
+        val explanation = typed<ExplorationExplanation.BridgeCandidate>(candidate.record.explanation)
+        assertEquals(listOf(alpha.nodeKey), explanation.viaNotes.map { it.nodeKey })
 
         assertEquals(EngineWire.readOperations, exercised)
     }
@@ -666,7 +692,11 @@ class EngineAdapterTest {
         operation: ReadOperation,
     ): T {
         exercised += operation.kind()
-        return typed(session.answer(operation).settled())
+        return try {
+            typed(session.answer(operation).settled())
+        } catch (failure: Throwable) {
+            throw AssertionError("${operation.kind()} did not answer its canonical type", failure)
+        }
     }
 
     private inline fun <reified T : MaintenanceAnswer> carriedOut(
@@ -809,7 +839,8 @@ private val CORPUS =
             :GLOSSARY_STATUS: confirmed
             :END:
 
-            A definite integral.
+            A definite integral. Target heading appears here without a link.
+            It also links [[id:alpha-first][back to Alpha]].
             """.trimIndent(),
     )
 

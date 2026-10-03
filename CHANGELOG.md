@@ -7,6 +7,13 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Reveal ranked related notes and unlinked mentions from the Android reader only
+  on explicit request. Related candidates retain their indexed bridge evidence,
+  group under connector identity and omit directed relations; mentions group
+  every occurrence by source note and highlight the scanner's exact Unicode
+  match. Query and display bounds remain distinct, refresh is explicit, and
+  either independently cancellable surface can fail without disturbing the
+  reading column or the other relations.
 - Browse all directed Android note relations as a distinct-note inventory.
   Rust collapses duplicate link occurrences, preserves incoming, outgoing and
   bidirectional meaning, supplies exact direction counts and filing-order
