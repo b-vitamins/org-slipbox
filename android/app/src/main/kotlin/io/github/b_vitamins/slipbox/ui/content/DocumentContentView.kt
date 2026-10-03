@@ -24,6 +24,8 @@ internal fun DocumentContentView(
     presentation: DocumentPresentation,
     modifier: Modifier = Modifier,
     initialPosition: DocumentPosition = DocumentPosition(),
+    initialHeadingIndex: Int? = null,
+    revealHeading: DocumentHeadingRequest? = null,
     restoreFocus: DocumentFocusRequest? = null,
     onIntent: (DocumentIntent) -> Unit = {},
     resolveAsset: DocumentAssetResolver = NoAssets,
@@ -44,12 +46,15 @@ internal fun DocumentContentView(
                             resolver.value.resolve(binding, target)
                         },
                 )
-            }
+        }
         LaunchedEffect(host, restoreFocus) { host.restoreFocus(restoreFocus) }
         AndroidView(
             factory = { host.view },
             modifier = modifier,
-            update = { host.present(source, presentation, initialPosition) },
+            update = {
+                host.present(source, presentation, initialPosition, initialHeadingIndex)
+                host.revealHeading(revealHeading)
+            },
             onRelease = { host.dispose() },
         )
     }

@@ -85,6 +85,7 @@ class DocumentPayloadTest {
         assertEquals("8ea203f1:0", position?.get("mark")?.jsonPrimitive?.content)
         assertEquals("0.375", position?.get("progress")?.jsonPrimitive?.content)
         assertEquals("0.25", position?.get("offset")?.jsonPrimitive?.content)
+        assertEquals("4", payload["initialHeadingIndex"]?.jsonPrimitive?.content)
     }
 
     @Test
@@ -116,6 +117,7 @@ class DocumentPayloadTest {
                     org = source,
                 ),
             initialPosition = DocumentPosition("8ea203f1:0", 0.375f, 0.25f),
+            initialHeadingIndex = 4,
         )
 
     private fun presentation(dark: Boolean = false, fontScale: Float = 1f): DocumentPresentation =

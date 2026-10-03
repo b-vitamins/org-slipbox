@@ -452,10 +452,12 @@ fn refused_by_engine(error: JsonRpcError) -> AdapterRefusal {
 /// Refuses a source answer the engine had to cut short, rather than passing a
 /// partial note off as the note.
 fn complete_source(answer: &ReadAnswer) -> Result<(), AdapterRefusal> {
-    let ReadAnswer::ReadNodeSource(answer) = answer else {
-        return Ok(());
+    let source = match answer {
+        ReadAnswer::ReadNodeSource(answer) => &answer.source,
+        ReadAnswer::NoteContext(answer) => &answer.source,
+        _ => return Ok(()),
     };
-    if answer.source.truncated_before || answer.source.truncated_after {
+    if source.truncated_before || source.truncated_after {
         return Err(AdapterRefusal::bounded(AdapterBound::NoteSourceLines));
     }
     Ok(())

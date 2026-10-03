@@ -219,6 +219,16 @@ sealed class ReadOperation {
     ) : ReadOperation()
 
     @Serializable
+    @SerialName("noteContext")
+    data class NoteContext(
+        @SerialName("node_key") val nodeKey: String,
+        @SerialName("source_context_before") val sourceContextBefore: Int? = null,
+        @SerialName("source_context_after") val sourceContextAfter: Int? = null,
+        @SerialName("source_max_lines") val sourceMaxLines: Int? = null,
+        @SerialName("relation_limit") val relationLimit: Int? = null,
+    ) : ReadOperation()
+
+    @Serializable
     @SerialName("resolveDocumentLink")
     data class ResolveDocumentLink(
         @SerialName("source_node_key") val sourceNodeKey: String,

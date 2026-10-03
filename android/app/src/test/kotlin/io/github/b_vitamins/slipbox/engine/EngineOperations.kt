@@ -70,6 +70,11 @@ internal object EngineOperations {
                 "answered_read_node_source",
             ),
             AdmittedOperation(
+                ReadOperation.NoteContext(NODE_KEY, 0, 0, 1_000, 200),
+                "read_note_context",
+                "answered_note_context",
+            ),
+            AdmittedOperation(
                 ReadOperation.ResolveDocumentLink(NODE_KEY, "id:$NODE_ID"),
                 "read_resolve_document_link",
                 "answered_resolve_document_link",

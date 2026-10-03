@@ -240,6 +240,7 @@ pub(crate) fn note_context(
     params: serde_json::Value,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let params: NoteContextParams = parse_params(params)?;
+    let anchor = state.known_anchor(&params.node_key, "context note")?;
     // A key naming a heading with no explicit ID resolves to the note that owns
     // it, and identity, source, and relations all come from that owning note.
     let note = state.known_note_for_node_or_anchor(&params.node_key, "context note")?;
@@ -281,11 +282,28 @@ pub(crate) fn note_context(
         .map_err(|error| {
             internal_error(error.context("failed to count context forward-link notes"))
         })?;
+    let source_end = source
+        .source
+        .start_line
+        .saturating_add(source.source.line_count);
+    let outline = state
+        .database
+        .anchors_in_file(&note.file_path)
+        .map_err(|error| internal_error(error.context("failed to read context outline")))?
+        .into_iter()
+        .filter(|candidate| {
+            matches!(candidate.kind, NodeKind::Heading)
+                && candidate.line >= source.source.start_line
+                && candidate.line < source_end
+        })
+        .collect();
     to_value(NoteContextResult {
+        anchor,
         note,
         source: source.source,
         node_start_line: source.node_start_line,
         node_line_count: source.node_line_count,
+        outline,
         place,
         backlinks,
         forward_links,

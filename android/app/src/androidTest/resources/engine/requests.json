@@ -124,6 +124,22 @@
       "max_lines": 1000
     }
   },
+  "read_note_context": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "noteContext",
+      "node_key": "heading:alpha.org:3",
+      "source_context_before": 0,
+      "source_context_after": 0,
+      "source_max_lines": 1000,
+      "relation_limit": 200
+    }
+  },
   "read_resolve_document_link": {
     "version": 1,
     "handle": 7,

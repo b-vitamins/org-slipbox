@@ -130,10 +130,15 @@ pub struct ReadNodeSourceResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NoteContextResult {
+    /// The exact anchor the caller addressed, even when an anonymous heading is
+    /// owned by the surrounding file note.
+    pub anchor: AnchorRecord,
     pub note: NodeRecord,
     pub source: SourceSlice,
     pub node_start_line: u32,
     pub node_line_count: u32,
+    /// Rendered headings in source order, limited to the returned source slice.
+    pub outline: Vec<AnchorRecord>,
     pub place: NotePlaceResult,
     pub backlinks: Vec<BacklinkRecord>,
     pub forward_links: Vec<ForwardLinkRecord>,

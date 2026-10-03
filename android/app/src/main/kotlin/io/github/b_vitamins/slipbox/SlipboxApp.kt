@@ -164,18 +164,23 @@ private fun productionDestinations(
                 )
             } else {
                 val reader = rememberDocumentReaderState(readerRoute.note, ready)
-                val resolved = (reader.phase as? DocumentReaderPhase.Ready)?.document?.anchor
+                val document = (reader.phase as? DocumentReaderPhase.Ready)?.document
+                val resolved = document?.anchor
+                val addressed = document?.addressedAnchor
                 val resolvedBound = resolved?.let(readerRoute.note::resolvedBy)
                 val resolvedNote = resolvedBound ?: readerRoute.note
                 val relations = rememberDirectedRelationsState(resolvedBound, ready)
                 val discoveries = rememberReaderDiscoveryState(resolvedBound, ready)
                 val exploration =
                     rememberReaderExplorationState(resolvedBound, resolved, ready)
-                LaunchedEffect(resolved?.nodeKey, resolved?.explicitId) {
-                    resolved?.let {
-                        backStack.reconcileReadingNote(readerRoute, it)
-                        readingReturns?.recordRecent(it, readerRoute.anchor)
-                    }
+                LaunchedEffect(
+                    addressed?.nodeKey,
+                    addressed?.explicitId,
+                    resolved?.nodeKey,
+                    resolved?.explicitId,
+                ) {
+                    addressed?.let { backStack.reconcileReadingNote(readerRoute, it) }
+                    resolved?.let { readingReturns?.recordRecent(it, readerRoute.anchor) }
                 }
                 val context = LocalContext.current
                 val external = remember(context) { SystemExternalLinkHandoff(context) }
@@ -222,6 +227,15 @@ private fun productionDestinations(
                     onRetry = reader::retry,
                     bookmarked = readingReturns?.isBookmarked(resolvedNote) == true,
                     onToggleBookmark = { resolved?.let { readingReturns?.toggleBookmark(it) } },
+                    onOpenFilingNeighbor = { neighbor ->
+                        val anchor = readerRoute.anchor
+                        readingReturns?.rememberReadingPlace(resolvedNote, anchor)
+                        backStack.follow(
+                            origin = readerRoute,
+                            targetNodeKey = neighbor.nodeKey,
+                            originAnchor = anchor,
+                        )
+                    },
                     resolveAsset = assets,
                     linkPhase = reader.linkPhase,
                     previewPhase = reader.previewPhase,

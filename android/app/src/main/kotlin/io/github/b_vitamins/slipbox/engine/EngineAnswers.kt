@@ -138,6 +138,35 @@ data class ReadNodeSourceResult(
 )
 
 @Serializable
+data class NotePlaceNeighbor(
+    @SerialName("node_key") val nodeKey: String,
+    val title: String,
+)
+
+@Serializable
+data class NotePlace(
+    val ordinal: Long,
+    val total: Long,
+    val earlier: NotePlaceNeighbor? = null,
+    val later: NotePlaceNeighbor? = null,
+)
+
+@Serializable
+data class NoteContextResult(
+    val anchor: NodeRecord,
+    val note: NodeRecord,
+    val source: SourceSlice,
+    @SerialName("node_start_line") val nodeStartLine: Long,
+    @SerialName("node_line_count") val nodeLineCount: Long,
+    val outline: List<NodeRecord>,
+    val place: NotePlace,
+    val backlinks: List<BacklinkRecord>,
+    @SerialName("forward_links") val forwardLinks: List<ForwardLinkRecord>,
+    @SerialName("backlink_note_total") val backlinkNoteTotal: Long,
+    @SerialName("forward_link_note_total") val forwardLinkNoteTotal: Long,
+)
+
+@Serializable
 @JsonClassDiscriminator("kind")
 sealed class DocumentLinkResolution {
 
@@ -484,6 +513,10 @@ sealed class EngineAnswer {
     data class ReadNodeSource(val result: ReadNodeSourceResult) : EngineAnswer(), ReadAnswer
 
     @Serializable
+    @SerialName("noteContext")
+    data class NoteContext(val result: NoteContextResult) : EngineAnswer(), ReadAnswer
+
+    @Serializable
     @SerialName("resolveDocumentLink")
     data class ResolveDocumentLink(val result: DocumentLinkResolution) : EngineAnswer(), ReadAnswer
 
@@ -539,6 +572,7 @@ internal fun ReadOperation.answerIn(answer: EngineAnswer): ReadAnswer? =
         is ReadOperation.NodeFromId -> answer as? EngineAnswer.NodeFromId
         is ReadOperation.NodeFromKey -> answer as? EngineAnswer.NodeFromKey
         is ReadOperation.ReadNodeSource -> answer as? EngineAnswer.ReadNodeSource
+        is ReadOperation.NoteContext -> answer as? EngineAnswer.NoteContext
         is ReadOperation.ResolveDocumentLink -> answer as? EngineAnswer.ResolveDocumentLink
         is ReadOperation.ListGlossaryTerms -> answer as? EngineAnswer.ListGlossaryTerms
         is ReadOperation.SearchGlossary -> answer as? EngineAnswer.SearchGlossary

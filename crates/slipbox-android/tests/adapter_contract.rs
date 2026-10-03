@@ -19,8 +19,9 @@ use slipbox_rpc::{
     METHOD_BACKLINKS, METHOD_DIRECTED_RELATIONS, METHOD_EXPLORE, METHOD_FORWARD_LINKS,
     METHOD_GLOSSARY_TERM, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_INDEXED_FILES,
     METHOD_LIST_GLOSSARY_TERMS, METHOD_LIST_NOTES, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY,
-    METHOD_READ_NODE_SOURCE, METHOD_RESOLVE_DOCUMENT_LINK, METHOD_SEARCH_GLOSSARY,
-    METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES, METHOD_UNLINKED_REFERENCES,
+    METHOD_NOTE_CONTEXT, METHOD_READ_NODE_SOURCE, METHOD_RESOLVE_DOCUMENT_LINK,
+    METHOD_SEARCH_GLOSSARY, METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES,
+    METHOD_UNLINKED_REFERENCES,
 };
 use tempfile::TempDir;
 
@@ -634,6 +635,22 @@ fn no_declared_bound_is_exceeded_and_none_is_silently_narrowed() {
             json!({"kind": "readNodeSource", "node_key": key, "max_lines": 0}),
             Some("note-source-lines"),
         ),
+        (
+            json!({"kind": "noteContext", "node_key": key, "source_context_before": context}),
+            None,
+        ),
+        (
+            json!({"kind": "noteContext", "node_key": key, "source_context_after": context + 1}),
+            Some("context-lines"),
+        ),
+        (
+            json!({"kind": "noteContext", "node_key": key, "source_max_lines": lines + 1}),
+            Some("note-source-lines"),
+        ),
+        (
+            json!({"kind": "noteContext", "node_key": key, "relation_limit": relations + 1}),
+            Some("relation-entries"),
+        ),
     ];
 
     for (operation, bound) in cases {
@@ -692,10 +709,19 @@ fn a_note_the_engine_had_to_cut_short_is_refused_rather_than_partly_answered() {
         &registry,
         reader,
         &binding,
-        &json!({"kind": "readNodeSource", "node_key": long, "max_lines": ADAPTER_LIMITS.max_note_source_lines}),
+        &json!({"kind": "readNodeSource", "node_key": &long, "max_lines": ADAPTER_LIMITS.max_note_source_lines}),
     );
     assert_eq!(reason_of(&refused), "out-of-bounds");
     assert_eq!(refused["bound"], "note-source-lines");
+
+    let context_refused = read(
+        &registry,
+        reader,
+        &binding,
+        &json!({"kind": "noteContext", "node_key": &long, "source_max_lines": ADAPTER_LIMITS.max_note_source_lines, "relation_limit": 1}),
+    );
+    assert_eq!(reason_of(&context_refused), "out-of-bounds");
+    assert_eq!(context_refused["bound"], "note-source-lines");
 
     // A note inside the bound is answered whole, to its last line.
     let whole = read(
@@ -714,6 +740,16 @@ fn a_note_the_engine_had_to_cut_short_is_refused_rather_than_partly_answered() {
             .contains("Target body."),
         "{whole}"
     );
+
+    let whole_context = read(
+        &registry,
+        reader,
+        &binding,
+        &json!({"kind": "noteContext", "node_key": keys.beta, "source_max_lines": ADAPTER_LIMITS.max_note_source_lines, "relation_limit": 1}),
+    );
+    let source = &result_of(&whole_context)["source"];
+    assert_eq!(source["truncated_before"], false, "{whole_context}");
+    assert_eq!(source["truncated_after"], false, "{whole_context}");
 }
 
 #[test]
@@ -1326,6 +1362,11 @@ fn read_cases(keys: &Keys) -> Vec<(Value, &'static str, Value)> {
             json!({"kind": "readNodeSource", "node_key": beta, "context_before": 2, "context_after": 2, "max_lines": 400}),
             METHOD_READ_NODE_SOURCE,
             json!({"node_key": beta, "context_before": 2, "context_after": 2, "max_lines": 400}),
+        ),
+        (
+            json!({"kind": "noteContext", "node_key": beta, "source_max_lines": 400, "relation_limit": 50}),
+            METHOD_NOTE_CONTEXT,
+            json!({"node_key": beta, "source_max_lines": 400, "relation_limit": 50}),
         ),
         (
             json!({"kind": "resolveDocumentLink", "source_node_key": alpha, "target": "id:beta-target"}),

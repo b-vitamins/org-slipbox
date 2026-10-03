@@ -72,6 +72,16 @@ internal data class DocumentPosition(
     val offset: Float = 0f,
 )
 
+@Immutable
+internal data class DocumentHeadingRequest(
+    val index: Int,
+    val serial: Long,
+) {
+    init {
+        require(index in 0..10_000 && serial >= 0) { "heading request must be canonical" }
+    }
+}
+
 /** Navigation requests only; the caller owns destinations and previews. */
 internal sealed interface DocumentIntent {
     data class Glance(

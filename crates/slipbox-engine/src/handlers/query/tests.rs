@@ -5092,7 +5092,15 @@ fn note_context_places_a_positional_heading_where_its_owner_is_filed() {
     )
     .expect("note context result should decode");
 
+    assert_eq!(context.anchor.node_key, heading_key);
     assert_eq!(context.note.node_key, "file:alpha.org");
+    assert!(
+        context
+            .outline
+            .iter()
+            .any(|heading| heading.node_key == context.anchor.node_key),
+        "the addressed heading belongs to the rendered outline"
+    );
     assert_eq!(context.place.ordinal, 1);
     assert!(context.place.earlier.is_none());
 }
@@ -5119,5 +5127,44 @@ fn note_context_omits_a_filing_neighbor_the_order_does_not_hold() {
     assert!(
         place.get("later").is_none(),
         "the last filed note leaves its later neighbor out of the payload: {place}"
+    );
+}
+
+#[test]
+fn note_context_gives_an_only_note_no_filing_controls() {
+    let workspace = tempfile::tempdir().expect("workspace should be created");
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root).expect("notes root should be created");
+    fs::write(
+        root.join("only.org"),
+        "#+title: Only\n\n* Section\nThe whole corpus.\n",
+    )
+    .expect("only-note fixture should be written");
+    let db_path = workspace.path().join("index.sqlite3");
+    let discovery = DiscoveryPolicy::default();
+    let mut state = ServerState::new(root.clone(), db_path, Vec::new(), discovery)
+        .expect("state should be created");
+    let files = scan_root_with_policy(&root, &state.discovery).expect("fixture should be indexed");
+    state
+        .database
+        .sync_index(&files)
+        .expect("fixture index should sync");
+
+    let context: NoteContextResult = serde_json::from_value(
+        note_context(&mut state, json!({ "node_key": "file:only.org" }))
+            .expect("only note context should resolve"),
+    )
+    .expect("only note context should decode");
+
+    assert_eq!((context.place.ordinal, context.place.total), (1, 1));
+    assert!(context.place.earlier.is_none());
+    assert!(context.place.later.is_none());
+    assert_eq!(
+        context
+            .outline
+            .iter()
+            .map(|heading| heading.title.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Section"]
     );
 }

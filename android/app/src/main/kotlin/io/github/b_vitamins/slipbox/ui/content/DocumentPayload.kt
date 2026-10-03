@@ -14,6 +14,7 @@ internal data class DocumentMount(
     val token: String,
     val source: DocumentSource,
     val initialPosition: DocumentPosition = DocumentPosition(),
+    val initialHeadingIndex: Int? = null,
 ) {
     init {
         require(
@@ -25,6 +26,9 @@ internal data class DocumentMount(
                 initialPosition.offset in 0f..1f,
         ) {
             "document position must be canonical"
+        }
+        require(initialHeadingIndex == null || initialHeadingIndex in 0..10_000) {
+            "document heading must be canonical"
         }
     }
 
@@ -45,6 +49,9 @@ internal object DocumentPayload {
             append(");")
         }
 
+    fun revealHeading(index: Int): String =
+        "if (window.slipboxHost) window.slipboxHost.revealHeading($index);"
+
     fun of(mount: DocumentMount, presentation: DocumentPresentation): String =
         buildString {
             append("{\"token\":")
@@ -63,6 +70,8 @@ internal object DocumentPayload {
             appendQuoted(mount.initialPosition.mark)
             append(",\"progress\":").append(mount.initialPosition.progress)
             append(",\"offset\":").append(mount.initialPosition.offset).append('}')
+            append(",\"initialHeadingIndex\":")
+            append(mount.initialHeadingIndex ?: "null")
             append(",\"assetBase\":")
             appendQuoted(DocumentOrigin.assetBase(mount.token))
             append('}')

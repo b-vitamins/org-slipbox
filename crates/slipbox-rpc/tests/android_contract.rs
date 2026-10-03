@@ -11,8 +11,9 @@ use slipbox_core::{
     BacklinksParams, DirectedRelationsParams, ExplorationLens, ExploreParams, ForwardLinksParams,
     GenerationBinding, GenerationId, GlossaryTermParams, IndexFileParams, IndexedFilesResult,
     ListGlossaryTermsParams, ListNotesParams, NodeFromIdParams, NodeFromKeyParams,
-    ReadNodeSourceParams, ResolveDocumentLinkParams, SearchGlossaryParams, SearchNodeContentParams,
-    SearchNodesParams, SearchNodesSort, SourceId, UnlinkedReferencesParams,
+    NoteContextParams, ReadNodeSourceParams, ResolveDocumentLinkParams, SearchGlossaryParams,
+    SearchNodeContentParams, SearchNodesParams, SearchNodesSort, SourceId,
+    UnlinkedReferencesParams,
 };
 use slipbox_rpc::android::{
     ADAPTER_LIMITS, ADAPTER_PROTOCOL_VERSION, AdapterBound, AdapterCapability, AdapterContract,
@@ -116,6 +117,13 @@ fn every_read_operation() -> Vec<ReadOperation> {
             context_before: Some(0),
             context_after: Some(0),
             max_lines: Some(ADAPTER_LIMITS.max_note_source_lines),
+        }),
+        ReadOperation::NoteContext(NoteContextParams {
+            node_key: "heading:alpha.org:3".to_owned(),
+            source_context_before: Some(0),
+            source_context_after: Some(0),
+            source_max_lines: Some(ADAPTER_LIMITS.max_note_source_lines),
+            relation_limit: Some(ADAPTER_LIMITS.max_relation_entries),
         }),
         ReadOperation::ResolveDocumentLink(ResolveDocumentLinkParams {
             source_node_key: "heading:alpha.org:3".to_owned(),
@@ -397,6 +405,19 @@ fn every_shared_request_document_decodes_to_the_request_it_describes() {
             context_before: Some(0),
             context_after: Some(0),
             max_lines: Some(ADAPTER_LIMITS.max_note_source_lines),
+        })
+    );
+
+    let context = decode_read_request(&document_bytes("requests.json", "read_note_context"))
+        .expect("the shared note-context request decodes");
+    assert_eq!(
+        context.operation,
+        ReadOperation::NoteContext(NoteContextParams {
+            node_key: "heading:alpha.org:3".to_owned(),
+            source_context_before: Some(0),
+            source_context_after: Some(0),
+            source_max_lines: Some(ADAPTER_LIMITS.max_note_source_lines),
+            relation_limit: Some(200),
         })
     );
 
@@ -894,6 +915,13 @@ fn each_bound_admits_its_last_value_and_refuses_the_first_beyond_it() {
             context_after: Some(context),
             max_lines: Some(lines),
         }),
+        ReadOperation::NoteContext(NoteContextParams {
+            node_key: "heading:alpha.org:3".to_owned(),
+            source_context_before: Some(context),
+            source_context_after: Some(context),
+            source_max_lines: Some(lines),
+            relation_limit: Some(relation),
+        }),
         ReadOperation::ResolveDocumentLink(ResolveDocumentLinkParams {
             source_node_key: "s".repeat(path),
             target: "t".repeat(path),
@@ -1003,6 +1031,36 @@ fn each_bound_admits_its_last_value_and_refuses_the_first_beyond_it() {
                 max_lines: Some(lines),
             }),
             AdapterBound::ContextLines,
+        ),
+        (
+            ReadOperation::NoteContext(NoteContextParams {
+                node_key: "heading:alpha.org:3".to_owned(),
+                source_context_before: None,
+                source_context_after: Some(context + 1),
+                source_max_lines: Some(lines),
+                relation_limit: Some(relation),
+            }),
+            AdapterBound::ContextLines,
+        ),
+        (
+            ReadOperation::NoteContext(NoteContextParams {
+                node_key: "heading:alpha.org:3".to_owned(),
+                source_context_before: Some(context),
+                source_context_after: Some(context),
+                source_max_lines: Some(lines + 1),
+                relation_limit: Some(relation),
+            }),
+            AdapterBound::NoteSourceLines,
+        ),
+        (
+            ReadOperation::NoteContext(NoteContextParams {
+                node_key: "heading:alpha.org:3".to_owned(),
+                source_context_before: Some(context),
+                source_context_after: Some(context),
+                source_max_lines: Some(lines),
+                relation_limit: Some(relation + 1),
+            }),
+            AdapterBound::RelationEntries,
         ),
         (
             ReadOperation::ResolveDocumentLink(ResolveDocumentLinkParams {

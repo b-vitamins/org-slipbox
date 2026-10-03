@@ -7,6 +7,11 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Reveal Android note context without crowding the reading surface. One
+  source-generation-bound answer supplies the addressed heading, rendered
+  outline, canonical filing position and real neighbors; outline actions focus
+  the matching rendered heading, filing actions retain Back, and full source,
+  path and revision metadata live behind an explicit native details sheet.
 - Explore an Android note through all seven existing Rust lenses from one
   contextual reader sheet. Lens selection and refresh are explicit, canonical
   sections and engine order remain intact, and every candidate keeps the

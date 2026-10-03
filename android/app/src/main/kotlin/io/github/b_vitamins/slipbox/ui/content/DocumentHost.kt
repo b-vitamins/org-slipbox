@@ -38,7 +38,10 @@ internal class DocumentHost(
     private var mount: DocumentMount? = null
 
     private var pending: Presented? = null
+    private var displayed: Presented? = null
     private var pendingFocus: String? = null
+    private var pendingHeading: Int? = null
+    private var revealedHeadingSerial: Long? = null
     private var restoredFocus: String? = null
     private var ready = false
     private var retired = false
@@ -56,6 +59,7 @@ internal class DocumentHost(
         source: DocumentSource,
         presentation: DocumentPresentation,
         initialPosition: DocumentPosition = DocumentPosition(),
+        initialHeadingIndex: Int? = null,
     ) {
         if (retired) {
             return
@@ -65,11 +69,14 @@ internal class DocumentHost(
             if (live != null && live.source == source) {
                 live
             } else {
-                DocumentMount(token(), source, initialPosition)
+                revealedHeadingSerial = null
+                DocumentMount(token(), source, initialPosition, initialHeadingIndex)
             }
         mount = next
         view.setBackgroundColor(background(presentation.theme))
         val presented = Presented(next, presentation)
+        if (displayed == presented) return
+        displayed = presented
         if (ready) {
             view.evaluateJavascript(DocumentPayload.present(next, presentation), null)
         } else {
@@ -88,6 +95,18 @@ internal class DocumentHost(
         }
     }
 
+    fun revealHeading(request: DocumentHeadingRequest?) {
+        val index = request?.index ?: return
+        if (retired || revealedHeadingSerial == request.serial) return
+        revealedHeadingSerial = request.serial
+        view.requestFocus()
+        if (ready) {
+            view.evaluateJavascript(DocumentPayload.revealHeading(index), null)
+        } else {
+            pendingHeading = index
+        }
+    }
+
     /** Retires the token before renderer teardown and WebView destruction. */
     fun dispose() {
         if (retired) {
@@ -96,7 +115,10 @@ internal class DocumentHost(
         retired = true
         mount = null
         pending = null
+        displayed = null
         pendingFocus = null
+        pendingHeading = null
+        revealedHeadingSerial = null
         if (ready) {
             ready = false
             view.evaluateJavascript(DocumentPayload.DISPOSE) { view.destroy() }
@@ -112,6 +134,10 @@ internal class DocumentHost(
             DocumentPayload.present(presented.mount, presented.presentation),
             null,
         )
+        pendingHeading?.let { index ->
+            pendingHeading = null
+            view.evaluateJavascript(DocumentPayload.revealHeading(index), null)
+        }
         pendingFocus?.let { origin ->
             pendingFocus = null
             view.evaluateJavascript(DocumentPayload.restoreFocus(origin), null)

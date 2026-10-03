@@ -6,8 +6,8 @@
 package io.github.b_vitamins.slipbox.ui
 
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,7 +22,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -30,17 +29,17 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.b_vitamins.slipbox.R
 import io.github.b_vitamins.slipbox.engine.DirectedRelationRecord
 import io.github.b_vitamins.slipbox.engine.ExplorationLens
-import io.github.b_vitamins.slipbox.engine.NodeKind
 import io.github.b_vitamins.slipbox.engine.NodeRecord
+import io.github.b_vitamins.slipbox.engine.NotePlaceNeighbor
 import io.github.b_vitamins.slipbox.navigation.ReadingAnchor
 import io.github.b_vitamins.slipbox.ui.content.DocumentAssetResolver
 import io.github.b_vitamins.slipbox.ui.content.DocumentContentView
 import io.github.b_vitamins.slipbox.ui.content.DocumentFocusRequest
+import io.github.b_vitamins.slipbox.ui.content.DocumentHeadingRequest
 import io.github.b_vitamins.slipbox.ui.content.DocumentIntent
 import io.github.b_vitamins.slipbox.ui.content.DocumentPosition
 import io.github.b_vitamins.slipbox.ui.document.rememberDocumentPresentation
@@ -70,6 +69,7 @@ internal fun ReaderScreen(
     onOpenPreview: () -> Unit = {},
     bookmarked: Boolean = false,
     onToggleBookmark: () -> Unit = {},
+    onOpenFilingNeighbor: (NotePlaceNeighbor) -> Unit = {},
     relationsPhase: DirectedRelationsPhase = DirectedRelationsPhase.Idle,
     onOpenRelations: () -> Unit = {},
     onRetryRelations: () -> Unit = {},
@@ -95,11 +95,16 @@ internal fun ReaderScreen(
     val document = (phase as? DocumentReaderPhase.Ready)?.document
     var appearanceVisible by rememberSaveable { mutableStateOf(false) }
     val appearanceControl = remember { FocusRequester() }
-    val relationsControl = remember { FocusRequester() }
-    val explorationControl = remember { FocusRequester() }
+    val contextControl = remember { FocusRequester() }
     val documentControl = remember { FocusRequester() }
     var relationsVisible by rememberSaveable { mutableStateOf(false) }
     var explorationVisible by rememberSaveable { mutableStateOf(false) }
+    var contextVisible by rememberSaveable { mutableStateOf(false) }
+    var contextActionTaken by remember { mutableStateOf(false) }
+    var headingSerial by remember(document?.source) { mutableStateOf(0L) }
+    var headingRequest by remember(document?.source) {
+        mutableStateOf<DocumentHeadingRequest?>(null)
+    }
     var deliveredFocus by remember { mutableStateOf<DocumentFocusRequest?>(null) }
     LaunchedEffect(focusRequest) {
         if (focusRequest == null) {
@@ -132,7 +137,12 @@ internal fun ReaderScreen(
             )
         ReadingSurface(
             title = document?.anchor?.title ?: stringResource(R.string.reader_title),
-            obscured = appearanceVisible || previewVisible || relationsVisible || explorationVisible,
+            obscured =
+                appearanceVisible ||
+                    previewVisible ||
+                    contextVisible ||
+                    relationsVisible ||
+                    explorationVisible,
             scrollable = document == null,
             contentPadding =
                 if (document == null) {
@@ -172,12 +182,22 @@ internal fun ReaderScreen(
                                 ),
                             onClick = onToggleBookmark,
                         )
+                        TextControl(
+                            label = stringResource(R.string.reader_note_info),
+                            onClick = {
+                                contextActionTaken = false
+                                contextVisible = true
+                            },
+                            modifier = Modifier.focusRequester(contextControl),
+                        )
                     }
-                    TextControl(
-                        label = stringResource(R.string.action_appearance),
-                        onClick = { appearanceVisible = true },
-                        modifier = Modifier.focusRequester(appearanceControl),
-                    )
+                    if (document == null) {
+                        TextControl(
+                            label = stringResource(R.string.action_appearance),
+                            onClick = { appearanceVisible = true },
+                            modifier = Modifier.focusRequester(appearanceControl),
+                        )
+                    }
                 }
             },
             overlay = {
@@ -186,7 +206,41 @@ internal fun ReaderScreen(
                     settings = settings,
                     motion = motion,
                     onDismiss = { appearanceVisible = false },
-                    restoreFocusTo = appearanceControl,
+                    restoreFocusTo = if (document == null) appearanceControl else contextControl,
+                )
+                ReaderContextSheet(
+                    document = document,
+                    visible = contextVisible,
+                    motion = motion,
+                    onDismiss = { contextVisible = false },
+                    onHeading = { index ->
+                        contextActionTaken = true
+                        contextVisible = false
+                        headingSerial += 1
+                        headingRequest = DocumentHeadingRequest(index, headingSerial)
+                    },
+                    onNeighbor = { neighbor ->
+                        contextActionTaken = true
+                        contextVisible = false
+                        onOpenFilingNeighbor(neighbor)
+                    },
+                    onExplore = {
+                        contextActionTaken = true
+                        contextVisible = false
+                        explorationVisible = true
+                    },
+                    onRelations = {
+                        contextActionTaken = true
+                        contextVisible = false
+                        relationsVisible = true
+                        onOpenRelations()
+                    },
+                    onAppearance = {
+                        contextActionTaken = true
+                        contextVisible = false
+                        appearanceVisible = true
+                    },
+                    restoreFocusTo = if (contextActionTaken) null else contextControl,
                 )
                 DirectedRelationsSheet(
                     noteKey = document?.anchor?.nodeKey,
@@ -220,7 +274,7 @@ internal fun ReaderScreen(
                         relationsVisible = false
                         onOpenDiscovered(note)
                     },
-                    restoreFocusTo = relationsControl,
+                    restoreFocusTo = contextControl,
                 )
                 ReaderExplorationSheet(
                     visible = explorationVisible,
@@ -237,7 +291,7 @@ internal fun ReaderScreen(
                         explorationVisible = false
                         onOpenExploration(note)
                     },
-                    restoreFocusTo = explorationControl,
+                    restoreFocusTo = contextControl,
                 )
                 ReaderPreviewSheet(
                     phase = previewPhase,
@@ -282,20 +336,6 @@ internal fun ReaderScreen(
                 }
 
                 is DocumentReaderPhase.Ready -> {
-                    ReaderMetadata(
-                        anchor = phase.document.anchor,
-                        relationsControl = relationsControl,
-                        explorationControl = explorationControl,
-                        onRelations = {
-                            explorationVisible = false
-                            relationsVisible = true
-                            onOpenRelations()
-                        },
-                        onExplore = {
-                            relationsVisible = false
-                            explorationVisible = true
-                        },
-                    )
                     ReaderLinkNotice(linkPhase)
                     DocumentContentView(
                         source = phase.document.source,
@@ -306,6 +346,13 @@ internal fun ReaderScreen(
                                 progress = initialAnchor.progress,
                                 offset = initialAnchor.offset,
                             ),
+                        initialHeadingIndex =
+                            phase.document.outline
+                                .indexOfFirst {
+                                    it.nodeKey == phase.document.addressedAnchor.nodeKey
+                                }
+                                .takeIf { it >= 0 },
+                        revealHeading = headingRequest,
                         restoreFocus = deliveredFocus,
                         modifier =
                             Modifier
@@ -364,51 +411,6 @@ private fun ReaderLinkNotice(phase: ReaderLinkPhase) {
                 vertical = SlipboxDimensions.headerPaddingVertical,
             ),
     )
-}
-
-@Composable
-private fun ReaderMetadata(
-    anchor: NodeRecord,
-    relationsControl: FocusRequester,
-    explorationControl: FocusRequester,
-    onRelations: () -> Unit,
-    onExplore: () -> Unit,
-) {
-    val location =
-        when (anchor.kind) {
-            NodeKind.FILE -> anchor.filePath
-            NodeKind.HEADING -> "${anchor.filePath} · ${anchor.outlinePath}"
-        }
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(
-                    horizontal = SlipboxDimensions.readingPadding,
-                    vertical = SlipboxDimensions.headerPaddingVertical / 2,
-                ),
-        horizontalArrangement = Arrangement.spacedBy(SlipboxDimensions.headerPaddingHorizontal),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = location,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        TextControl(
-            label = stringResource(R.string.reader_explore),
-            onClick = onExplore,
-            modifier = Modifier.focusRequester(explorationControl),
-        )
-        TextControl(
-            label = stringResource(R.string.reader_relations),
-            onClick = onRelations,
-            modifier = Modifier.focusRequester(relationsControl),
-        )
-    }
 }
 
 @Composable

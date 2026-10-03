@@ -15,6 +15,8 @@ import io.github.b_vitamins.slipbox.engine.EngineRefusedException
 import io.github.b_vitamins.slipbox.engine.GenerationBinding
 import io.github.b_vitamins.slipbox.engine.NodeKind
 import io.github.b_vitamins.slipbox.engine.NodeRecord
+import io.github.b_vitamins.slipbox.engine.NoteContextResult
+import io.github.b_vitamins.slipbox.engine.NotePlace
 import io.github.b_vitamins.slipbox.engine.ReadNodeSourceResult
 import io.github.b_vitamins.slipbox.engine.RefusalReason
 import io.github.b_vitamins.slipbox.engine.SourceSlice
@@ -66,6 +68,9 @@ class DocumentReaderStateTest {
         assertEquals("generation-a", document.source.binding.generation)
         assertEquals(NODE_KEY, document.source.binding.id)
         assertEquals("note.org", document.source.binding.filePath)
+        assertEquals("Notes", document.sourceName)
+        assertEquals("0123456789abcdef", document.revision)
+        assertEquals(NotePlace(ordinal = 1, total = 1), document.place)
         state.close()
     }
 
@@ -557,6 +562,23 @@ class DocumentReaderStateTest {
             onRead(nodeKey, maxLines)
             failure?.let { throw it }
             return answerFor(nodeKey, maxLines)
+        }
+
+        override fun context(nodeKey: String, maxLines: Int): NoteContextResult {
+            val read = read(nodeKey, maxLines)
+            return NoteContextResult(
+                anchor = read.anchor,
+                note = read.anchor,
+                source = read.source,
+                nodeStartLine = read.nodeStartLine,
+                nodeLineCount = read.nodeLineCount,
+                outline = listOfNotNull(read.anchor.takeIf { it.kind == NodeKind.HEADING }),
+                place = NotePlace(ordinal = 1, total = 1),
+                backlinks = emptyList(),
+                forwardLinks = emptyList(),
+                backlinkNoteTotal = 0,
+                forwardLinkNoteTotal = 0,
+            )
         }
 
         override fun findById(id: String): NodeRecord? = onFindId(id)

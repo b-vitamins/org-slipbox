@@ -15,6 +15,7 @@ let originSerial = 0;
 let positionTimer = null;
 let readingBlocks = [];
 let readingMarks = new Map();
+let queuedHeading = null;
 
 const READING_BLOCKS =
   "h1,h2,h3,h4,h5,h6,p,pre,blockquote,li,table,figure,hr";
@@ -198,13 +199,43 @@ function restorePosition() {
           const bounds = marked.getBoundingClientRect();
           const top = bounds.top + scroller.scrollTop;
           scroller.scrollTop = top + position.offset * Math.max(bounds.height, 1);
-        } else {
+        } else if (position.progress > 0) {
           const extent = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
           scroller.scrollTop = position.progress * extent;
+        } else if (Number.isInteger(current.initialHeadingIndex)) {
+          revealHeading(current.initialHeadingIndex, false);
         }
       }
     });
   });
+}
+
+function revealHeading(index, focus = true) {
+  if (!current || !mount) {
+    queuedHeading = index;
+    return false;
+  }
+  if (!Number.isInteger(index) || index < 0 || index > 10000) {
+    return false;
+  }
+  const heading = element().querySelectorAll("h1,h2,h3,h4,h5,h6").item(index);
+  if (!(heading instanceof HTMLElement)) {
+    return false;
+  }
+  const previous = element().querySelector('[aria-current="location"]');
+  if (previous) {
+    previous.removeAttribute("aria-current");
+  }
+  heading.setAttribute("aria-current", "location");
+  heading.scrollIntoView({ block: "start", behavior: "auto" });
+  if (focus) {
+    if (!heading.hasAttribute("tabindex")) {
+      heading.setAttribute("tabindex", "-1");
+    }
+    heading.focus({ preventScroll: true });
+  }
+  schedulePosition();
+  return true;
 }
 
 function assetHref(target) {
@@ -271,6 +302,11 @@ function apply() {
   }
   stampReadingMarks();
   restorePosition();
+  if (queuedHeading !== null) {
+    const heading = queuedHeading;
+    queuedHeading = null;
+    revealHeading(heading);
+  }
   state("ready");
 }
 
@@ -293,6 +329,7 @@ function dispose() {
   restoredToken = null;
   readingBlocks = [];
   readingMarks = new Map();
+  queuedHeading = null;
   if (previewOrigin) {
     delete previewOrigin.dataset.slipboxPreviewOrigin;
     previewOrigin = null;
@@ -304,7 +341,7 @@ function dispose() {
   state("disposed");
 }
 
-window.slipboxHost = { present, restoreFocus, dispose };
+window.slipboxHost = { present, revealHeading, restoreFocus, dispose };
 window.addEventListener("resize", paintViewportLimits);
 window.addEventListener("scroll", schedulePosition, { passive: true });
 window.addEventListener("scrollend", reportPosition);

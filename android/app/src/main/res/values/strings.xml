@@ -117,6 +117,18 @@
         <item quantity="other">Show %d more source notes</item>
     </plurals>
     <string name="reader_explore">Explore</string>
+    <string name="reader_note_info">Info</string>
+    <string name="reader_note_details">Note details</string>
+    <string name="reader_outline">Outline</string>
+    <string name="reader_current_heading">Current</string>
+    <string name="reader_filed_position">Filed %1$d of %2$d</string>
+    <string name="reader_filed_before">Filed before this</string>
+    <string name="reader_filed_after">Filed after this</string>
+    <string name="reader_source_details">Source details</string>
+    <string name="reader_source">Source</string>
+    <string name="reader_file">File</string>
+    <string name="reader_outline_path">Outline path</string>
+    <string name="reader_revision">Revision</string>
     <string name="reader_explore_choose_lens">Choose a lens.</string>
     <string name="reader_explore_loading">Exploring with %1$s.</string>
     <string name="reader_explore_empty">This lens found nothing for the note.</string>

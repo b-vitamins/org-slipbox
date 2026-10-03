@@ -143,6 +143,21 @@ class EngineAdapterTest {
         assertTrue("$source", source.source.lineCount in 1..source.source.totalLines)
         assertTrue("$source", source.nodeLineCount in 1..source.source.lineCount)
 
+        val context =
+            answered<EngineAnswer.NoteContext>(
+                read,
+                ReadOperation.NoteContext(beta.nodeKey, 0, 0, 1_000, 20),
+            ).result
+        assertEquals(beta, context.anchor)
+        assertEquals(beta, context.note)
+        assertEquals(source.source, context.source)
+        assertEquals(beta.nodeKey, context.outline.first().nodeKey)
+        assertTrue("${context.place}", context.place.ordinal in 1..context.place.total)
+        assertTrue(
+            "${context.place}",
+            context.place.earlier != null || context.place.later != null,
+        )
+
         val link = ReadOperation.ResolveDocumentLink(alpha.nodeKey, "id:beta-target")
         val resolution = answered<EngineAnswer.ResolveDocumentLink>(read, link).result
         assertEquals(DocumentLinkResolution.Note(beta.nodeKey), resolution)

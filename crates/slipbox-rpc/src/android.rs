@@ -15,18 +15,19 @@ use slipbox_core::{
     GenerationBinding, GlossaryTermParams, GlossaryTermResult, IndexFileParams, IndexFileResult,
     IndexStats, IndexedFilesResult, ListGlossaryTermsParams, ListGlossaryTermsResult,
     ListNotesParams, ListNotesResult, NodeFromIdParams, NodeFromKeyParams, NodeRecord,
-    ReadNodeSourceParams, ReadNodeSourceResult, ResolveDocumentLinkParams, SearchGlossaryParams,
-    SearchGlossaryResult, SearchNodeContentParams, SearchNodeContentResult, SearchNodesParams,
-    SearchNodesResult, StatusInfo, UnlinkedReferencesParams, UnlinkedReferencesResult,
+    NoteContextParams, NoteContextResult, ReadNodeSourceParams, ReadNodeSourceResult,
+    ResolveDocumentLinkParams, SearchGlossaryParams, SearchGlossaryResult, SearchNodeContentParams,
+    SearchNodeContentResult, SearchNodesParams, SearchNodesResult, StatusInfo,
+    UnlinkedReferencesParams, UnlinkedReferencesResult,
 };
 
 use crate::{
     JsonRpcErrorKind, METHOD_BACKLINKS, METHOD_DIRECTED_RELATIONS, METHOD_EXPLORE,
     METHOD_FORWARD_LINKS, METHOD_GLOSSARY_TERM, METHOD_INDEX, METHOD_INDEX_FILE,
     METHOD_INDEXED_FILES, METHOD_LIST_GLOSSARY_TERMS, METHOD_LIST_NOTES, METHOD_NODE_FROM_ID,
-    METHOD_NODE_FROM_KEY, METHOD_READ_NODE_SOURCE, METHOD_RESOLVE_DOCUMENT_LINK,
-    METHOD_SEARCH_GLOSSARY, METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES, METHOD_STATUS,
-    METHOD_UNLINKED_REFERENCES,
+    METHOD_NODE_FROM_KEY, METHOD_NOTE_CONTEXT, METHOD_READ_NODE_SOURCE,
+    METHOD_RESOLVE_DOCUMENT_LINK, METHOD_SEARCH_GLOSSARY, METHOD_SEARCH_NODE_CONTENT,
+    METHOD_SEARCH_NODES, METHOD_STATUS, METHOD_UNLINKED_REFERENCES,
 };
 
 /// The supported Android adapter protocol version.
@@ -213,6 +214,7 @@ operation_vocabulary! {
         NodeFromKey, "nodeFromKey", METHOD_NODE_FROM_KEY, NodeFromKeyParams, Option<NodeRecord>;
         ReadNodeSource, "readNodeSource", METHOD_READ_NODE_SOURCE,
             ReadNodeSourceParams, ReadNodeSourceResult;
+        NoteContext, "noteContext", METHOD_NOTE_CONTEXT, NoteContextParams, Box<NoteContextResult>;
         ResolveDocumentLink, "resolveDocumentLink", METHOD_RESOLVE_DOCUMENT_LINK,
             ResolveDocumentLinkParams, DocumentLinkResolution;
         ListGlossaryTerms, "listGlossaryTerms", METHOD_LIST_GLOSSARY_TERMS,
@@ -301,6 +303,7 @@ impl ReadOperation {
             Self::UnlinkedReferences(params) => relation_bound(params.limit),
             Self::Explore(params) => relation_bound(params.limit),
             Self::ReadNodeSource(params) => source_bound(params),
+            Self::NoteContext(params) => note_context_bound(params),
             Self::ResolveDocumentLink(params) => (params.source_node_key.len()
                 > ADAPTER_LIMITS.max_path_bytes
                 || params.target.len() > ADAPTER_LIMITS.max_path_bytes)
@@ -342,6 +345,23 @@ fn source_bound(params: &ReadNodeSourceParams) -> Option<AdapterBound> {
         .max_lines
         .is_some_and(|lines| lines == 0 || lines > ADAPTER_LIMITS.max_note_source_lines);
     lines.then_some(AdapterBound::NoteSourceLines)
+}
+
+fn note_context_bound(params: &NoteContextParams) -> Option<AdapterBound> {
+    let context = [params.source_context_before, params.source_context_after]
+        .into_iter()
+        .flatten()
+        .any(|lines| lines > ADAPTER_LIMITS.max_context_lines);
+    if context {
+        return Some(AdapterBound::ContextLines);
+    }
+    let lines = params
+        .source_max_lines
+        .is_some_and(|lines| lines == 0 || lines > ADAPTER_LIMITS.max_note_source_lines);
+    if lines {
+        return Some(AdapterBound::NoteSourceLines);
+    }
+    params.relation_limit.and_then(relation_bound)
 }
 
 /// A request to open one session against one root, database and binding.

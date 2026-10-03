@@ -17,7 +17,10 @@ import io.github.b_vitamins.slipbox.engine.DocumentLinkResolution
 import io.github.b_vitamins.slipbox.engine.EngineAnswer
 import io.github.b_vitamins.slipbox.engine.EngineRefusalKind
 import io.github.b_vitamins.slipbox.engine.EngineRefusedException
+import io.github.b_vitamins.slipbox.engine.NodeKind
 import io.github.b_vitamins.slipbox.engine.NodeRecord
+import io.github.b_vitamins.slipbox.engine.NoteContextResult
+import io.github.b_vitamins.slipbox.engine.NotePlace
 import io.github.b_vitamins.slipbox.engine.ReadNodeSourceResult
 import io.github.b_vitamins.slipbox.engine.ReadOperation
 import io.github.b_vitamins.slipbox.engine.RefusalReason
@@ -78,6 +81,11 @@ internal sealed interface ReaderLinkPhase {
 internal data class ReaderDocument(
     val anchor: NodeRecord,
     val source: DocumentSource,
+    val addressedAnchor: NodeRecord = anchor,
+    val outline: List<NodeRecord> = emptyList(),
+    val place: NotePlace? = null,
+    val sourceName: String = "",
+    val revision: String = "",
 )
 
 internal data class ReaderPreviewRequest(
@@ -109,6 +117,8 @@ internal interface BoundDocumentSource : AutoCloseable {
     val maxLines: Int
 
     fun read(nodeKey: String, maxLines: Int = this.maxLines): ReadNodeSourceResult
+
+    fun context(nodeKey: String, maxLines: Int = this.maxLines): NoteContextResult
 
     fun findById(id: String): NodeRecord? = null
 
@@ -146,6 +156,18 @@ private object NativeBoundDocumentSourceFactory : BoundDocumentSourceFactory {
                             maxLines = maxLines.coerceAtMost(this.maxLines),
                         )
                     return (session.answer(operation).await() as EngineAnswer.ReadNodeSource).result
+                }
+
+                override fun context(nodeKey: String, maxLines: Int): NoteContextResult {
+                    val operation =
+                        ReadOperation.NoteContext(
+                            nodeKey = nodeKey,
+                            sourceContextBefore = 0,
+                            sourceContextAfter = 0,
+                            sourceMaxLines = maxLines.coerceAtMost(this.maxLines),
+                            relationLimit = 1,
+                        )
+                    return (session.answer(operation).await() as EngineAnswer.NoteContext).result
                 }
 
                 override fun findById(id: String): NodeRecord? =
@@ -414,7 +436,7 @@ internal class DocumentReaderState(
                                 selected.findByKey(note.nodeKey)
                             }
                         val nodeKey = resolved?.nodeKey ?: note.nodeKey
-                        selected.read(nodeKey).also { validate(nodeKey, it) }
+                        selected.context(nodeKey).also { validate(nodeKey, it) }
                     }
                     delivery.post {
                         if (!live.get() || requests.get() != serial) return@post
@@ -429,9 +451,9 @@ internal class DocumentReaderState(
             }
     }
 
-    private fun validate(nodeKey: String, answer: ReadNodeSourceResult) {
+    private fun validate(nodeKey: String, answer: NoteContextResult) {
         require(answer.anchor.nodeKey == nodeKey)
-        require(answer.source.filePath == answer.anchor.filePath)
+        require(answer.source.filePath == answer.note.filePath)
         require(answer.source.startLine == answer.nodeStartLine)
         require(
             answer.source.lineCount == answer.nodeLineCount ||
@@ -440,6 +462,16 @@ internal class DocumentReaderState(
                     answer.nodeLineCount == 1L),
         )
         require(!answer.source.truncatedBefore && !answer.source.truncatedAfter)
+        require(answer.place.total > 0 && answer.place.ordinal in 1..answer.place.total)
+        require(
+            answer.outline.zipWithNext().all { (left, right) -> left.line <= right.line } &&
+                answer.outline.all { heading ->
+                    heading.kind == NodeKind.HEADING &&
+                        heading.filePath == answer.source.filePath &&
+                        heading.line >= answer.source.startLine &&
+                        heading.line < answer.source.startLine + answer.source.lineCount
+                },
+        )
     }
 
     private fun validatePreview(nodeKey: String, answer: ReadNodeSourceResult) {
@@ -514,18 +546,23 @@ internal class DocumentReaderState(
         focusRequest = DocumentFocusRequest(request.origin)
     }
 
-    private fun ready(answer: ReadNodeSourceResult): DocumentReaderPhase =
+    private fun ready(answer: NoteContextResult): DocumentReaderPhase =
         DocumentReaderPhase.Ready(
             ReaderDocument(
-                anchor = answer.anchor,
+                anchor = answer.note,
                 source =
                     DocumentSource(
                         source = note.binding.source,
                         generation = note.binding.generation,
-                        id = answer.anchor.nodeKey,
-                        filePath = answer.anchor.filePath,
+                        id = answer.note.nodeKey,
+                        filePath = answer.note.filePath,
                         org = answer.source.content,
                     ),
+                addressedAnchor = answer.anchor,
+                outline = answer.outline,
+                place = answer.place,
+                sourceName = ready.source.displayName,
+                revision = ready.revision,
             ),
         )
 

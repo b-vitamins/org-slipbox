@@ -40,6 +40,8 @@ import io.github.b_vitamins.slipbox.engine.ExplorationSectionKind
 import io.github.b_vitamins.slipbox.engine.ExploreResult
 import io.github.b_vitamins.slipbox.engine.NodeKind
 import io.github.b_vitamins.slipbox.engine.NodeRecord
+import io.github.b_vitamins.slipbox.engine.NotePlace
+import io.github.b_vitamins.slipbox.engine.NotePlaceNeighbor
 import io.github.b_vitamins.slipbox.engine.UnlinkedReferenceRecord
 import io.github.b_vitamins.slipbox.engine.UnlinkedReferencesResult
 import io.github.b_vitamins.slipbox.ui.content.DOCUMENT_LINK
@@ -78,6 +80,7 @@ class ReaderSurfaceTest {
     @Test
     fun oneSourceBoundDocumentSuppliesTheChromeAndTheCompleteRichReadingSurface() {
         var backed = 0
+        var neighbor: NotePlaceNeighbor? = null
         lateinit var settings: ReadingSettings
         composeRule.setContent {
             settings = remember { ReadingSettings(MemoryStore()) }
@@ -87,13 +90,15 @@ class ReaderSurfaceTest {
                     settings = settings,
                     onBack = { backed += 1 },
                     onRetry = {},
+                    onOpenFilingNeighbor = { neighbor = it },
                 )
             }
         }
 
         composeRule.onNodeWithText("A complete note").assertExists()
-        composeRule.onNodeWithText("note.org").assertExists()
-        composeRule.onNodeWithText("Relations").assertExists()
+        composeRule.onNodeWithText("note.org").assertDoesNotExist()
+        composeRule.onNodeWithText("Relations").assertDoesNotExist()
+        composeRule.onNodeWithText("Explore").assertDoesNotExist()
         val view = shown()
         assertEquals(1.0, view.number("document.querySelectorAll('#document table').length"), 0.0)
         assertEquals(1.0, view.number("document.querySelectorAll('#document pre code').length"), 0.0)
@@ -104,10 +109,37 @@ class ReaderSurfaceTest {
         )
         Evidence.image("reader-rich-light", composeRule.onRoot().captureToImage())
 
+        composeRule.onNodeWithText("Info").performClick()
+        composeRule.onNodeWithText("Outline").assertIsDisplayed()
+        composeRule.onNodeWithText("Filed 2 of 3").assertIsDisplayed()
+        composeRule.onNodeWithText("Notes").assertIsDisplayed()
+        composeRule.onNodeWithText("note.org").assertIsDisplayed()
+        composeRule.onNodeWithText("0123456789abcdef").assertIsDisplayed()
+        Evidence.image("reader-note-details", composeRule.onRoot().captureToImage())
+
+        composeRule.onNodeWithText("The table it settles into").performClick()
+        composeRule.onNodeWithText("Note details").assertDoesNotExist()
+        Evidence.image("reader-outline-target", composeRule.onRoot().captureToImage())
+        view.awaitTrue(
+            "the outline reached the rendered heading",
+            "(() => {" +
+                "  const heading = document.querySelector('[aria-current=location]');" +
+                "  if (!heading || heading.textContent.trim() !== 'The table it settles into') return false;" +
+                "  const bounds = heading.getBoundingClientRect();" +
+                "  return bounds.bottom > 0 && bounds.top < window.innerHeight;" +
+                "})()",
+        )
+        composeRule.onNodeWithText("Info").performClick()
+        composeRule.onNodeWithText("Earlier note").performClick()
+        composeRule.runOnIdle {
+            assertEquals(NotePlaceNeighbor("file:earlier.org", "Earlier note"), neighbor)
+        }
+
         view.answer(SELECT_LEAD)
         assertTrue(view.text("window.getSelection().toString()").contains("fixed point"))
         view.answer("window.getSelection().removeAllRanges()")
 
+        composeRule.onNodeWithText("Info").performClick()
         composeRule.onNodeWithText("Appearance").performClick()
         composeRule.onNodeWithText("Dark").performClick()
         composeRule.runOnIdle {
@@ -160,6 +192,73 @@ class ReaderSurfaceTest {
     }
 
     @Test
+    fun filingControlsExistOnlyAtRealBoundariesAndAnOnlyNoteHasNoProgressStrip() {
+        lateinit var settings: ReadingSettings
+        var readerDocument by
+            mutableStateOf(
+                document().copy(
+                    place =
+                        NotePlace(
+                            ordinal = 1,
+                            total = 2,
+                            later = NotePlaceNeighbor("file:later.org", "Later note"),
+                        ),
+                ),
+            )
+        composeRule.setContent {
+            settings = remember { ReadingSettings(MemoryStore()) }
+            SlipboxTheme(appearance = settings.preferences.appearance) {
+                ReaderScreen(
+                    phase = DocumentReaderPhase.Ready(readerDocument),
+                    settings = settings,
+                    onBack = {},
+                    onRetry = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Info").performClick()
+        composeRule.onNodeWithText("Filed 1 of 2").assertIsDisplayed()
+        composeRule.onNodeWithText("Later note").assertIsDisplayed()
+        composeRule.onNodeWithText("Earlier note").assertDoesNotExist()
+        Espresso.pressBack()
+        composeRule.runOnIdle {
+            readerDocument = readerDocument.copy(place = NotePlace(ordinal = 1, total = 1))
+        }
+        composeRule.onNodeWithText("Info").performClick()
+        composeRule.onNodeWithText("Filed 1 of 1").assertDoesNotExist()
+        composeRule.onNodeWithText("Earlier note").assertDoesNotExist()
+        composeRule.onNodeWithText("Later note").assertDoesNotExist()
+    }
+
+    @Test
+    fun anAddressedHeadingOpensAtItsMatchingRenderedOutlineEntry() {
+        lateinit var settings: ReadingSettings
+        val source = document()
+        val addressed = source.outline.last()
+        composeRule.setContent {
+            settings = remember { ReadingSettings(MemoryStore()) }
+            SlipboxTheme(appearance = settings.preferences.appearance) {
+                ReaderScreen(
+                    phase =
+                        DocumentReaderPhase.Ready(
+                            source.copy(addressedAnchor = addressed),
+                        ),
+                    settings = settings,
+                    onBack = {},
+                    onRetry = {},
+                )
+            }
+        }
+
+        shown().awaitTrue(
+            "the addressed source heading reached the same rendered heading",
+            "document.querySelector('[aria-current=location]')?.textContent.trim() === " +
+                "'The table it settles into'",
+        )
+    }
+
+    @Test
     fun relationsNameEveryDirectionAndExposeExplicitContinuationAndPreview() {
         lateinit var settings: ReadingSettings
         var activations = 0
@@ -193,6 +292,7 @@ class ReaderSurfaceTest {
             }
         }
 
+        composeRule.onNodeWithText("Info").performClick()
         composeRule.onNodeWithText("Relations").performClick()
         composeRule.onNodeWithText("5 related notes").assertIsDisplayed()
         composeRule.onNodeWithText("3 incoming · 3 outgoing").assertIsDisplayed()
@@ -275,6 +375,7 @@ class ReaderSurfaceTest {
             }
         }
 
+        composeRule.onNodeWithText("Info").performClick()
         composeRule.onNodeWithText("Relations").performClick()
         composeRule.onNodeWithText("Latent connection").assertDoesNotExist()
         composeRule.runOnIdle {
@@ -324,6 +425,7 @@ class ReaderSurfaceTest {
             }
         }
 
+        composeRule.onNodeWithText("Info").performClick()
         composeRule.onNodeWithText("Explore").performClick()
         composeRule.onNodeWithText("Choose a lens.").assertIsDisplayed()
         composeRule.runOnIdle { assertTrue(selected.isEmpty()) }
@@ -348,6 +450,7 @@ class ReaderSurfaceTest {
         composeRule.runOnIdle { assertEquals(unfinished, previewed) }
         composeRule.onNodeWithText("Unresolved tasks").assertDoesNotExist()
 
+        composeRule.onNodeWithText("Info").performClick()
         composeRule.onNodeWithText("Explore").performClick()
         composeRule.onAllNodesWithText("Open")[1].performScrollTo().performClick()
         composeRule.runOnIdle { assertEquals(quiet, opened) }
@@ -375,6 +478,7 @@ class ReaderSurfaceTest {
             }
         }
 
+        composeRule.onNodeWithText("Info").performClick()
         composeRule.onNodeWithText("Explore").performClick()
         composeRule.onNodeWithText("Bridges").performScrollTo().performClick()
         composeRule
@@ -486,6 +590,7 @@ class ReaderSurfaceTest {
         composeRule.waitForIdle()
         Evidence.image("reader-repository-image-light", composeRule.onRoot().captureToImage())
 
+        composeRule.onNodeWithText("Info").performClick()
         composeRule.onNodeWithText("Appearance").performClick()
         composeRule.onNodeWithText("Dark").performClick()
         Espresso.pressBack()
@@ -699,6 +804,34 @@ class ReaderSurfaceTest {
                     filePath = "notes/note.org",
                     org = Notes.RICH + "\n\nThe complete final paragraph.",
                 ),
+            outline =
+                listOf(
+                    node().copy(
+                        nodeKey = "heading:note.org:6",
+                        title = "The measure",
+                        outlinePath = "The measure",
+                        level = 1,
+                        line = 6,
+                        kind = NodeKind.HEADING,
+                    ),
+                    node().copy(
+                        nodeKey = "heading:note.org:14",
+                        title = "The table it settles into",
+                        outlinePath = "The measure / The table it settles into",
+                        level = 2,
+                        line = 14,
+                        kind = NodeKind.HEADING,
+                    ),
+                ),
+            place =
+                NotePlace(
+                    ordinal = 2,
+                    total = 3,
+                    earlier = NotePlaceNeighbor("file:earlier.org", "Earlier note"),
+                    later = NotePlaceNeighbor("file:later.org", "Later note"),
+                ),
+            sourceName = "Notes",
+            revision = "0123456789abcdef",
         )
 
     private fun node(): NodeRecord =
