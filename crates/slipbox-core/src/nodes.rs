@@ -421,6 +421,89 @@ pub struct SearchNodeContentResult {
     pub hits: Vec<NodeContentHit>,
 }
 
+/// Maximum number of ranked entities retained by one bounded corpus search.
+///
+/// Paging walks this stable window; callers can distinguish exhausting the
+/// window from exhausting every indexed match through `query_truncated`.
+pub const CORPUS_SEARCH_QUERY_BOUND: usize = 200;
+
+/// The reader surface an indexed entity opens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CorpusSearchEntity {
+    Note,
+    Glossary,
+}
+
+/// The strongest displayed field in which the index matched a result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CorpusSearchField {
+    Title,
+    Alias,
+    Content,
+}
+
+/// One deduplicated result from the reader's note-and-glossary corpus.
+///
+/// Highlight segments are supplied for each searchable display field. Their
+/// text is the index's exact Unicode text, and only runs actually selected by
+/// FTS are marked; a client never has to reconstruct match offsets.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CorpusSearchHit {
+    pub node: NodeRecord,
+    pub entity: CorpusSearchEntity,
+    pub matched_field: CorpusSearchField,
+    pub title: ContentSnippet,
+    pub aliases: ContentSnippet,
+    pub excerpt: ContentSnippet,
+}
+
+/// Parameters for one page of the unified note-and-glossary search.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchCorpusParams {
+    pub query: String,
+    #[serde(default = "default_search_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub after: Option<String>,
+}
+
+impl SearchCorpusParams {
+    #[must_use]
+    pub fn normalized_limit(&self) -> usize {
+        self.limit.clamp(1, CORPUS_SEARCH_QUERY_BOUND)
+    }
+
+    #[must_use]
+    pub fn normalized_query(&self) -> &str {
+        self.query.trim()
+    }
+
+    #[must_use]
+    pub fn normalized_after(&self) -> Option<&str> {
+        self.after
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
+}
+
+/// One page inside the bounded, deterministic ranked search window.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchCorpusResult {
+    pub hits: Vec<CorpusSearchHit>,
+    /// Results retained inside the bounded query window, not an unbounded
+    /// corpus count.
+    pub total: usize,
+    pub has_more: bool,
+    pub next_position: Option<String>,
+    pub query_bound: usize,
+    /// True when at least one further indexed match exists beyond
+    /// `query_bound`.
+    pub query_truncated: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RandomNodeResult {
     pub node: Option<NodeRecord>,

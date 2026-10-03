@@ -6,6 +6,8 @@
 
 package io.github.b_vitamins.slipbox.navigation
 
+import io.github.b_vitamins.slipbox.engine.CorpusSearchEntity
+import io.github.b_vitamins.slipbox.engine.CorpusSearchHit
 import io.github.b_vitamins.slipbox.engine.GenerationBinding
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
@@ -118,4 +120,19 @@ internal fun SlipboxRoute.names(source: String): Boolean =
         is SlipboxRoute.SourceSettings -> this.source == source
         is SlipboxRoute.Connection -> this.source == source
         is SlipboxRoute.Library, is SlipboxRoute.About -> false
+    }
+
+/** The complete native reading destination named by one typed corpus result. */
+internal fun CorpusSearchHit.readingRoute(binding: GenerationBinding): SlipboxRoute =
+    when (entity) {
+        CorpusSearchEntity.NOTE ->
+            SlipboxRoute.Reader(
+                BoundNote(
+                    binding = binding,
+                    nodeKey = node.nodeKey,
+                    explicitId = node.explicitId,
+                    filePath = node.filePath,
+                ),
+            )
+        CorpusSearchEntity.GLOSSARY -> SlipboxRoute.Glossary(binding, term = node.nodeKey)
     }

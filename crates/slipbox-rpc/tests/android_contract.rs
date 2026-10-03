@@ -11,8 +11,8 @@ use slipbox_core::{
     BacklinksParams, DirectedRelationsParams, ExplorationLens, ExploreParams, ForwardLinksParams,
     GenerationBinding, GenerationId, GlossaryTermParams, IndexFileParams, IndexedFilesResult,
     ListGlossaryTermsParams, ListNotesParams, NodeFromIdParams, NodeFromKeyParams,
-    NoteContextParams, ReadNodeSourceParams, ResolveDocumentLinkParams, SearchGlossaryParams,
-    SearchNodeContentParams, SearchNodesParams, SearchNodesSort, SourceId,
+    NoteContextParams, ReadNodeSourceParams, ResolveDocumentLinkParams, SearchCorpusParams,
+    SearchGlossaryParams, SearchNodeContentParams, SearchNodesParams, SearchNodesSort, SourceId,
     UnlinkedReferencesParams,
 };
 use slipbox_rpc::android::{
@@ -105,6 +105,11 @@ fn every_read_operation() -> Vec<ReadOperation> {
         ReadOperation::SearchNodeContent(SearchNodeContentParams {
             query: "omega".to_owned(),
             limit: 25,
+        }),
+        ReadOperation::SearchCorpus(SearchCorpusParams {
+            query: "omega".to_owned(),
+            limit: 25,
+            after: None,
         }),
         ReadOperation::NodeFromId(NodeFromIdParams {
             id: "11111111-2222-3333-4444-555555555555".to_owned(),

@@ -85,6 +85,20 @@
       "limit": 25
     }
   },
+  "read_search_corpus": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "searchCorpus",
+      "query": "Ωμέγα théorie 漢字",
+      "limit": 25,
+      "after": null
+    }
+  },
   "read_node_from_id": {
     "version": 1,
     "handle": 7,

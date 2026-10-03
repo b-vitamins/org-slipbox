@@ -198,6 +198,14 @@ sealed class ReadOperation {
     ) : ReadOperation()
 
     @Serializable
+    @SerialName("searchCorpus")
+    data class SearchCorpus(
+        val query: String,
+        val limit: Int,
+        val after: String? = null,
+    ) : ReadOperation()
+
+    @Serializable
     @SerialName("nodeFromId")
     data class NodeFromId(
         val id: String,

@@ -55,6 +55,11 @@ internal object EngineOperations {
                 "answered_search_node_content",
             ),
             AdmittedOperation(
+                ReadOperation.SearchCorpus(QUERY, 25, null),
+                "read_search_corpus",
+                "answered_search_corpus",
+            ),
+            AdmittedOperation(
                 ReadOperation.NodeFromId(NODE_ID),
                 "read_node_from_id",
                 "answered_node_from_id",

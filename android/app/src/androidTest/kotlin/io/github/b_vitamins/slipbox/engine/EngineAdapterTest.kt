@@ -133,6 +133,46 @@ class EngineAdapterTest {
         val segments = hits.single().snippet.segments
         assertTrue("$segments", segments.any { it.matched })
 
+        val firstCorpusPage =
+            answered<EngineAnswer.SearchCorpus>(
+                read,
+                ReadOperation.SearchCorpus("Convergence", 1),
+            ).result
+        assertEquals(2L, firstCorpusPage.total)
+        assertTrue(firstCorpusPage.hasMore)
+        assertEquals(CorpusSearchEntity.NOTE, firstCorpusPage.hits.single().entity)
+        assertEquals(beta.nodeKey, firstCorpusPage.hits.single().node.nodeKey)
+        val secondCorpusPage =
+            answered<EngineAnswer.SearchCorpus>(
+                read,
+                ReadOperation.SearchCorpus(
+                    "Convergence",
+                    1,
+                    requireNotNull(firstCorpusPage.nextPosition),
+                ),
+            ).result
+        assertFalse(secondCorpusPage.hasMore)
+        assertEquals(CorpusSearchEntity.GLOSSARY, secondCorpusPage.hits.single().entity)
+        assertEquals(riemann.nodeKey, secondCorpusPage.hits.single().node.nodeKey)
+        assertEquals(
+            2,
+            (firstCorpusPage.hits + secondCorpusPage.hits)
+                .map { it.node.nodeKey }
+                .distinct()
+                .size,
+        )
+
+        val unicodeCorpus =
+            answered<EngineAnswer.SearchCorpus>(
+                read,
+                ReadOperation.SearchCorpus("théorie", 10),
+            ).result.hits.single()
+        assertEquals(riemann.nodeKey, unicodeCorpus.node.nodeKey)
+        assertEquals("théorie", unicodeCorpus.excerpt.segments.filter { it.matched }.joinToString("") { it.text })
+        assertTrue(
+            unicodeCorpus.excerpt.segments.joinToString("") { it.text }.contains("\\(f(λ)=λ\\)"),
+        )
+
         val whole = ReadOperation.ReadNodeSource(beta.nodeKey, 0, 0, 1_000)
         val source = answered<EngineAnswer.ReadNodeSource>(read, whole).result
         assertEquals(beta.nodeKey, source.anchor.nodeKey)
@@ -241,6 +281,27 @@ class EngineAdapterTest {
         assertEquals(listOf(alpha.nodeKey), explanation.viaNotes.map { it.nodeKey })
 
         assertEquals(EngineWire.readOperations, exercised)
+    }
+
+    @Test
+    fun corpusSearchReopensTheDerivedGenerationAtAnOfflineColdStart() {
+        val initial = host()
+        assertEquals(true, indexer(initial).retire().settled())
+        initial.close()
+        assertTrue(requireNotNull(initial.awaitDisposal(TIMEOUT_MILLIS)).isComplete)
+
+        val cold = host().openRead(binding, sessionContext()).settled()
+        val result =
+            answered<EngineAnswer.SearchCorpus>(
+                cold,
+                ReadOperation.SearchCorpus("Convergence", 10),
+            ).result
+
+        assertEquals(listOf("Target heading", "Riemann integral"), result.hits.map { it.node.title })
+        assertEquals(
+            listOf(CorpusSearchEntity.NOTE, CorpusSearchEntity.GLOSSARY),
+            result.hits.map { it.entity },
+        )
     }
 
     @Test
@@ -843,7 +904,7 @@ private val CORPUS =
             :PROPERTIES:
             :ID: beta-target
             :END:
-            Target body.
+            Target body. Convergence marker.
             """.trimIndent(),
         "riemann.org" to
             """
@@ -854,7 +915,8 @@ private val CORPUS =
             :GLOSSARY_STATUS: confirmed
             :END:
 
-            A definite integral. Target heading appears here without a link.
+            A definite integral with a convergence marker. Target heading appears here without a link.
+            Its théorie context preserves \(f(λ)=λ\) notation.
             It also links [[id:alpha-first][back to Alpha]].
             """.trimIndent(),
     )

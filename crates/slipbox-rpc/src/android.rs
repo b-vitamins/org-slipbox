@@ -16,9 +16,9 @@ use slipbox_core::{
     IndexStats, IndexedFilesResult, ListGlossaryTermsParams, ListGlossaryTermsResult,
     ListNotesParams, ListNotesResult, NodeFromIdParams, NodeFromKeyParams, NodeRecord,
     NoteContextParams, NoteContextResult, ReadNodeSourceParams, ReadNodeSourceResult,
-    ResolveDocumentLinkParams, SearchGlossaryParams, SearchGlossaryResult, SearchNodeContentParams,
-    SearchNodeContentResult, SearchNodesParams, SearchNodesResult, StatusInfo,
-    UnlinkedReferencesParams, UnlinkedReferencesResult,
+    ResolveDocumentLinkParams, SearchCorpusParams, SearchCorpusResult, SearchGlossaryParams,
+    SearchGlossaryResult, SearchNodeContentParams, SearchNodeContentResult, SearchNodesParams,
+    SearchNodesResult, StatusInfo, UnlinkedReferencesParams, UnlinkedReferencesResult,
 };
 
 use crate::{
@@ -26,8 +26,8 @@ use crate::{
     METHOD_FORWARD_LINKS, METHOD_GLOSSARY_TERM, METHOD_INDEX, METHOD_INDEX_FILE,
     METHOD_INDEXED_FILES, METHOD_LIST_GLOSSARY_TERMS, METHOD_LIST_NOTES, METHOD_NODE_FROM_ID,
     METHOD_NODE_FROM_KEY, METHOD_NOTE_CONTEXT, METHOD_READ_NODE_SOURCE,
-    METHOD_RESOLVE_DOCUMENT_LINK, METHOD_SEARCH_GLOSSARY, METHOD_SEARCH_NODE_CONTENT,
-    METHOD_SEARCH_NODES, METHOD_STATUS, METHOD_UNLINKED_REFERENCES,
+    METHOD_RESOLVE_DOCUMENT_LINK, METHOD_SEARCH_CORPUS, METHOD_SEARCH_GLOSSARY,
+    METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES, METHOD_STATUS, METHOD_UNLINKED_REFERENCES,
 };
 
 /// The supported Android adapter protocol version.
@@ -210,6 +210,7 @@ operation_vocabulary! {
         ListNotes, "listNotes", METHOD_LIST_NOTES, ListNotesParams, ListNotesResult;
         SearchNodeContent, "searchNodeContent", METHOD_SEARCH_NODE_CONTENT,
             SearchNodeContentParams, SearchNodeContentResult;
+        SearchCorpus, "searchCorpus", METHOD_SEARCH_CORPUS, SearchCorpusParams, SearchCorpusResult;
         NodeFromId, "nodeFromId", METHOD_NODE_FROM_ID, NodeFromIdParams, Option<NodeRecord>;
         NodeFromKey, "nodeFromKey", METHOD_NODE_FROM_KEY, NodeFromKeyParams, Option<NodeRecord>;
         ReadNodeSource, "readNodeSource", METHOD_READ_NODE_SOURCE,
@@ -295,6 +296,7 @@ impl ReadOperation {
             Self::SearchNodes(params) => page_bound(params.limit),
             Self::ListNotes(params) => page_bound(params.limit),
             Self::SearchNodeContent(params) => page_bound(params.limit),
+            Self::SearchCorpus(params) => page_bound(params.limit),
             Self::ListGlossaryTerms(params) => page_bound(params.limit),
             Self::SearchGlossary(params) => page_bound(params.limit),
             Self::Backlinks(params) => relation_bound(params.limit),

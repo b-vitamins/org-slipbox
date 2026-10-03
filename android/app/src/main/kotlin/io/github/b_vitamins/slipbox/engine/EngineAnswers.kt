@@ -119,6 +119,47 @@ data class SearchNodeContentResult(
 )
 
 @Serializable
+enum class CorpusSearchEntity {
+    @SerialName("note")
+    NOTE,
+
+    @SerialName("glossary")
+    GLOSSARY,
+}
+
+@Serializable
+enum class CorpusSearchField {
+    @SerialName("title")
+    TITLE,
+
+    @SerialName("alias")
+    ALIAS,
+
+    @SerialName("content")
+    CONTENT,
+}
+
+@Serializable
+data class CorpusSearchHit(
+    val node: NodeRecord,
+    val entity: CorpusSearchEntity,
+    @SerialName("matched_field") val matchedField: CorpusSearchField,
+    val title: ContentSnippet,
+    val aliases: ContentSnippet,
+    val excerpt: ContentSnippet,
+)
+
+@Serializable
+data class SearchCorpusResult(
+    val hits: List<CorpusSearchHit>,
+    val total: Long,
+    @SerialName("has_more") val hasMore: Boolean,
+    @SerialName("next_position") val nextPosition: String?,
+    @SerialName("query_bound") val queryBound: Long,
+    @SerialName("query_truncated") val queryTruncated: Boolean,
+)
+
+@Serializable
 data class SourceSlice(
     @SerialName("file_path") val filePath: String,
     @SerialName("start_line") val startLine: Long,
@@ -499,6 +540,10 @@ sealed class EngineAnswer {
     @SerialName("searchNodeContent")
     data class SearchNodeContent(val result: SearchNodeContentResult) : EngineAnswer(), ReadAnswer
 
+    @Serializable
+    @SerialName("searchCorpus")
+    data class SearchCorpus(val result: SearchCorpusResult) : EngineAnswer(), ReadAnswer
+
     /** The canonical lookup admits absence, so an absent node is a null result. */
     @Serializable
     @SerialName("nodeFromId")
@@ -569,6 +614,7 @@ internal fun ReadOperation.answerIn(answer: EngineAnswer): ReadAnswer? =
         is ReadOperation.SearchNodes -> answer as? EngineAnswer.SearchNodes
         is ReadOperation.ListNotes -> answer as? EngineAnswer.ListNotes
         is ReadOperation.SearchNodeContent -> answer as? EngineAnswer.SearchNodeContent
+        is ReadOperation.SearchCorpus -> answer as? EngineAnswer.SearchCorpus
         is ReadOperation.NodeFromId -> answer as? EngineAnswer.NodeFromId
         is ReadOperation.NodeFromKey -> answer as? EngineAnswer.NodeFromKey
         is ReadOperation.ReadNodeSource -> answer as? EngineAnswer.ReadNodeSource

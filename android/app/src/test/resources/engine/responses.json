@@ -19,6 +19,7 @@
       "searchNodes",
       "listNotes",
       "searchNodeContent",
+      "searchCorpus",
       "nodeFromId",
       "nodeFromKey",
       "readNodeSource",
@@ -407,6 +408,71 @@
             }
           }
         ]
+      }
+    }
+  },
+  "answered_search_corpus": {
+    "version": 1,
+    "outcome": "answered",
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "answer": {
+      "kind": "searchCorpus",
+      "result": {
+        "hits": [
+          {
+            "node": {
+              "node_key": "heading:alpha.org:3",
+              "explicit_id": "11111111-2222-3333-4444-555555555555",
+              "file_path": "alpha.org",
+              "title": "Ωμέγα théorie 漢字",
+              "outline_path": "Alpha/Ωμέγα théorie 漢字",
+              "aliases": ["omega", "Ω"],
+              "tags": ["fixture", "unicode"],
+              "refs": ["cite:omega1998"],
+              "todo_keyword": "TODO",
+              "scheduled_for": "2026-03-01",
+              "deadline_for": "2026-03-08",
+              "closed_at": null,
+              "glossary": true,
+              "glossary_status": "confirmed",
+              "sr_due": "2026-04-01",
+              "sr_ease": "2.50",
+              "sr_interval": "6",
+              "sr_reps": "3",
+              "sr_last": "2026-03-26",
+              "level": 2,
+              "line": 3,
+              "kind": "heading",
+              "file_mtime_ns": 1740000000000000000,
+              "backlink_count": 2,
+              "forward_link_count": 1
+            },
+            "entity": "glossary",
+            "matched_field": "title",
+            "title": {
+              "segments": [{"text": "Ωμέγα théorie 漢字", "matched": true}]
+            },
+            "aliases": {
+              "segments": [{"text": "omega Ω", "matched": false}]
+            },
+            "excerpt": {
+              "segments": [
+                {"text": "before ", "matched": false},
+                {"text": "Ωμέγα théorie 漢字", "matched": true},
+                {"text": " after", "matched": false}
+              ]
+            }
+          }
+        ],
+        "total": 1,
+        "has_more": false,
+        "next_position": null,
+        "query_bound": 200,
+        "query_truncated": false
       }
     }
   },
@@ -2971,6 +3037,7 @@
       "readNodeSource",
       "nodeFromKey",
       "nodeFromId",
+      "searchCorpus",
       "searchNodeContent",
       "searchNodes",
       "listNotes",

@@ -16,6 +16,22 @@
     <string name="notes_empty">This repository contains no notes.</string>
     <string name="notes_unavailable">Notes could not be loaded.</string>
     <string name="notes_more_unavailable">More notes could not be loaded.</string>
+    <string name="search_placeholder">What are you looking for?</string>
+    <string name="search_loading">Searching.</string>
+    <string name="search_loading_more">Loading more matches.</string>
+    <string name="search_empty">No matches.</string>
+    <string name="search_unavailable">Search is unavailable.</string>
+    <string name="search_more_unavailable">More matches could not be loaded.</string>
+    <plurals name="search_results_loaded">
+        <item quantity="one">%1$d of %2$d match</item>
+        <item quantity="other">%1$d of %2$d matches</item>
+    </plurals>
+    <plurals name="search_results_bounded">
+        <item quantity="one">%1$d of first %2$d match · more may exist</item>
+        <item quantity="other">%1$d of first %2$d matches · more may exist</item>
+    </plurals>
+    <string name="search_kind_note">Note</string>
+    <string name="search_kind_glossary">Term</string>
     <string name="glossary_title">Glossary</string>
     <string name="glossary_library_detail">Browse every indexed term and its complete definition.</string>
     <string name="glossary_loading">Loading glossary.</string>
@@ -226,6 +242,7 @@
     <string name="action_remove">Remove</string>
     <string name="action_clear_bookmarks">Clear bookmarks</string>
     <string name="action_clear_recents">Clear recent</string>
+    <string name="action_clear_search">Clear</string>
     <string name="action_appearance">Appearance</string>
     <string name="action_dismiss">Dismiss</string>
 

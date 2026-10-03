@@ -27,7 +27,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.TextFieldValue
 import io.github.b_vitamins.slipbox.R
+import io.github.b_vitamins.slipbox.engine.CorpusSearchHit
 import io.github.b_vitamins.slipbox.engine.NodeKind
 import io.github.b_vitamins.slipbox.engine.NodeRecord
 import io.github.b_vitamins.slipbox.navigation.ReadingReturn
@@ -51,6 +53,13 @@ internal fun LibraryScreen(
     onRetryInventory: () -> Unit = {},
     onOpenNote: (NodeRecord) -> Unit = {},
     onOpenGlossary: () -> Unit = {},
+    searchInput: TextFieldValue = TextFieldValue(),
+    searchPhase: CorpusSearchPhase = CorpusSearchPhase.Dormant,
+    selectedSearchNodeKey: String? = null,
+    onSearchChange: (TextFieldValue) -> Unit = {},
+    onLoadMoreSearch: () -> Unit = {},
+    onRetrySearch: () -> Unit = {},
+    onOpenSearchHit: (CorpusSearchHit) -> Unit = {},
     readingReturns: ReadingReturnsSnapshot? = null,
     onOpenReadingReturn: (ReadingReturn) -> Unit = {},
     onRemoveBookmark: (ReadingReturn) -> Unit = {},
@@ -112,20 +121,32 @@ internal fun LibraryScreen(
                         phase.source.revision.take(10),
                     ),
                 )
-                NotesInventory(
-                    phase = inventory ?: NotesInventoryPhase.Loading,
-                    onLoadMore = onLoadMore,
-                    onRetry = onRetryInventory,
-                    onOpenNote = onOpenNote,
-                    onOpenGlossary = onOpenGlossary,
-                    readingReturns = readingReturns,
-                    onOpenReadingReturn = onOpenReadingReturn,
-                    onRemoveBookmark = onRemoveBookmark,
-                    onRemoveRecent = onRemoveRecent,
-                    onClearBookmarks = onClearBookmarks,
-                    onClearRecents = onClearRecents,
-                    modifier = Modifier.weight(1f),
-                )
+                CorpusSearchField(input = searchInput, onChange = onSearchChange)
+                if (searchInput.text.isBlank()) {
+                    NotesInventory(
+                        phase = inventory ?: NotesInventoryPhase.Loading,
+                        onLoadMore = onLoadMore,
+                        onRetry = onRetryInventory,
+                        onOpenNote = onOpenNote,
+                        onOpenGlossary = onOpenGlossary,
+                        readingReturns = readingReturns,
+                        onOpenReadingReturn = onOpenReadingReturn,
+                        onRemoveBookmark = onRemoveBookmark,
+                        onRemoveRecent = onRemoveRecent,
+                        onClearBookmarks = onClearBookmarks,
+                        onClearRecents = onClearRecents,
+                        modifier = Modifier.weight(1f),
+                    )
+                } else {
+                    CorpusSearchResults(
+                        phase = searchPhase,
+                        selectedNodeKey = selectedSearchNodeKey,
+                        onLoadMore = onLoadMoreSearch,
+                        onRetry = onRetrySearch,
+                        onOpen = onOpenSearchHit,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
             is SourceLibraryPhase.Failed -> {
                 LibraryNotice(stringResource(R.string.library_unavailable), problem = true)

@@ -30,12 +30,12 @@ use slipbox_core::{
     RunReviewRoutineResult, RunWorkflowResult, SaveCorpusAuditReviewResult,
     SaveExplorationArtifactResult, SaveReviewRunResult, SaveWorkflowReviewResult,
     SavedComparisonArtifact, SavedExplorationArtifact, SavedLensViewArtifact, SavedTrailArtifact,
-    SavedTrailStep, SearchNodeContentResult, SearchNodesResult, SearchRefsResult, StatusInfo,
-    TrailReplayStepResult, ValidateWorkbenchPackResult, WorkbenchPackCompatibility,
-    WorkbenchPackIssueKind, WorkbenchPackManifest, WorkbenchPackMetadata, WorkbenchPackResult,
-    WorkflowInputAssignment, WorkflowMetadata, WorkflowResolveTarget, WorkflowResult, WorkflowSpec,
-    WorkflowSpecCompatibility, WorkflowStepPayload, WorkflowStepReport, WorkflowStepReportPayload,
-    WorkflowStepSpec,
+    SavedTrailStep, SearchCorpusResult, SearchNodeContentResult, SearchNodesResult,
+    SearchRefsResult, StatusInfo, TrailReplayStepResult, ValidateWorkbenchPackResult,
+    WorkbenchPackCompatibility, WorkbenchPackIssueKind, WorkbenchPackManifest,
+    WorkbenchPackMetadata, WorkbenchPackResult, WorkflowInputAssignment, WorkflowMetadata,
+    WorkflowResolveTarget, WorkflowResult, WorkflowSpec, WorkflowSpecCompatibility,
+    WorkflowStepPayload, WorkflowStepReport, WorkflowStepReportPayload, WorkflowStepSpec,
 };
 use slipbox_index::{DiscoveryPolicy, scan_root_with_policy};
 use tempfile::TempDir;
@@ -50,8 +50,9 @@ use super::{
     mark_review_finding, node_from_ref, note_context, read_node_source, resolve_document_link,
     review_finding_remediation_apply, review_finding_remediation_preview, review_routine,
     review_run, run_review_routine, run_workflow, save_corpus_audit_review,
-    save_exploration_artifact, save_review_run, save_workflow_review, search_node_content,
-    search_nodes, search_refs, status, validate_workbench_pack, workbench_pack, workflow,
+    save_exploration_artifact, save_review_run, save_workflow_review, search_corpus,
+    search_node_content, search_nodes, search_refs, status, validate_workbench_pack,
+    workbench_pack, workflow,
 };
 use crate::handlers::write::grade_term;
 use crate::state::ServerState;
@@ -250,6 +251,62 @@ fn search_node_content_prunes_deleted_note_files_from_the_index() {
             .is_empty(),
         "a content hit from a deleted file prunes the stale index row"
     );
+}
+
+#[test]
+fn corpus_search_pages_one_ranked_window_and_binds_positions_to_the_query() {
+    let (_workspace, mut state) = corpus_search_state(205);
+    let first: SearchCorpusResult = serde_json::from_value(
+        search_corpus(&mut state, json!({ "query": "shared result", "limit": 37 }))
+            .expect("the first corpus page should succeed"),
+    )
+    .expect("the first corpus page should decode");
+    assert_eq!(first.hits.len(), 37);
+    assert_eq!(first.total, 200);
+    assert_eq!(first.query_bound, 200);
+    assert!(first.query_truncated);
+    assert!(first.has_more);
+
+    let second: SearchCorpusResult = serde_json::from_value(
+        search_corpus(
+            &mut state,
+            json!({
+                "query": "shared result",
+                "limit": 37,
+                "after": first.next_position.clone()
+            }),
+        )
+        .expect("the continued corpus page should succeed"),
+    )
+    .expect("the continued corpus page should decode");
+    assert_eq!(second.total, first.total);
+    assert!(first.hits.iter().all(|left| {
+        second
+            .hits
+            .iter()
+            .all(|right| left.node.node_key != right.node.node_key)
+    }));
+    assert_eq!(
+        first
+            .hits
+            .iter()
+            .chain(&second.hits)
+            .map(|hit| hit.node.node_key.as_str())
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        74,
+    );
+
+    let error = search_corpus(
+        &mut state,
+        json!({
+            "query": "another query",
+            "limit": 37,
+            "after": first.next_position.clone()
+        }),
+    )
+    .expect_err("a position from another query must be refused");
+    assert_eq!(error.into_inner().code, -32600);
 }
 
 #[test]
@@ -4295,6 +4352,30 @@ Shares only the target deadline.
         .node_key;
 
     (workspace, state, target_key)
+}
+
+fn corpus_search_state(entries: usize) -> (TempDir, ServerState) {
+    let workspace = tempfile::tempdir().expect("workspace should be created");
+    let root = workspace.path().join("notes");
+    fs::create_dir_all(&root).expect("notes root should be created");
+    let mut source = String::from("#+title: Search fixture\n\n");
+    for index in 0..entries {
+        source.push_str(&format!(
+            "* Shared result {index:03}\n:PROPERTIES:\n:ID: result-{index:03}\n:END:\nA shared result body.\n\n"
+        ));
+    }
+    fs::write(root.join("search.org"), source).expect("search fixture should be written");
+
+    let db_path = workspace.path().join("index.sqlite3");
+    let discovery = DiscoveryPolicy::default();
+    let mut state = ServerState::new(root.clone(), db_path, Vec::new(), discovery)
+        .expect("state should be created");
+    let files = scan_root_with_policy(&root, &state.discovery).expect("fixture should be indexed");
+    state
+        .database
+        .sync_index(&files)
+        .expect("fixture index should sync");
+    (workspace, state)
 }
 
 fn document_link_state() -> (TempDir, ServerState) {

@@ -49,6 +49,16 @@ internal class SlipboxBackStack(
         return true
     }
 
+    /** Persist the live library query while retaining the same back-stack entry. */
+    fun rememberLibrarySearch(origin: SlipboxRoute.Library, query: String): Boolean {
+        if (!attached || !isSavedText(query)) return false
+        val presented = routes.lastOrNull() as? SlipboxRoute.Library ?: return false
+        if (presented.place != origin.place) return false
+        if (presented.query == query) return true
+        routes[routes.lastIndex] = presented.copy(query = query)
+        return true
+    }
+
     /** Save the live reader position if [origin] is still the presented route. */
     fun rememberReadingPlace(origin: SlipboxRoute.Reader, anchor: ReadingAnchor): Boolean {
         if (!attached || !anchor.isCanonical()) return false

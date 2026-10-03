@@ -2,11 +2,12 @@ use std::collections::BTreeSet;
 use std::fs;
 
 use slipbox_core::{
-    AnchorFromKeyParams, AnchorRecord, ListNotesParams, ListNotesResult, NodeAtPointParams,
-    NodeContentHit, NodeFromIdParams, NodeFromKeyParams, NodeFromTitleOrAliasParams, NodeKind,
-    NoteContextParams, NoteContextResult, RandomNodeResult, ReadFileSourceParams,
-    ReadFileSourceResult, ReadNodeSourceParams, ReadNodeSourceResult, SearchNodeContentParams,
-    SearchNodeContentResult, SearchNodesParams, SearchNodesResult, SourceSlice,
+    AnchorFromKeyParams, AnchorRecord, CORPUS_SEARCH_QUERY_BOUND, CorpusSearchHit, ListNotesParams,
+    ListNotesResult, NodeAtPointParams, NodeContentHit, NodeFromIdParams, NodeFromKeyParams,
+    NodeFromTitleOrAliasParams, NodeKind, NoteContextParams, NoteContextResult, RandomNodeResult,
+    ReadFileSourceParams, ReadFileSourceResult, ReadNodeSourceParams, ReadNodeSourceResult,
+    SearchCorpusParams, SearchCorpusResult, SearchNodeContentParams, SearchNodeContentResult,
+    SearchNodesParams, SearchNodesResult, SourceSlice,
 };
 use slipbox_rpc::JsonRpcError;
 use slipbox_store::NotePosition;
@@ -65,6 +66,102 @@ pub(crate) fn search_node_content(
         .map_err(|error| internal_error(error.context("failed to search note content")))?;
     let hits = live_content_hits(state, hits)?;
     to_value(SearchNodeContentResult { hits })
+}
+
+pub(crate) fn search_corpus(
+    state: &mut ServerState,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let params: SearchCorpusParams = parse_params(params)?;
+    let query = params.normalized_query();
+    let after = params.normalized_after();
+    if query.is_empty() {
+        if after.is_some() {
+            return Err(invalid_params("an empty corpus search has no continuation"));
+        }
+        return to_value(SearchCorpusResult {
+            hits: Vec::new(),
+            total: 0,
+            has_more: false,
+            next_position: None,
+            query_bound: CORPUS_SEARCH_QUERY_BOUND,
+            query_truncated: false,
+        });
+    }
+
+    let requested = CORPUS_SEARCH_QUERY_BOUND + 1;
+    let indexed = state
+        .database
+        .search_corpus(query, requested)
+        .map_err(|error| internal_error(error.context("failed to search the reader corpus")))?;
+    let indexed_len = indexed.len();
+    let mut ranked = live_corpus_hits(state, indexed)?;
+    // A stale desktop index may have been pruned while validating the first
+    // result set. Re-run once so later live rows can fill its bounded window.
+    if ranked.len() != indexed_len {
+        ranked = live_corpus_hits(
+            state,
+            state
+                .database
+                .search_corpus(query, requested)
+                .map_err(|error| {
+                    internal_error(error.context("failed to repeat the reader corpus search"))
+                })?,
+        )?;
+    }
+    let query_truncated = ranked.len() > CORPUS_SEARCH_QUERY_BOUND;
+    ranked.truncate(CORPUS_SEARCH_QUERY_BOUND);
+    let total = ranked.len();
+    let offset = match after {
+        Some(position) => parse_corpus_position(position, query, total)?,
+        None => 0,
+    };
+    let end = total.min(offset.saturating_add(params.normalized_limit()));
+    let hits = ranked[offset..end].to_vec();
+    let has_more = end < total;
+    let next_position = has_more.then(|| corpus_position(query, end));
+    to_value(SearchCorpusResult {
+        hits,
+        total,
+        has_more,
+        next_position,
+        query_bound: CORPUS_SEARCH_QUERY_BOUND,
+        query_truncated,
+    })
+}
+
+fn corpus_position(query: &str, offset: usize) -> String {
+    format!("v1:{:016x}:{offset}", corpus_query_identity(query))
+}
+
+fn parse_corpus_position(position: &str, query: &str, total: usize) -> Result<usize, JsonRpcError> {
+    let mut parts = position.split(':');
+    let version = parts.next();
+    let identity = parts.next();
+    let offset = parts.next();
+    if version != Some("v1") || parts.next().is_some() {
+        return Err(invalid_params("invalid corpus search position"));
+    }
+    let expected = format!("{:016x}", corpus_query_identity(query));
+    if identity != Some(expected.as_str()) {
+        return Err(invalid_params(
+            "corpus search position belongs to another query",
+        ));
+    }
+    let offset = offset
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|offset| *offset < total)
+        .ok_or_else(|| invalid_params("invalid corpus search position"))?;
+    Ok(offset)
+}
+
+fn corpus_query_identity(query: &str) -> u64 {
+    query
+        .as_bytes()
+        .iter()
+        .fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+            (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3)
+        })
 }
 
 pub(crate) fn random_node(
@@ -187,6 +284,25 @@ fn live_content_hits(
     }
     for file_path in missing {
         state.remove_indexed_file_path(&file_path, "missing indexed node file")?;
+    }
+    Ok(live)
+}
+
+fn live_corpus_hits(
+    state: &mut ServerState,
+    hits: Vec<CorpusSearchHit>,
+) -> Result<Vec<CorpusSearchHit>, JsonRpcError> {
+    let mut live = Vec::with_capacity(hits.len());
+    let mut missing = BTreeSet::new();
+    for hit in hits {
+        if state.indexed_file_is_live(&hit.node.file_path) {
+            live.push(hit);
+        } else {
+            missing.insert(hit.node.file_path);
+        }
+    }
+    for file_path in missing {
+        state.remove_indexed_file_path(&file_path, "missing indexed corpus search file")?;
     }
     Ok(live)
 }

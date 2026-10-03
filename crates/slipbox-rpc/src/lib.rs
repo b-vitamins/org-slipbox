@@ -36,6 +36,7 @@ pub const METHOD_GRAPH_DOT: &str = "slipbox/graphDot";
 pub const METHOD_SEARCH_NODES: &str = "slipbox/searchNodes";
 pub const METHOD_LIST_NOTES: &str = "slipbox/listNotes";
 pub const METHOD_SEARCH_NODE_CONTENT: &str = "slipbox/searchNodeContent";
+pub const METHOD_SEARCH_CORPUS: &str = "slipbox/searchCorpus";
 pub const METHOD_RANDOM_NODE: &str = "slipbox/randomNode";
 pub const METHOD_SEARCH_TAGS: &str = "slipbox/searchTags";
 pub const METHOD_NODE_FROM_ID: &str = "slipbox/nodeFromId";

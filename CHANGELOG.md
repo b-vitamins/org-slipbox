@@ -7,6 +7,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Search notes and glossary terms together from the Android library without a
+  network dependency. Rust owns literal-first ranking, entity identity, exact
+  Unicode highlights and one bounded paged result window across titles,
+  aliases and content; native debounce and source-generation ownership prevent
+  late answers from replacing newer work. Typed results open their complete
+  reader, while Back restores the query, selection and list place.
 - Browse and read the complete glossary in the Android app. The source-bound
   inventory follows every Rust keyset page without duplicates; exact term
   definitions reuse the full offline Org, math, link and preview surface while

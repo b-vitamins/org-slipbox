@@ -57,6 +57,19 @@ class SlipboxBackStackTest {
     }
 
     @Test
+    fun aLiveLibraryQueryRemainsBeneathTheResultItOpened() {
+        val origin = SlipboxRoute.Library()
+        val stack = history(origin)
+
+        assertTrue(stack.rememberLibrarySearch(origin, "fixed point"))
+        assertTrue(stack.open(note(ALPHA, "result-1")))
+        assertFalse(stack.rememberLibrarySearch(origin, "stale"))
+        assertTrue(stack.back())
+
+        assertEquals(SlipboxRoute.Library("fixed point"), stack.current)
+    }
+
+    @Test
     fun openingThePlaceAlreadyPresentedDoesNotGrowTheHistory() {
         val stack = history()
         val opened = note(ALPHA, "note-1")

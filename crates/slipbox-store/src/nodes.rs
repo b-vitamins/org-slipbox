@@ -5,8 +5,9 @@ use rusqlite::{OptionalExtension, params, params_from_iter};
 use serde_json::Value;
 
 use slipbox_core::{
-    AnchorRecord, ContentSegment, ContentSnippet, MIN_SEARCH_TERM_CHARACTERS, NodeContentHit,
-    NodeKind, NodeRecord, NotePlaceNeighbor, NotePlaceResult, SearchNodesSort,
+    AnchorRecord, CORPUS_SEARCH_QUERY_BOUND, ContentSegment, ContentSnippet, CorpusSearchEntity,
+    CorpusSearchField, CorpusSearchHit, MIN_SEARCH_TERM_CHARACTERS, NodeContentHit, NodeKind,
+    NodeRecord, NotePlaceNeighbor, NotePlaceResult, SearchNodesSort,
 };
 
 use crate::Database;
@@ -547,6 +548,57 @@ impl Database {
         })?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .context("failed to read note content search results")
+    }
+
+    /// Search every note and glossary entity once, retaining the index's
+    /// canonical rank and exact highlighted display text.
+    pub fn search_corpus(&self, query: &str, limit: usize) -> Result<Vec<CorpusSearchHit>> {
+        let limit = limit.clamp(1, CORPUS_SEARCH_QUERY_BOUND + 1) as i64;
+        let (Some(fts_query), Some(probes)) =
+            (build_fts_query(query), build_fts_literal_probes(query))
+        else {
+            return Ok(Vec::new());
+        };
+        let headword_query = query.split_whitespace().collect::<Vec<_>>().join(" ");
+        let ranking = self.content_ranking(
+            &fts_query,
+            headword_query,
+            build_fts_phrase_query(query),
+            probes,
+        )?;
+        let sql = search_corpus_sql(&ranking);
+        let mut arguments: Vec<rusqlite::types::Value> =
+            vec![fts_query.into(), SNIPPET_TOKEN_BUDGET.into(), limit.into()];
+        arguments.extend(ranking.into_tier_queries().map(Into::into));
+        let mut statement = self.connection.prepare(&sql)?;
+        let rows = statement.query_map(params_from_iter(arguments), |row| {
+            let node = row_to_note(row)?;
+            let title = parse_snippet(&row.get::<_, String>(ANCHOR_SELECT_COLUMN_COUNT)?);
+            let aliases = parse_snippet(&row.get::<_, String>(ANCHOR_SELECT_COLUMN_COUNT + 1)?);
+            let excerpt = parse_snippet(&row.get::<_, String>(ANCHOR_SELECT_COLUMN_COUNT + 2)?);
+            let matched_field = if snippet_has_match(&title) {
+                CorpusSearchField::Title
+            } else if snippet_has_match(&aliases) {
+                CorpusSearchField::Alias
+            } else {
+                CorpusSearchField::Content
+            };
+            let entity = if node.glossary {
+                CorpusSearchEntity::Glossary
+            } else {
+                CorpusSearchEntity::Note
+            };
+            Ok(CorpusSearchHit {
+                node,
+                entity,
+                matched_field,
+                title,
+                aliases,
+                excerpt,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("failed to read corpus search results")
     }
 
     // Whole-term probe sets are subsets of the stemmed pool, so equal counts
@@ -1131,6 +1183,49 @@ fn search_node_content_sql(ranking: &ContentRanking) -> String {
     )
 }
 
+/// The unified reader search uses the same literal tiers and BM25 ordering as
+/// content search, while asking FTS to mark the exact displayed lexemes in all
+/// three searchable columns.
+fn search_corpus_sql(ranking: &ContentRanking) -> String {
+    let mut parameter = CONTENT_TIER_PARAMETER;
+    let mut ctes = Vec::new();
+    let mut joins = Vec::new();
+    let mut order = Vec::new();
+    if ranking.headword.is_some() {
+        joins.push(format!(
+            "LEFT JOIN ({}) AS headword ON headword.id = node_content_fts.rowid",
+            headword_set(parameter)
+        ));
+        order.push("headword.id IS NULL".to_owned());
+        parameter += 1;
+    }
+    for (alias, _) in &ranking.probes {
+        ctes.push(probe_cte(alias, parameter));
+        joins.push(probe_join(alias, "node_content_fts.rowid"));
+        order.push(format!("{alias}.rowid IS NULL"));
+        parameter += 1;
+    }
+    order.extend(["bm25(node_content_fts)", "n.file_path", "n.line"].map(str::to_owned));
+    format!(
+        "{}SELECT {},
+                highlight(node_content_fts, 0, char(2), char(3)),
+                highlight(node_content_fts, 1, char(2), char(3)),
+                snippet(node_content_fts, 2, char(2), char(3), '…', ?2)
+           FROM node_content_fts
+           JOIN nodes AS n ON n.id = node_content_fts.rowid
+           {}
+          WHERE node_content_fts MATCH ?1
+            AND {}
+          ORDER BY {}
+          LIMIT ?3",
+        probe_with(&ctes),
+        anchor_select_columns("n"),
+        joins.join("\n           "),
+        note_where("n"),
+        order.join(",\n                   "),
+    )
+}
+
 fn search_nodes_order_by(sort: Option<&SearchNodesSort>, using_fts: bool) -> &'static str {
     match sort {
         None | Some(SearchNodesSort::Relevance) if using_fts => {
@@ -1355,6 +1450,10 @@ fn parse_snippet(raw: &str) -> ContentSnippet {
     flush(&mut current, matched, &mut segments);
 
     ContentSnippet { segments }
+}
+
+fn snippet_has_match(snippet: &ContentSnippet) -> bool {
+    snippet.segments.iter().any(|segment| segment.matched)
 }
 
 /// Usable FTS terms in a raw query: whitespace-separated runs, stripped of
@@ -1892,6 +1991,86 @@ mod tests {
 
     fn content_titles(hits: &[slipbox_core::NodeContentHit]) -> Vec<String> {
         hits.iter().map(|hit| hit.node.title.clone()).collect()
+    }
+
+    fn highlighted_text(snippet: &slipbox_core::ContentSnippet) -> String {
+        snippet
+            .segments
+            .iter()
+            .filter(|segment| segment.matched)
+            .map(|segment| segment.text.as_str())
+            .collect()
+    }
+
+    fn segments_text(snippet: &slipbox_core::ContentSnippet) -> String {
+        snippet
+            .segments
+            .iter()
+            .map(|segment| segment.text.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn corpus_search_returns_each_typed_entity_once_with_exact_unicode_highlights() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            (
+                "term.org",
+                "#+title: Fixed point\n#+glossary: t\n:PROPERTIES:\n:ROAM_ALIASES: \"Invariant point\"\n:END:\n\nA canonical definition with \\(f(λ)=λ\\) and théorie context.\n",
+            ),
+            (
+                "note.org",
+                "#+title: Iterative methods\n\nThe fixed point argument keeps \\(f(λ)=λ\\) intact.\n",
+            ),
+            (
+                "alias.org",
+                "#+title: Banach theorem\n:PROPERTIES:\n:ROAM_ALIASES: \"Contraction principle\"\n:END:\n\nA convergence result.\n",
+            ),
+        ])?;
+
+        let fixed = database.search_corpus("fixed point", 20)?;
+        assert_eq!(
+            fixed
+                .iter()
+                .map(|hit| hit.node.node_key.as_str())
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            fixed.len(),
+            "one indexed entity must never occupy two result categories"
+        );
+        let term = fixed
+            .iter()
+            .find(|hit| hit.node.title == "Fixed point")
+            .expect("the glossary headword is searchable");
+        assert_eq!(fixed.first(), Some(term), "an exact headword ranks first");
+        assert_eq!(term.entity, slipbox_core::CorpusSearchEntity::Glossary);
+        assert_eq!(term.matched_field, slipbox_core::CorpusSearchField::Title);
+        assert_eq!(segments_text(&term.title), "Fixed point");
+        assert_eq!(highlighted_text(&term.title), "Fixedpoint");
+        assert!(fixed.iter().any(|hit| hit.node.title == "Iterative methods"
+            && hit.matched_field == slipbox_core::CorpusSearchField::Content
+            && segments_text(&hit.excerpt).contains("fixed point")
+            && highlighted_text(&hit.excerpt).contains("fixedpoint")));
+
+        let alias = database.search_corpus("contraction principle", 20)?;
+        assert_eq!(alias.len(), 1);
+        assert_eq!(
+            alias[0].matched_field,
+            slipbox_core::CorpusSearchField::Alias
+        );
+        assert_eq!(segments_text(&alias[0].aliases), "Contraction principle");
+        assert_eq!(highlighted_text(&alias[0].aliases), "Contractionprinciple");
+
+        let unicode = database.search_corpus("théorie", 20)?;
+        assert_eq!(unicode.len(), 1);
+        let rendered = unicode[0]
+            .excerpt
+            .segments
+            .iter()
+            .map(|segment| segment.text.as_str())
+            .collect::<String>();
+        assert!(rendered.contains("\\(f(λ)=λ\\)"));
+        assert_eq!(highlighted_text(&unicode[0].excerpt), "théorie");
+        Ok(())
     }
 
     fn snippet_text(hit: &slipbox_core::NodeContentHit) -> String {

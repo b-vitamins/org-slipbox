@@ -25,7 +25,7 @@ use crate::{
     METHOD_REVIEW_FINDING_REMEDIATION_APPLY, METHOD_REVIEW_FINDING_REMEDIATION_PREVIEW,
     METHOD_REVIEW_ROUTINE, METHOD_REVIEW_RUN, METHOD_RUN_REVIEW_ROUTINE, METHOD_RUN_WORKFLOW,
     METHOD_SAVE_CORPUS_AUDIT_REVIEW, METHOD_SAVE_EXPLORATION_ARTIFACT, METHOD_SAVE_REVIEW_RUN,
-    METHOD_SAVE_WORKFLOW_REVIEW, METHOD_SEARCH_FILES, METHOD_SEARCH_GLOSSARY,
+    METHOD_SAVE_WORKFLOW_REVIEW, METHOD_SEARCH_CORPUS, METHOD_SEARCH_FILES, METHOD_SEARCH_GLOSSARY,
     METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES, METHOD_SEARCH_OCCURRENCES, METHOD_SEARCH_REFS,
     METHOD_SEARCH_TAGS, METHOD_SLIPBOX_LINK_REWRITE_APPLY, METHOD_SLIPBOX_LINK_REWRITE_PREVIEW,
     METHOD_STATUS, METHOD_UNLINKED_REFERENCES, METHOD_UPDATE_NODE_METADATA,
@@ -178,6 +178,13 @@ const DESCRIPTORS: &[OperationDescriptor] = &[
         ReadOnly,
         ReadsDerivedIndex,
         "Search indexed note content and return a highlighted excerpt per hit."
+    ),
+    descriptor!(
+        METHOD_SEARCH_CORPUS,
+        Notes,
+        ReadOnly,
+        ReadsDerivedIndex,
+        "Search note and glossary entities in bounded ranked pages."
     ),
     descriptor!(
         METHOD_RANDOM_NODE,
@@ -795,6 +802,7 @@ mod tests {
                 ReadOnly,
                 ReadsDerivedIndex,
             ),
+            ("slipbox/searchCorpus", Notes, ReadOnly, ReadsDerivedIndex),
             ("slipbox/randomNode", Notes, ReadOnly, ReadsDerivedIndex),
             ("slipbox/nodeFromId", Notes, ReadOnly, ReadsDerivedIndex),
             ("slipbox/nodeFromKey", Notes, ReadOnly, ReadsDerivedIndex),

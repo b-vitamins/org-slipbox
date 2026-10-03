@@ -21,6 +21,7 @@ import io.github.b_vitamins.slipbox.navigation.SlipboxRoute
 import io.github.b_vitamins.slipbox.navigation.SlipboxSurface
 import io.github.b_vitamins.slipbox.navigation.rememberReadingTrailSession
 import io.github.b_vitamins.slipbox.navigation.rememberReadingReturnsState
+import io.github.b_vitamins.slipbox.navigation.readingRoute
 import io.github.b_vitamins.slipbox.navigation.slipboxDestinations
 import io.github.b_vitamins.slipbox.sources.SourceCatalogResult
 import io.github.b_vitamins.slipbox.sources.SourceLibraryPhase
@@ -28,6 +29,8 @@ import io.github.b_vitamins.slipbox.sources.SourceLibraryState
 import io.github.b_vitamins.slipbox.sources.rememberSourceLibraryState
 import io.github.b_vitamins.slipbox.ui.AboutScreen
 import io.github.b_vitamins.slipbox.ui.ConnectionScreen
+import io.github.b_vitamins.slipbox.ui.CorpusSearchPhase
+import io.github.b_vitamins.slipbox.ui.CorpusSearchState
 import io.github.b_vitamins.slipbox.ui.DirectedRelationsPhase
 import io.github.b_vitamins.slipbox.ui.DocumentReaderPhase
 import io.github.b_vitamins.slipbox.ui.GlossaryInventoryPhase
@@ -41,6 +44,7 @@ import io.github.b_vitamins.slipbox.ui.ReaderSurfaceKind
 import io.github.b_vitamins.slipbox.ui.RelatedDiscoveryPhase
 import io.github.b_vitamins.slipbox.ui.SourceSettingsScreen
 import io.github.b_vitamins.slipbox.ui.rememberDocumentReaderState
+import io.github.b_vitamins.slipbox.ui.rememberCorpusSearchState
 import io.github.b_vitamins.slipbox.ui.rememberDirectedRelationsState
 import io.github.b_vitamins.slipbox.ui.rememberNotesInventoryState
 import io.github.b_vitamins.slipbox.ui.rememberGlossaryInventoryState
@@ -76,9 +80,16 @@ fun SlipboxApp() {
                 val trail = rememberReadingTrailSession(phase.source.binding)
                 val readingReturns = rememberReadingReturnsState(phase.source)
                 val glossary = rememberGlossaryInventoryState(phase.source)
+                val search = rememberCorpusSearchState(phase.source)
                 val destinations =
-                    remember(settings, library, readingReturns, glossary) {
-                        productionDestinations(settings, library, readingReturns, glossary)
+                    remember(settings, library, readingReturns, glossary, search) {
+                        productionDestinations(
+                            settings,
+                            library,
+                            readingReturns,
+                            glossary,
+                            search,
+                        )
                     }
                 key(phase.source.binding) {
                     if (trail == null || readingReturns == null) {
@@ -112,12 +123,15 @@ private fun productionDestinations(
     library: SourceLibraryState,
     readingReturns: ReadingReturnsState? = null,
     glossary: GlossaryInventoryState? = null,
+    search: CorpusSearchState? = null,
 ): SlipboxDestinations =
     slipboxDestinations {
-        surface(SlipboxSurface.Library) { _, backStack ->
+        surface(SlipboxSurface.Library) { route, backStack ->
+            val libraryRoute = route as SlipboxRoute.Library
             val catalog = library.catalog
             val ready = (library.phase as? SourceLibraryPhase.Ready)?.source
             val inventory = ready?.let { rememberNotesInventoryState(it) }
+            LaunchedEffect(search, libraryRoute.query) { search?.restore(libraryRoute.query) }
             LibraryScreen(
                 phase = library.phase,
                 hasSources = catalog?.sources?.isNotEmpty() == true,
@@ -146,6 +160,23 @@ private fun productionDestinations(
                 },
                 onOpenGlossary = {
                     ready?.let { backStack.open(SlipboxRoute.Glossary(it.binding)) }
+                },
+                searchInput = search?.input ?: androidx.compose.ui.text.input.TextFieldValue(),
+                searchPhase = search?.phase ?: CorpusSearchPhase.Dormant,
+                selectedSearchNodeKey = search?.selectedNodeKey,
+                onSearchChange = { input ->
+                    if (io.github.b_vitamins.slipbox.navigation.isSavedText(input.text)) {
+                        search?.update(input)
+                        backStack.rememberLibrarySearch(libraryRoute, input.text)
+                    }
+                },
+                onLoadMoreSearch = { search?.loadMore() },
+                onRetrySearch = { search?.retry() },
+                onOpenSearchHit = { hit ->
+                    ready?.let { source ->
+                        search?.select(hit)
+                        backStack.open(hit.readingRoute(source.binding))
+                    }
                 },
                 readingReturns = readingReturns?.snapshot,
                 onOpenReadingReturn = { entry ->
