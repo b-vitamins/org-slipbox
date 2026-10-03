@@ -34,8 +34,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
@@ -99,7 +100,13 @@ internal fun ReadingSurface(
 ) {
     Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         CompositionLocalProvider(LocalSurfaceObscured provides obscured) {
-            Column(modifier = Modifier.fillMaxSize().safeDrawingPadding().withheld(obscured)) {
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .windowInsetsPadding(WindowInsets.safeDrawing.union(WindowInsets.ime))
+                        .withheld(obscured),
+            ) {
                 ReadingHeader(title = title, leading = leading, trailing = trailing)
                 HorizontalDivider(
                     thickness = SlipboxDimensions.hairline,
@@ -341,7 +348,7 @@ internal fun ContextualSheet(
                         Modifier
                             .verticalScroll(rememberScrollState())
                             .windowInsetsPadding(
-                                WindowInsets.safeDrawing.only(
+                                WindowInsets.safeDrawing.union(WindowInsets.ime).only(
                                     WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
                                 ),
                             )

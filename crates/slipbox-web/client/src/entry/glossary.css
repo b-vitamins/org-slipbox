@@ -188,6 +188,7 @@
   --math-surface: var(--paper);
   --math-surface-fade: var(--paper-fade);
   --code-surface: var(--surface);
+  --code-surface-fade: var(--surface-fade);
   --code-raise: var(--paper);
   flex: 1;
   overflow-y: auto;

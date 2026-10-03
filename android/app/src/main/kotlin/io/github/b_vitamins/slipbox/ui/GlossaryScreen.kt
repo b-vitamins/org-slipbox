@@ -5,6 +5,7 @@
 
 package io.github.b_vitamins.slipbox.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -51,6 +52,7 @@ internal fun GlossaryScreen(
     onRetry: () -> Unit,
     onOpenTerm: (NodeRecord) -> Unit,
     modifier: Modifier = Modifier,
+    selectedTermNodeKey: String? = null,
     review: Boolean = false,
     reviewInput: TextFieldValue = TextFieldValue(),
     reviewPhase: GlossaryReviewPhase = GlossaryReviewPhase.Dormant,
@@ -136,9 +138,16 @@ internal fun GlossaryScreen(
                     onLoadMore = onLoadMoreReview,
                     onRetry = onRetryReview,
                     onOpenTerm = onOpenTerm,
+                    selectedTermNodeKey = selectedTermNodeKey,
                 )
             } else {
-                glossaryInventoryItems(phase, onLoadMore, onRetry, onOpenTerm)
+                glossaryInventoryItems(
+                    phase,
+                    onLoadMore,
+                    onRetry,
+                    onOpenTerm,
+                    selectedTermNodeKey,
+                )
             }
         }
     }
@@ -149,6 +158,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.glossaryInventoryItem
     onLoadMore: () -> Unit,
     onRetry: () -> Unit,
     onOpenTerm: (NodeRecord) -> Unit,
+    selectedTermNodeKey: String?,
 ) {
     when (phase) {
         GlossaryInventoryPhase.Dormant,
@@ -181,7 +191,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.glossaryInventoryItem
                 )
             }
             items(items = phase.terms, key = NodeRecord::nodeKey) { term ->
-                GlossaryTermRow(term, review = false, onClick = { onOpenTerm(term) })
+                GlossaryTermRow(
+                    term,
+                    review = false,
+                    selected = term.nodeKey == selectedTermNodeKey,
+                    onClick = { onOpenTerm(term) },
+                )
                 HorizontalDivider(
                     thickness = SlipboxDimensions.hairline,
                     color = MaterialTheme.colorScheme.outline,
@@ -231,6 +246,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.glossaryReviewItems(
     onLoadMore: () -> Unit,
     onRetry: () -> Unit,
     onOpenTerm: (NodeRecord) -> Unit,
+    selectedTermNodeKey: String?,
 ) {
     when (phase) {
         GlossaryReviewPhase.Dormant,
@@ -276,7 +292,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.glossaryReviewItems(
                 )
             }
             items(items = phase.terms, key = NodeRecord::nodeKey) { term ->
-                GlossaryTermRow(term, review = true, onClick = { onOpenTerm(term) })
+                GlossaryTermRow(
+                    term,
+                    review = true,
+                    selected = term.nodeKey == selectedTermNodeKey,
+                    onClick = { onOpenTerm(term) },
+                )
                 HorizontalDivider(
                     thickness = SlipboxDimensions.hairline,
                     color = MaterialTheme.colorScheme.outline,
@@ -312,12 +333,25 @@ private fun GlossaryReferenceDate(referenceDate: String) {
 }
 
 @Composable
-private fun GlossaryTermRow(term: NodeRecord, review: Boolean, onClick: () -> Unit) {
+private fun GlossaryTermRow(
+    term: NodeRecord,
+    review: Boolean,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
     Column(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .heightIn(min = SlipboxDimensions.touchTarget)
+                .background(
+                    if (selected) {
+                        MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.28f)
+                    } else {
+                        MaterialTheme.colorScheme.surface
+                    },
+                )
+                .semantics { this.selected = selected }
                 .clickable(onClick = onClick)
                 .padding(vertical = SlipboxDimensions.headerPaddingVertical),
     ) {

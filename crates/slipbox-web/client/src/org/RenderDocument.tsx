@@ -92,40 +92,42 @@ const RenderBlock: Component<{ block: Block; base: number }> = (props) => {
       const headerRows = block.rows.filter((row) => row.header);
       const bodyRows = block.rows.filter((row) => !row.header);
       return (
-        <table class="org-table">
-          <Show when={headerRows.length > 0}>
-            <thead>
-              <For each={headerRows}>
+        <div class="org-table-scroll" tabindex="0">
+          <table class="org-table">
+            <Show when={headerRows.length > 0}>
+              <thead>
+                <For each={headerRows}>
+                  {(row) => (
+                    <tr>
+                      <For each={row.cells}>
+                        {(cell) => (
+                          <th scope="col">
+                            <RenderInline nodes={cell.children} />
+                          </th>
+                        )}
+                      </For>
+                    </tr>
+                  )}
+                </For>
+              </thead>
+            </Show>
+            <tbody>
+              <For each={bodyRows}>
                 {(row) => (
                   <tr>
                     <For each={row.cells}>
                       {(cell) => (
-                        <th scope="col">
+                        <td>
                           <RenderInline nodes={cell.children} />
-                        </th>
+                        </td>
                       )}
                     </For>
                   </tr>
                 )}
               </For>
-            </thead>
-          </Show>
-          <tbody>
-            <For each={bodyRows}>
-              {(row) => (
-                <tr>
-                  <For each={row.cells}>
-                    {(cell) => (
-                      <td>
-                        <RenderInline nodes={cell.children} />
-                      </td>
-                    )}
-                  </For>
-                </tr>
-              )}
-            </For>
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
       );
     }
     default:

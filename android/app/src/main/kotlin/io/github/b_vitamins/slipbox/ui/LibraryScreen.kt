@@ -5,6 +5,7 @@
 
 package io.github.b_vitamins.slipbox.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -22,10 +23,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.TextFieldValue
 import io.github.b_vitamins.slipbox.R
@@ -52,6 +55,7 @@ internal fun LibraryScreen(
     onLoadMore: () -> Unit = {},
     onRetryInventory: () -> Unit = {},
     onOpenNote: (NodeRecord) -> Unit = {},
+    selectedNoteNodeKey: String? = null,
     onOpenGlossary: () -> Unit = {},
     searchInput: TextFieldValue = TextFieldValue(),
     searchPhase: CorpusSearchPhase = CorpusSearchPhase.Dormant,
@@ -74,12 +78,24 @@ internal fun LibraryScreen(
         trailing = {
             Row(horizontalArrangement = Arrangement.spacedBy(SlipboxDimensions.headerPaddingHorizontal)) {
                 if (hasSources) {
-                    TextControl(label = stringResource(R.string.action_sources), onClick = onManageSources)
+                    IconControl(
+                        icon = painterResource(R.drawable.ic_sources),
+                        label = stringResource(R.string.action_sources),
+                        onClick = onManageSources,
+                    )
                 }
                 if (phase is SourceLibraryPhase.Ready || hasSources) {
-                    TextControl(label = stringResource(R.string.action_add_source), onClick = onConnect)
+                    IconControl(
+                        icon = painterResource(R.drawable.ic_add),
+                        label = stringResource(R.string.action_add_source),
+                        onClick = onConnect,
+                    )
                 }
-                TextControl(label = stringResource(R.string.action_about), onClick = onOpenAbout)
+                IconControl(
+                    icon = painterResource(R.drawable.ic_info),
+                    label = stringResource(R.string.action_about),
+                    onClick = onOpenAbout,
+                )
             }
         },
     ) {
@@ -128,6 +144,7 @@ internal fun LibraryScreen(
                         onLoadMore = onLoadMore,
                         onRetry = onRetryInventory,
                         onOpenNote = onOpenNote,
+                        selectedNoteNodeKey = selectedNoteNodeKey,
                         onOpenGlossary = onOpenGlossary,
                         readingReturns = readingReturns,
                         onOpenReadingReturn = onOpenReadingReturn,
@@ -162,6 +179,7 @@ private fun NotesInventory(
     onLoadMore: () -> Unit,
     onRetry: () -> Unit,
     onOpenNote: (NodeRecord) -> Unit,
+    selectedNoteNodeKey: String?,
     onOpenGlossary: () -> Unit,
     readingReturns: ReadingReturnsSnapshot?,
     onOpenReadingReturn: (ReadingReturn) -> Unit,
@@ -222,7 +240,11 @@ private fun NotesInventory(
                     )
                 }
                 items(items = phase.notes, key = NodeRecord::nodeKey) { note ->
-                    NoteInventoryRow(note, onClick = { onOpenNote(note) })
+                    NoteInventoryRow(
+                        note,
+                        selected = note.nodeKey == selectedNoteNodeKey,
+                        onClick = { onOpenNote(note) },
+                    )
                     HorizontalDivider(
                         thickness = SlipboxDimensions.hairline,
                         color = MaterialTheme.colorScheme.outline,
@@ -435,7 +457,7 @@ private fun ReadingReturnRow(
 }
 
 @Composable
-private fun NoteInventoryRow(note: NodeRecord, onClick: () -> Unit) {
+private fun NoteInventoryRow(note: NodeRecord, selected: Boolean, onClick: () -> Unit) {
     val location =
         when (note.kind) {
             NodeKind.FILE -> note.filePath
@@ -446,6 +468,14 @@ private fun NoteInventoryRow(note: NodeRecord, onClick: () -> Unit) {
             Modifier
                 .fillMaxWidth()
                 .heightIn(min = SlipboxDimensions.touchTarget)
+                .background(
+                    if (selected) {
+                        MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.28f)
+                    } else {
+                        MaterialTheme.colorScheme.surface
+                    },
+                )
+                .semantics { this.selected = selected }
                 .clickable(onClick = onClick)
                 .padding(vertical = SlipboxDimensions.headerPaddingVertical),
     ) {

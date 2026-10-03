@@ -174,6 +174,9 @@ describe("RenderDocument", () => {
     expect(headers).toHaveLength(2);
     expect(headers[0]?.textContent).toBe("quantity");
     expect(container.querySelectorAll("tbody td")).toHaveLength(2);
+    const scroll = container.querySelector(".org-table-scroll");
+    expect(scroll?.getAttribute("tabindex")).toBe("0");
+    expect(scroll?.querySelector(":scope > table.org-table")).not.toBeNull();
 
     // The math cell renders through KaTeX rather than printing raw TeX.
     const bodyCell = container.querySelector("tbody td");

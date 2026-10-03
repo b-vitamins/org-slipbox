@@ -13,7 +13,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.DarkMode
+import androidx.compose.ui.test.DeviceConfigurationOverride
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.WindowSize
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasText
@@ -27,7 +30,9 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.then
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -226,6 +231,85 @@ class GlossarySurfaceTest {
         composeRule.onNodeWithText("Term 64").assertIsDisplayed()
         composeRule.onNodeWithText("Term 1").assertDoesNotExist()
         Evidence.image("glossary-back-restoration", composeRule.onRoot().captureToImage())
+    }
+
+    @Test
+    fun expandedDarkWindowKeepsTheGlossaryBesideItsCompleteDefinition() {
+        val binding = GenerationBinding(SOURCE, GENERATION)
+        val terms = (1..20).map(::term)
+        composeRule.setContent {
+            DeviceConfigurationOverride(
+                DeviceConfigurationOverride.WindowSize(DpSize(900.dp, 700.dp)) then
+                    DeviceConfigurationOverride.DarkMode(true),
+            ) {
+                val settings = remember { ReadingSettings(MemoryStore()) }
+                val destinations =
+                    remember(settings) {
+                        slipboxDestinations {
+                            surface(SlipboxSurface.Library) { _, _ -> Text("Library") }
+                            surface(SlipboxSurface.Glossary) { route, backStack ->
+                                val glossary = route as SlipboxRoute.Glossary
+                                if (glossary.term == null) {
+                                    GlossaryScreen(
+                                        phase =
+                                            GlossaryInventoryPhase.Ready(
+                                                terms,
+                                                terms.size.toLong(),
+                                                false,
+                                                null,
+                                            ),
+                                        onBack = { backStack.back() },
+                                        onActivate = {},
+                                        onLoadMore = {},
+                                        onRetry = {},
+                                        onOpenTerm = {
+                                            backStack.open(glossary.copy(term = it.nodeKey))
+                                        },
+                                        selectedTermNodeKey =
+                                            (backStack.current as? SlipboxRoute.Glossary)?.term,
+                                    )
+                                } else {
+                                    val selected = terms.first { it.nodeKey == glossary.term }
+                                    ReaderScreen(
+                                        phase =
+                                            DocumentReaderPhase.Ready(
+                                                document(
+                                                    selected.title,
+                                                    selected.aliases.first(),
+                                                    selected.explicitId.orEmpty(),
+                                                ),
+                                            ),
+                                        settings = settings,
+                                        kind = ReaderSurfaceKind.GlossaryTerm,
+                                        onBack = { backStack.back() },
+                                        onRetry = {},
+                                    )
+                                }
+                            }
+                        }
+                    }
+                SlipboxTheme {
+                    io.github.b_vitamins.slipbox.navigation.SlipboxNavigation(
+                        destinations = destinations,
+                        motion = SlipboxMotion(reduceMotion = true),
+                        generations = SourceGenerations { GENERATION },
+                        restored = listOf(SlipboxRoute.Glossary(binding)),
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithText("Term 1").performClick()
+        val reader = shown()
+        composeRule.onNodeWithTag(GLOSSARY_LIST_TAG).assertIsDisplayed()
+        assertEquals(
+            "The term-1 definition ends here.",
+            reader.text("document.querySelector('#document p:last-child').textContent"),
+        )
+        Evidence.image(
+            "glossary-list-detail-expanded-dark",
+            composeRule.onRoot().captureToImage(),
+        )
     }
 
     @Test

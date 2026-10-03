@@ -4,8 +4,8 @@
  *
  * Every value resolves through the design tokens, which an entry point supplies
  * by importing `styles/tokens.css`. Surfaces holding a document on another tone
- * override `--code-surface`, `--code-raise`, `--math-surface` and
- * `--math-surface-fade` rather than restating these rules.
+ * override `--code-surface`, `--code-surface-fade`, `--code-raise`,
+ * `--math-surface` and `--math-surface-fade` rather than restating these rules.
  */
 
 .org-document {
@@ -72,7 +72,6 @@
 
 .org-example {
   padding: 12px 16px;
-  overflow-x: auto;
 }
 
 .org-src {
@@ -118,11 +117,74 @@
 .org-src__code {
   margin: 0;
   padding: 12px 16px;
+}
+
+.org-example,
+.org-src__code,
+.org-table-scroll,
+.org-math--display {
   overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x pan-y;
+  /* Quiet edge shadows reveal horizontal content without permanent chrome.
+   * Local cover gradients move away as the reader scrolls, exposing only the
+   * shadow on the edge that still has content beyond it. */
+  background-image:
+    linear-gradient(
+        to right,
+        var(--scroll-surface) 30%,
+        var(--scroll-surface-fade)
+      ),
+    linear-gradient(
+        to left,
+        var(--scroll-surface) 30%,
+        var(--scroll-surface-fade)
+      ),
+    radial-gradient(
+        farthest-side at 0 50%,
+        var(--edge-shadow),
+        var(--edge-shadow-fade)
+      ),
+    radial-gradient(
+        farthest-side at 100% 50%,
+        var(--edge-shadow),
+        var(--edge-shadow-fade)
+      );
+  background-color: var(--scroll-surface);
+  background-position: left center, right center, left center, right center;
+  background-repeat: no-repeat;
+  background-size:
+    40px 100%,
+    40px 100%,
+    14px 100%,
+    14px 100%;
+  background-attachment: local, local, scroll, scroll;
+}
+
+.org-example,
+.org-src__code {
+  --scroll-surface: var(--code-surface, var(--paper));
+  --scroll-surface-fade: var(--code-surface-fade, var(--paper-fade));
+}
+
+.org-table-scroll,
+.org-math--display {
+  --scroll-surface: var(--math-surface, var(--surface));
+  --scroll-surface-fade: var(--math-surface-fade, var(--surface-fade));
+}
+
+.org-table-scroll {
+  margin: 0 0 1em;
+}
+
+.org-table-scroll:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
 }
 
 .org-table {
-  margin: 0 0 1em;
+  margin: 0;
   border-collapse: collapse;
   font-size: 15px;
 }
@@ -141,45 +203,6 @@
 
 .org-math--display {
   margin: 1em 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  /* Lea Verou's scrolling shadows: the cover gradients
-   * (background-attachment: local) sit against each edge and scroll away,
-   * unmasking the shadow gradients (attachment: scroll), so an edge shadow shows
-   * only while there is more equation to reveal on that side. Containers may
-   * override the surface pair when rendering on another tone. */
-  background:
-    linear-gradient(
-        to right,
-        var(--math-surface, var(--surface)) 30%,
-        var(--math-surface-fade, var(--surface-fade))
-      )
-      left center,
-    linear-gradient(
-        to left,
-        var(--math-surface, var(--surface)) 30%,
-        var(--math-surface-fade, var(--surface-fade))
-      )
-      right center,
-    radial-gradient(
-        farthest-side at 0 50%,
-        var(--edge-shadow),
-        var(--edge-shadow-fade)
-      )
-      left center,
-    radial-gradient(
-        farthest-side at 100% 50%,
-        var(--edge-shadow),
-        var(--edge-shadow-fade)
-      )
-      right center;
-  background-repeat: no-repeat;
-  background-size:
-    40px 100%,
-    40px 100%,
-    14px 100%,
-    14px 100%;
-  background-attachment: local, local, scroll, scroll;
 }
 
 /* Prose links need a non-color affordance; variants provide their own. */

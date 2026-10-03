@@ -16,6 +16,7 @@
     <string name="notes_empty">This repository contains no notes.</string>
     <string name="notes_unavailable">Notes could not be loaded.</string>
     <string name="notes_more_unavailable">More notes could not be loaded.</string>
+    <string name="adaptive_select_reading">Choose a note or term to read.</string>
     <string name="search_placeholder">What are you looking for?</string>
     <string name="search_loading">Searching.</string>
     <string name="search_loading_more">Loading more matches.</string>
@@ -53,6 +54,7 @@
     <string name="glossary_due_never_reviewed">Never reviewed · due</string>
     <string name="glossary_due_without_date">Due · date not recorded</string>
     <string name="glossary_due_on">Due %1$s</string>
+    <string name="adaptive_select_term">Choose a term to read.</string>
     <plurals name="glossary_terms">
         <item quantity="one">%d term</item>
         <item quantity="other">%d terms</item>

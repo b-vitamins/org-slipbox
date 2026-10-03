@@ -25,6 +25,7 @@ import io.github.b_vitamins.slipbox.ui.Record
 import io.github.b_vitamins.slipbox.ui.document.documentPresentation
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxMotion
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -116,6 +117,12 @@ class DocumentGestureTest {
     @Test
     fun dismissingANativePreviewRestoresItsExactLinkWithoutMovingTheDocument() {
         view.answer("window.scrollTo(0, 80)")
+        val moved = raised.quiet()
+        assertTrue(
+            "the initial move reported a reading place",
+            moved.isNotEmpty() && moved.all { it is DocumentIntent.Position },
+        )
+        raised.forget()
         view.answer(PRESS_LINK)
         val preview = raised.awaited(1).first() as DocumentIntent.Glance
         assertEquals(
@@ -206,6 +213,54 @@ class DocumentGestureTest {
             documentAssetUrl(token, "file:diagram.png"),
             hrefs.single(),
         )
+    }
+
+    @Test
+    fun wideTablesAndMathScrollInsideTheVerticalReader() {
+        val result =
+            view.record(
+                """
+                (function () {
+                  const table = document.querySelector('#document .org-table-scroll');
+                  const grid = table.querySelector('table');
+                  const math = document.querySelector('#document .org-math--display');
+                  grid.style.minWidth = '1200px';
+                  math.firstElementChild.style.display = 'inline-block';
+                  math.firstElementChild.style.minWidth = '1200px';
+                  table.scrollLeft = 120;
+                  math.scrollLeft = 160;
+                  document.body.style.minHeight = '1800px';
+                  window.scrollTo(0, 100);
+                  return JSON.stringify({
+                    tableScrollable: table.scrollWidth > table.clientWidth,
+                    mathScrollable: math.scrollWidth > math.clientWidth,
+                    tableLeft: table.scrollLeft,
+                    mathLeft: math.scrollLeft,
+                    vertical: window.scrollY,
+                    pageOverflow: document.documentElement.scrollWidth >
+                      document.documentElement.clientWidth,
+                    tableOverscroll: getComputedStyle(table).overscrollBehaviorX,
+                    mathOverscroll: getComputedStyle(math).overscrollBehaviorX,
+                    tableTouch: getComputedStyle(table).touchAction,
+                    mathTouch: getComputedStyle(math).touchAction,
+                    tableTabIndex: table.tabIndex
+                  });
+                })()
+                """
+                    .trimIndent(),
+            )
+
+        assertTrue(result.getBoolean("tableScrollable"))
+        assertTrue(result.getBoolean("mathScrollable"))
+        assertTrue(result.getDouble("tableLeft") > 0)
+        assertTrue(result.getDouble("mathLeft") > 0)
+        assertTrue(result.getDouble("vertical") > 0)
+        assertFalse("wide blocks never widen the page", result.getBoolean("pageOverflow"))
+        assertEquals("contain", result.getString("tableOverscroll"))
+        assertEquals("contain", result.getString("mathOverscroll"))
+        assertEquals("pan-x pan-y", result.getString("tableTouch"))
+        assertEquals("pan-x pan-y", result.getString("mathTouch"))
+        assertEquals(0, result.getInt("tableTabIndex"))
     }
 
     private fun post(payload: String) {

@@ -150,6 +150,11 @@ private fun productionDestinations(
                 inventory = inventory?.phase,
                 onLoadMore = { inventory?.loadMore() },
                 onRetryInventory = { inventory?.retry() },
+                selectedNoteNodeKey =
+                    (backStack.current as? SlipboxRoute.Reader)
+                        ?.note
+                        ?.takeIf { it.binding == ready?.binding }
+                        ?.nodeKey,
                 onOpenNote = { note ->
                     ready?.let {
                         backStack.open(
@@ -467,6 +472,10 @@ private fun productionDestinations(
                     onActivate = { glossary?.activate() },
                     onLoadMore = { glossary?.loadMore() },
                     onRetry = { glossary?.retry() },
+                    selectedTermNodeKey =
+                        (backStack.current as? SlipboxRoute.Glossary)
+                            ?.takeIf { it.binding == glossaryRoute.binding }
+                            ?.term,
                     onOpenTerm = { term ->
                         backStack.open(glossaryRoute.copy(term = term.nodeKey))
                     },

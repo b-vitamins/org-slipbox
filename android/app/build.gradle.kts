@@ -282,6 +282,7 @@ dependencies {
     implementation(libs.androidx.core)
     implementation(libs.compose.foundation)
     implementation(libs.compose.material3)
+    implementation(libs.compose.material3.adaptive.navigation3)
     implementation(libs.compose.ui)
     implementation(libs.androidx.navigation3.runtime)
     implementation(libs.androidx.navigation3.ui)

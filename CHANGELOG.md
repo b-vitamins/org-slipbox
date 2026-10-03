@@ -7,6 +7,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Adapt Android reading surfaces to the space and input actually available.
+  Compact windows retain one complete pane, while larger windows pair notes or
+  glossary terms with their selected list without changing route or Back
+  semantics. Resize preserves destination and modal state; system bars, the
+  keyboard and large type retain safe, tappable chrome; wide tables and display
+  math scroll within the vertical reading canvas.
 - Browse the canonical due glossary queue on Android, including bounded search
   and paging pinned to the engine's reference date. Stored SM-2 facts stay
   read-only and appear only with a term's native details; absent and partial
