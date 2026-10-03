@@ -256,6 +256,32 @@ exact complete match at the engine's one-based Unicode character column with a
 literal fallback. The initial display bound is eight source notes, not eight
 occurrences; continuation copy never presents either bound as a corpus total.
 
+** Contextual Exploration
+
+Reader opens Explore as one contextual sheet without issuing a query. The
+reader chooses explicitly among Structure, Refs, Time, Tasks, Bridges, Dormant
+and Unresolved; choosing a different lens or pressing =Refresh= is the only way
+to run it. Each request opens a read session for the displayed source
+generation and asks Rust for at most 50 entries per canonical section. A newer
+lens selection disposes the earlier session, and neither a late answer nor a
+failure can replace the current lens.
+
+Android preserves the engine's section and entry order without ranking or
+combining candidates. Structure retains Backlinks then Forward links; Refs
+retains Shared references then Unlinked mentions; Unresolved retains both
+Unresolved tasks and Weakly integrated notes. The other lenses retain their
+single canonical section. Every row names the engine explanation in text,
+including link direction, shared references, exact unlinked matches, planning
+relations, task state, bridge paths, source age and structural-link evidence.
+An empty canonical section remains visible instead of disappearing.
+
+The sheet distinguishes a note that lacks the metadata a lens needs, a valid
+empty result and a failed read. Reaching 50 entries in any section states the
+query bound without claiming a corpus total. Tapping a title reads the bounded
+target preview; =Open= follows that same canonical node key while retaining the
+origin reading place. Replacing the note or ready generation disposes the lens
+owner, so exploration never crosses source identity or index freshness.
+
 ** Repository Images And Attachments
 
 The reader resolves an asset relative to the file that contains its link, under

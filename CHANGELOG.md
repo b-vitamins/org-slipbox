@@ -7,6 +7,12 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Explore an Android note through all seven existing Rust lenses from one
+  contextual reader sheet. Lens selection and refresh are explicit, canonical
+  sections and engine order remain intact, and every candidate keeps the
+  explanation that established it. Empty, inapplicable, bounded and failed
+  results stay distinct; preview and open remain bound to the displayed source
+  generation.
 - Reveal ranked related notes and unlinked mentions from the Android reader only
   on explicit request. Related candidates retain their indexed bridge evidence,
   group under connector identity and omit directed relations; mentions group

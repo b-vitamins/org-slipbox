@@ -39,8 +39,9 @@ parsing, including escaped-equivalent names.
 Reading covers status, bounded node and content search, node lookup by identifier
 and by key, complete node source, glossary listing, search and lookup, backward
 and forward links, a unified paged directed-relation inventory, unlinked
-references, and one live exploration; a test holds that inventory to the
-engine's own =OperationMutation::ReadOnly= judgement. Maintenance admits initial
+references, and all seven live exploration lenses through one operation; a test
+holds that inventory to the engine's own =OperationMutation::ReadOnly=
+judgement. Maintenance admits initial
 fixture indexing and one file's update or removal. Capture, grading, Org and
 durable writes, external programs and every unknown operation are refused through
 both capabilities, and no reading session reaches maintenance.

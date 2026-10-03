@@ -18,6 +18,8 @@ internal object EngineFixtures {
 
     fun response(key: String): JsonObject = entry("responses", key)
 
+    fun exploration(key: String): JsonObject = entry("explorations", key)
+
     private fun entry(tree: String, key: String): JsonObject {
         val document = synchronized(trees) { trees.getOrPut(tree) { load(tree) } }
         return requireNotNull(document[key]?.jsonObject) { "the $tree fixture declares no $key" }

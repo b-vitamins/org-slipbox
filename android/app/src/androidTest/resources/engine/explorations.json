@@ -1,0 +1,47 @@
+{
+  "structure": {
+    "lens": "structure",
+    "sections": [
+      { "kind": "backlinks", "entries": [] },
+      { "kind": "forward-links", "entries": [] }
+    ]
+  },
+  "refs": {
+    "lens": "refs",
+    "sections": [
+      { "kind": "reflinks", "entries": [] },
+      { "kind": "unlinked-references", "entries": [] }
+    ]
+  },
+  "time": {
+    "lens": "time",
+    "sections": [
+      { "kind": "time-neighbors", "entries": [] }
+    ]
+  },
+  "tasks": {
+    "lens": "tasks",
+    "sections": [
+      { "kind": "task-neighbors", "entries": [] }
+    ]
+  },
+  "bridges": {
+    "lens": "bridges",
+    "sections": [
+      { "kind": "bridge-candidates", "entries": [] }
+    ]
+  },
+  "dormant": {
+    "lens": "dormant",
+    "sections": [
+      { "kind": "dormant-notes", "entries": [] }
+    ]
+  },
+  "unresolved": {
+    "lens": "unresolved",
+    "sections": [
+      { "kind": "unresolved-tasks", "entries": [] },
+      { "kind": "weakly-integrated-notes", "entries": [] }
+    ]
+  }
+}

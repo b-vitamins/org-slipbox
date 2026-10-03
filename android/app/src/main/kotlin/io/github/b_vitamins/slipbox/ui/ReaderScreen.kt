@@ -34,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.b_vitamins.slipbox.R
 import io.github.b_vitamins.slipbox.engine.DirectedRelationRecord
+import io.github.b_vitamins.slipbox.engine.ExplorationLens
 import io.github.b_vitamins.slipbox.engine.NodeKind
 import io.github.b_vitamins.slipbox.engine.NodeRecord
 import io.github.b_vitamins.slipbox.navigation.ReadingAnchor
@@ -85,13 +86,20 @@ internal fun ReaderScreen(
     onShowAllMentions: () -> Unit = {},
     onPreviewDiscovered: (NodeRecord) -> Unit = {},
     onOpenDiscovered: (NodeRecord) -> Unit = {},
+    explorationPhase: ReaderExplorationPhase = ReaderExplorationPhase.AwaitingLens,
+    onSelectExplorationLens: (ExplorationLens) -> Unit = {},
+    onRefreshExploration: () -> Unit = {},
+    onPreviewExploration: (NodeRecord) -> Unit = {},
+    onOpenExploration: (NodeRecord) -> Unit = {},
 ) {
     val document = (phase as? DocumentReaderPhase.Ready)?.document
     var appearanceVisible by rememberSaveable { mutableStateOf(false) }
     val appearanceControl = remember { FocusRequester() }
     val relationsControl = remember { FocusRequester() }
+    val explorationControl = remember { FocusRequester() }
     val documentControl = remember { FocusRequester() }
     var relationsVisible by rememberSaveable { mutableStateOf(false) }
+    var explorationVisible by rememberSaveable { mutableStateOf(false) }
     var deliveredFocus by remember { mutableStateOf<DocumentFocusRequest?>(null) }
     LaunchedEffect(focusRequest) {
         if (focusRequest == null) {
@@ -124,7 +132,7 @@ internal fun ReaderScreen(
             )
         ReadingSurface(
             title = document?.anchor?.title ?: stringResource(R.string.reader_title),
-            obscured = appearanceVisible || previewVisible || relationsVisible,
+            obscured = appearanceVisible || previewVisible || relationsVisible || explorationVisible,
             scrollable = document == null,
             contentPadding =
                 if (document == null) {
@@ -214,6 +222,23 @@ internal fun ReaderScreen(
                     },
                     restoreFocusTo = relationsControl,
                 )
+                ReaderExplorationSheet(
+                    visible = explorationVisible,
+                    phase = explorationPhase,
+                    motion = motion,
+                    onDismiss = { explorationVisible = false },
+                    onSelect = onSelectExplorationLens,
+                    onRefresh = onRefreshExploration,
+                    onPreview = { note ->
+                        explorationVisible = false
+                        onPreviewExploration(note)
+                    },
+                    onOpen = { note ->
+                        explorationVisible = false
+                        onOpenExploration(note)
+                    },
+                    restoreFocusTo = explorationControl,
+                )
                 ReaderPreviewSheet(
                     phase = previewPhase,
                     presentation = presentation,
@@ -260,9 +285,15 @@ internal fun ReaderScreen(
                     ReaderMetadata(
                         anchor = phase.document.anchor,
                         relationsControl = relationsControl,
+                        explorationControl = explorationControl,
                         onRelations = {
+                            explorationVisible = false
                             relationsVisible = true
                             onOpenRelations()
+                        },
+                        onExplore = {
+                            relationsVisible = false
+                            explorationVisible = true
                         },
                     )
                     ReaderLinkNotice(linkPhase)
@@ -339,7 +370,9 @@ private fun ReaderLinkNotice(phase: ReaderLinkPhase) {
 private fun ReaderMetadata(
     anchor: NodeRecord,
     relationsControl: FocusRequester,
+    explorationControl: FocusRequester,
     onRelations: () -> Unit,
+    onExplore: () -> Unit,
 ) {
     val location =
         when (anchor.kind) {
@@ -354,6 +387,7 @@ private fun ReaderMetadata(
                     horizontal = SlipboxDimensions.readingPadding,
                     vertical = SlipboxDimensions.headerPaddingVertical / 2,
                 ),
+        horizontalArrangement = Arrangement.spacedBy(SlipboxDimensions.headerPaddingHorizontal),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -363,6 +397,11 @@ private fun ReaderMetadata(
             modifier = Modifier.weight(1f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+        )
+        TextControl(
+            label = stringResource(R.string.reader_explore),
+            onClick = onExplore,
+            modifier = Modifier.focusRequester(explorationControl),
         )
         TextControl(
             label = stringResource(R.string.reader_relations),

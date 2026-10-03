@@ -32,6 +32,7 @@ import io.github.b_vitamins.slipbox.ui.DirectedRelationsPhase
 import io.github.b_vitamins.slipbox.ui.DocumentReaderPhase
 import io.github.b_vitamins.slipbox.ui.LibraryScreen
 import io.github.b_vitamins.slipbox.ui.MentionDiscoveryPhase
+import io.github.b_vitamins.slipbox.ui.ReaderExplorationPhase
 import io.github.b_vitamins.slipbox.ui.ReaderScreen
 import io.github.b_vitamins.slipbox.ui.RelatedDiscoveryPhase
 import io.github.b_vitamins.slipbox.ui.SourceSettingsScreen
@@ -39,6 +40,7 @@ import io.github.b_vitamins.slipbox.ui.rememberDocumentReaderState
 import io.github.b_vitamins.slipbox.ui.rememberDirectedRelationsState
 import io.github.b_vitamins.slipbox.ui.rememberNotesInventoryState
 import io.github.b_vitamins.slipbox.ui.rememberReaderDiscoveryState
+import io.github.b_vitamins.slipbox.ui.rememberReaderExplorationState
 import io.github.b_vitamins.slipbox.ui.content.DocumentGesture
 import io.github.b_vitamins.slipbox.ui.content.DocumentIntent
 import io.github.b_vitamins.slipbox.ui.content.DocumentPosition
@@ -167,6 +169,8 @@ private fun productionDestinations(
                 val resolvedNote = resolvedBound ?: readerRoute.note
                 val relations = rememberDirectedRelationsState(resolvedBound, ready)
                 val discoveries = rememberReaderDiscoveryState(resolvedBound, ready)
+                val exploration =
+                    rememberReaderExplorationState(resolvedBound, resolved, ready)
                 LaunchedEffect(resolved?.nodeKey, resolved?.explicitId) {
                     resolved?.let {
                         backStack.reconcileReadingNote(readerRoute, it)
@@ -340,6 +344,34 @@ private fun productionDestinations(
                         )
                     },
                     onOpenDiscovered = { note ->
+                        val anchor = readerRoute.anchor
+                        readingReturns?.rememberReadingPlace(resolvedNote, anchor)
+                        backStack.follow(
+                            origin = readerRoute,
+                            targetNodeKey = note.nodeKey,
+                            originAnchor = anchor,
+                        )
+                    },
+                    explorationPhase =
+                        exploration?.phase ?: ReaderExplorationPhase.AwaitingLens,
+                    onSelectExplorationLens = { lens -> exploration?.select(lens) },
+                    onRefreshExploration = { exploration?.refresh() },
+                    onPreviewExploration = { note ->
+                        val anchor = readerRoute.anchor
+                        reader.previewNode(
+                            nodeKey = note.nodeKey,
+                            gesture = DocumentGesture.Touch,
+                            originProgress = anchor.progress,
+                            origin = "explore:${note.nodeKey}",
+                            originPosition =
+                                DocumentPosition(
+                                    mark = anchor.mark,
+                                    progress = anchor.progress,
+                                    offset = anchor.offset,
+                                ),
+                        )
+                    },
+                    onOpenExploration = { note ->
                         val anchor = readerRoute.anchor
                         readingReturns?.rememberReadingPlace(resolvedNote, anchor)
                         backStack.follow(

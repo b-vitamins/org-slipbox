@@ -19,6 +19,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -27,10 +28,10 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SdkSuppress
-import io.github.b_vitamins.slipbox.engine.DirectedRelationDirection
-import io.github.b_vitamins.slipbox.engine.DirectedRelationRecord
 import io.github.b_vitamins.slipbox.engine.AnchorExplorationRecord
 import io.github.b_vitamins.slipbox.engine.BridgeEvidenceRecord
+import io.github.b_vitamins.slipbox.engine.DirectedRelationDirection
+import io.github.b_vitamins.slipbox.engine.DirectedRelationRecord
 import io.github.b_vitamins.slipbox.engine.ExplorationEntry
 import io.github.b_vitamins.slipbox.engine.ExplorationExplanation
 import io.github.b_vitamins.slipbox.engine.ExplorationLens
@@ -292,6 +293,104 @@ class ReaderSurfaceTest {
             assertEquals(1, mentionReveals)
         }
         Evidence.image("reader-related-and-mentions", composeRule.onRoot().captureToImage())
+    }
+
+    @Test
+    fun explorationWaitsForALensAndPreservesUnresolvedEvidenceAndTargets() {
+        lateinit var settings: ReadingSettings
+        var phase by mutableStateOf<ReaderExplorationPhase>(ReaderExplorationPhase.AwaitingLens)
+        val selected = mutableListOf<ExplorationLens>()
+        var previewed: NodeRecord? = null
+        var opened: NodeRecord? = null
+        val unfinished = explorationNode("Finish the migration", "unfinished")
+        val quiet = explorationNode("A quiet connection", "quiet")
+        val result = unresolvedExploration(unfinished, quiet)
+        composeRule.setContent {
+            settings = remember { ReadingSettings(MemoryStore()) }
+            SlipboxTheme(appearance = settings.preferences.appearance) {
+                ReaderScreen(
+                    phase = DocumentReaderPhase.Ready(document()),
+                    settings = settings,
+                    onBack = {},
+                    onRetry = {},
+                    explorationPhase = phase,
+                    onSelectExplorationLens = { lens ->
+                        selected += lens
+                        phase = ReaderExplorationPhase.Ready(result)
+                    },
+                    onPreviewExploration = { previewed = it },
+                    onOpenExploration = { opened = it },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Explore").performClick()
+        composeRule.onNodeWithText("Choose a lens.").assertIsDisplayed()
+        composeRule.runOnIdle { assertTrue(selected.isEmpty()) }
+
+        composeRule.onNodeWithText("Unresolved").performScrollTo().performClick()
+        composeRule.onNodeWithText("Unresolved tasks").performScrollTo().assertIsDisplayed()
+        composeRule
+            .onNodeWithText("Task state · TODO · References · cite:unfinished")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("Weakly integrated notes").performScrollTo().assertIsDisplayed()
+        composeRule
+            .onNodeWithText(
+                "1 structural link · References · cite:quiet · Via · Bridge note",
+            )
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.runOnIdle { assertEquals(listOf(ExplorationLens.UNRESOLVED), selected) }
+        Evidence.image("reader-exploration-unresolved", composeRule.onRoot().captureToImage())
+
+        composeRule.onNodeWithText("Finish the migration").performScrollTo().performClick()
+        composeRule.runOnIdle { assertEquals(unfinished, previewed) }
+        composeRule.onNodeWithText("Unresolved tasks").assertDoesNotExist()
+
+        composeRule.onNodeWithText("Explore").performClick()
+        composeRule.onAllNodesWithText("Open")[1].performScrollTo().performClick()
+        composeRule.runOnIdle { assertEquals(quiet, opened) }
+    }
+
+    @Test
+    fun explorationNamesFailureRefreshAndThePerSectionQueryBound() {
+        lateinit var settings: ReadingSettings
+        var phase by mutableStateOf<ReaderExplorationPhase>(ReaderExplorationPhase.AwaitingLens)
+        var refreshes = 0
+        composeRule.setContent {
+            settings = remember { ReadingSettings(MemoryStore()) }
+            SlipboxTheme(appearance = settings.preferences.appearance) {
+                ReaderScreen(
+                    phase = DocumentReaderPhase.Ready(document()),
+                    settings = settings,
+                    onBack = {},
+                    onRetry = {},
+                    explorationPhase = phase,
+                    onSelectExplorationLens = { lens ->
+                        phase = ReaderExplorationPhase.Failed(lens)
+                    },
+                    onRefreshExploration = { refreshes += 1 },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Explore").performClick()
+        composeRule.onNodeWithText("Bridges").performScrollTo().performClick()
+        composeRule
+            .onNodeWithText("Bridges could not be loaded.")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("Refresh").performScrollTo().performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, refreshes)
+            phase = boundedBridgeExploration()
+        }
+
+        composeRule
+            .onNodeWithText("A section reached the 50-result query bound; more may exist.")
+            .performScrollTo()
+            .assertIsDisplayed()
     }
 
     @Test
@@ -665,6 +764,97 @@ class ReaderSurfaceTest {
                             ),
                     ),
             ),
+        )
+
+    private fun unresolvedExploration(
+        unfinished: NodeRecord,
+        quiet: NodeRecord,
+    ): ExploreResult =
+        ExploreResult(
+            lens = ExplorationLens.UNRESOLVED,
+            sections =
+                listOf(
+                    ExplorationSection(
+                        kind = ExplorationSectionKind.UNRESOLVED_TASKS,
+                        entries =
+                            listOf(
+                                ExplorationEntry.Anchor(
+                                    AnchorExplorationRecord(
+                                        anchor = unfinished,
+                                        explanation =
+                                            ExplorationExplanation.UnresolvedSharedReference(
+                                                references = listOf("cite:unfinished"),
+                                                todoKeyword = "TODO",
+                                            ),
+                                    ),
+                                ),
+                            ),
+                    ),
+                    ExplorationSection(
+                        kind = ExplorationSectionKind.WEAKLY_INTEGRATED_NOTES,
+                        entries =
+                            listOf(
+                                ExplorationEntry.Anchor(
+                                    AnchorExplorationRecord(
+                                        anchor = quiet,
+                                        explanation =
+                                            ExplorationExplanation
+                                                .WeaklyIntegratedSharedReference(
+                                                    references = listOf("cite:quiet"),
+                                                    structuralLinkCount = 1,
+                                                    viaNotes =
+                                                        listOf(
+                                                            BridgeEvidenceRecord(
+                                                                nodeKey = "file:bridge.org",
+                                                                explicitId = null,
+                                                                title = "Bridge note",
+                                                            ),
+                                                        ),
+                                                ),
+                                    ),
+                                ),
+                            ),
+                    ),
+                ),
+        )
+
+    private fun boundedBridgeExploration(): ReaderExplorationPhase =
+        ReaderExplorationPhase.Ready(
+            ExploreResult(
+                lens = ExplorationLens.BRIDGES,
+                sections =
+                    listOf(
+                        ExplorationSection(
+                            kind = ExplorationSectionKind.BRIDGE_CANDIDATES,
+                            entries =
+                                (1..EXPLORATION_QUERY_LIMIT).map { index ->
+                                    ExplorationEntry.Anchor(
+                                        AnchorExplorationRecord(
+                                            anchor =
+                                                explorationNode(
+                                                    "Bridge candidate $index",
+                                                    "bridge-$index",
+                                                ),
+                                            explanation =
+                                                ExplorationExplanation.BridgeCandidate(
+                                                    references = listOf("cite:$index"),
+                                                    viaNotes = emptyList(),
+                                                ),
+                                        ),
+                                    )
+                                },
+                        ),
+                    ),
+            ),
+        )
+
+    private fun explorationNode(title: String, stem: String): NodeRecord =
+        node().copy(
+            nodeKey = "file:$stem.org",
+            filePath = "$stem.org",
+            title = title,
+            backlinkCount = 0,
+            forwardLinkCount = 0,
         )
 
     private fun mention(note: NodeRecord, row: Long, preview: String): UnlinkedReferenceRecord =

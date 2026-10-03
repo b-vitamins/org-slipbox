@@ -8,6 +8,8 @@ package io.github.b_vitamins.slipbox.engine
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
@@ -529,6 +531,43 @@ class EngineContractTest {
             EngineWire.vocabulary(ExplorationExplanation.serializer().descriptor),
             explanations.toSet(),
         )
+    }
+
+    @Test
+    fun everyExplorationLensKeepsItsCanonicalSpellingAndSectionShape() {
+        val expected =
+            listOf(
+                ExplorationLens.STRUCTURE to
+                    listOf(
+                        ExplorationSectionKind.BACKLINKS,
+                        ExplorationSectionKind.FORWARD_LINKS,
+                    ),
+                ExplorationLens.REFS to
+                    listOf(
+                        ExplorationSectionKind.REFLINKS,
+                        ExplorationSectionKind.UNLINKED_REFERENCES,
+                    ),
+                ExplorationLens.TIME to listOf(ExplorationSectionKind.TIME_NEIGHBORS),
+                ExplorationLens.TASKS to listOf(ExplorationSectionKind.TASK_NEIGHBORS),
+                ExplorationLens.BRIDGES to listOf(ExplorationSectionKind.BRIDGE_CANDIDATES),
+                ExplorationLens.DORMANT to listOf(ExplorationSectionKind.DORMANT_NOTES),
+                ExplorationLens.UNRESOLVED to
+                    listOf(
+                        ExplorationSectionKind.UNRESOLVED_TASKS,
+                        ExplorationSectionKind.WEAKLY_INTEGRATED_NOTES,
+                    ),
+            )
+        val spellings =
+            listOf("structure", "refs", "time", "tasks", "bridges", "dormant", "unresolved")
+
+        for ((index, declared) in expected.withIndex()) {
+            val fixture = EngineFixtures.exploration(spellings[index])
+            val result = writer.decodeFromJsonElement<ExploreResult>(fixture)
+
+            assertEquals(declared.first, result.lens)
+            assertEquals(declared.second, result.sections.map { it.kind })
+            assertEquals(fixture, writer.encodeToJsonElement(result).jsonObject)
+        }
     }
 
     @Test

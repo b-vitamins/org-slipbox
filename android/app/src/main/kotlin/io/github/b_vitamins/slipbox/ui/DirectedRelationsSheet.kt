@@ -371,7 +371,7 @@ private fun MentionDiscoveryContent(
 }
 
 @Composable
-private fun RefreshControl(onRefresh: () -> Unit) {
+internal fun RefreshControl(onRefresh: () -> Unit) {
     TextControl(label = stringResource(R.string.action_refresh), onClick = onRefresh)
 }
 
@@ -446,7 +446,7 @@ private fun MentionGroupRow(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
-            group.occurrences.forEach { occurrence -> MentionExcerpt(occurrence.excerpt) }
+            group.occurrences.forEach { occurrence -> HighlightedExcerpt(occurrence.excerpt) }
         }
         TextControl(label = stringResource(R.string.action_open), onClick = onOpen)
     }
@@ -457,7 +457,7 @@ private fun MentionGroupRow(
 }
 
 @Composable
-private fun MentionExcerpt(segments: List<ContentSegment>) {
+internal fun HighlightedExcerpt(segments: List<ContentSegment>) {
     val match =
         SpanStyle(
             color = MaterialTheme.colorScheme.onTertiaryContainer,
@@ -553,7 +553,7 @@ private fun DirectedRelationRow(
 }
 
 @Composable
-private fun SheetNotice(text: String, problem: Boolean = false) {
+internal fun SheetNotice(text: String, problem: Boolean = false) {
     Text(
         text = text,
         style = MaterialTheme.typography.bodyLarge,
