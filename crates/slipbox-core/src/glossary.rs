@@ -350,6 +350,11 @@ impl GlossaryDueParams {
 /// Result of selecting due terms.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GlossaryDueResult {
+    /// The local calendar date used to decide which terms are due.
+    ///
+    /// Clients must carry this value into continuation requests so a listing
+    /// cannot change underneath its cursor if local midnight passes.
+    pub reference_date: String,
     pub terms: Vec<NodeRecord>,
     pub total: usize,
     pub has_more: bool,

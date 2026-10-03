@@ -245,6 +245,15 @@ data class SearchGlossaryResult(
     @SerialName("has_more") val hasMore: Boolean,
 )
 
+@Serializable
+data class GlossaryDueResult(
+    @SerialName("reference_date") val referenceDate: String,
+    val terms: List<NodeRecord>,
+    val total: Long,
+    @SerialName("has_more") val hasMore: Boolean,
+    @SerialName("next_position") val nextPosition: String?,
+)
+
 /** One glossary lookup; the canonical lookup admits absence, so a term may be null. */
 @Serializable
 data class GlossaryTermResult(
@@ -574,6 +583,10 @@ sealed class EngineAnswer {
     data class SearchGlossary(val result: SearchGlossaryResult) : EngineAnswer(), ReadAnswer
 
     @Serializable
+    @SerialName("glossaryDue")
+    data class GlossaryDue(val result: GlossaryDueResult) : EngineAnswer(), ReadAnswer
+
+    @Serializable
     @SerialName("glossaryTerm")
     data class GlossaryTerm(val result: GlossaryTermResult) : EngineAnswer(), ReadAnswer
 
@@ -622,6 +635,7 @@ internal fun ReadOperation.answerIn(answer: EngineAnswer): ReadAnswer? =
         is ReadOperation.ResolveDocumentLink -> answer as? EngineAnswer.ResolveDocumentLink
         is ReadOperation.ListGlossaryTerms -> answer as? EngineAnswer.ListGlossaryTerms
         is ReadOperation.SearchGlossary -> answer as? EngineAnswer.SearchGlossary
+        is ReadOperation.GlossaryDue -> answer as? EngineAnswer.GlossaryDue
         is ReadOperation.GlossaryTerm -> answer as? EngineAnswer.GlossaryTerm
         is ReadOperation.Backlinks -> answer as? EngineAnswer.Backlinks
         is ReadOperation.ForwardLinks -> answer as? EngineAnswer.ForwardLinks

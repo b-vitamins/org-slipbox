@@ -59,6 +59,22 @@ internal class SlipboxBackStack(
         return true
     }
 
+    /** Persist the glossary mode and due filter without adding a history entry. */
+    fun rememberGlossaryView(
+        origin: SlipboxRoute.Glossary,
+        review: Boolean,
+        query: String,
+    ): Boolean {
+        if (!attached || !isSavedText(query)) return false
+        val presented = routes.lastOrNull() as? SlipboxRoute.Glossary ?: return false
+        if (presented.term != null || !presented.samePlace(origin) || presented.binding != origin.binding) {
+            return false
+        }
+        if (presented.review == review && presented.query == query) return true
+        routes[routes.lastIndex] = presented.copy(review = review, query = query)
+        return true
+    }
+
     /** Save the live reader position if [origin] is still the presented route. */
     fun rememberReadingPlace(origin: SlipboxRoute.Reader, anchor: ReadingAnchor): Boolean {
         if (!attached || !anchor.isCanonical()) return false

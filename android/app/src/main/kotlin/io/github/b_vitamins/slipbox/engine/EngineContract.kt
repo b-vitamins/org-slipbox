@@ -258,6 +258,15 @@ sealed class ReadOperation {
     ) : ReadOperation()
 
     @Serializable
+    @SerialName("glossaryDue")
+    data class GlossaryDue(
+        val today: String? = null,
+        val query: String? = null,
+        val limit: Int,
+        val after: String? = null,
+    ) : ReadOperation()
+
+    @Serializable
     @SerialName("glossaryTerm")
     data class GlossaryTerm(
         @SerialName("node_key") val nodeKey: String,

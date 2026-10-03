@@ -26,6 +26,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -98,6 +100,80 @@ class GlossarySurfaceTest {
             assertEquals(all.last(), opened)
         }
         Evidence.image("glossary-complete-inventory", composeRule.onRoot().captureToImage())
+    }
+
+    @Test
+    fun dueTermsPageAndSearchWithTheEngineReferenceDate() {
+        val all =
+            (1..55).map { index ->
+                if (index == 1) {
+                    term(index)
+                } else {
+                    term(index).copy(
+                        srDue = "2026-10-03",
+                        srEase = "2.50",
+                        srInterval = "6",
+                        srReps = "2",
+                        srLast = "2026-09-27",
+                    )
+                }
+            }
+        var input by mutableStateOf(TextFieldValue())
+        var opened: NodeRecord? = null
+        var loads = 0
+        var phase by
+            mutableStateOf<GlossaryReviewPhase>(
+                GlossaryReviewPhase.Ready("", "2026-10-03", all.take(50), 55, true, "after-50"),
+            )
+        composeRule.setContent {
+            SlipboxTheme {
+                GlossaryScreen(
+                    phase = GlossaryInventoryPhase.Dormant,
+                    onBack = {},
+                    onActivate = {},
+                    onLoadMore = {},
+                    onRetry = {},
+                    onOpenTerm = { opened = it },
+                    review = true,
+                    reviewInput = input,
+                    reviewPhase = phase,
+                    onActivateReview = {},
+                    onReviewQueryChange = { value ->
+                        input = value
+                        if (value.text.isNotBlank()) {
+                            phase =
+                                GlossaryReviewPhase.Ready(
+                                    value.text,
+                                    "2026-10-03",
+                                    listOf(all.last()),
+                                    1,
+                                    false,
+                                    null,
+                                )
+                        }
+                    },
+                    onLoadMoreReview = {
+                        loads += 1
+                        phase = GlossaryReviewPhase.Ready("", "2026-10-03", all, 55, false, null)
+                    },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("55 due · 2026-10-03").assertIsDisplayed()
+        composeRule.onNodeWithText("Never reviewed · due").assertIsDisplayed()
+        composeRule.onNodeWithTag(GLOSSARY_LIST_TAG).performScrollToIndex(52)
+        composeRule.waitUntil(5_000) { loads == 1 }
+        composeRule.onNodeWithTag(GLOSSARY_LIST_TAG).performScrollToIndex(1)
+        composeRule.onNodeWithTag(GLOSSARY_DUE_FIELD_TAG).performTextReplacement("T55")
+        composeRule.onNodeWithText("1 due · 2026-10-03").assertIsDisplayed()
+        composeRule.onNodeWithText("Term 55").assertIsDisplayed()
+        Evidence.image("glossary-due-search", composeRule.onRoot().captureToImage())
+        composeRule.onNodeWithText("Term 55").performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, loads)
+            assertEquals(all.last(), opened)
+        }
     }
 
     @Test
@@ -189,6 +265,8 @@ class GlossarySurfaceTest {
 
         composeRule.onNodeWithText("Details").performClick()
         composeRule.onNodeWithText("Identity").assertIsDisplayed()
+        composeRule.onNodeWithText("Study schedule").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Never reviewed").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("invariant point").performScrollTo().assertIsDisplayed()
         composeRule
             .onNodeWithText("heading:terms.org:first")
@@ -215,6 +293,45 @@ class GlossarySurfaceTest {
         composeRule.onNodeWithText("Uniform continuity").assertIsDisplayed()
         assertEquals(0.0, second.number("window.scrollY"), 0.0)
         Evidence.image("glossary-term-switch", composeRule.onRoot().captureToImage())
+    }
+
+    @Test
+    fun storedStudyFactsAreContextualAndReadOnly() {
+        lateinit var settings: ReadingSettings
+        val base = document("Fixed point", "invariant point", "scheduled")
+        val scheduled =
+            base.copy(
+                anchor =
+                    base.anchor.copy(
+                        srDue = "2026-10-03",
+                        srInterval = "6",
+                        srReps = "3",
+                        srEase = "2.50",
+                        srLast = "2026-09-27",
+                    ),
+            )
+        composeRule.setContent {
+            SlipboxTheme {
+                settings = remember { ReadingSettings(MemoryStore()) }
+                ReaderScreen(
+                    phase = DocumentReaderPhase.Ready(scheduled),
+                    settings = settings,
+                    kind = ReaderSurfaceKind.GlossaryTerm,
+                    onBack = {},
+                    onRetry = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Study schedule").assertDoesNotExist()
+        composeRule.onNodeWithText("Details").performClick()
+        composeRule.onNodeWithText("Study schedule").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("2026-10-03").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("6 days").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Successful recalls").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("2.50").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Grade").assertDoesNotExist()
+        Evidence.image("glossary-study-facts", composeRule.onRoot().captureToImage())
     }
 
     private fun shown(): WebView {

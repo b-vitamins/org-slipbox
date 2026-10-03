@@ -251,6 +251,7 @@ fn reading_bridge_serves_the_read_only_note_and_glossary_surface() -> Result<()>
         limit: 50,
         after: None,
     })?;
+    assert_eq!(not_yet.reference_date, "2026-07-26");
     assert!(not_yet.terms.is_empty());
     let due = bridge.glossary_due(&GlossaryDueParams {
         today: Some("2026-08-02".to_owned()),
@@ -258,6 +259,7 @@ fn reading_bridge_serves_the_read_only_note_and_glossary_surface() -> Result<()>
         limit: 50,
         after: None,
     })?;
+    assert_eq!(due.reference_date, "2026-08-02");
     assert_eq!(due.terms.len(), 1);
     assert_eq!(due.terms[0].node_key, riemann_key);
 

@@ -40,9 +40,26 @@
     <string name="glossary_unavailable">The glossary could not be loaded.</string>
     <string name="glossary_more_unavailable">More terms could not be loaded.</string>
     <string name="glossary_aliases">Also %1$s</string>
+    <string name="glossary_all_terms">All terms</string>
+    <string name="glossary_due_terms">Due</string>
+    <string name="glossary_due_search">Search due terms</string>
+    <string name="glossary_due_loading">Checking the study schedule.</string>
+    <string name="glossary_due_loading_more">Loading more due terms.</string>
+    <string name="glossary_due_empty">Nothing is due.</string>
+    <string name="glossary_due_search_empty">No due terms match this search.</string>
+    <string name="glossary_due_unavailable">The due terms could not be loaded.</string>
+    <string name="glossary_due_more_unavailable">More due terms could not be loaded.</string>
+    <string name="glossary_due_reference_date">Checked for %1$s.</string>
+    <string name="glossary_due_never_reviewed">Never reviewed · due</string>
+    <string name="glossary_due_without_date">Due · date not recorded</string>
+    <string name="glossary_due_on">Due %1$s</string>
     <plurals name="glossary_terms">
         <item quantity="one">%d term</item>
         <item quantity="other">%d terms</item>
+    </plurals>
+    <plurals name="glossary_due_count">
+        <item quantity="one">%1$d due · %2$s</item>
+        <item quantity="other">%1$d due · %2$s</item>
     </plurals>
     <plurals name="library_files">
         <item quantity="one">%d file</item>
@@ -164,6 +181,19 @@
     <string name="glossary_alias_label">Aliases</string>
     <string name="glossary_node_key">Indexed identity</string>
     <string name="glossary_generation">Generation</string>
+    <string name="glossary_study_schedule">Study schedule</string>
+    <string name="glossary_study_status">Status</string>
+    <string name="glossary_study_never_reviewed">Never reviewed</string>
+    <string name="glossary_study_due">Due</string>
+    <string name="glossary_study_interval">Interval</string>
+    <string name="glossary_study_repetitions">Successful recalls</string>
+    <string name="glossary_study_ease">Ease</string>
+    <string name="glossary_study_last">Last reviewed</string>
+    <string name="glossary_study_not_recorded">Not recorded</string>
+    <plurals name="glossary_study_interval_days">
+        <item quantity="one">%d day</item>
+        <item quantity="other">%d days</item>
+    </plurals>
     <string name="reader_outline">Outline</string>
     <string name="reader_current_heading">Current</string>
     <string name="reader_filed_position">Filed %1$d of %2$d</string>

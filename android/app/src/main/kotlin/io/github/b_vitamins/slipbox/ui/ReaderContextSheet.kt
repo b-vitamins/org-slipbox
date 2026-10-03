@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
@@ -101,6 +102,8 @@ internal fun ReaderContextSheet(
                 value = note.anchor.nodeKey,
                 monospace = true,
             )
+            ContextSectionTitle(stringResource(R.string.glossary_study_schedule))
+            GlossaryStudyFacts(note.anchor)
         }
 
         val outline =
@@ -166,6 +169,42 @@ internal fun ReaderContextSheet(
         )
     }
 }
+
+@Composable
+private fun GlossaryStudyFacts(term: NodeRecord) {
+    if (term.reviewFields().all { it.isNullOrBlank() }) {
+        MetadataRow(
+            stringResource(R.string.glossary_study_status),
+            stringResource(R.string.glossary_study_never_reviewed),
+        )
+        return
+    }
+    val unavailable = stringResource(R.string.glossary_study_not_recorded)
+    MetadataRow(stringResource(R.string.glossary_study_due), term.srDue.orRecorded(unavailable))
+    MetadataRow(
+        stringResource(R.string.glossary_study_interval),
+        interval(term.srInterval, unavailable),
+    )
+    MetadataRow(
+        stringResource(R.string.glossary_study_repetitions),
+        term.srReps.orRecorded(unavailable),
+    )
+    MetadataRow(stringResource(R.string.glossary_study_ease), term.srEase.orRecorded(unavailable))
+    MetadataRow(stringResource(R.string.glossary_study_last), term.srLast.orRecorded(unavailable))
+}
+
+@Composable
+private fun interval(value: String?, unavailable: String): String {
+    val days = value?.toIntOrNull()
+    return if (days == null) {
+        value.orRecorded(unavailable)
+    } else {
+        pluralStringResource(R.plurals.glossary_study_interval_days, days, days)
+    }
+}
+
+private fun String?.orRecorded(unavailable: String): String =
+    this?.takeIf(String::isNotBlank) ?: unavailable
 
 @Composable
 private fun ContextSectionTitle(title: String) {

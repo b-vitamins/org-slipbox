@@ -762,6 +762,7 @@ A definite integral defined as the limit of Riemann sums.
         limit: 50,
         after: None,
     })?;
+    assert_eq!(not_yet.reference_date, "2026-07-26");
     assert!(not_yet.terms.is_empty());
 
     // Once its schedule elapses it surfaces in the due queue.
@@ -771,6 +772,7 @@ A definite integral defined as the limit of Riemann sums.
         limit: 50,
         after: None,
     })?;
+    assert_eq!(due.reference_date, "2026-08-02");
     assert_eq!(due.terms.len(), 1);
     assert_eq!(due.terms[0].node_key, riemann_key);
 

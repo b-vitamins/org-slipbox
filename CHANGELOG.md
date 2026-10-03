@@ -7,6 +7,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Browse the canonical due glossary queue on Android, including bounded search
+  and paging pinned to the engine's reference date. Stored SM-2 facts stay
+  read-only and appear only with a term's native details; absent and partial
+  metadata remain explicit, and no grading or review write-back is exposed.
 - Search notes and glossary terms together from the Android library without a
   network dependency. Rust owns literal-first ranking, entity identity, exact
   Unicode highlights and one bounded paged result window across titles,

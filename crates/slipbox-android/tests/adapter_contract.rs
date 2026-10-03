@@ -17,11 +17,11 @@ use slipbox_rpc::android::{
 };
 use slipbox_rpc::{
     METHOD_BACKLINKS, METHOD_DIRECTED_RELATIONS, METHOD_EXPLORE, METHOD_FORWARD_LINKS,
-    METHOD_GLOSSARY_TERM, METHOD_INDEX, METHOD_INDEX_FILE, METHOD_INDEXED_FILES,
-    METHOD_LIST_GLOSSARY_TERMS, METHOD_LIST_NOTES, METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY,
-    METHOD_NOTE_CONTEXT, METHOD_READ_NODE_SOURCE, METHOD_RESOLVE_DOCUMENT_LINK,
-    METHOD_SEARCH_CORPUS, METHOD_SEARCH_GLOSSARY, METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES,
-    METHOD_UNLINKED_REFERENCES,
+    METHOD_GLOSSARY_DUE, METHOD_GLOSSARY_TERM, METHOD_INDEX, METHOD_INDEX_FILE,
+    METHOD_INDEXED_FILES, METHOD_LIST_GLOSSARY_TERMS, METHOD_LIST_NOTES, METHOD_NODE_FROM_ID,
+    METHOD_NODE_FROM_KEY, METHOD_NOTE_CONTEXT, METHOD_READ_NODE_SOURCE,
+    METHOD_RESOLVE_DOCUMENT_LINK, METHOD_SEARCH_CORPUS, METHOD_SEARCH_GLOSSARY,
+    METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES, METHOD_UNLINKED_REFERENCES,
 };
 use tempfile::TempDir;
 
@@ -1387,6 +1387,11 @@ fn read_cases(keys: &Keys) -> Vec<(Value, &'static str, Value)> {
             json!({"kind": "searchGlossary", "query": "riemann", "limit": 20}),
             METHOD_SEARCH_GLOSSARY,
             json!({"query": "riemann", "limit": 20}),
+        ),
+        (
+            json!({"kind": "glossaryDue", "today": "2026-08-01", "query": "riemann", "limit": 20}),
+            METHOD_GLOSSARY_DUE,
+            json!({"today": "2026-08-01", "query": "riemann", "limit": 20}),
         ),
         (
             json!({"kind": "glossaryTerm", "node_key": term}),

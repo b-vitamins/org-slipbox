@@ -70,6 +70,20 @@ class SlipboxBackStackTest {
     }
 
     @Test
+    fun aDueFilterRemainsBeneathTheGlossaryTermItOpened() {
+        val origin = SlipboxRoute.Glossary(bind(ALPHA))
+        val stack = history(origin)
+
+        assertTrue(stack.rememberGlossaryView(origin, review = true, query = "fixed point"))
+        val filtered = stack.current as SlipboxRoute.Glossary
+        assertTrue(stack.open(filtered.copy(term = "term-1")))
+        assertFalse(stack.rememberGlossaryView(origin, review = false, query = "stale"))
+        assertTrue(stack.back())
+
+        assertEquals(origin.copy(review = true, query = "fixed point"), stack.current)
+    }
+
+    @Test
     fun openingThePlaceAlreadyPresentedDoesNotGrowTheHistory() {
         val stack = history()
         val opened = note(ALPHA, "note-1")

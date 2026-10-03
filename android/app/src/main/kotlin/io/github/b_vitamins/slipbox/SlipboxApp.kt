@@ -35,6 +35,8 @@ import io.github.b_vitamins.slipbox.ui.DirectedRelationsPhase
 import io.github.b_vitamins.slipbox.ui.DocumentReaderPhase
 import io.github.b_vitamins.slipbox.ui.GlossaryInventoryPhase
 import io.github.b_vitamins.slipbox.ui.GlossaryInventoryState
+import io.github.b_vitamins.slipbox.ui.GlossaryReviewPhase
+import io.github.b_vitamins.slipbox.ui.GlossaryReviewState
 import io.github.b_vitamins.slipbox.ui.GlossaryScreen
 import io.github.b_vitamins.slipbox.ui.LibraryScreen
 import io.github.b_vitamins.slipbox.ui.MentionDiscoveryPhase
@@ -48,6 +50,7 @@ import io.github.b_vitamins.slipbox.ui.rememberCorpusSearchState
 import io.github.b_vitamins.slipbox.ui.rememberDirectedRelationsState
 import io.github.b_vitamins.slipbox.ui.rememberNotesInventoryState
 import io.github.b_vitamins.slipbox.ui.rememberGlossaryInventoryState
+import io.github.b_vitamins.slipbox.ui.rememberGlossaryReviewState
 import io.github.b_vitamins.slipbox.ui.rememberGlossaryTermReaderState
 import io.github.b_vitamins.slipbox.ui.rememberReaderDiscoveryState
 import io.github.b_vitamins.slipbox.ui.rememberReaderExplorationState
@@ -80,14 +83,16 @@ fun SlipboxApp() {
                 val trail = rememberReadingTrailSession(phase.source.binding)
                 val readingReturns = rememberReadingReturnsState(phase.source)
                 val glossary = rememberGlossaryInventoryState(phase.source)
+                val glossaryReview = rememberGlossaryReviewState(phase.source)
                 val search = rememberCorpusSearchState(phase.source)
                 val destinations =
-                    remember(settings, library, readingReturns, glossary, search) {
+                    remember(settings, library, readingReturns, glossary, glossaryReview, search) {
                         productionDestinations(
                             settings,
                             library,
                             readingReturns,
                             glossary,
+                            glossaryReview,
                             search,
                         )
                     }
@@ -123,6 +128,7 @@ private fun productionDestinations(
     library: SourceLibraryState,
     readingReturns: ReadingReturnsState? = null,
     glossary: GlossaryInventoryState? = null,
+    glossaryReview: GlossaryReviewState? = null,
     search: CorpusSearchState? = null,
 ): SlipboxDestinations =
     slipboxDestinations {
@@ -464,6 +470,31 @@ private fun productionDestinations(
                     onOpenTerm = { term ->
                         backStack.open(glossaryRoute.copy(term = term.nodeKey))
                     },
+                    review = glossaryRoute.review,
+                    reviewInput =
+                        glossaryReview?.input ?: androidx.compose.ui.text.input.TextFieldValue(),
+                    reviewPhase = glossaryReview?.phase ?: GlossaryReviewPhase.Dormant,
+                    onShowAll = {
+                        val query = glossaryReview?.input?.text ?: glossaryRoute.query
+                        backStack.rememberGlossaryView(glossaryRoute, review = false, query = query)
+                    },
+                    onShowDue = {
+                        val query = glossaryReview?.input?.text ?: glossaryRoute.query
+                        backStack.rememberGlossaryView(glossaryRoute, review = true, query = query)
+                    },
+                    onActivateReview = { glossaryReview?.activate(glossaryRoute.query) },
+                    onReviewQueryChange = { input ->
+                        if (io.github.b_vitamins.slipbox.navigation.isSavedText(input.text)) {
+                            glossaryReview?.update(input)
+                            backStack.rememberGlossaryView(
+                                glossaryRoute,
+                                review = true,
+                                query = input.text,
+                            )
+                        }
+                    },
+                    onLoadMoreReview = { glossaryReview?.loadMore() },
+                    onRetryReview = { glossaryReview?.retry() },
                 )
             } else {
                 val reader =

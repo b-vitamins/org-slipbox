@@ -70,7 +70,7 @@ class SlipboxRouteRestorationTest {
         val history = listOf(
             SlipboxRoute.Library("kant"),
             note(ALPHA, "note-1").copy(anchor = ReadingAnchor("figure-2", 0.5f)),
-            SlipboxRoute.Glossary(bind(ALPHA), term = "monad", query = "mon"),
+            SlipboxRoute.Glossary(bind(ALPHA), term = "monad", review = true, query = "mon"),
         )
         assertEquals(history, restore(saveRoutes(history)))
     }

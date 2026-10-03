@@ -59,6 +59,7 @@ pub(crate) fn glossary_due(
         )
         .map_err(|error| internal_error(error.context("failed to list due glossary terms")))?;
     to_value(GlossaryDueResult {
+        reference_date: today,
         terms: page.terms,
         total: page.total,
         has_more: page.has_more,

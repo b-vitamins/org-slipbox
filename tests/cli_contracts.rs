@@ -1579,7 +1579,17 @@ fn glossary_commands_expose_stable_json_shapes_and_grade_round_trips() -> Result
     let due = glossary_json_command("due", &root, &db, &["--today", "2026-08-02"])?;
     assert!(due.status.success(), "{due:?}");
     let due_json: Value = serde_json::from_slice(&due.stdout)?;
-    assert_exact_object_keys(&due_json, &["terms", "total", "has_more", "next_position"]);
+    assert_exact_object_keys(
+        &due_json,
+        &[
+            "reference_date",
+            "terms",
+            "total",
+            "has_more",
+            "next_position",
+        ],
+    );
+    assert_eq!(due_json["reference_date"], "2026-08-02");
     let due_terms = due_json["terms"]
         .as_array()
         .expect("glossary due terms should be an array");

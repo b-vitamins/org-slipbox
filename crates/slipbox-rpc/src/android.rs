@@ -12,20 +12,21 @@ use serde_json::Value;
 use slipbox_core::{
     BacklinksParams, BacklinksResult, DirectedRelationsParams, DirectedRelationsResult,
     DocumentLinkResolution, ExploreParams, ExploreResult, ForwardLinksParams, ForwardLinksResult,
-    GenerationBinding, GlossaryTermParams, GlossaryTermResult, IndexFileParams, IndexFileResult,
-    IndexStats, IndexedFilesResult, ListGlossaryTermsParams, ListGlossaryTermsResult,
-    ListNotesParams, ListNotesResult, NodeFromIdParams, NodeFromKeyParams, NodeRecord,
-    NoteContextParams, NoteContextResult, ReadNodeSourceParams, ReadNodeSourceResult,
-    ResolveDocumentLinkParams, SearchCorpusParams, SearchCorpusResult, SearchGlossaryParams,
-    SearchGlossaryResult, SearchNodeContentParams, SearchNodeContentResult, SearchNodesParams,
-    SearchNodesResult, StatusInfo, UnlinkedReferencesParams, UnlinkedReferencesResult,
+    GenerationBinding, GlossaryDueParams, GlossaryDueResult, GlossaryTermParams,
+    GlossaryTermResult, IndexFileParams, IndexFileResult, IndexStats, IndexedFilesResult,
+    ListGlossaryTermsParams, ListGlossaryTermsResult, ListNotesParams, ListNotesResult,
+    NodeFromIdParams, NodeFromKeyParams, NodeRecord, NoteContextParams, NoteContextResult,
+    ReadNodeSourceParams, ReadNodeSourceResult, ResolveDocumentLinkParams, SearchCorpusParams,
+    SearchCorpusResult, SearchGlossaryParams, SearchGlossaryResult, SearchNodeContentParams,
+    SearchNodeContentResult, SearchNodesParams, SearchNodesResult, StatusInfo,
+    UnlinkedReferencesParams, UnlinkedReferencesResult,
 };
 
 use crate::{
     JsonRpcErrorKind, METHOD_BACKLINKS, METHOD_DIRECTED_RELATIONS, METHOD_EXPLORE,
-    METHOD_FORWARD_LINKS, METHOD_GLOSSARY_TERM, METHOD_INDEX, METHOD_INDEX_FILE,
-    METHOD_INDEXED_FILES, METHOD_LIST_GLOSSARY_TERMS, METHOD_LIST_NOTES, METHOD_NODE_FROM_ID,
-    METHOD_NODE_FROM_KEY, METHOD_NOTE_CONTEXT, METHOD_READ_NODE_SOURCE,
+    METHOD_FORWARD_LINKS, METHOD_GLOSSARY_DUE, METHOD_GLOSSARY_TERM, METHOD_INDEX,
+    METHOD_INDEX_FILE, METHOD_INDEXED_FILES, METHOD_LIST_GLOSSARY_TERMS, METHOD_LIST_NOTES,
+    METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_NOTE_CONTEXT, METHOD_READ_NODE_SOURCE,
     METHOD_RESOLVE_DOCUMENT_LINK, METHOD_SEARCH_CORPUS, METHOD_SEARCH_GLOSSARY,
     METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES, METHOD_STATUS, METHOD_UNLINKED_REFERENCES,
 };
@@ -222,6 +223,7 @@ operation_vocabulary! {
             ListGlossaryTermsParams, ListGlossaryTermsResult;
         SearchGlossary, "searchGlossary", METHOD_SEARCH_GLOSSARY,
             SearchGlossaryParams, SearchGlossaryResult;
+        GlossaryDue, "glossaryDue", METHOD_GLOSSARY_DUE, GlossaryDueParams, GlossaryDueResult;
         GlossaryTerm, "glossaryTerm", METHOD_GLOSSARY_TERM, GlossaryTermParams, GlossaryTermResult;
         Backlinks, "backlinks", METHOD_BACKLINKS, BacklinksParams, BacklinksResult;
         ForwardLinks, "forwardLinks", METHOD_FORWARD_LINKS, ForwardLinksParams, ForwardLinksResult;
@@ -299,6 +301,7 @@ impl ReadOperation {
             Self::SearchCorpus(params) => page_bound(params.limit),
             Self::ListGlossaryTerms(params) => page_bound(params.limit),
             Self::SearchGlossary(params) => page_bound(params.limit),
+            Self::GlossaryDue(params) => page_bound(params.limit),
             Self::Backlinks(params) => relation_bound(params.limit),
             Self::ForwardLinks(params) => relation_bound(params.limit),
             Self::DirectedRelations(params) => relation_bound(params.limit),

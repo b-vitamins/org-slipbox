@@ -212,6 +212,20 @@ class EngineAdapterTest {
         val searched = answered<EngineAnswer.SearchGlossary>(read, glossary).result
         assertEquals(listOf("Riemann integral"), titles(searched.terms))
         assertFalse(searched.hasMore)
+        val notYet =
+            answered<EngineAnswer.GlossaryDue>(
+                read,
+                ReadOperation.GlossaryDue("2026-07-31", "Riemann", 10),
+            ).result
+        assertEquals("2026-07-31", notYet.referenceDate)
+        assertTrue(notYet.terms.isEmpty())
+        val due =
+            answered<EngineAnswer.GlossaryDue>(
+                read,
+                ReadOperation.GlossaryDue("2026-08-01", "Riemann", 10),
+            ).result
+        assertEquals("2026-08-01", due.referenceDate)
+        assertEquals(listOf(riemann.nodeKey), due.terms.map(NodeRecord::nodeKey))
         val lookup = ReadOperation.GlossaryTerm(riemann.nodeKey)
         val term = answered<EngineAnswer.GlossaryTerm>(read, lookup).result.term
         assertEquals(riemann, term)
@@ -298,6 +312,12 @@ class EngineAdapterTest {
             ).result
 
         assertEquals(listOf("Target heading", "Riemann integral"), result.hits.map { it.node.title })
+        val due =
+            answered<EngineAnswer.GlossaryDue>(
+                cold,
+                ReadOperation.GlossaryDue("2026-08-01", null, 10),
+            ).result
+        assertEquals(listOf("Riemann integral"), titles(due.terms))
         assertEquals(
             listOf(CorpusSearchEntity.NOTE, CorpusSearchEntity.GLOSSARY),
             result.hits.map { it.entity },
@@ -328,6 +348,12 @@ class EngineAdapterTest {
         val listing = ReadOperation.ListGlossaryTerms(50, null)
         val listed = answered<EngineAnswer.ListGlossaryTerms>(read, listing).result
         assertEquals(emptyList<String>(), titles(listed.terms))
+        val dueAfterRefresh =
+            answered<EngineAnswer.GlossaryDue>(
+                read,
+                ReadOperation.GlossaryDue("2026-08-01", null, 10),
+            ).result
+        assertTrue(dueAfterRefresh.terms.isEmpty())
         assertEquals(EngineWire.maintenanceOperations, carried)
     }
 
@@ -913,6 +939,11 @@ private val CORPUS =
             :PROPERTIES:
             :ID: riemann-integral
             :GLOSSARY_STATUS: confirmed
+            :SR_DUE: 2026-08-01
+            :SR_EASE: 2.50
+            :SR_INTERVAL: 6
+            :SR_REPS: 3
+            :SR_LAST: 2026-07-26
             :END:
 
             A definite integral with a convergence marker. Target heading appears here without a link.

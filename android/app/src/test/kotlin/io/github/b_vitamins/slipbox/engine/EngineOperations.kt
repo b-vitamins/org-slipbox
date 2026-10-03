@@ -95,6 +95,11 @@ internal object EngineOperations {
                 "answered_search_glossary",
             ),
             AdmittedOperation(
+                ReadOperation.GlossaryDue("2026-04-01", QUERY, 50, null),
+                "read_glossary_due",
+                "answered_glossary_due",
+            ),
+            AdmittedOperation(
                 ReadOperation.GlossaryTerm(GLOSSARY_KEY),
                 "read_glossary_term",
                 "answered_glossary_term",

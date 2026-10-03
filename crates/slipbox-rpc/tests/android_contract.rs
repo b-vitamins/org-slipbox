@@ -9,11 +9,11 @@ use serde::{Serialize, Serializer};
 use serde_json::{Value, json};
 use slipbox_core::{
     BacklinksParams, DirectedRelationsParams, ExplorationLens, ExploreParams, ForwardLinksParams,
-    GenerationBinding, GenerationId, GlossaryTermParams, IndexFileParams, IndexedFilesResult,
-    ListGlossaryTermsParams, ListNotesParams, NodeFromIdParams, NodeFromKeyParams,
-    NoteContextParams, ReadNodeSourceParams, ResolveDocumentLinkParams, SearchCorpusParams,
-    SearchGlossaryParams, SearchNodeContentParams, SearchNodesParams, SearchNodesSort, SourceId,
-    UnlinkedReferencesParams,
+    GenerationBinding, GenerationId, GlossaryDueParams, GlossaryTermParams, IndexFileParams,
+    IndexedFilesResult, ListGlossaryTermsParams, ListNotesParams, NodeFromIdParams,
+    NodeFromKeyParams, NoteContextParams, ReadNodeSourceParams, ResolveDocumentLinkParams,
+    SearchCorpusParams, SearchGlossaryParams, SearchNodeContentParams, SearchNodesParams,
+    SearchNodesSort, SourceId, UnlinkedReferencesParams,
 };
 use slipbox_rpc::android::{
     ADAPTER_LIMITS, ADAPTER_PROTOCOL_VERSION, AdapterBound, AdapterCapability, AdapterContract,
@@ -141,6 +141,12 @@ fn every_read_operation() -> Vec<ReadOperation> {
         ReadOperation::SearchGlossary(SearchGlossaryParams {
             query: "omega".to_owned(),
             limit: 50,
+        }),
+        ReadOperation::GlossaryDue(GlossaryDueParams {
+            today: Some("2026-04-01".to_owned()),
+            query: Some("omega".to_owned()),
+            limit: 50,
+            after: None,
         }),
         ReadOperation::GlossaryTerm(GlossaryTermParams {
             node_key: "heading:riemann.org:2".to_owned(),

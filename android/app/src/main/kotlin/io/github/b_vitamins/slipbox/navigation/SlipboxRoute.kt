@@ -62,6 +62,7 @@ internal sealed interface SlipboxRoute {
     data class Glossary(
         val binding: GenerationBinding,
         val term: String? = null,
+        val review: Boolean = false,
         val query: String = "",
     ) : SlipboxRoute {
         override val surface: SlipboxSurface get() = SlipboxSurface.Glossary

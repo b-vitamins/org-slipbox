@@ -193,6 +193,21 @@
       "limit": 50
     }
   },
+  "read_glossary_due": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "glossaryDue",
+      "today": "2026-04-01",
+      "query": "Ωμέγα théorie 漢字",
+      "limit": 50,
+      "after": null
+    }
+  },
   "read_glossary_term": {
     "version": 1,
     "handle": 7,
