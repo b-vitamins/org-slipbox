@@ -570,35 +570,115 @@ impl Database {
         let mut arguments: Vec<rusqlite::types::Value> =
             vec![fts_query.into(), SNIPPET_TOKEN_BUDGET.into(), limit.into()];
         arguments.extend(ranking.into_tier_queries().map(Into::into));
+        let exact = {
+            let mut statement = self.connection.prepare(&sql)?;
+            let rows = statement.query_map(params_from_iter(arguments), |row| {
+                let node = row_to_note(row)?;
+                let title = parse_snippet(&row.get::<_, String>(ANCHOR_SELECT_COLUMN_COUNT)?);
+                let aliases = parse_snippet(&row.get::<_, String>(ANCHOR_SELECT_COLUMN_COUNT + 1)?);
+                let excerpt = parse_snippet(&row.get::<_, String>(ANCHOR_SELECT_COLUMN_COUNT + 2)?);
+                let matched_field = if snippet_has_match(&title) {
+                    CorpusSearchField::Title
+                } else if snippet_has_match(&aliases) {
+                    CorpusSearchField::Alias
+                } else {
+                    CorpusSearchField::Content
+                };
+                let entity = if node.glossary {
+                    CorpusSearchEntity::Glossary
+                } else {
+                    CorpusSearchEntity::Note
+                };
+                Ok(CorpusSearchHit {
+                    node,
+                    entity,
+                    matched_field,
+                    title,
+                    aliases,
+                    excerpt,
+                })
+            })?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .context("failed to read corpus search results")?
+        };
+        if exact.is_empty() {
+            self.search_corpus_fuzzy(query, limit as usize)
+        } else {
+            Ok(exact)
+        }
+    }
+
+    /// Recover a single mistyped headword without scanning the corpus. The
+    /// existing trigram file index bounds the candidate set; edit distance is
+    /// evaluated only across naming words in those files.
+    fn search_corpus_fuzzy(&self, query: &str, limit: usize) -> Result<Vec<CorpusSearchHit>> {
+        let Some((term, trigram_query)) = fuzzy_term(query) else {
+            return Ok(Vec::new());
+        };
+        let sql = format!(
+            "WITH candidate_files AS MATERIALIZED (
+                 SELECT occurrence_documents.file_path,
+                        bm25(occurrence_document_fts) AS relevance
+                   FROM occurrence_document_fts
+                   JOIN occurrence_documents
+                     ON occurrence_documents.id = occurrence_document_fts.rowid
+                  WHERE occurrence_document_fts MATCH ?1
+                  ORDER BY relevance
+                  LIMIT ?2
+             )
+             SELECT {},
+                    substr(node_phrase_fts.body, 1, ?4)
+               FROM nodes AS n
+               JOIN candidate_files AS candidates
+                 ON candidates.file_path = n.file_path
+               JOIN node_phrase_fts
+                 ON node_phrase_fts.rowid = n.id
+              WHERE {}
+              ORDER BY candidates.relevance, n.file_path, n.line
+              LIMIT ?3",
+            anchor_select_columns("n"),
+            note_where("n"),
+        );
         let mut statement = self.connection.prepare(&sql)?;
-        let rows = statement.query_map(params_from_iter(arguments), |row| {
-            let node = row_to_note(row)?;
-            let title = parse_snippet(&row.get::<_, String>(ANCHOR_SELECT_COLUMN_COUNT)?);
-            let aliases = parse_snippet(&row.get::<_, String>(ANCHOR_SELECT_COLUMN_COUNT + 1)?);
-            let excerpt = parse_snippet(&row.get::<_, String>(ANCHOR_SELECT_COLUMN_COUNT + 2)?);
-            let matched_field = if snippet_has_match(&title) {
-                CorpusSearchField::Title
-            } else if snippet_has_match(&aliases) {
-                CorpusSearchField::Alias
-            } else {
-                CorpusSearchField::Content
-            };
-            let entity = if node.glossary {
-                CorpusSearchEntity::Glossary
-            } else {
-                CorpusSearchEntity::Note
-            };
-            Ok(CorpusSearchHit {
-                node,
-                entity,
-                matched_field,
-                title,
-                aliases,
-                excerpt,
-            })
-        })?;
-        rows.collect::<rusqlite::Result<Vec<_>>>()
-            .context("failed to read corpus search results")
+        let rows = statement.query_map(
+            params![
+                trigram_query,
+                FUZZY_FILE_CANDIDATE_BOUND,
+                FUZZY_NODE_CANDIDATE_BOUND,
+                FUZZY_EXCERPT_CHARACTERS,
+            ],
+            |row| {
+                Ok((
+                    row_to_note(row)?,
+                    row.get::<_, String>(ANCHOR_SELECT_COLUMN_COUNT)?,
+                ))
+            },
+        )?;
+        let nodes = rows
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .context("failed to read fuzzy corpus candidates")?;
+        let mut matched = nodes
+            .into_iter()
+            .filter_map(|(node, excerpt)| FuzzyCorpusHit::new(node, excerpt, &term))
+            .collect::<Vec<_>>();
+        matched.sort_by(|left, right| {
+            left.distance
+                .cmp(&right.distance)
+                .then_with(|| left.field_order.cmp(&right.field_order))
+                .then_with(|| {
+                    left.node
+                        .title
+                        .to_lowercase()
+                        .cmp(&right.node.title.to_lowercase())
+                })
+                .then_with(|| left.node.file_path.cmp(&right.node.file_path))
+                .then_with(|| left.node.line.cmp(&right.node.line))
+        });
+        Ok(matched
+            .into_iter()
+            .take(limit)
+            .map(FuzzyCorpusHit::into_corpus_hit)
+            .collect())
     }
 
     // Whole-term probe sets are subsets of the stemmed pool, so equal counts
@@ -1456,6 +1536,190 @@ fn snippet_has_match(snippet: &ContentSnippet) -> bool {
     snippet.segments.iter().any(|segment| segment.matched)
 }
 
+const FUZZY_FILE_CANDIDATE_BOUND: i64 = 64;
+
+const FUZZY_NODE_CANDIDATE_BOUND: i64 = 512;
+
+const FUZZY_EXCERPT_CHARACTERS: i64 = 360;
+
+const FUZZY_TERM_MAX_CHARACTERS: usize = 64;
+
+struct FuzzyCorpusHit {
+    node: NodeRecord,
+    aliases: String,
+    matched_field: CorpusSearchField,
+    title_span: Option<(usize, usize)>,
+    alias_span: Option<(usize, usize)>,
+    excerpt: String,
+    distance: usize,
+    field_order: u8,
+}
+
+impl FuzzyCorpusHit {
+    fn new(node: NodeRecord, excerpt: String, query: &str) -> Option<Self> {
+        let title_match = fuzzy_word_match(&node.title, query);
+        let aliases = node.aliases.join("\n");
+        let alias_match = fuzzy_word_match(&aliases, query);
+        let (matched_field, title_span, alias_span, distance, field_order) =
+            match (title_match, alias_match) {
+                (Some((span, distance)), Some((_, alias_distance)))
+                    if distance <= alias_distance =>
+                {
+                    (CorpusSearchField::Title, Some(span), None, distance, 0)
+                }
+                (Some((span, distance)), None) => {
+                    (CorpusSearchField::Title, Some(span), None, distance, 0)
+                }
+                (_, Some((span, distance))) => {
+                    (CorpusSearchField::Alias, None, Some(span), distance, 1)
+                }
+                (None, None) => return None,
+            };
+        Some(Self {
+            node,
+            aliases,
+            matched_field,
+            title_span,
+            alias_span,
+            excerpt: excerpt.trim().to_owned(),
+            distance,
+            field_order,
+        })
+    }
+
+    fn into_corpus_hit(self) -> CorpusSearchHit {
+        let entity = if self.node.glossary {
+            CorpusSearchEntity::Glossary
+        } else {
+            CorpusSearchEntity::Note
+        };
+        CorpusSearchHit {
+            title: highlighted_snippet(&self.node.title, self.title_span),
+            aliases: highlighted_snippet(&self.aliases, self.alias_span),
+            excerpt: highlighted_snippet(&self.excerpt, None),
+            node: self.node,
+            entity,
+            matched_field: self.matched_field,
+        }
+    }
+}
+
+fn fuzzy_term(query: &str) -> Option<(String, String)> {
+    let mut terms = query.split_whitespace();
+    let term = terms.next()?;
+    if terms.next().is_some() {
+        return None;
+    }
+    let term = term
+        .trim_matches(|character: char| !character.is_alphanumeric())
+        .to_lowercase();
+    let characters = term.chars().collect::<Vec<_>>();
+    if !(5..=FUZZY_TERM_MAX_CHARACTERS).contains(&characters.len()) {
+        return None;
+    }
+    let mut trigrams = characters
+        .windows(3)
+        .map(|window| window.iter().collect::<String>())
+        .collect::<Vec<_>>();
+    trigrams.sort_unstable();
+    trigrams.dedup();
+    let terms = trigrams.iter().map(String::as_str).collect::<Vec<_>>();
+    Some((term, join_fts_terms(&terms, " OR ", false)))
+}
+
+fn fuzzy_word_match(text: &str, query: &str) -> Option<((usize, usize), usize)> {
+    let query_length = query.chars().count();
+    let limit = if query_length >= 8 { 2 } else { 1 };
+    let mut start = None;
+    let mut best: Option<((usize, usize), usize)> = None;
+    for (index, character) in text
+        .char_indices()
+        .chain(std::iter::once((text.len(), ' ')))
+    {
+        if character.is_alphanumeric() {
+            start.get_or_insert(index);
+            continue;
+        }
+        let Some(word_start) = start.take() else {
+            continue;
+        };
+        let word = &text[word_start..index];
+        if word.chars().count().abs_diff(query_length) > limit {
+            continue;
+        }
+        let distance = optimal_string_alignment(&word.to_lowercase(), query);
+        if distance <= limit && best.as_ref().is_none_or(|(_, current)| distance < *current) {
+            best = Some(((word_start, index), distance));
+        }
+    }
+    best
+}
+
+fn optimal_string_alignment(left: &str, right: &str) -> usize {
+    let left = left.chars().collect::<Vec<_>>();
+    let right = right.chars().collect::<Vec<_>>();
+    let columns = right.len() + 1;
+    let mut distance = vec![0; (left.len() + 1) * columns];
+    for row in 0..=left.len() {
+        distance[row * columns] = row;
+    }
+    for (column, cell) in distance.iter_mut().take(columns).enumerate() {
+        *cell = column;
+    }
+    for row in 1..=left.len() {
+        for column in 1..=right.len() {
+            let substitution = usize::from(left[row - 1] != right[column - 1]);
+            let index = row * columns + column;
+            distance[index] = (distance[(row - 1) * columns + column] + 1)
+                .min(distance[row * columns + column - 1] + 1)
+                .min(distance[(row - 1) * columns + column - 1] + substitution);
+            if row > 1
+                && column > 1
+                && left[row - 1] == right[column - 2]
+                && left[row - 2] == right[column - 1]
+            {
+                distance[index] =
+                    distance[index].min(distance[(row - 2) * columns + column - 2] + 1);
+            }
+        }
+    }
+    distance[left.len() * columns + right.len()]
+}
+
+fn highlighted_snippet(text: &str, matched: Option<(usize, usize)>) -> ContentSnippet {
+    if text.is_empty() {
+        return ContentSnippet {
+            segments: Vec::new(),
+        };
+    }
+    let Some((start, end)) = matched else {
+        return ContentSnippet {
+            segments: vec![ContentSegment {
+                text: text.to_owned(),
+                matched: false,
+            }],
+        };
+    };
+    let mut segments = Vec::new();
+    if start > 0 {
+        segments.push(ContentSegment {
+            text: text[..start].to_owned(),
+            matched: false,
+        });
+    }
+    segments.push(ContentSegment {
+        text: text[start..end].to_owned(),
+        matched: true,
+    });
+    if end < text.len() {
+        segments.push(ContentSegment {
+            text: text[end..].to_owned(),
+            matched: false,
+        });
+    }
+    ContentSnippet { segments }
+}
+
 /// Usable FTS terms in a raw query: whitespace-separated runs, stripped of
 /// surrounding punctuation, at least [`MIN_SEARCH_TERM_CHARACTERS`] long.
 fn fts_terms(query: &str) -> Vec<&str> {
@@ -1588,7 +1852,8 @@ mod tests {
     use slipbox_index::{DiscoveryPolicy, scan_path_with_policy, scan_root_with_policy};
 
     use super::{
-        DUE_POSITION_TAG, GlossaryPage, GlossaryPosition, NotePage, NotePosition, TERM_POSITION_TAG,
+        DUE_POSITION_TAG, FUZZY_TERM_MAX_CHARACTERS, GlossaryPage, GlossaryPosition, NotePage,
+        NotePosition, TERM_POSITION_TAG, fuzzy_term,
     };
     use crate::Database;
     use crate::test_support::indexed_database;
@@ -2071,6 +2336,39 @@ mod tests {
         assert!(rendered.contains("\\(f(λ)=λ\\)"));
         assert_eq!(highlighted_text(&unicode[0].excerpt), "théorie");
         Ok(())
+    }
+
+    #[test]
+    fn corpus_search_recovers_a_single_typo_from_the_bounded_trigram_index() -> Result<()> {
+        let (_workspace, database, _root) = indexed_database(&[
+            (
+                "momentum.org",
+                "#+title: Canonical momentum\n\nMomentum is conjugate to position.\n",
+            ),
+            (
+                "moment.org",
+                "#+title: Moment generating function\n\nA probability transform.\n",
+            ),
+        ])?;
+
+        let hits = database.search_corpus("Momentm", 20)?;
+        assert_eq!(
+            hits.first().map(|hit| hit.node.title.as_str()),
+            Some("Canonical momentum")
+        );
+        assert_eq!(
+            hits[0].matched_field,
+            slipbox_core::CorpusSearchField::Title
+        );
+        assert_eq!(highlighted_text(&hits[0].title), "momentum");
+        assert!(segments_text(&hits[0].excerpt).contains("Momentum is conjugate to position"));
+        Ok(())
+    }
+
+    #[test]
+    fn fuzzy_corpus_search_refuses_pathological_terms_before_building_a_query() {
+        let oversized = "x".repeat(FUZZY_TERM_MAX_CHARACTERS + 1);
+        assert!(fuzzy_term(&oversized).is_none());
     }
 
     fn snippet_text(hit: &slipbox_core::NodeContentHit) -> String {
