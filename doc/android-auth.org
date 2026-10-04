@@ -42,8 +42,18 @@ private key or PAT is packaged.
 
 The device grant sends the client ID and device code without a secret or OAuth
 repository scope. Polling respects GitHub's interval; =slow_down= adds five
-seconds. Denial, expiry and service faults produce typed outcomes. The stored
-token expiry is dated at the token response, before account verification.
+seconds. Choosing =Open GitHub= copies the short-lived code before opening the
+verification page and marks the clipboard payload as sensitive; if Android
+refuses the copy, the visible code remains and the surface asks for manual
+entry. Denial, expiry and service faults produce typed outcomes. The stored token
+expiry is dated at the token response, before account verification.
+
+A transient transport failure does not consume the user's browser approval.
+Polling retains the grant and its GitHub-defined pace for up to three
+consecutive transport failures. Once GitHub issues a token, account and
+installation reads retry transport failures up to three times with a bounded
+one-second delay. Protocol refusals and malformed answers still settle
+immediately at their own stage.
 
 Browser return alone does not settle authorization. Replacement, cancellation,
 lifecycle destruction and composition disposal withdraw the active attempt.
@@ -138,12 +148,13 @@ supplied. =ADB=, =SERIAL=, =APP_ID=, =TEST_ID=, =CONSENT_SECONDS= and =RUN_LIMIT
 select the tool, device, installed identities, window and deadline; starting and
 stopping a device belongs to the caller.
 
-A grant shows the verification code on the device screen alone. Enter it at
-GitHub's verification page and approve; an unapproved window lapses into a
-withdrawal rather than outliving the code. The run then checks the verified
-account against the expected one, requires installation access on selected
-repositories, keeps and reads back the credential in a namespace of its own,
-withdraws a second request before approval, and removes what it made.
+A grant shows the verification code on the device screen alone. Opening GitHub
+copies it for pasting on the verification page; approve after GitHub accepts the
+code. An unapproved window lapses into a withdrawal rather than outliving the
+code. The run then checks the verified account against the expected one,
+requires installation access on selected repositories, keeps and reads back the
+credential in a namespace of its own, withdraws a second request before
+approval, and removes what it made.
 
 =live-auth.json= in =resultDir= is collected, then removed from the device. It
 carries the stage and that run's outcomes: grant, identity match, selected

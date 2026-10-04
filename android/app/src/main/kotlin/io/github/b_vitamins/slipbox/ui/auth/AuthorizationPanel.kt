@@ -36,6 +36,7 @@ internal fun AuthorizationPanel(state: GithubAuthorizationState, modifier: Modif
                 Verification(
                     grant = phase.grant,
                     refused = state.browserRefused,
+                    copyRefused = state.codeCopyRefused,
                     onOpen = state::openVerification,
                     onCancel = state::cancel,
                 )
@@ -51,6 +52,7 @@ internal fun AuthorizationPanel(state: GithubAuthorizationState, modifier: Modif
 private fun Verification(
     grant: DeviceGrant,
     refused: Boolean,
+    copyRefused: Boolean,
     onOpen: () -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -69,6 +71,9 @@ private fun Verification(
     Notice(stringResource(R.string.auth_verification_instruction, grant.verificationUri))
     if (refused) {
         Notice(stringResource(R.string.auth_browser_unavailable), problem = true)
+    }
+    if (copyRefused) {
+        Notice(stringResource(R.string.auth_copy_unavailable), problem = true)
     }
     Row(horizontalArrangement = Arrangement.spacedBy(SlipboxDimensions.headerPaddingHorizontal)) {
         TextControl(label = stringResource(R.string.auth_action_open), onClick = onOpen)

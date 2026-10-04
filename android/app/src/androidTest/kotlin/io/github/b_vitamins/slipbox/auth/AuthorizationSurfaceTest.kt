@@ -35,6 +35,7 @@ import io.github.b_vitamins.slipbox.ui.Record
 import io.github.b_vitamins.slipbox.ui.VISUAL_CASES
 import io.github.b_vitamins.slipbox.ui.auth.AuthorizationPanel
 import io.github.b_vitamins.slipbox.ui.auth.GithubAuthorizationState
+import io.github.b_vitamins.slipbox.ui.auth.VerificationCodeClipboard
 import io.github.b_vitamins.slipbox.ui.bounds
 import io.github.b_vitamins.slipbox.ui.hex
 import io.github.b_vitamins.slipbox.ui.paper
@@ -244,7 +245,12 @@ class AuthorizationSurfaceTest {
                 AuthorizationDelivery { _ -> },
             )
         owners.add(owner)
-        return GithubAuthorizationState(owner, BrowserHandoff { false }, installationUrl)
+        return GithubAuthorizationState(
+            owner,
+            BrowserHandoff { false },
+            VerificationCodeClipboard { true },
+            installationUrl,
+        )
     }
 
 

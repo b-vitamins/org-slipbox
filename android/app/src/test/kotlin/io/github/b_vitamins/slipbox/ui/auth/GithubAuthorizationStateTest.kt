@@ -39,6 +39,8 @@ class GithubAuthorizationStateTest {
 
     private val browser = RecordingBrowser()
 
+    private val clipboard = RecordingClipboard()
+
     private val states = mutableListOf<GithubAuthorizationState>()
 
     private val opened = mutableListOf<CountDownLatch>()
@@ -55,6 +57,7 @@ class GithubAuthorizationStateTest {
 
         assertSame(AuthorizationPhase.Idle, state.phase)
         assertFalse(state.browserRefused)
+        assertFalse(state.codeCopyRefused)
     }
 
     @Test
@@ -107,8 +110,24 @@ class GithubAuthorizationStateTest {
         delivery.drain()
 
         assertEquals(listOf(VERIFICATION_URI, VERIFICATION_URI), browser.opened)
+        assertEquals(listOf(USER_CODE, USER_CODE), clipboard.copied)
         assertFalse("a browser return was taken for an answer", state.browserRefused)
+        assertFalse("a copied code was reported as refused", state.codeCopyRefused)
         assertEquals("a browser return settled the surface", USER_CODE, codeOf(state).userCode)
+        gate.countDown()
+    }
+
+    @Test
+    fun aCodeThatCannotBeCopiedRemainsVisibleAndIsSaidToNeedEntry() {
+        val gate = held()
+        val state = verifying()
+
+        clipboard.accepts = false
+        state.openVerification()
+
+        assertTrue(state.codeCopyRefused)
+        assertEquals(USER_CODE, codeOf(state).userCode)
+        assertEquals(listOf(VERIFICATION_URI), browser.opened)
         gate.countDown()
     }
 
@@ -168,6 +187,7 @@ class GithubAuthorizationStateTest {
 
         assertSame(AuthorizationPhase.Idle, state.phase)
         assertFalse(state.browserRefused)
+        assertFalse(state.codeCopyRefused)
         assertNull(state.owner.running())
         delivery.drain()
         assertSame("a cancelled attempt settled the surface", AuthorizationPhase.Idle, state.phase)
@@ -234,6 +254,7 @@ class GithubAuthorizationStateTest {
         GithubAuthorizationState(
             GithubAuthorizationOwner(app, transport, clock, delivery),
             browser,
+            clipboard,
             installationUrl,
         ).also { states.add(it) }
 
@@ -254,6 +275,20 @@ class GithubAuthorizationStateTest {
 
         override fun open(url: String): Boolean {
             pages.add(url)
+            return accepts
+        }
+    }
+
+
+    private class RecordingClipboard(var accepts: Boolean = true) : VerificationCodeClipboard {
+
+        private val values = mutableListOf<String>()
+
+        val copied: List<String>
+            get() = values.toList()
+
+        override fun copy(code: String): Boolean {
+            values.add(code)
             return accepts
         }
     }

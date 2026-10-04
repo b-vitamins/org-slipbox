@@ -6,12 +6,13 @@
 <resources>
     <string name="auth_requesting">Contacting GitHub.</string>
     <string name="auth_code_name">Verification code</string>
-    <string name="auth_verification_instruction">Enter it at %1$s to authorize Slipbox.</string>
+    <string name="auth_verification_instruction">Open %1$s, then paste the copied code to authorize Slipbox.</string>
     <string name="auth_action_open">Open GitHub</string>
     <string name="auth_action_cancel">Cancel</string>
     <string name="auth_action_retry">Try again</string>
     <string name="auth_action_install">Install on GitHub</string>
     <string name="auth_browser_unavailable">No browser opened the page.</string>
+    <string name="auth_copy_unavailable">The code could not be copied. Enter the code shown above.</string>
     <string name="auth_authorized">Authorized as %1$s.</string>
     <string name="auth_not_installed">Slipbox is not installed on a repository of this account.</string>
     <string name="auth_declined">The authorization was declined on GitHub.</string>

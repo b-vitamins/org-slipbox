@@ -22,6 +22,7 @@ import io.github.b_vitamins.slipbox.auth.RepositorySelection
 import io.github.b_vitamins.slipbox.auth.syntheticAuthorization
 import io.github.b_vitamins.slipbox.ui.auth.AuthorizationPhase
 import io.github.b_vitamins.slipbox.ui.auth.GithubAuthorizationState
+import io.github.b_vitamins.slipbox.ui.auth.VerificationCodeClipboard
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -233,7 +234,12 @@ class LiveJourneyTest {
                 delivery,
             )
         owners.add(owner)
-        return GithubAuthorizationState(owner, BrowserHandoff { false }, INSTALLATION_PAGE)
+        return GithubAuthorizationState(
+            owner,
+            BrowserHandoff { false },
+            VerificationCodeClipboard { true },
+            INSTALLATION_PAGE,
+        )
     }
 
     private fun verifying(state: GithubAuthorizationState): Boolean =

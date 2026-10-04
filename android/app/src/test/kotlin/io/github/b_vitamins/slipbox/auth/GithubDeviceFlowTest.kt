@@ -184,6 +184,29 @@ class GithubDeviceFlowTest {
     }
 
     @Test
+    fun transientPollFailuresDoNotDiscardADeviceGrant() {
+        val failure = AuthorizationReply.Failed("java.net.SocketTimeoutException")
+        val transport = grantingTransport(polls = listOf(failure, failure, ok(grantBody())))
+
+        flowOver(transport).awaitGrant(testGrant(), live).authorized()
+
+        assertEquals(3, transport.exchangesOf(GithubEndpoint.ACCESS_TOKEN))
+        assertEquals(listOf(5_000L, 5_000L, 5_000L), clock.waits)
+    }
+
+    @Test
+    fun aPersistentlyUnreachableGrantEndpointSettlesAfterThreeAttempts() {
+        val origin = "java.net.SocketTimeoutException"
+        val transport = grantingTransport(polls = listOf(AuthorizationReply.Failed(origin)))
+
+        val fault = flowOver(transport).awaitGrant(testGrant(), live).unavailable()
+
+        assertEquals(AuthorizationFault.TransportFailed(AuthorizationStage.Grant, origin), fault)
+        assertEquals(3, transport.exchangesOf(GithubEndpoint.ACCESS_TOKEN))
+        assertEquals(listOf(5_000L, 5_000L, 5_000L), clock.waits)
+    }
+
+    @Test
     fun slowDownAddsFiveSecondsToThePaceForEveryPollAfterIt() {
         val transport =
             grantingTransport(
@@ -375,6 +398,57 @@ class GithubDeviceFlowTest {
             AuthorizationFault.TransportFailed(AuthorizationStage.Account, "java.io.IOException"),
             fault,
         )
+        assertEquals(3, transport.exchangesOf(GithubEndpoint.USER))
+        assertEquals(listOf(5_000L, 1_000L, 1_000L), clock.waits)
+    }
+
+    @Test
+    fun transientAccountFailuresDoNotDiscardAnIssuedToken() {
+        val failure = AuthorizationReply.Failed("java.net.SocketTimeoutException")
+        val transport =
+            RecordedTransport()
+                .answers(GithubEndpoint.ACCESS_TOKEN, ok(grantBody()))
+                .answers(GithubEndpoint.USER, failure, failure, ok(accountBody()))
+                .answers(GithubEndpoint.INSTALLATIONS, ok(installationsBody(1, listOf("selected"))))
+
+        flowOver(transport).awaitGrant(testGrant(), live).authorized()
+
+        assertEquals(3, transport.exchangesOf(GithubEndpoint.USER))
+        assertEquals(1, transport.exchangesOf(GithubEndpoint.INSTALLATIONS))
+        assertEquals(listOf(5_000L, 1_000L, 1_000L), clock.waits)
+    }
+
+    @Test
+    fun transientInstallationFailuresDoNotDiscardAnIssuedToken() {
+        val failure = AuthorizationReply.Failed("java.net.SocketTimeoutException")
+        val transport =
+            RecordedTransport()
+                .answers(GithubEndpoint.ACCESS_TOKEN, ok(grantBody()))
+                .answers(GithubEndpoint.USER, ok(accountBody()))
+                .answers(
+                    GithubEndpoint.INSTALLATIONS,
+                    failure,
+                    failure,
+                    ok(installationsBody(1, listOf("selected"))),
+                )
+
+        flowOver(transport).awaitGrant(testGrant(), live).authorized()
+
+        assertEquals(3, transport.exchangesOf(GithubEndpoint.INSTALLATIONS))
+        assertEquals(listOf(5_000L, 1_000L, 1_000L), clock.waits)
+    }
+
+    @Test
+    fun anInterruptedPostGrantRetryWithdrawsCleanly() {
+        val failure = AuthorizationReply.Failed("java.net.SocketTimeoutException")
+        val transport = grantingTransport(account = failure)
+        clock.waitsHonoured = 1
+
+        val outcome = flowOver(transport).awaitGrant(testGrant(), live)
+
+        assertEquals(AuthorizationOutcome.Withdrawn, outcome)
+        assertEquals(1, transport.exchangesOf(GithubEndpoint.USER))
+        assertEquals(0, transport.exchangesOf(GithubEndpoint.INSTALLATIONS))
     }
 
     @Test

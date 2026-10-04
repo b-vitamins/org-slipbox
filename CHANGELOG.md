@@ -233,6 +233,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
   `desktop-decryptors`.
 
 ### Fixed
+- Make Android GitHub authorization a reliable one-action browser handoff: the
+  verification code is copied before GitHub opens, copy failure remains
+  explicit, and bounded transport retries preserve an approved device grant
+  across transient polling, account and installation failures.
 - Keep icon controls' complete touch targets in the accessibility tree, give
   contextual scrims an explicit dismiss action, and hide the document host
   while a native reader sheet owns modal focus.

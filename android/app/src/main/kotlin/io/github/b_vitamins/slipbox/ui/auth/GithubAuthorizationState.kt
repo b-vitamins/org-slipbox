@@ -20,6 +20,7 @@ import io.github.b_vitamins.slipbox.auth.DeviceGrant
 import io.github.b_vitamins.slipbox.auth.GithubApp
 import io.github.b_vitamins.slipbox.auth.GithubAuthorizationOwner
 import io.github.b_vitamins.slipbox.auth.SystemBrowserHandoff
+import java.util.logging.Logger
 
 internal sealed interface AuthorizationPhase {
 
@@ -41,6 +42,7 @@ internal sealed interface AuthorizationPhase {
 internal class GithubAuthorizationState(
     internal val owner: GithubAuthorizationOwner,
     private val browser: BrowserHandoff,
+    private val clipboard: VerificationCodeClipboard,
     private val installationUrl: String?,
 ) : AuthorizationListener {
 
@@ -52,11 +54,16 @@ internal class GithubAuthorizationState(
         private set
 
 
+    var codeCopyRefused: Boolean by mutableStateOf(false)
+        private set
+
+
     val canInstall: Boolean = installationUrl != null
 
 
     fun begin() {
         browserRefused = false
+        codeCopyRefused = false
         phase = AuthorizationPhase.Requesting
         owner.authorize(this)
     }
@@ -64,6 +71,7 @@ internal class GithubAuthorizationState(
 
     fun openVerification() {
         val waiting = phase as? AuthorizationPhase.Verifying ?: return
+        codeCopyRefused = !clipboard.copy(waiting.grant.userCode)
         browserRefused = !browser.open(waiting.grant.verificationUri)
     }
 
@@ -77,6 +85,7 @@ internal class GithubAuthorizationState(
     fun cancel() {
         owner.running()?.cancel()
         browserRefused = false
+        codeCopyRefused = false
         phase = AuthorizationPhase.Idle
     }
 
@@ -91,11 +100,20 @@ internal class GithubAuthorizationState(
     }
 
     override fun onSettled(outcome: AuthorizationOutcome) {
+        if (outcome is AuthorizationOutcome.Unavailable) {
+            LOGGER.warning(outcome.fault.toString())
+        }
         phase =
             when (outcome) {
                 is AuthorizationOutcome.Withdrawn -> AuthorizationPhase.Idle
                 else -> AuthorizationPhase.Settled(outcome)
             }
+    }
+
+    private companion object {
+
+
+        val LOGGER: Logger = Logger.getLogger("SlipboxAuthorization")
     }
 }
 
@@ -107,6 +125,7 @@ internal fun rememberGithubAuthorization(): GithubAuthorizationState {
             GithubAuthorizationState(
                 owner = GithubAuthorizationOwner.packaged(),
                 browser = SystemBrowserHandoff(context),
+                clipboard = SystemVerificationCodeClipboard(context),
                 installationUrl = GithubApp.packaged()?.installationUrl,
             )
         }

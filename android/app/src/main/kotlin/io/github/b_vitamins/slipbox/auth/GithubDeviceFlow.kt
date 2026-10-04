@@ -52,6 +52,7 @@ internal class GithubDeviceFlow(
         val started = clock.elapsedMillis()
         val lifetimeMillis = grant.expiresInSeconds * MILLIS_PER_SECOND
         var intervalMillis = grant.intervalSeconds * MILLIS_PER_SECOND
+        var consecutiveTransportFailures = 0
         while (true) {
             if (!live()) {
                 return AuthorizationOutcome.Withdrawn
@@ -66,11 +67,20 @@ internal class GithubDeviceFlow(
                 return AuthorizationOutcome.Expired
             }
             when (val step = poll(grant.deviceCode)) {
-                Poll.Pending -> Unit
-                Poll.SlowDown -> intervalMillis += SLOW_DOWN_MILLIS
+                Poll.Pending -> consecutiveTransportFailures = 0
+                Poll.SlowDown -> {
+                    consecutiveTransportFailures = 0
+                    intervalMillis += SLOW_DOWN_MILLIS
+                }
                 Poll.Declined -> return AuthorizationOutcome.Declined
                 Poll.Expired -> return AuthorizationOutcome.Expired
-                is Poll.Unavailable -> return AuthorizationOutcome.Unavailable(step.fault)
+                is Poll.Unavailable -> {
+                    val retryable = step.fault is AuthorizationFault.TransportFailed
+                    consecutiveTransportFailures++
+                    if (!retryable || consecutiveTransportFailures >= MAX_TRANSPORT_ATTEMPTS) {
+                        return AuthorizationOutcome.Unavailable(step.fault)
+                    }
+                }
                 is Poll.Granted -> return complete(step, live)
             }
         }
@@ -132,17 +142,19 @@ internal class GithubDeviceFlow(
             return AuthorizationOutcome.Withdrawn
         }
         val account =
-            when (val read = readAccount(granted.accessToken)) {
+            when (val read = retryingTransport(live) { readAccount(granted.accessToken) }) {
                 is Read.Refused -> return AuthorizationOutcome.Unavailable(read.fault)
                 is Read.Value -> read.value
+                Read.Withdrawn -> return AuthorizationOutcome.Withdrawn
             }
         if (!live()) {
             return AuthorizationOutcome.Withdrawn
         }
         val access =
-            when (val read = readInstallations(granted.accessToken)) {
+            when (val read = retryingTransport(live) { readInstallations(granted.accessToken) }) {
                 is Read.Refused -> return AuthorizationOutcome.Unavailable(read.fault)
                 is Read.Value -> read.value
+                Read.Withdrawn -> return AuthorizationOutcome.Withdrawn
             }
         val credential =
             StoredCredential(
@@ -153,6 +165,26 @@ internal class GithubDeviceFlow(
         return AuthorizationOutcome.Authorized(
             GithubAuthorization(account, access, credential),
         )
+    }
+
+
+    private fun <T> retryingTransport(live: () -> Boolean, read: () -> Read<T>): Read<T> {
+        var attempt = 1
+        while (true) {
+            if (!live()) {
+                return Read.Withdrawn
+            }
+            val answer = read()
+            val retryable =
+                answer is Read.Refused && answer.fault is AuthorizationFault.TransportFailed
+            if (!retryable || attempt >= MAX_TRANSPORT_ATTEMPTS) {
+                return answer
+            }
+            attempt++
+            if (!clock.waitFor(COMPLETION_RETRY_MILLIS)) {
+                return Read.Withdrawn
+            }
+        }
     }
 
     private fun readAccount(accessToken: String): Read<VerifiedAccount> {
@@ -280,6 +312,10 @@ internal class GithubDeviceFlow(
 
         const val SLOW_DOWN_MILLIS = 5_000L
 
+        const val COMPLETION_RETRY_MILLIS = 1_000L
+
+        const val MAX_TRANSPORT_ATTEMPTS = 3
+
         const val MILLIS_PER_SECOND = 1_000L
 
 
@@ -317,6 +353,8 @@ internal class GithubDeviceFlow(
         data class Value<out T>(val value: T) : Read<T>
 
         data class Refused(val fault: AuthorizationFault) : Read<Nothing>
+
+        object Withdrawn : Read<Nothing>
     }
 
     private sealed interface Poll {
