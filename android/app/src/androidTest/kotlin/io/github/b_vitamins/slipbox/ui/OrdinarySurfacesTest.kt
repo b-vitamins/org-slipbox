@@ -47,9 +47,10 @@ class OrdinarySurfacesTest {
     @get:Rule val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
-    private val library = context.getString(R.string.app_name)
+    private val notes = context.getString(R.string.entry_notes)
     private val empty = context.getString(R.string.library_empty)
     private val about = context.getString(R.string.action_about)
+    private val menu = context.getString(R.string.action_menu)
     private val version = context.getString(R.string.about_label_version)
     private val back = context.getString(R.string.action_back)
 
@@ -60,10 +61,10 @@ class OrdinarySurfacesTest {
     @Test
     fun theLibraryIsCapturedAsAReaderFindsIt() {
         show()
-        composeRule.onNodeWithText(library).assertIsDisplayed()
+        composeRule.onNodeWithText(notes).assertIsDisplayed()
         composeRule.onNodeWithText(empty).assertIsDisplayed()
         val target =
-            composeRule.onNodeWithContentDescription(about).bounds().height / density.density
+            composeRule.onNodeWithContentDescription(menu).bounds().height / density.density
         assertTrue(
             "the way on keeps the touch floor: ${target}dp",
             target >= SlipboxTokens.Geometry.TOUCH_TARGET_DP - 1f,
@@ -74,7 +75,8 @@ class OrdinarySurfacesTest {
     @Test
     fun theAboutSurfaceIsCapturedInEitherScheme() {
         show()
-        composeRule.onNodeWithContentDescription(about).performClick()
+        composeRule.onNodeWithContentDescription(menu).performClick()
+        composeRule.onNodeWithText(about).performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithContentDescription(back).assertIsDisplayed()
         composeRule.onNodeWithText(version).assertIsDisplayed()

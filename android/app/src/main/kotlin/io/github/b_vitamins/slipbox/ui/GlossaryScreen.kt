@@ -17,10 +17,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.SingleChoiceSegmentedButtonRowScope
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -28,7 +24,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
@@ -38,6 +33,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import io.github.b_vitamins.slipbox.R
 import io.github.b_vitamins.slipbox.engine.NodeRecord
+import io.github.b_vitamins.slipbox.ui.theme.SlipboxAppearance
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxDimensions
 
 internal const val GLOSSARY_LIST_TAG = "glossary-list"
@@ -62,6 +58,13 @@ internal fun GlossaryScreen(
     onReviewQueryChange: (TextFieldValue) -> Unit = {},
     onLoadMoreReview: () -> Unit = {},
     onRetryReview: () -> Unit = {},
+    onShowNotes: () -> Unit = onBack,
+    onManageSources: () -> Unit = {},
+    onOpenAbout: () -> Unit = {},
+    appearance: SlipboxAppearance = SlipboxAppearance.System,
+    reduceMotion: Boolean = false,
+    onSelectAppearance: (SlipboxAppearance) -> Unit = {},
+    onSelectReduceMotion: (Boolean) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val presentedReview = remember { mutableStateOf(review) }
@@ -70,84 +73,89 @@ internal fun GlossaryScreen(
         presentedReview.value = review
         if (review) onActivateReview() else onActivate()
     }
-    ReadingSurface(
-        title = stringResource(R.string.glossary_title),
+    EntryDrawer(
+        appearance = appearance,
+        reduceMotion = reduceMotion,
+        onSelectAppearance = onSelectAppearance,
+        onSelectReduceMotion = onSelectReduceMotion,
+        onOpenSources = onManageSources,
+        onOpenAbout = onOpenAbout,
         modifier = modifier,
-        scrollable = false,
-        leading = {
-            IconControl(
-                icon = painterResource(R.drawable.ic_back),
-                label = stringResource(R.string.action_back),
-                onClick = onBack,
-            )
-        },
     ) {
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxWidth().weight(1f).testTag(GLOSSARY_LIST_TAG),
+        openMenu ->
+        ReadingSurface(
+            title = stringResource(R.string.glossary_title),
+            scrollable = false,
+            topBar = {
+                EntryTopBar(
+                    selected = EntrySection.Glossary,
+                    onOpenMenu = openMenu,
+                    onShowNotes = onShowNotes,
+                    onShowGlossary = {},
+                )
+            },
         ) {
-            item(key = "glossary-mode") {
-                SingleChoiceSegmentedButtonRow(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = SlipboxDimensions.readingPadding),
-                ) {
-                    GlossaryModeControl(
-                        label = stringResource(R.string.glossary_all_terms),
-                        selected = !review,
-                        onClick = onShowAll,
-                        index = 0,
-                    )
-                    GlossaryModeControl(
-                        label = stringResource(R.string.glossary_due_terms),
-                        selected = review,
-                        onClick = onShowDue,
-                        index = 1,
-                    )
-                }
-            }
-            if (review) {
-                item(key = "glossary-due-search") {
-                    OutlinedTextField(
-                        value = reviewInput,
-                        onValueChange = onReviewQueryChange,
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxWidth().weight(1f).testTag(GLOSSARY_LIST_TAG),
+            ) {
+                item(key = "glossary-mode") {
+                    RestrainedSegmentedControl(
+                        labels =
+                            listOf(
+                                stringResource(R.string.glossary_all_terms),
+                                stringResource(R.string.glossary_due_terms),
+                            ),
+                        selectedIndex = if (review) 1 else 0,
+                        onSelect = { index -> if (index == 0) onShowAll() else onShowDue() },
                         modifier =
                             Modifier
                                 .fillMaxWidth()
-                                .padding(bottom = SlipboxDimensions.readingPadding)
-                                .testTag(GLOSSARY_DUE_FIELD_TAG),
-                        placeholder = { Text(stringResource(R.string.glossary_due_search)) },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodyLarge,
-                        trailingIcon =
-                            if (reviewInput.text.isEmpty()) {
-                                null
-                            } else {
-                                {
-                                    TextControl(
-                                        label = stringResource(R.string.action_clear_search),
-                                        onClick = { onReviewQueryChange(TextFieldValue()) },
-                                    )
-                                }
-                            },
+                                .padding(bottom = SlipboxDimensions.readingPadding),
                     )
                 }
-                glossaryReviewItems(
-                    phase = reviewPhase,
-                    onLoadMore = onLoadMoreReview,
-                    onRetry = onRetryReview,
-                    onOpenTerm = onOpenTerm,
-                    selectedTermNodeKey = selectedTermNodeKey,
-                )
-            } else {
-                glossaryInventoryItems(
-                    phase,
-                    onLoadMore,
-                    onRetry,
-                    onOpenTerm,
-                    selectedTermNodeKey,
-                )
+                if (review) {
+                    item(key = "glossary-due-search") {
+                        OutlinedTextField(
+                            value = reviewInput,
+                            onValueChange = onReviewQueryChange,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = SlipboxDimensions.readingPadding)
+                                    .testTag(GLOSSARY_DUE_FIELD_TAG),
+                            placeholder = { Text(stringResource(R.string.glossary_due_search)) },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodyLarge,
+                            trailingIcon =
+                                if (reviewInput.text.isEmpty()) {
+                                    null
+                                } else {
+                                    {
+                                        TextControl(
+                                            label = stringResource(R.string.action_clear_search),
+                                            onClick = { onReviewQueryChange(TextFieldValue()) },
+                                        )
+                                    }
+                                },
+                        )
+                    }
+                    glossaryReviewItems(
+                        phase = reviewPhase,
+                        onLoadMore = onLoadMoreReview,
+                        onRetry = onRetryReview,
+                        onOpenTerm = onOpenTerm,
+                        selectedTermNodeKey = selectedTermNodeKey,
+                    )
+                } else {
+                    glossaryInventoryItems(
+                        phase,
+                        onLoadMore,
+                        onRetry,
+                        onOpenTerm,
+                        selectedTermNodeKey,
+                    )
+                }
             }
         }
     }
@@ -223,22 +231,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.glossaryInventoryItem
             }
         }
     }
-}
-
-@Composable
-private fun SingleChoiceSegmentedButtonRowScope.GlossaryModeControl(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    index: Int,
-) {
-    SegmentedButton(
-        selected = selected,
-        onClick = onClick,
-        shape = SegmentedButtonDefaults.itemShape(index = index, count = 2),
-        label = { Text(label, style = MaterialTheme.typography.labelLarge) },
-        modifier = Modifier.semantics { this.selected = selected },
-    )
 }
 
 private fun androidx.compose.foundation.lazy.LazyListScope.glossaryReviewItems(
@@ -361,23 +353,23 @@ private fun GlossaryTermRow(
             color = MaterialTheme.colorScheme.onBackground,
         )
         val context = if (review) dueStanding(term) else glossaryContext(term)
-        Text(
-            text = context,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+        if (context != null) {
+            Text(
+                text = context,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
 @Composable
-private fun glossaryContext(term: NodeRecord): String =
-    if (term.aliases.isEmpty()) {
-        term.outlinePath.ifBlank { term.filePath }
-    } else {
-        stringResource(R.string.glossary_aliases, term.aliases.joinToString(" · "))
-    }
+private fun glossaryContext(term: NodeRecord): String? =
+    term.aliases
+        .takeIf(List<String>::isNotEmpty)
+        ?.let { stringResource(R.string.glossary_aliases, it.joinToString(" · ")) }
 
 @Composable
 private fun dueStanding(term: NodeRecord): String =

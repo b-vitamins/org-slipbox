@@ -224,6 +224,22 @@ The format follows Keep a Changelog, and this project follows SemVer.
   contributor instructions are in `doc/android-build.org`.
 
 ### Changed
+- Refine Android's principal reading surfaces around the document itself. The
+  library is now a quiet search-first entry point without repository metrics,
+  revision labels or an all-notes dump; exact search falls back to bounded
+  trigram candidates for credible single-word typos; and search excerpts share
+  the complete Org and math renderer. A balanced Notes/Glossary switch replaces
+  diagnostic masthead actions, one settings drawer owns source, appearance and
+  motion choices, and the centered landing surface offers the web prompt and a
+  canonical random-note action. Search keeps keyboard focus as the landing
+  surface becomes results. Reader titles and headings use a self-hosted
+  editorial face above a native-sans body on one continuous warm cream or
+  charcoal canvas; restrained terracotta replaces bright link and selection
+  accents. Source blocks add grammar-aware highlighting, phone-width hanging
+  wraps and compact controls. Chrome yields to downward reading and returns on
+  upward scroll, link taps advance directly, and spatial reading trails reveal
+  each prior note through predictive Back while restoring every saved reading
+  position without persistent trail chrome.
 - Extract service state, operation dispatch and index-backed queries into
   `slipbox-engine`. The root package keeps its desktop adapters and public
   service constructor; CLI, JSON-RPC and web contracts are unchanged.

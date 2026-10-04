@@ -28,16 +28,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import io.github.b_vitamins.slipbox.R
-import io.github.b_vitamins.slipbox.engine.ContentSegment
 import io.github.b_vitamins.slipbox.engine.DirectedRelationDirection
 import io.github.b_vitamins.slipbox.engine.DirectedRelationRecord
-import io.github.b_vitamins.slipbox.engine.NodeKind
 import io.github.b_vitamins.slipbox.engine.NodeRecord
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxDimensions
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxMotion
@@ -446,41 +440,12 @@ private fun MentionGroupRow(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
-            group.occurrences.forEach { occurrence -> HighlightedExcerpt(occurrence.excerpt) }
         }
         TextControl(label = stringResource(R.string.action_open), onClick = onOpen)
     }
     HorizontalDivider(
         thickness = SlipboxDimensions.hairline,
         color = MaterialTheme.colorScheme.outline,
-    )
-}
-
-@Composable
-internal fun HighlightedExcerpt(segments: List<ContentSegment>) {
-    val match =
-        SpanStyle(
-            color = MaterialTheme.colorScheme.onTertiaryContainer,
-            background = MaterialTheme.colorScheme.tertiaryContainer,
-            fontWeight = FontWeight.Medium,
-        )
-    Text(
-        text =
-            buildAnnotatedString {
-                segments.forEach { segment ->
-                    if (segment.matched) {
-                        withStyle(match) { append(segment.text) }
-                    } else {
-                        append(segment.text)
-                    }
-                }
-            },
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(top = SlipboxDimensions.headerPaddingVertical / 2),
     )
 }
 
@@ -498,11 +463,6 @@ private fun DirectedRelationRow(
                 DirectedRelationDirection.BIDIRECTIONAL -> R.string.reader_relation_bidirectional
             },
         )
-    val location =
-        when (relation.note.kind) {
-            NodeKind.FILE -> relation.note.filePath
-            NodeKind.HEADING -> "${relation.note.filePath} · ${relation.note.outlinePath}"
-        }
     val previewLabel = stringResource(R.string.reader_relation_preview, relation.note.title)
     Row(
         modifier = Modifier.fillMaxWidth().heightIn(min = SlipboxDimensions.touchTarget),
@@ -526,22 +486,6 @@ private fun DirectedRelationRow(
                 text = direction,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
-            )
-            if (relation.preview.isNotBlank()) {
-                Text(
-                    text = relation.preview,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Text(
-                text = location,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
         }
         TextControl(label = stringResource(R.string.action_open), onClick = onOpen)

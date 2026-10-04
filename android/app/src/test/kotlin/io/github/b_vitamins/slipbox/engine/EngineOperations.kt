@@ -50,6 +50,11 @@ internal object EngineOperations {
                 "answered_list_notes",
             ),
             AdmittedOperation(
+                ReadOperation.RandomNode,
+                "read_random_node",
+                "answered_random_node",
+            ),
+            AdmittedOperation(
                 ReadOperation.SearchNodeContent(QUERY, 25),
                 "read_search_node_content",
                 "answered_search_node_content",

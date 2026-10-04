@@ -56,9 +56,9 @@ internal fun SlipboxNavigation(
                 .windowInsetsPadding(WindowInsets.safeDrawing),
         onBack = { backStack.back() },
         sceneStrategies = listOf(listDetail),
-        transitionSpec = SlipboxTransitions.exchange(motion),
-        popTransitionSpec = SlipboxTransitions.exchange(motion),
-        predictivePopTransitionSpec = SlipboxTransitions.draggedExchange(motion),
+        transitionSpec = SlipboxTransitions.advance(motion),
+        popTransitionSpec = SlipboxTransitions.retreat(motion),
+        predictivePopTransitionSpec = SlipboxTransitions.draggedRetreat(motion),
         entryProvider = { route ->
             // Position/query changes retain destination state.
             NavEntry(

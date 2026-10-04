@@ -10,23 +10,36 @@ import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.ui.unit.IntOffset
 
-/** Restrained surface crossfade, omitted when motion is reduced. */
+/** Spatial navigation that keeps the reading trail perceptible without persistent chrome. */
 internal object SlipboxTransitions {
 
-    fun <S> exchange(
+    fun <S> advance(
         motion: SlipboxMotion,
-    ): AnimatedContentTransitionScope<S>.() -> ContentTransform = { crossfade(motion) }
+    ): AnimatedContentTransitionScope<S>.() -> ContentTransform = {
+        horizontal(motion, AnimatedContentTransitionScope.SlideDirection.Left)
+    }
 
-    /** Predictive Back uses the same transform, with progress driven by the gesture. */
-    fun <S> draggedExchange(
+    fun <S> retreat(
         motion: SlipboxMotion,
-    ): AnimatedContentTransitionScope<S>.(Int) -> ContentTransform = { crossfade(motion) }
+    ): AnimatedContentTransitionScope<S>.() -> ContentTransform = {
+        horizontal(motion, AnimatedContentTransitionScope.SlideDirection.Right)
+    }
 
-    private fun crossfade(motion: SlipboxMotion): ContentTransform {
-        val duration = motion.native(SlipboxTokens.Motion.CROSSFADE_MS)
+    /** Predictive Back drives the retreat's progress directly from the system edge gesture. */
+    fun <S> draggedRetreat(
+        motion: SlipboxMotion,
+    ): AnimatedContentTransitionScope<S>.(Int) -> ContentTransform = {
+        horizontal(motion, AnimatedContentTransitionScope.SlideDirection.Right)
+    }
+
+    private fun <S> AnimatedContentTransitionScope<S>.horizontal(
+        motion: SlipboxMotion,
+        direction: AnimatedContentTransitionScope.SlideDirection,
+    ): ContentTransform {
+        val duration = motion.native(SlipboxTokens.Motion.COLUMN_MS)
         if (duration == 0) {
             return ContentTransform(
                 targetContentEnter = EnterTransition.None,
@@ -34,12 +47,8 @@ internal object SlipboxTransitions {
                 sizeTransform = null,
             )
         }
-        val settle = tween<Float>(duration, easing = SlipboxSettle)
-        // Full-window surfaces need no size animation.
-        return ContentTransform(
-            targetContentEnter = fadeIn(settle),
-            initialContentExit = fadeOut(settle),
-            sizeTransform = null,
-        )
+        val settle = tween<IntOffset>(duration, easing = SlipboxSettle)
+        return slideIntoContainer(direction, settle) togetherWith
+            slideOutOfContainer(direction, settle)
     }
 }

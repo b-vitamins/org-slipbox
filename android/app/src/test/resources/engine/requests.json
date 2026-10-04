@@ -72,6 +72,17 @@
       "after": null
     }
   },
+  "read_random_node": {
+    "version": 1,
+    "handle": 7,
+    "binding": {
+      "source": "0102030405060708090a0b0c0d0e0f10",
+      "generation": "fixture-01"
+    },
+    "operation": {
+      "kind": "randomNode"
+    }
+  },
   "read_search_node_content": {
     "version": 1,
     "handle": 7,

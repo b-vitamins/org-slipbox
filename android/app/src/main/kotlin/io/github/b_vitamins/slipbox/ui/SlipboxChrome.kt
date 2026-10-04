@@ -12,6 +12,8 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -61,6 +63,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.res.painterResource
@@ -73,6 +76,7 @@ import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import io.github.b_vitamins.slipbox.R
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxDimensions
@@ -92,7 +96,13 @@ internal fun ReadingSurface(
     modifier: Modifier = Modifier,
     obscured: Boolean = false,
     scrollable: Boolean = true,
+    titleVisible: Boolean = true,
+    dividerVisible: Boolean = true,
+    headerVisible: Boolean = true,
+    headerVisibilityMillis: Int = 0,
+    contentBackground: Color = MaterialTheme.colorScheme.surface,
     contentPadding: PaddingValues = PaddingValues(SlipboxDimensions.readingPadding),
+    topBar: (@Composable () -> Unit)? = null,
     leading: @Composable () -> Unit = {},
     trailing: @Composable () -> Unit = {},
     overlay: @Composable BoxScope.() -> Unit = {},
@@ -105,17 +115,54 @@ internal fun ReadingSurface(
                     Modifier
                         .fillMaxSize()
                         .windowInsetsPadding(WindowInsets.safeDrawing.union(WindowInsets.ime))
-                        .withheld(obscured),
+                        .withheld(obscured)
+                        .semantics { paneTitle = title },
             ) {
-                ReadingHeader(title = title, leading = leading, trailing = trailing)
-                HorizontalDivider(
-                    thickness = SlipboxDimensions.hairline,
-                    color = MaterialTheme.colorScheme.outline,
-                )
+                AnimatedVisibility(
+                    visible = headerVisible,
+                    enter =
+                        if (headerVisibilityMillis == 0) {
+                            EnterTransition.None
+                        } else {
+                            expandVertically(
+                                animationSpec = tween(headerVisibilityMillis, easing = SlipboxSettle),
+                                expandFrom = Alignment.Top,
+                            ) + fadeIn(tween(headerVisibilityMillis, easing = SlipboxSettle))
+                        },
+                    exit =
+                        if (headerVisibilityMillis == 0) {
+                            ExitTransition.None
+                        } else {
+                            shrinkVertically(
+                                animationSpec = tween(headerVisibilityMillis, easing = SlipboxSettle),
+                                shrinkTowards = Alignment.Top,
+                            ) + fadeOut(tween(headerVisibilityMillis, easing = SlipboxSettle))
+                        },
+                ) {
+                    Column {
+                        if (topBar == null) {
+                            ReadingHeader(
+                                title = title,
+                                titleVisible = titleVisible,
+                                leading = leading,
+                                trailing = trailing,
+                            )
+                        } else {
+                            topBar()
+                        }
+                        if (dividerVisible) {
+                            HorizontalDivider(
+                                thickness = SlipboxDimensions.hairline,
+                                color = MaterialTheme.colorScheme.outline,
+                            )
+                        }
+                    }
+                }
                 ReadingColumn(
                     modifier = Modifier.weight(1f),
                     scrollable = scrollable,
                     contentPadding = contentPadding,
+                    background = contentBackground,
                     body = body,
                 )
             }
@@ -129,6 +176,7 @@ internal fun ReadingColumn(
     modifier: Modifier = Modifier,
     scrollable: Boolean = true,
     contentPadding: PaddingValues = PaddingValues(SlipboxDimensions.readingPadding),
+    background: Color = MaterialTheme.colorScheme.surface,
     body: @Composable ColumnScope.() -> Unit,
 ) {
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
@@ -139,7 +187,7 @@ internal fun ReadingColumn(
                 .fillMaxWidth()
                 // Keep the canvas full-height even for a short note.
                 .fillMaxHeight()
-                .background(MaterialTheme.colorScheme.surface)
+                .background(background)
         if (scrollable) contentModifier = contentModifier.verticalScroll(rememberScrollState())
         Column(
             modifier = contentModifier.padding(contentPadding),
@@ -166,6 +214,7 @@ internal fun IconControl(
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    tint: Color? = null,
 ) {
     HeaderControl(
         onClick = onClick,
@@ -175,7 +224,7 @@ internal fun IconControl(
         Icon(
             painter = icon,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
+            tint = tint ?: MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(SlipboxDimensions.glyph),
         )
     }
@@ -411,6 +460,7 @@ private fun HeaderControl(
 @Composable
 private fun ReadingHeader(
     title: String,
+    titleVisible: Boolean,
     leading: @Composable () -> Unit,
     trailing: @Composable () -> Unit,
 ) {
@@ -426,14 +476,18 @@ private fun ReadingHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         leading()
-        Text(
-            text = title,
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f).semantics { heading() },
-        )
+        Box(modifier = Modifier.weight(1f)) {
+            if (titleVisible) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.semantics { heading() },
+                )
+            }
+        }
         trailing()
     }
 }

@@ -219,22 +219,6 @@ private fun ExplorationEntryRow(
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.fillMaxWidth(),
             )
-            when (entry) {
-                is ExplorationEntry.UnlinkedReference ->
-                    HighlightedExcerpt(mentionExcerpt(entry.record))
-                else ->
-                    entry.preview()?.takeIf { it.isNotBlank() }?.let { preview ->
-                        Text(
-                            text = preview,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = SlipboxDimensions.headerPaddingVertical / 2),
-                        )
-                    }
-            }
         }
         TextControl(label = stringResource(R.string.action_open), onClick = onOpen)
     }
@@ -260,16 +244,6 @@ private fun ExplorationEntry.explanation(): ExplorationExplanation =
         is ExplorationEntry.Reflink -> record.explanation
         is ExplorationEntry.UnlinkedReference -> record.explanation
         is ExplorationEntry.Anchor -> record.explanation
-    }
-
-private fun ExplorationEntry.preview(): String? =
-    when (this) {
-        is ExplorationEntry.Backlink -> record.preview
-        is ExplorationEntry.ForwardLink -> record.preview
-        is ExplorationEntry.Reflink -> record.preview
-        is ExplorationEntry.UnlinkedReference,
-        is ExplorationEntry.Anchor,
-        -> null
     }
 
 @Composable

@@ -6,6 +6,7 @@
 package io.github.b_vitamins.slipbox.ui
 
 import android.os.Build
+import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
@@ -13,17 +14,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertTextEquals
-import androidx.compose.ui.test.captureToImage
-import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollToIndex
-import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.test.espresso.Espresso
@@ -48,9 +43,16 @@ import io.github.b_vitamins.slipbox.sources.SourceLibraryPhase
 import io.github.b_vitamins.slipbox.sync.RefreshProvider
 import io.github.b_vitamins.slipbox.sync.RefreshSource
 import io.github.b_vitamins.slipbox.sync.RefreshVisibility
+import io.github.b_vitamins.slipbox.ui.content.answer
+import io.github.b_vitamins.slipbox.ui.content.awaitState
+import io.github.b_vitamins.slipbox.ui.content.awaitTrue
+import io.github.b_vitamins.slipbox.ui.content.count
+import io.github.b_vitamins.slipbox.ui.content.documentViewIn
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxMotion
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -63,86 +65,73 @@ class CorpusSearchSurfaceTest {
     @get:Rule val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     @Test
-    fun neutralSearchShowsExactUnicodeContextAndLoadsTheBoundedContinuation() {
-        val all = (1..60).map(::hit)
+    fun enteringTheFirstCharacterKeepsTheSearchFieldAndItsFocus() {
         var input by mutableStateOf(TextFieldValue())
-        var loads = 0
-        var search by mutableStateOf<CorpusSearchPhase>(CorpusSearchPhase.Dormant)
         composeRule.setContent {
             SlipboxTheme {
                 LibraryScreen(
                     onOpenAbout = {},
                     phase = SourceLibraryPhase.Ready(ready(), 1),
                     hasSources = true,
-                    inventory = NotesInventoryPhase.Empty,
                     searchInput = input,
-                    searchPhase = search,
-                    onSearchChange = {
-                        input = it
-                        search =
-                            CorpusSearchPhase.Ready(
-                                query = it.text,
-                                hits = all.take(30),
-                                total = 60,
-                                queryBound = 200,
-                                queryTruncated = false,
-                                hasMore = true,
-                                nextPosition = "after-30",
-                            )
-                    },
-                    onLoadMoreSearch = {
-                        loads += 1
-                        search =
-                            CorpusSearchPhase.Ready(
-                                query = input.text,
-                                hits = all,
-                                total = 60,
-                                queryBound = 200,
-                                queryTruncated = false,
-                                hasMore = false,
-                                nextPosition = null,
-                            )
-                    },
+                    searchPhase = CorpusSearchPhase.Empty("c"),
+                    onSearchChange = { input = it },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(CORPUS_SEARCH_FIELD_TAG).performTextInput("c")
+        composeRule.onNodeWithTag(CORPUS_SEARCH_FIELD_TAG).assertIsFocused()
+        composeRule.onNodeWithTag(CORPUS_SEARCH_FIELD_TAG).performTextInput("ontrol")
+        composeRule.onNodeWithTag(CORPUS_SEARCH_FIELD_TAG).assertTextEquals("control")
+    }
+
+    @Test
+    fun resultsRenderAsReadableProseWithoutOrgIdsOrRawTex() {
+        var input by mutableStateOf(TextFieldValue())
+        var opened: CorpusSearchHit? = null
+        val hits = listOf(hit(1), hit(2), hit(3))
+        composeRule.setContent {
+            SlipboxTheme {
+                LibraryScreen(
+                    onOpenAbout = {},
+                    phase = SourceLibraryPhase.Ready(ready(), 1),
+                    hasSources = true,
+                    searchInput = input,
+                    searchPhase = readySearch(hits),
+                    onSearchChange = { input = it },
+                    onOpenSearchHit = { opened = it },
                 )
             }
         }
 
         composeRule.onNodeWithText("What are you looking for?").assertIsDisplayed()
-        composeRule.onNodeWithTag(CORPUS_SEARCH_FIELD_TAG).performTextInput("théorie")
-        composeRule.onNodeWithText("30 of 60 matches").assertIsDisplayed()
-        composeRule.onNodeWithText("Théorie of fixed points").assertIsDisplayed()
-        composeRule.onNodeWithText("théorie alias").assertIsDisplayed()
-        composeRule.onNodeWithText("Context \\(f(λ)=λ\\) in théorie 3.").assertIsDisplayed()
-        composeRule.accessibleRegression("corpus-search-unicode")
+        composeRule.onNodeWithTag(CORPUS_SEARCH_FIELD_TAG).performTextInput("control")
+        val view = searchView()
+        view.awaitState("ready")
+        view.awaitTrue(
+            "all result rows rendered",
+            "document.querySelectorAll('.org-search-result').length === 3",
+        )
 
-        composeRule.onNodeWithTag(CORPUS_SEARCH_LIST_TAG).performScrollToIndex(31)
-        composeRule.waitUntil(5_000) { loads == 1 }
-        composeRule
-            .onNodeWithTag(CORPUS_SEARCH_LIST_TAG)
-            .performScrollToNode(hasText("Result 60"))
-        composeRule.onNodeWithText("Result 60").assertIsDisplayed()
-        composeRule.runOnIdle {
-            assertEquals(1, loads)
-            assertEquals(60, (search as CorpusSearchPhase.Ready).hits.distinctBy { it.node.nodeKey }.size)
-        }
+        assertEquals(3, view.count(".org-search-result"))
+        assertEquals(1, view.count(".org-search-result .katex"))
+        val markup = view.answer("document.querySelector('.org-search-result').innerHTML")
+        assertFalse("an Org identifier reached the row", markup.contains("private-identity"))
+        assertFalse("an Org link reached the row", markup.contains("[[id:"))
+        assertFalse("a TeX delimiter reached the row", markup.contains("\\\\("))
+        assertTrue("the matching prose is marked", view.count(".org-search-result mark") > 0)
+
+        view.answer("document.querySelector('.org-search-result button').click()")
+        composeRule.waitUntil(5_000) { opened != null }
+        composeRule.runOnIdle { assertEquals(hits.first(), opened) }
     }
 
     @Test
-    fun typedResultsOpenTheirCompleteSurfaceAndBackRestoresQuerySelectionAndListPlace() {
-        val all = (1..60).map(::hit)
+    fun openingAResultAndReturningPreservesTheQuery() {
+        val result = hit(1)
         val binding = GenerationBinding(SOURCE, GENERATION)
         var input by mutableStateOf(TextFieldValue())
-        var selected by mutableStateOf<String?>(null)
-        val search =
-            CorpusSearchPhase.Ready(
-                query = "théorie",
-                hits = all,
-                total = 60,
-                queryBound = 200,
-                queryTruncated = false,
-                hasMore = false,
-                nextPosition = null,
-            )
         val destinations =
             slipboxDestinations {
                 surface(SlipboxSurface.Library) { route, backStack ->
@@ -151,28 +140,17 @@ class CorpusSearchSurfaceTest {
                         onOpenAbout = {},
                         phase = SourceLibraryPhase.Ready(ready(), 1),
                         hasSources = true,
-                        inventory = NotesInventoryPhase.Empty,
                         searchInput = input,
-                        searchPhase = search,
-                        selectedSearchNodeKey = selected,
+                        searchPhase = readySearch(listOf(result)),
                         onSearchChange = {
                             input = it
                             backStack.rememberLibrarySearch(library, it.text)
                         },
-                        onOpenSearchHit = {
-                            selected = it.node.nodeKey
-                            backStack.open(it.readingRoute(binding))
-                        },
+                        onOpenSearchHit = { backStack.open(it.readingRoute(binding)) },
                     )
                 }
-                surface(SlipboxSurface.Reader) { route, _ ->
-                    val reader = route as SlipboxRoute.Reader
-                    Text("Complete note ${reader.note.nodeKey.substringAfter("key-")}")
-                }
-                surface(SlipboxSurface.Glossary) { route, _ ->
-                    val glossary = route as SlipboxRoute.Glossary
-                    Text("Complete term ${glossary.term?.substringAfter("key-")}")
-                }
+                surface(SlipboxSurface.Reader) { _, _ -> Text("Complete note") }
+                surface(SlipboxSurface.Glossary) { _, _ -> Text("Complete term") }
             }
         composeRule.setContent {
             SlipboxTheme {
@@ -184,90 +162,84 @@ class CorpusSearchSurfaceTest {
             }
         }
 
-        composeRule.onNodeWithTag(CORPUS_SEARCH_FIELD_TAG).performTextInput("théorie")
-        composeRule
-            .onNodeWithTag(CORPUS_SEARCH_LIST_TAG)
-            .performScrollToNode(hasText("Result 39"))
-        composeRule.onNodeWithText("Result 39").performClick()
-        composeRule.onNodeWithText("Complete note 39").assertIsDisplayed()
-        Espresso.pressBack()
-        composeRule.onNodeWithTag(CORPUS_SEARCH_FIELD_TAG).assertTextEquals("théorie")
-        composeRule.onNodeWithText("Result 39").assertIsDisplayed().assertIsSelected()
-        composeRule.onNodeWithText("Result 1").assertDoesNotExist()
+        composeRule.onNodeWithTag(CORPUS_SEARCH_FIELD_TAG).performTextInput("control")
+        searchView().apply {
+            awaitState("ready")
+            awaitTrue(
+                "the result row rendered",
+                "document.querySelectorAll('.org-search-result').length === 1",
+            )
+            answer("document.querySelector('.org-search-result button').click()")
+        }
+        composeRule.onNodeWithText("Complete note").assertIsDisplayed()
 
-        composeRule.onNodeWithText("Result 40").assertIsDisplayed().performClick()
-        composeRule.onNodeWithText("Complete term 40").assertIsDisplayed()
         Espresso.pressBack()
-        composeRule.onNodeWithText("Result 40").assertIsDisplayed().assertIsSelected()
-        composeRule.onNodeWithText("Result 1").assertDoesNotExist()
-        Evidence.image("corpus-search-back-restoration", composeRule.onRoot().captureToImage())
-    }
-
-    private fun hit(index: Int): CorpusSearchHit {
-        val glossary = index % 2 == 0
-        val title = if (index == 1) "Théorie of fixed points" else "Result $index"
-        val aliases = if (index == 2) listOf("théorie alias") else emptyList()
-        val field =
-            when (index) {
-                1 -> CorpusSearchField.TITLE
-                2 -> CorpusSearchField.ALIAS
-                else -> CorpusSearchField.CONTENT
-            }
-        return CorpusSearchHit(
-            node = node(index, title, aliases, glossary),
-            entity = if (glossary) CorpusSearchEntity.GLOSSARY else CorpusSearchEntity.NOTE,
-            matchedField = field,
-            title =
-                ContentSnippet(
-                    if (index == 1) {
-                        listOf(
-                            ContentSegment("Théorie", true),
-                            ContentSegment(" of fixed points", false),
-                        )
-                    } else {
-                        listOf(ContentSegment(title, false))
-                    },
-                ),
-            aliases =
-                ContentSnippet(
-                    if (index == 2) listOf(ContentSegment("théorie alias", true)) else emptyList(),
-                ),
-            excerpt =
-                ContentSnippet(
-                    if (index > 2) {
-                        listOf(
-                            ContentSegment("Context \\(f(λ)=λ\\) in ", false),
-                            ContentSegment("théorie", true),
-                            ContentSegment(" $index.", false),
-                        )
-                    } else {
-                        emptyList()
-                    },
-                ),
+        composeRule.onNodeWithTag(CORPUS_SEARCH_FIELD_TAG).assertTextEquals("control")
+        searchView().awaitTrue(
+            "the search results returned",
+            "document.querySelectorAll('.org-search-result').length === 1",
         )
     }
 
-    private fun node(
-        index: Int,
-        title: String,
-        aliases: List<String>,
-        glossary: Boolean,
-    ): NodeRecord =
+    private fun searchView(): WebView {
+        composeRule.waitUntil(5_000) {
+            documentViewIn(composeRule.activity.window.decorView) != null
+        }
+        return checkNotNull(documentViewIn(composeRule.activity.window.decorView))
+    }
+
+    private fun readySearch(hits: List<CorpusSearchHit>): CorpusSearchPhase.Ready =
+        CorpusSearchPhase.Ready(
+            query = "control",
+            hits = hits,
+            total = hits.size.toLong(),
+            queryBound = 200,
+            queryTruncated = false,
+            hasMore = false,
+            nextPosition = null,
+        )
+
+    private fun hit(index: Int): CorpusSearchHit {
+        val title = if (index == 1) "Control systems" else "Result $index"
+        val excerpt =
+            if (index == 1) {
+                listOf(
+                    ContentSegment(
+                        "A [[id:private-identity][control input]] \\(u(t)\\) drives the ",
+                        false,
+                    ),
+                    ContentSegment("system", true),
+                    ContentSegment(".", false),
+                )
+            } else {
+                listOf(ContentSegment("Readable context for result $index.", false))
+            }
+        return CorpusSearchHit(
+            node = node(index, title),
+            entity = CorpusSearchEntity.NOTE,
+            matchedField = CorpusSearchField.CONTENT,
+            title = ContentSnippet(listOf(ContentSegment(title, false))),
+            aliases = ContentSnippet(emptyList()),
+            excerpt = ContentSnippet(excerpt),
+        )
+    }
+
+    private fun node(index: Int, title: String): NodeRecord =
         NodeRecord(
             nodeKey = "key-$index",
             explicitId = "id-$index",
             filePath = "note-$index.org",
             title = title,
             outlinePath = "Section/$title",
-            aliases = aliases,
-            tags = emptyList(),
+            aliases = emptyList(),
+            tags = listOf("control"),
             refs = emptyList(),
             todoKeyword = null,
             scheduledFor = null,
             deadlineFor = null,
             closedAt = null,
-            glossary = glossary,
-            glossaryStatus = if (glossary) "confirmed" else null,
+            glossary = false,
+            glossaryStatus = null,
             srDue = null,
             srEase = null,
             srInterval = null,
@@ -286,10 +258,10 @@ class CorpusSearchSurfaceTest {
             source =
                 RefreshSource(
                     id = SOURCE,
-                    displayName = "owner/knowledge",
+                    displayName = "owner/notes",
                     provider = RefreshProvider.GENERIC_HTTPS,
                     visibility = RefreshVisibility.PUBLIC,
-                    remote = "https://example.com/knowledge.git",
+                    remote = "https://example.com/notes.git",
                     branch = "main",
                     notesFolder = "",
                 ),
@@ -297,7 +269,7 @@ class CorpusSearchSurfaceTest {
             revision = "0123456789abcdef",
             contentRoot = "/private/source",
             database = "/private/index.sqlite",
-            stats = ReadySourceStats(60, 60, 0),
+            stats = ReadySourceStats(3, 3, 0),
         )
 
     private companion object {

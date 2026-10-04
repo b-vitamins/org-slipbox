@@ -191,6 +191,10 @@ sealed class ReadOperation {
     ) : ReadOperation()
 
     @Serializable
+    @SerialName("randomNode")
+    data object RandomNode : ReadOperation()
+
+    @Serializable
     @SerialName("searchNodeContent")
     data class SearchNodeContent(
         val query: String,

@@ -143,6 +143,28 @@ class SlipboxBackStackTest {
     }
 
     @Test
+    fun followingRecursivelyRestoresEveryPriorReadingPosition() {
+        val first = note(ALPHA, "note-1")
+        val stack = history(first)
+
+        assertTrue(stack.follow(first, "note-2", ReadingAnchor("paragraph-3", 0.25f)))
+        val second = stack.current as SlipboxRoute.Reader
+        assertTrue(stack.follow(second, "note-3", ReadingAnchor("equation-2", 0.68f)))
+        assertEquals(note(ALPHA, "note-3"), stack.current)
+
+        assertTrue(stack.back())
+        assertEquals(
+            second.copy(anchor = ReadingAnchor("equation-2", 0.68f)),
+            stack.current,
+        )
+        assertTrue(stack.back())
+        assertEquals(
+            first.copy(anchor = ReadingAnchor("paragraph-3", 0.25f)),
+            stack.current,
+        )
+    }
+
+    @Test
     fun followingAnExistingReaderRewindsInsteadOfDuplicatingIt() {
         val first = note(ALPHA, "note-1")
         val stack = history(first)

@@ -43,17 +43,19 @@ import io.github.b_vitamins.slipbox.ui.MentionDiscoveryPhase
 import io.github.b_vitamins.slipbox.ui.ReaderExplorationPhase
 import io.github.b_vitamins.slipbox.ui.ReaderScreen
 import io.github.b_vitamins.slipbox.ui.ReaderSurfaceKind
+import io.github.b_vitamins.slipbox.ui.RandomNotePhase
+import io.github.b_vitamins.slipbox.ui.RandomNoteState
 import io.github.b_vitamins.slipbox.ui.RelatedDiscoveryPhase
 import io.github.b_vitamins.slipbox.ui.SourceSettingsScreen
 import io.github.b_vitamins.slipbox.ui.rememberDocumentReaderState
 import io.github.b_vitamins.slipbox.ui.rememberCorpusSearchState
 import io.github.b_vitamins.slipbox.ui.rememberDirectedRelationsState
-import io.github.b_vitamins.slipbox.ui.rememberNotesInventoryState
 import io.github.b_vitamins.slipbox.ui.rememberGlossaryInventoryState
 import io.github.b_vitamins.slipbox.ui.rememberGlossaryReviewState
 import io.github.b_vitamins.slipbox.ui.rememberGlossaryTermReaderState
 import io.github.b_vitamins.slipbox.ui.rememberReaderDiscoveryState
 import io.github.b_vitamins.slipbox.ui.rememberReaderExplorationState
+import io.github.b_vitamins.slipbox.ui.rememberRandomNoteState
 import io.github.b_vitamins.slipbox.ui.content.DocumentGesture
 import io.github.b_vitamins.slipbox.ui.content.DocumentIntent
 import io.github.b_vitamins.slipbox.ui.content.DocumentPosition
@@ -77,6 +79,10 @@ fun SlipboxApp() {
                 LibraryScreen(
                     phase = phase,
                     hasSources = library.catalog?.sources?.isNotEmpty() == true,
+                    appearance = settings.preferences.appearance,
+                    reduceMotion = settings.preferences.reduceMotion,
+                    onSelectAppearance = settings::select,
+                    onSelectReduceMotion = settings::selectReduceMotion,
                     onOpenAbout = {},
                 )
             is SourceLibraryPhase.Ready -> {
@@ -85,8 +91,17 @@ fun SlipboxApp() {
                 val glossary = rememberGlossaryInventoryState(phase.source)
                 val glossaryReview = rememberGlossaryReviewState(phase.source)
                 val search = rememberCorpusSearchState(phase.source)
+                val random = rememberRandomNoteState(phase.source)
                 val destinations =
-                    remember(settings, library, readingReturns, glossary, glossaryReview, search) {
+                    remember(
+                        settings,
+                        library,
+                        readingReturns,
+                        glossary,
+                        glossaryReview,
+                        search,
+                        random,
+                    ) {
                         productionDestinations(
                             settings,
                             library,
@@ -94,6 +109,7 @@ fun SlipboxApp() {
                             glossary,
                             glossaryReview,
                             search,
+                            random,
                         )
                     }
                 key(phase.source.binding) {
@@ -101,6 +117,10 @@ fun SlipboxApp() {
                         LibraryScreen(
                             phase = SourceLibraryPhase.Loading,
                             hasSources = true,
+                            appearance = settings.preferences.appearance,
+                            reduceMotion = settings.preferences.reduceMotion,
+                            onSelectAppearance = settings::select,
+                            onSelectReduceMotion = settings::selectReduceMotion,
                             onOpenAbout = {},
                         )
                     } else {
@@ -130,13 +150,13 @@ private fun productionDestinations(
     glossary: GlossaryInventoryState? = null,
     glossaryReview: GlossaryReviewState? = null,
     search: CorpusSearchState? = null,
+    random: RandomNoteState? = null,
 ): SlipboxDestinations =
     slipboxDestinations {
         surface(SlipboxSurface.Library) { route, backStack ->
             val libraryRoute = route as SlipboxRoute.Library
             val catalog = library.catalog
             val ready = (library.phase as? SourceLibraryPhase.Ready)?.source
-            val inventory = ready?.let { rememberNotesInventoryState(it) }
             LaunchedEffect(search, libraryRoute.query) { search?.restore(libraryRoute.query) }
             LibraryScreen(
                 phase = library.phase,
@@ -147,41 +167,17 @@ private fun productionDestinations(
                     source?.let { backStack.open(SlipboxRoute.SourceSettings(it.id)) }
                 },
                 onRetry = library::reload,
-                inventory = inventory?.phase,
-                onLoadMore = { inventory?.loadMore() },
-                onRetryInventory = { inventory?.retry() },
-                selectedNoteNodeKey =
-                    (backStack.current as? SlipboxRoute.Reader)
-                        ?.note
-                        ?.takeIf { it.binding == ready?.binding }
-                        ?.nodeKey,
-                onOpenNote = { note ->
-                    ready?.let {
-                        backStack.open(
-                            SlipboxRoute.Reader(
-                                BoundNote(
-                                    binding = it.binding,
-                                    nodeKey = note.nodeKey,
-                                    explicitId = note.explicitId,
-                                    filePath = note.filePath,
-                                ),
-                            ),
-                        )
-                    }
-                },
                 onOpenGlossary = {
                     ready?.let { backStack.open(SlipboxRoute.Glossary(it.binding)) }
                 },
                 searchInput = search?.input ?: androidx.compose.ui.text.input.TextFieldValue(),
                 searchPhase = search?.phase ?: CorpusSearchPhase.Dormant,
-                selectedSearchNodeKey = search?.selectedNodeKey,
                 onSearchChange = { input ->
                     if (io.github.b_vitamins.slipbox.navigation.isSavedText(input.text)) {
                         search?.update(input)
                         backStack.rememberLibrarySearch(libraryRoute, input.text)
                     }
                 },
-                onLoadMoreSearch = { search?.loadMore() },
                 onRetrySearch = { search?.retry() },
                 onOpenSearchHit = { hit ->
                     ready?.let { source ->
@@ -190,6 +186,31 @@ private fun productionDestinations(
                     }
                 },
                 readingReturns = readingReturns?.snapshot,
+                appearance = settings.preferences.appearance,
+                reduceMotion = settings.preferences.reduceMotion,
+                onSelectAppearance = settings::select,
+                onSelectReduceMotion = settings::selectReduceMotion,
+                randomPhase = random?.phase ?: RandomNotePhase.Idle,
+                onSurpriseMe = {
+                    ready?.let { source ->
+                        random?.choose { node ->
+                            val destination =
+                                if (node.glossary) {
+                                    SlipboxRoute.Glossary(source.binding, term = node.nodeKey)
+                                } else {
+                                    SlipboxRoute.Reader(
+                                        BoundNote(
+                                            binding = source.binding,
+                                            nodeKey = node.nodeKey,
+                                            explicitId = node.explicitId,
+                                            filePath = node.filePath,
+                                        ),
+                                    )
+                                }
+                            backStack.open(destination)
+                        }
+                    }
+                },
                 onOpenReadingReturn = { entry ->
                     if (entry.availability == ReadingReturnAvailability.Available) {
                         backStack.open(SlipboxRoute.Reader(entry.note, entry.anchor))
@@ -298,20 +319,15 @@ private fun productionDestinations(
                         when (intent) {
                             is DocumentIntent.Glance ->
                                 if (intent.gesture == DocumentGesture.Touch) {
-                                    reader.preview(
-                                        target = intent.link.target,
-                                        gesture = intent.gesture,
-                                        originProgress = intent.progress,
-                                        origin = intent.origin,
-                                        originPosition = intent.position,
-                                        onExternal = { resolution ->
-                                            openExternal(
-                                                resolution,
-                                                intent.position
-                                                    ?: DocumentPosition(progress = intent.progress),
-                                            )
-                                        },
-                                    )
+                                    if (isRepositoryAssetTarget(intent.link.target)) {
+                                        reader.openAttachment(intent.link.target, assets)
+                                    } else {
+                                        follow(
+                                            intent.link.target,
+                                            intent.position
+                                                ?: DocumentPosition(progress = intent.progress),
+                                        )
+                                    }
                                 }
                             is DocumentIntent.Pin ->
                                 if (isRepositoryAssetTarget(intent.link.target)) {
@@ -346,6 +362,7 @@ private fun productionDestinations(
                         }
                     },
                     onDismissPreview = reader::dismissPreview,
+                    onDismissLinkNotice = reader::dismissLinkNotice,
                     onOpenPreview = {
                         reader.openPreview { preview ->
                             val anchor =
@@ -469,6 +486,19 @@ private fun productionDestinations(
                 GlossaryScreen(
                     phase = glossary?.phase ?: GlossaryInventoryPhase.Dormant,
                     onBack = { backStack.back() },
+                    onShowNotes = {
+                        while (backStack.current is SlipboxRoute.Glossary) backStack.back()
+                    },
+                    onManageSources = {
+                        val catalog = library.catalog
+                        val source = catalog?.activeSource ?: catalog?.sources?.firstOrNull()
+                        source?.let { backStack.open(SlipboxRoute.SourceSettings(it.id)) }
+                    },
+                    onOpenAbout = { backStack.open(SlipboxRoute.About) },
+                    appearance = settings.preferences.appearance,
+                    reduceMotion = settings.preferences.reduceMotion,
+                    onSelectAppearance = settings::select,
+                    onSelectReduceMotion = settings::selectReduceMotion,
                     onActivate = { glossary?.activate() },
                     onLoadMore = { glossary?.loadMore() },
                     onRetry = { glossary?.retry() },
@@ -551,14 +581,11 @@ private fun productionDestinations(
                         when (intent) {
                             is DocumentIntent.Glance ->
                                 if (intent.gesture == DocumentGesture.Touch) {
-                                    reader.preview(
-                                        target = intent.link.target,
-                                        gesture = intent.gesture,
-                                        originProgress = intent.progress,
-                                        origin = intent.origin,
-                                        originPosition = intent.position,
-                                        onExternal = openExternal,
-                                    )
+                                    if (isRepositoryAssetTarget(intent.link.target)) {
+                                        reader.openAttachment(intent.link.target, assets)
+                                    } else {
+                                        follow(intent.link.target)
+                                    }
                                 }
                             is DocumentIntent.Pin ->
                                 if (isRepositoryAssetTarget(intent.link.target)) {
@@ -577,6 +604,7 @@ private fun productionDestinations(
                         }
                     },
                     onDismissPreview = reader::dismissPreview,
+                    onDismissLinkNotice = reader::dismissLinkNotice,
                     onOpenPreview = {
                         reader.openPreview { preview ->
                             if (preview.anchor.glossary) {
@@ -606,6 +634,10 @@ private fun productionDestinations(
                     hasSources = library.catalog?.sources?.isNotEmpty() == true,
                     onConnect = {},
                     onRetry = library::reload,
+                    appearance = settings.preferences.appearance,
+                    reduceMotion = settings.preferences.reduceMotion,
+                    onSelectAppearance = settings::select,
+                    onSelectReduceMotion = settings::selectReduceMotion,
                     onOpenAbout = { backStack.open(SlipboxRoute.About) },
                 )
             } else {
@@ -628,6 +660,10 @@ private fun productionDestinations(
                     phase = library.phase,
                     hasSources = false,
                     onRetry = library::reload,
+                    appearance = settings.preferences.appearance,
+                    reduceMotion = settings.preferences.reduceMotion,
+                    onSelectAppearance = settings::select,
+                    onSelectReduceMotion = settings::selectReduceMotion,
                     onOpenAbout = { backStack.open(SlipboxRoute.About) },
                 )
             } else {

@@ -1,8 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  Copyright (C) 2026 Ayan Das
-  SPDX-License-Identifier: GPL-3.0-or-later
--->
+<!-- Copyright (C) 2026 Ayan Das; SPDX-License-Identifier: GPL-3.0-or-later -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
@@ -10,8 +7,9 @@
     android:viewportHeight="24">
     <path
         android:fillColor="@android:color/transparent"
-        android:pathData="M12,5 L12,19 M5,12 L19,12"
+        android:pathData="M10.75,4.5A6.25,6.25 0,1 0,10.75 17A6.25,6.25 0,1 0,10.75 4.5M15.17,15.17L20,20"
         android:strokeColor="#FF000000"
         android:strokeLineCap="round"
+        android:strokeLineJoin="round"
         android:strokeWidth="1.8" />
 </vector>

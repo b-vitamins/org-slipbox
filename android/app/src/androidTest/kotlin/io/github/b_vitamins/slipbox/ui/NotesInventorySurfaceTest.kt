@@ -7,20 +7,11 @@ package io.github.b_vitamins.slipbox.ui
 
 import android.os.Build
 import androidx.activity.ComponentActivity
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.captureToImage
-import androidx.compose.ui.test.hasScrollAction
-import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollToIndex
-import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SdkSuppress
 import io.github.b_vitamins.slipbox.engine.GenerationBinding
@@ -46,78 +37,36 @@ class NotesInventorySurfaceTest {
     @get:Rule val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     @Test
-    fun reachingThePageBoundaryLoadsAndShowsTheNextBoundedPage() {
-        val all = (1..60).map(::note)
+    fun theRestingLibraryDoesNotDumpTheRepositoryInventoryOrDiagnostics() {
         var loads = 0
-        var opened: NodeRecord? = null
-        var inventory by
-            mutableStateOf<NotesInventoryPhase>(
-                NotesInventoryPhase.Ready(all.take(50), 60, true, "after-50"),
-            )
-        composeRule.setContent {
-            SlipboxTheme {
-                LibraryScreen(
-                    onOpenAbout = {},
-                    phase = SourceLibraryPhase.Ready(ready(), 1),
-                    hasSources = true,
-                    inventory = inventory,
-                    onLoadMore = {
-                        loads += 1
-                        inventory = NotesInventoryPhase.Ready(all, 60, false, null)
-                    },
-                    onOpenNote = { opened = it },
-                )
-            }
-        }
-
-        composeRule
-            .onNode(hasScrollAction())
-            .performScrollToIndex(50)
-        composeRule.waitUntil(5_000) { loads == 1 }
-        composeRule
-            .onNode(hasScrollAction())
-            .performScrollToNode(hasText("Note 60"))
-        composeRule.onNodeWithText("Note 60").assertIsDisplayed()
-        composeRule.onNodeWithText("Note 60").performClick()
-        composeRule.runOnIdle {
-            assertEquals(1, loads)
-            assertEquals(all.last(), opened)
-        }
-        Evidence.image("notes-inventory-continuation", composeRule.onRoot().captureToImage())
-    }
-
-    @Test
-    fun initialAndContinuationFailuresRemainCompactAndRetryable() {
         var retries = 0
-        var inventory by mutableStateOf<NotesInventoryPhase>(NotesInventoryPhase.Failed)
+        val note = note()
         composeRule.setContent {
             SlipboxTheme {
                 LibraryScreen(
                     onOpenAbout = {},
                     phase = SourceLibraryPhase.Ready(ready(), 1),
                     hasSources = true,
-                    inventory = inventory,
-                    onRetryInventory = {
-                        retries += 1
-                        inventory =
-                            NotesInventoryPhase.Ready(
-                                notes = listOf(note(1)),
-                                total = 2,
-                                hasMore = true,
-                                nextPosition = "after-1",
-                                continuationFailed = true,
-                            )
-                    },
+                    inventory = NotesInventoryPhase.Ready(listOf(note), 924, true, "after-1"),
+                    onLoadMore = { loads += 1 },
+                    onRetryInventory = { retries += 1 },
                 )
             }
         }
 
-        composeRule.onNodeWithText("Notes could not be loaded.").assertIsDisplayed()
-        composeRule.accessibleRegression("notes-inventory-error")
-        composeRule.onNodeWithText("Try again").performClick()
-        composeRule.onNodeWithText("Note 1").assertIsDisplayed()
-        composeRule.onNodeWithText("More notes could not be loaded.").assertIsDisplayed()
-        composeRule.runOnIdle { assertEquals(1, retries) }
+        composeRule.onNodeWithTag(CORPUS_SEARCH_FIELD_TAG).assertExists()
+        composeRule.onNodeWithText("What are you looking for?").assertIsDisplayed()
+        composeRule.onNodeWithText("Surprise me").assertIsDisplayed()
+        composeRule.onNodeWithText("Glossary").assertIsDisplayed()
+        composeRule.onNodeWithText(note.title).assertDoesNotExist()
+        composeRule.onNodeWithText(note.filePath).assertDoesNotExist()
+        composeRule.onNodeWithText("owner/notes").assertDoesNotExist()
+        composeRule.onNodeWithText("0123456789abcdef").assertDoesNotExist()
+        composeRule.onNodeWithText("924 files").assertDoesNotExist()
+        composeRule.runOnIdle {
+            assertEquals(0, loads)
+            assertEquals(0, retries)
+        }
     }
 
     private fun ready(): ReadySource =
@@ -136,15 +85,15 @@ class NotesInventorySurfaceTest {
             revision = "0123456789abcdef",
             contentRoot = "/private/source",
             database = "/private/index.sqlite",
-            stats = ReadySourceStats(60, 60, 0),
+            stats = ReadySourceStats(924, 1_587, 17_833),
         )
 
-    private fun note(index: Int): NodeRecord =
+    private fun note(): NodeRecord =
         NodeRecord(
-            nodeKey = "file:${index.toString().padStart(3, '0')}.org",
+            nodeKey = "file:inventory.org",
             explicitId = null,
-            filePath = "${index.toString().padStart(3, '0')}.org",
-            title = "Note $index",
+            filePath = "inventory.org",
+            title = "Inventory note",
             outlinePath = "",
             aliases = emptyList(),
             tags = emptyList(),

@@ -16,19 +16,20 @@ use slipbox_core::{
     GlossaryTermResult, IndexFileParams, IndexFileResult, IndexStats, IndexedFilesResult,
     ListGlossaryTermsParams, ListGlossaryTermsResult, ListNotesParams, ListNotesResult,
     NodeFromIdParams, NodeFromKeyParams, NodeRecord, NoteContextParams, NoteContextResult,
-    ReadNodeSourceParams, ReadNodeSourceResult, ResolveDocumentLinkParams, SearchCorpusParams,
-    SearchCorpusResult, SearchGlossaryParams, SearchGlossaryResult, SearchNodeContentParams,
-    SearchNodeContentResult, SearchNodesParams, SearchNodesResult, StatusInfo,
-    UnlinkedReferencesParams, UnlinkedReferencesResult,
+    RandomNodeResult, ReadNodeSourceParams, ReadNodeSourceResult, ResolveDocumentLinkParams,
+    SearchCorpusParams, SearchCorpusResult, SearchGlossaryParams, SearchGlossaryResult,
+    SearchNodeContentParams, SearchNodeContentResult, SearchNodesParams, SearchNodesResult,
+    StatusInfo, UnlinkedReferencesParams, UnlinkedReferencesResult,
 };
 
 use crate::{
     JsonRpcErrorKind, METHOD_BACKLINKS, METHOD_DIRECTED_RELATIONS, METHOD_EXPLORE,
     METHOD_FORWARD_LINKS, METHOD_GLOSSARY_DUE, METHOD_GLOSSARY_TERM, METHOD_INDEX,
     METHOD_INDEX_FILE, METHOD_INDEXED_FILES, METHOD_LIST_GLOSSARY_TERMS, METHOD_LIST_NOTES,
-    METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_NOTE_CONTEXT, METHOD_READ_NODE_SOURCE,
-    METHOD_RESOLVE_DOCUMENT_LINK, METHOD_SEARCH_CORPUS, METHOD_SEARCH_GLOSSARY,
-    METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES, METHOD_STATUS, METHOD_UNLINKED_REFERENCES,
+    METHOD_NODE_FROM_ID, METHOD_NODE_FROM_KEY, METHOD_NOTE_CONTEXT, METHOD_RANDOM_NODE,
+    METHOD_READ_NODE_SOURCE, METHOD_RESOLVE_DOCUMENT_LINK, METHOD_SEARCH_CORPUS,
+    METHOD_SEARCH_GLOSSARY, METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES, METHOD_STATUS,
+    METHOD_UNLINKED_REFERENCES,
 };
 
 /// The supported Android adapter protocol version.
@@ -209,6 +210,7 @@ operation_vocabulary! {
         IndexedFiles, "indexedFiles", METHOD_INDEXED_FILES, StateOnlyParams, IndexedFilesResult;
         SearchNodes, "searchNodes", METHOD_SEARCH_NODES, SearchNodesParams, SearchNodesResult;
         ListNotes, "listNotes", METHOD_LIST_NOTES, ListNotesParams, ListNotesResult;
+        RandomNode, "randomNode", METHOD_RANDOM_NODE, StateOnlyParams, RandomNodeResult;
         SearchNodeContent, "searchNodeContent", METHOD_SEARCH_NODE_CONTENT,
             SearchNodeContentParams, SearchNodeContentResult;
         SearchCorpus, "searchCorpus", METHOD_SEARCH_CORPUS, SearchCorpusParams, SearchCorpusResult;
@@ -292,6 +294,7 @@ impl ReadOperation {
         match self {
             Self::Status(_)
             | Self::IndexedFiles(_)
+            | Self::RandomNode(_)
             | Self::NodeFromId(_)
             | Self::NodeFromKey(_)
             | Self::GlossaryTerm(_) => None,

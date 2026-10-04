@@ -4,9 +4,10 @@
   SPDX-License-Identifier: GPL-3.0-or-later
 -->
 <resources>
-    <style name="Theme.Slipbox" parent="android:Theme.DeviceDefault.NoActionBar">
+    <style name="Theme.Slipbox" parent="android:Theme.DeviceDefault.Light.NoActionBar">
         <item name="android:windowBackground">@color/window_background</item>
         <item name="android:navigationBarColor">@color/window_background</item>
-        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowLightStatusBar">true</item>
     </style>
 </resources>

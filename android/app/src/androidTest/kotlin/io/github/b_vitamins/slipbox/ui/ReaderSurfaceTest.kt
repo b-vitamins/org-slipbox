@@ -79,6 +79,38 @@ class ReaderSurfaceTest {
     @get:Rule val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     @Test
+    fun readingChromeYieldsToDownwardReadingAndReturnsOnUpwardScroll() {
+        lateinit var settings: ReadingSettings
+        composeRule.setContent {
+            settings = remember { ReadingSettings(MemoryStore()) }
+            SlipboxTheme(appearance = settings.preferences.appearance) {
+                ReaderScreen(
+                    phase = DocumentReaderPhase.Ready(document()),
+                    settings = settings,
+                    onBack = {},
+                    onRetry = {},
+                )
+            }
+        }
+        val view = shown()
+        val back =
+            SemanticsMatcher.expectValue(
+                SemanticsProperties.ContentDescription,
+                listOf("Back"),
+            )
+
+        view.answer("window.scrollTo(0, document.scrollingElement.scrollHeight)")
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodes(back).fetchSemanticsNodes().isEmpty()
+        }
+
+        view.answer("window.scrollTo(0, 0)")
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodes(back).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    @Test
     fun oneSourceBoundDocumentSuppliesTheChromeAndTheCompleteRichReadingSurface() {
         var backed = 0
         var neighbor: NotePlaceNeighbor? = null
@@ -96,11 +128,15 @@ class ReaderSurfaceTest {
             }
         }
 
-        composeRule.onNodeWithText("A complete note").assertExists()
+        composeRule.onNodeWithText("A complete note").assertDoesNotExist()
         composeRule.onNodeWithText("note.org").assertDoesNotExist()
         composeRule.onNodeWithText("Relations").assertDoesNotExist()
         composeRule.onNodeWithText("Explore").assertDoesNotExist()
         val view = shown()
+        assertEquals(
+            "A complete note",
+            view.text("document.querySelector('#document-title').textContent"),
+        )
         assertEquals(1.0, view.number("document.querySelectorAll('#document table').length"), 0.0)
         assertEquals(1.0, view.number("document.querySelectorAll('#document pre code').length"), 0.0)
         assertTrue(view.number("document.querySelectorAll('#document .katex').length") >= 2)
@@ -108,7 +144,7 @@ class ReaderSurfaceTest {
             "The complete final paragraph.",
             view.text("document.querySelector('#document p:last-child').textContent"),
         )
-        composeRule.onNodeWithText("Info").performClick()
+        composeRule.onNodeWithContentDescription("Info").performClick()
         composeRule.onNodeWithText("Outline").assertIsDisplayed()
         composeRule.onNodeWithText("Filed 2 of 3").assertIsDisplayed()
         composeRule.onNodeWithText("Notes").assertIsDisplayed()
@@ -126,7 +162,7 @@ class ReaderSurfaceTest {
         }
         composeRule.regression("reader-rich-light")
 
-        composeRule.onNodeWithText("Info").performClick()
+        composeRule.onNodeWithContentDescription("Info").performClick()
         composeRule.onNodeWithText("The table it settles into").performClick()
         composeRule.onNodeWithText("Note details").assertDoesNotExist()
         composeRule.runOnIdle {
@@ -142,7 +178,7 @@ class ReaderSurfaceTest {
                 "  return bounds.bottom > 0 && bounds.top < window.innerHeight;" +
                 "})()",
         )
-        composeRule.onNodeWithText("Info").performClick()
+        composeRule.onNodeWithContentDescription("Info").performClick()
         composeRule.onNodeWithText("Earlier note").performClick()
         composeRule.runOnIdle {
             assertEquals(NotePlaceNeighbor("file:earlier.org", "Earlier note"), neighbor)
@@ -152,7 +188,7 @@ class ReaderSurfaceTest {
         assertTrue(view.text("window.getSelection().toString()").contains("fixed point"))
         view.answer("window.getSelection().removeAllRanges()")
 
-        composeRule.onNodeWithText("Info").performClick()
+        composeRule.onNodeWithContentDescription("Info").performClick()
         composeRule.onNodeWithText("Appearance").performClick()
         composeRule.onNodeWithText("Dark").performClick()
         composeRule.runOnIdle {
@@ -230,7 +266,7 @@ class ReaderSurfaceTest {
             }
         }
 
-        composeRule.onNodeWithText("Info").performClick()
+        composeRule.onNodeWithContentDescription("Info").performClick()
         composeRule.onNodeWithText("Filed 1 of 2").assertIsDisplayed()
         composeRule.onNodeWithText("Later note").assertIsDisplayed()
         composeRule.onNodeWithText("Earlier note").assertDoesNotExist()
@@ -238,7 +274,7 @@ class ReaderSurfaceTest {
         composeRule.runOnIdle {
             readerDocument = readerDocument.copy(place = NotePlace(ordinal = 1, total = 1))
         }
-        composeRule.onNodeWithText("Info").performClick()
+        composeRule.onNodeWithContentDescription("Info").performClick()
         composeRule.onNodeWithText("Filed 1 of 1").assertDoesNotExist()
         composeRule.onNodeWithText("Earlier note").assertDoesNotExist()
         composeRule.onNodeWithText("Later note").assertDoesNotExist()
@@ -305,7 +341,7 @@ class ReaderSurfaceTest {
             }
         }
 
-        composeRule.onNodeWithText("Info").performClick()
+        composeRule.onNodeWithContentDescription("Info").performClick()
         composeRule.onNodeWithText("Relations").performClick()
         composeRule.onNodeWithText("5 related notes").assertIsDisplayed()
         composeRule.onNodeWithText("3 incoming · 3 outgoing").assertIsDisplayed()
@@ -388,7 +424,7 @@ class ReaderSurfaceTest {
             }
         }
 
-        composeRule.onNodeWithText("Info").performClick()
+        composeRule.onNodeWithContentDescription("Info").performClick()
         composeRule.onNodeWithText("Relations").performClick()
         composeRule.onNodeWithText("Latent connection").assertDoesNotExist()
         composeRule.runOnIdle {
@@ -438,7 +474,7 @@ class ReaderSurfaceTest {
             }
         }
 
-        composeRule.onNodeWithText("Info").performClick()
+        composeRule.onNodeWithContentDescription("Info").performClick()
         composeRule.onNodeWithText("Explore").performClick()
         composeRule.onNodeWithText("Choose a lens.").assertIsDisplayed()
         composeRule.runOnIdle { assertTrue(selected.isEmpty()) }
@@ -463,7 +499,7 @@ class ReaderSurfaceTest {
         composeRule.runOnIdle { assertEquals(unfinished, previewed) }
         composeRule.onNodeWithText("Unresolved tasks").assertDoesNotExist()
 
-        composeRule.onNodeWithText("Info").performClick()
+        composeRule.onNodeWithContentDescription("Info").performClick()
         composeRule.onNodeWithText("Explore").performClick()
         composeRule.onAllNodesWithText("Open")[1].performScrollTo().performClick()
         composeRule.runOnIdle { assertEquals(quiet, opened) }
@@ -491,7 +527,7 @@ class ReaderSurfaceTest {
             }
         }
 
-        composeRule.onNodeWithText("Info").performClick()
+        composeRule.onNodeWithContentDescription("Info").performClick()
         composeRule.onNodeWithText("Explore").performClick()
         composeRule.onNodeWithText("Bridges").performScrollTo().performClick()
         composeRule
@@ -603,7 +639,7 @@ class ReaderSurfaceTest {
         composeRule.waitForIdle()
         Evidence.image("reader-repository-image-light", composeRule.onRoot().captureToImage())
 
-        composeRule.onNodeWithText("Info").performClick()
+        composeRule.onNodeWithContentDescription("Info").performClick()
         composeRule.onNodeWithText("Appearance").performClick()
         composeRule.onNodeWithText("Dark").performClick()
         Espresso.pressBack()
@@ -652,8 +688,7 @@ class ReaderSurfaceTest {
             }
         }
 
-        val missing =
-            composeRule.onNodeWithText("No indexed target was found for “file:missing.org”.")
+        val missing = composeRule.onNodeWithText("Linked note unavailable")
         missing.assertExists()
         shown()
 
@@ -661,21 +696,21 @@ class ReaderSurfaceTest {
             linkPhase = ReaderLinkPhase.Unsupported("javascript:alert(1)")
         }
         composeRule
-            .onNodeWithText("This reader cannot open “javascript:alert(1)”.")
+            .onNodeWithText("This link can’t be opened")
             .assertExists()
 
         composeRule.runOnIdle {
             linkPhase = ReaderLinkPhase.AssetMissing("field-notes.txt")
         }
         composeRule
-            .onNodeWithText("“field-notes.txt” is not present in this repository version.")
+            .onNodeWithText("Attachment unavailable")
             .assertExists()
 
         composeRule.runOnIdle {
             linkPhase = ReaderLinkPhase.AssetOversized("atlas.png", 32L * 1024L * 1024L)
         }
         composeRule
-            .onNodeWithText("“atlas.png” exceeds the 32 MB attachment limit.")
+            .onNodeWithText("This attachment is too large")
             .assertExists()
     }
 

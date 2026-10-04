@@ -275,7 +275,7 @@ class NegativeControlTest {
                     Exchange(
                         forward = forward,
                         prefix = STATED,
-                        transitionSpec = { SlipboxTransitions.exchange<Boolean>(motion)(this) },
+                        transitionSpec = { SlipboxTransitions.advance<Boolean>(motion)(this) },
                     )
                     Exchange(forward = forward, prefix = DEFECT, transitionSpec = { defect() })
                 }

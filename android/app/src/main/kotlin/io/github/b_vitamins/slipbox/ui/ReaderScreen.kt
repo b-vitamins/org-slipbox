@@ -5,23 +5,41 @@
 
 package io.github.b_vitamins.slipbox.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -29,7 +47,11 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import io.github.b_vitamins.slipbox.R
 import io.github.b_vitamins.slipbox.engine.DirectedRelationRecord
 import io.github.b_vitamins.slipbox.engine.ExplorationLens
@@ -46,7 +68,10 @@ import io.github.b_vitamins.slipbox.ui.document.rememberDocumentPresentation
 import io.github.b_vitamins.slipbox.ui.settings.ReadingSettings
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxDimensions
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxMotion
+import io.github.b_vitamins.slipbox.ui.theme.SlipboxSettle
+import io.github.b_vitamins.slipbox.ui.theme.SlipboxTokens
 import io.github.b_vitamins.slipbox.ui.theme.rememberPlatformMotionScale
+import kotlinx.coroutines.delay
 
 internal const val READER_DOCUMENT_TAG = "reader-document"
 
@@ -72,6 +97,7 @@ internal fun ReaderScreen(
     onIntent: (DocumentIntent) -> Unit = {},
     resolveAsset: DocumentAssetResolver = NoReaderAssets,
     onDismissPreview: () -> Unit = {},
+    onDismissLinkNotice: () -> Unit = {},
     onOpenPreview: () -> Unit = {},
     bookmarked: Boolean = false,
     onToggleBookmark: () -> Unit = {},
@@ -107,11 +133,14 @@ internal fun ReaderScreen(
     var explorationVisible by rememberSaveable { mutableStateOf(false) }
     var contextVisible by rememberSaveable { mutableStateOf(false) }
     var contextActionTaken by remember { mutableStateOf(false) }
-    var headingSerial by remember(document?.source) { mutableStateOf(0L) }
+    var headingSerial by remember(document?.source) { mutableLongStateOf(0L) }
     var headingRequest by remember(document?.source) {
         mutableStateOf<DocumentHeadingRequest?>(null)
     }
     var deliveredFocus by remember { mutableStateOf<DocumentFocusRequest?>(null) }
+    var headerVisible by remember(document?.source) { mutableStateOf(true) }
+    var previousProgress by
+        remember(document?.source) { mutableFloatStateOf(initialAnchor.progress) }
     LaunchedEffect(focusRequest) {
         if (focusRequest == null) {
             deliveredFocus = null
@@ -159,6 +188,11 @@ internal fun ReaderScreen(
                     ),
             obscured = surfaceObscured,
             scrollable = document == null,
+            titleVisible = document == null,
+            dividerVisible = document == null,
+            headerVisible = document == null || headerVisible,
+            headerVisibilityMillis = motion.native(SlipboxTokens.Motion.CROSSFADE_MS),
+            contentBackground = MaterialTheme.colorScheme.background,
             contentPadding =
                 if (document == null) {
                     PaddingValues(SlipboxDimensions.readingPadding)
@@ -174,8 +208,7 @@ internal fun ReaderScreen(
             },
             trailing = {
                 Row(
-                    horizontalArrangement =
-                        Arrangement.spacedBy(SlipboxDimensions.headerPaddingHorizontal),
+                    horizontalArrangement = Arrangement.spacedBy(0.dp),
                 ) {
                     if (document != null && kind == ReaderSurfaceKind.Note) {
                         IconControl(
@@ -196,10 +229,17 @@ internal fun ReaderScreen(
                                     },
                                 ),
                             onClick = onToggleBookmark,
+                            tint =
+                                if (bookmarked) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    null
+                                },
                         )
                     }
                     if (document != null) {
-                        TextControl(
+                        IconControl(
+                            icon = painterResource(R.drawable.ic_more),
                             label =
                                 stringResource(
                                     if (kind == ReaderSurfaceKind.GlossaryTerm) {
@@ -225,6 +265,28 @@ internal fun ReaderScreen(
                 }
             },
             overlay = {
+                ReaderLinkNotice(
+                    phase = linkPhase,
+                    motion = motion,
+                    onDismiss = onDismissLinkNotice,
+                    modifier =
+                        Modifier
+                            .align(Alignment.TopCenter)
+                            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+                            .padding(
+                                top =
+                                    if (document != null && !headerVisible) {
+                                        8.dp
+                                    } else {
+                                        SlipboxDimensions.headerMinHeight + 8.dp
+                                    },
+                                start = SlipboxDimensions.readingPadding,
+                                end = SlipboxDimensions.readingPadding,
+                            )
+                            .widthIn(max = SlipboxDimensions.readingMeasure)
+                            .fillMaxWidth()
+                            .zIndex(1f),
+                )
                 AppearanceSheet(
                     visible = appearanceVisible,
                     settings = settings,
@@ -406,8 +468,8 @@ internal fun ReaderScreen(
                 }
 
                 is DocumentReaderPhase.Ready -> {
-                    ReaderLinkNotice(linkPhase)
                     DocumentContentView(
+                        title = phase.document.anchor.title,
                         source = phase.document.source,
                         presentation = presentation,
                         initialPosition =
@@ -431,7 +493,21 @@ internal fun ReaderScreen(
                                 .weight(1f)
                                 .focusRequester(documentControl)
                                 .testTag(READER_DOCUMENT_TAG),
-                        onIntent = onIntent,
+                        onIntent = { intent ->
+                            if (intent is DocumentIntent.Position) {
+                                val progress = intent.position.progress
+                                val delta = progress - previousProgress
+                                headerVisible =
+                                    when {
+                                        progress <= READER_TOP_PROGRESS -> true
+                                        delta >= READER_SCROLL_PROGRESS_DELTA -> false
+                                        delta <= -READER_SCROLL_PROGRESS_DELTA -> true
+                                        else -> headerVisible
+                                    }
+                                previousProgress = progress
+                            }
+                            onIntent(intent)
+                        },
                         resolveAsset = resolveAsset,
                     )
                 }
@@ -441,48 +517,81 @@ internal fun ReaderScreen(
 }
 
 @Composable
-private fun ReaderLinkNotice(phase: ReaderLinkPhase) {
+private fun ReaderLinkNotice(
+    phase: ReaderLinkPhase,
+    motion: SlipboxMotion,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val text =
         when (phase) {
             ReaderLinkPhase.Idle -> return
-            ReaderLinkPhase.Resolving -> stringResource(R.string.reader_link_resolving)
-            is ReaderLinkPhase.Missing -> stringResource(R.string.reader_link_missing, phase.target)
-            is ReaderLinkPhase.Unsupported ->
-                stringResource(R.string.reader_link_unsupported, phase.target)
-            is ReaderLinkPhase.Failed -> stringResource(R.string.reader_link_failed, phase.target)
+            ReaderLinkPhase.Resolving -> return
+            is ReaderLinkPhase.Missing -> stringResource(R.string.reader_link_missing)
+            is ReaderLinkPhase.Unsupported -> stringResource(R.string.reader_link_unsupported)
+            is ReaderLinkPhase.Failed -> stringResource(R.string.reader_link_failed)
             ReaderLinkPhase.ExternalUnavailable ->
                 stringResource(R.string.reader_link_browser_unavailable)
             is ReaderLinkPhase.AssetMissing ->
-                stringResource(R.string.reader_asset_missing, phase.label)
+                stringResource(R.string.reader_asset_missing)
             is ReaderLinkPhase.AssetUnsupported ->
-                stringResource(R.string.reader_asset_unsupported, phase.label)
+                stringResource(R.string.reader_asset_unsupported)
             is ReaderLinkPhase.AssetOversized ->
-                stringResource(
-                    R.string.reader_asset_too_large,
-                    phase.label,
-                    phase.maxBytes / (1024L * 1024L),
-                )
+                stringResource(R.string.reader_asset_too_large)
             is ReaderLinkPhase.AssetViewerUnavailable ->
-                stringResource(R.string.reader_asset_viewer_unavailable, phase.label)
+                stringResource(R.string.reader_asset_viewer_unavailable)
             is ReaderLinkPhase.AssetFailed ->
-                stringResource(R.string.reader_asset_failed, phase.label)
+                stringResource(R.string.reader_asset_failed)
         }
-    Text(
-        text = text,
-        style = MaterialTheme.typography.bodySmall,
-        color =
-            if (phase == ReaderLinkPhase.Resolving) {
-                MaterialTheme.colorScheme.onSurfaceVariant
+    var visible by remember(phase) { mutableStateOf(true) }
+    LaunchedEffect(phase) {
+        delay(LINK_NOTICE_MILLIS)
+        visible = false
+        onDismiss()
+    }
+    val opacityMs = motion.native(SlipboxTokens.Motion.OPACITY_MS)
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter =
+            if (opacityMs == 0) {
+                EnterTransition.None
             } else {
-                MaterialTheme.colorScheme.error
+                fadeIn(tween(opacityMs, easing = SlipboxSettle))
             },
-        modifier =
-            Modifier.fillMaxWidth().padding(
-                horizontal = SlipboxDimensions.readingPadding,
-                vertical = SlipboxDimensions.headerPaddingVertical,
-            ),
-    )
+        exit =
+            if (opacityMs == 0) {
+                ExitTransition.None
+            } else {
+                fadeOut(tween(opacityMs, easing = SlipboxSettle))
+            },
+    ) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            border = BorderStroke(SlipboxDimensions.hairline, MaterialTheme.colorScheme.outlineVariant),
+            shadowElevation = 3.dp,
+            modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
+        ) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier =
+                    Modifier.padding(
+                        horizontal = SlipboxDimensions.readingPadding,
+                        vertical = 10.dp,
+                    ),
+            )
+        }
+    }
 }
+
+private const val LINK_NOTICE_MILLIS = 3_200L
+
+private const val READER_TOP_PROGRESS = 0.002f
+
+private const val READER_SCROLL_PROGRESS_DELTA = 0.0015f
 
 @Composable
 private fun ReaderNotice(text: String, problem: Boolean = false) {

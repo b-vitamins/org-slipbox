@@ -19,7 +19,7 @@ use slipbox_rpc::{
     METHOD_BACKLINKS, METHOD_DIRECTED_RELATIONS, METHOD_EXPLORE, METHOD_FORWARD_LINKS,
     METHOD_GLOSSARY_DUE, METHOD_GLOSSARY_TERM, METHOD_INDEX, METHOD_INDEX_FILE,
     METHOD_INDEXED_FILES, METHOD_LIST_GLOSSARY_TERMS, METHOD_LIST_NOTES, METHOD_NODE_FROM_ID,
-    METHOD_NODE_FROM_KEY, METHOD_NOTE_CONTEXT, METHOD_READ_NODE_SOURCE,
+    METHOD_NODE_FROM_KEY, METHOD_NOTE_CONTEXT, METHOD_RANDOM_NODE, METHOD_READ_NODE_SOURCE,
     METHOD_RESOLVE_DOCUMENT_LINK, METHOD_SEARCH_CORPUS, METHOD_SEARCH_GLOSSARY,
     METHOD_SEARCH_NODE_CONTENT, METHOD_SEARCH_NODES, METHOD_UNLINKED_REFERENCES,
 };
@@ -84,11 +84,21 @@ fn every_read_operation_answers_what_the_engine_answers_directly() {
     let mut exercised = BTreeSet::from(["status".to_owned()]);
     for (operation, method, params) in read_cases(&keys) {
         let response = read(&registry, handle, &binding, &operation);
-        let expected = canonical
-            .invoke_value(method, params)
-            .unwrap_or_else(|error| panic!("the engine refused {method}: {error}"));
-
-        assert_eq!(result_of(&response), &expected, "{operation}");
+        if method == METHOD_RANDOM_NODE {
+            let selected = &result_of(&response)["node"];
+            let node_key = selected["node_key"]
+                .as_str()
+                .expect("a non-empty fixture chooses an indexed node");
+            let expected = canonical
+                .invoke_value(METHOD_NODE_FROM_KEY, json!({"node_key": node_key}))
+                .expect("the chosen node belongs to the indexed fixture");
+            assert_eq!(selected, &expected, "{operation}");
+        } else {
+            let expected = canonical
+                .invoke_value(method, params)
+                .unwrap_or_else(|error| panic!("the engine refused {method}: {error}"));
+            assert_eq!(result_of(&response), &expected, "{operation}");
+        }
         assert_eq!(response["answer"]["kind"], operation["kind"]);
         assert_eq!(response["handle"], handle);
         assert_eq!(response["binding"], binding);
@@ -1343,6 +1353,7 @@ fn read_cases(keys: &Keys) -> Vec<(Value, &'static str, Value)> {
             METHOD_LIST_NOTES,
             json!({"limit": 2}),
         ),
+        (json!({"kind": "randomNode"}), METHOD_RANDOM_NODE, json!({})),
         (
             json!({"kind": "searchNodeContent", "query": "body", "limit": 20}),
             METHOD_SEARCH_NODE_CONTENT,

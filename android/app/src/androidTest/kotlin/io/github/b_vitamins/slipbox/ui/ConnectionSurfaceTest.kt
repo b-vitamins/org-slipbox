@@ -54,7 +54,7 @@ class ConnectionSurfaceTest {
     }
 
     @Test
-    fun verifiedSourceIdentityIsVisibleInTheLibrary() {
+    fun sourceDiagnosticsStayOutOfTheReadingLibrary() {
         composeRule.setContent {
             SlipboxTheme {
                 LibraryScreen(
@@ -65,8 +65,13 @@ class ConnectionSurfaceTest {
             }
         }
 
-        composeRule.onNodeWithText("owner/notes").assertIsDisplayed()
-        composeRule.onNodeWithText("4 files · 9 indexed nodes · revision 0123456789").assertIsDisplayed()
+        composeRule.onNodeWithText("What are you looking for?").assertIsDisplayed()
+        composeRule.onNodeWithText("Surprise me").assertIsDisplayed()
+        composeRule.onNodeWithText("Glossary").assertIsDisplayed()
+        composeRule.onNodeWithText("owner/notes").assertDoesNotExist()
+        composeRule
+            .onNodeWithText("4 files · 9 indexed nodes · revision 0123456789")
+            .assertDoesNotExist()
         composeRule.accessibleRegression("library-connected")
     }
 

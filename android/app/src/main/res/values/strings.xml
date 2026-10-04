@@ -10,31 +10,17 @@
     <string name="library_no_selection">Choose a configured repository to read.</string>
     <string name="library_loading">Opening your library.</string>
     <string name="library_unavailable">The library could not be opened.</string>
-    <string name="library_ready">%1$s · %2$s · revision %3$s</string>
-    <string name="notes_loading">Loading notes.</string>
-    <string name="notes_loading_more">Loading more notes.</string>
-    <string name="notes_empty">This repository contains no notes.</string>
-    <string name="notes_unavailable">Notes could not be loaded.</string>
-    <string name="notes_more_unavailable">More notes could not be loaded.</string>
     <string name="adaptive_select_reading">Choose a note or term to read.</string>
     <string name="search_placeholder">What are you looking for?</string>
+    <string name="search_surprise">Surprise me</string>
+    <string name="search_surprise_loading">Finding a note…</string>
+    <string name="search_surprise_empty">No note is available.</string>
+    <string name="search_surprise_unavailable">Couldn’t choose a note. Try again.</string>
+    <string name="entry_notes">Notes</string>
     <string name="search_loading">Searching.</string>
-    <string name="search_loading_more">Loading more matches.</string>
     <string name="search_empty">No matches.</string>
     <string name="search_unavailable">Search is unavailable.</string>
-    <string name="search_more_unavailable">More matches could not be loaded.</string>
-    <plurals name="search_results_loaded">
-        <item quantity="one">%1$d of %2$d match</item>
-        <item quantity="other">%1$d of %2$d matches</item>
-    </plurals>
-    <plurals name="search_results_bounded">
-        <item quantity="one">%1$d of first %2$d match · more may exist</item>
-        <item quantity="other">%1$d of first %2$d matches · more may exist</item>
-    </plurals>
-    <string name="search_kind_note">Note</string>
-    <string name="search_kind_glossary">Term</string>
     <string name="glossary_title">Glossary</string>
-    <string name="glossary_library_detail">Browse every indexed term and its complete definition.</string>
     <string name="glossary_loading">Loading glossary.</string>
     <string name="glossary_loading_more">Loading more terms.</string>
     <string name="glossary_empty">This repository contains no glossary terms.</string>
@@ -63,28 +49,6 @@
         <item quantity="one">%1$d due · %2$s</item>
         <item quantity="other">%1$d due · %2$s</item>
     </plurals>
-    <plurals name="library_files">
-        <item quantity="one">%d file</item>
-        <item quantity="other">%d files</item>
-    </plurals>
-    <plurals name="library_nodes">
-        <item quantity="one">%d indexed node</item>
-        <item quantity="other">%d indexed nodes</item>
-    </plurals>
-    <plurals name="library_notes">
-        <item quantity="one">%d note</item>
-        <item quantity="other">%d notes</item>
-    </plurals>
-
-    <string name="reading_continue">Continue reading</string>
-    <string name="reading_bookmarks">Bookmarks</string>
-    <string name="reading_recent">Recent</string>
-    <string name="reading_checking">Checking the current repository…</string>
-    <string name="reading_missing">Not present in this repository version</string>
-    <string name="reading_unavailable">Could not verify against this repository version</string>
-    <string name="reading_location_progress">%1$s · %2$d%%</string>
-    <string name="reading_remove_description">Remove %1$s from this list</string>
-
     <string name="reader_title">Reading</string>
     <string name="reader_loading">Loading note.</string>
     <string name="reader_not_found">This note is not present in this repository version.</string>
@@ -105,16 +69,15 @@
         <item quantity="other">This definition exceeds the offline reader’s current limit of %d lines. Reduce or split it, then refresh the repository.</item>
     </plurals>
     <string name="glossary_term_unavailable">This definition could not be loaded.</string>
-    <string name="reader_link_resolving">Opening link…</string>
-    <string name="reader_link_missing">No indexed target was found for “%1$s”.</string>
-    <string name="reader_link_unsupported">This reader cannot open “%1$s”.</string>
-    <string name="reader_link_failed">The target “%1$s” could not be resolved.</string>
-    <string name="reader_link_browser_unavailable">No browser is available for this link.</string>
-    <string name="reader_asset_missing">“%1$s” is not present in this repository version.</string>
-    <string name="reader_asset_unsupported">“%1$s” is not a supported offline attachment.</string>
-    <string name="reader_asset_too_large">“%1$s” exceeds the %2$d MB attachment limit.</string>
-    <string name="reader_asset_viewer_unavailable">No installed app can open “%1$s”.</string>
-    <string name="reader_asset_failed">“%1$s” could not be opened.</string>
+    <string name="reader_link_missing">Linked note unavailable</string>
+    <string name="reader_link_unsupported">This link can’t be opened</string>
+    <string name="reader_link_failed">Linked note unavailable</string>
+    <string name="reader_link_browser_unavailable">No browser is available</string>
+    <string name="reader_asset_missing">Attachment unavailable</string>
+    <string name="reader_asset_unsupported">This attachment can’t be opened</string>
+    <string name="reader_asset_too_large">This attachment is too large</string>
+    <string name="reader_asset_viewer_unavailable">No app can open this attachment</string>
+    <string name="reader_asset_failed">Attachment unavailable</string>
     <string name="reader_preview_loading">Loading preview.</string>
     <string name="reader_preview_note">Note preview</string>
     <string name="reader_preview_glossary">Glossary term</string>
@@ -174,9 +137,9 @@
         <item quantity="other">Show %d more source notes</item>
     </plurals>
     <string name="reader_explore">Explore</string>
-    <string name="reader_note_info">Info</string>
+    <string name="reader_note_info">Note options</string>
     <string name="reader_note_details">Note details</string>
-    <string name="glossary_term_info">Details</string>
+    <string name="glossary_term_info">Term options</string>
     <string name="glossary_term_details">Term details</string>
     <string name="glossary_identity">Identity</string>
     <string name="glossary_canonical_term">Canonical term</string>
@@ -268,17 +231,17 @@
     <string name="action_hide_section">Hide</string>
 
     <string name="action_about">About</string>
+    <string name="action_menu">Menu</string>
     <string name="action_back">Back</string>
     <string name="action_bookmark">Bookmark</string>
     <string name="action_bookmarked">Remove bookmark</string>
-    <string name="action_remove">Remove</string>
-    <string name="action_clear_bookmarks">Clear bookmarks</string>
-    <string name="action_clear_recents">Clear recent</string>
-    <string name="action_clear_search">Clear</string>
+    <string name="action_clear_search">Clear search</string>
     <string name="action_appearance">Appearance</string>
     <string name="action_dismiss">Dismiss</string>
 
     <string name="appearance_title">Appearance</string>
+    <string name="appearance_theme">Theme</string>
+    <string name="appearance_system_short">System</string>
     <string name="appearance_system">Follow the system</string>
     <string name="appearance_light">Light</string>
     <string name="appearance_dark">Dark</string>
@@ -295,6 +258,7 @@
     <string name="about_license">GNU General Public License, version 3 or later</string>
     <string name="about_development_build">A development build of the Android reader, not a
         released version.</string>
+    <string name="menu_title">Settings</string>
 
     <string name="connection_title">Connect repository</string>
     <string name="connection_public">Public HTTPS</string>

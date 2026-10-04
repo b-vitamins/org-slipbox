@@ -47,6 +47,7 @@ class BackAffordanceTest {
     @Test
     fun repeatedForwardCallbacksNeedOnlyOneBackToReachTheRoot() {
         composeRule.setContent { SlipboxApp() }
+        composeRule.onNodeWithContentDescription("Menu").performClick()
         val openAbout =
             composeRule.onNodeWithText("About")
                 .fetchSemanticsNode().config[SemanticsActions.OnClick].action!!

@@ -278,7 +278,9 @@ internal class DocumentReaderState(
                                         linkPhase = ReaderLinkPhase.Unsupported(target)
                                 }
                             },
-                            onFailure = { linkPhase = ReaderLinkPhase.Failed(target) },
+                            onFailure = {
+                                linkPhase = ReaderLinkPhase.Failed(target)
+                            },
                         )
                     }
                 },
@@ -403,9 +405,17 @@ internal class DocumentReaderState(
     }
 
     private fun BoundDocumentSource.preview(nodeKey: String): PreviewResolution.Note {
-        val answer = read(nodeKey, PREVIEW_MAX_LINES)
+        // The adapter deliberately refuses truncated note-source answers. Read one
+        // complete bounded note and let the preview viewport reveal its opening.
+        val answer = read(nodeKey)
         validatePreview(nodeKey, answer)
         return PreviewResolution.Note(answer)
+    }
+
+    fun dismissLinkNotice() {
+        if (live.get() && linkPhase != ReaderLinkPhase.Resolving) {
+            linkPhase = ReaderLinkPhase.Idle
+        }
     }
 
     fun dismissPreview() {
@@ -523,10 +533,9 @@ internal class DocumentReaderState(
         require(answer.anchor.nodeKey == nodeKey)
         require(answer.source.filePath == answer.anchor.filePath)
         require(answer.source.startLine == answer.nodeStartLine)
-        require(!answer.source.truncatedBefore)
-        val expected = minOf(answer.nodeLineCount, PREVIEW_MAX_LINES.toLong())
+        require(!answer.source.truncatedBefore && !answer.source.truncatedAfter)
         require(
-            answer.source.lineCount == expected ||
+            answer.source.lineCount == answer.nodeLineCount ||
                 (answer.source.totalLines == 0L &&
                     answer.source.lineCount == 0L &&
                     answer.nodeLineCount == 1L),
@@ -571,9 +580,13 @@ internal class DocumentReaderState(
                                     id = resolution.answer.anchor.nodeKey,
                                     filePath = resolution.answer.anchor.filePath,
                                     org = resolution.answer.source.content,
+                            ),
+                            excerptLines =
+                                minOf(
+                                    resolution.answer.source.lineCount.toInt(),
+                                    PREVIEW_MAX_LINES,
                                 ),
-                            excerptLines = resolution.answer.source.lineCount.toInt(),
-                            shortened = resolution.answer.source.truncatedAfter,
+                            shortened = resolution.answer.nodeLineCount > PREVIEW_MAX_LINES,
                         ),
                     )
             }

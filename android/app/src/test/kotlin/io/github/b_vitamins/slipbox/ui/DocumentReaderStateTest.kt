@@ -398,7 +398,7 @@ class DocumentReaderStateTest {
     }
 
     @Test
-    fun aPreviewResolvesAndReadsABoundedTargetInTheOriginatingGeneration() {
+    fun aPreviewResolvesAndReadsACompleteBoundedNoteInTheOriginatingGeneration() {
         val ready = ready("generation-preview")
         val target = "file:term.org"
         val term = previewAnswer(target, glossary = true, shortened = true)
@@ -425,7 +425,7 @@ class DocumentReaderStateTest {
 
         val preview = (state.previewPhase as ReaderPreviewPhase.Ready).preview
         assertEquals(NODE_KEY to "id:derivative", resolution)
-        assertEquals(target to 12, reads.last())
+        assertEquals(target to source.maxLines, reads.last())
         assertEquals("generation-preview", preview.source.binding.generation)
         assertEquals(SOURCE, preview.source.binding.source)
         assertEquals(target, preview.source.binding.id)
@@ -459,7 +459,7 @@ class DocumentReaderStateTest {
 
         val preview = (state.previewPhase as ReaderPreviewPhase.Ready).preview
         assertEquals(target, preview.anchor.nodeKey)
-        assertEquals(target to 12, reads.last())
+        assertEquals(target to source.maxLines, reads.last())
         assertEquals(0, resolutions)
         state.close()
     }
@@ -682,7 +682,7 @@ class DocumentReaderStateTest {
         glossary: Boolean = false,
         shortened: Boolean = false,
     ): ReadNodeSourceResult {
-        val lines = if (shortened) 12L else 1L
+        val lines = if (shortened) 120L else 1L
         val path =
             nodeKey.substringAfter(':').let { value ->
                 if (nodeKey.startsWith("heading:")) value.substringBeforeLast(':') else value
@@ -704,7 +704,7 @@ class DocumentReaderStateTest {
                     totalLines = if (shortened) 120 else 1,
                     content = if (glossary) "A rate of change.\n" else "Target body.\n",
                     truncatedBefore = false,
-                    truncatedAfter = shortened,
+                    truncatedAfter = false,
                 ),
             nodeStartLine = 1,
             nodeLineCount = if (shortened) 120 else 1,

@@ -4,7 +4,7 @@
   SPDX-License-Identifier: GPL-3.0-or-later
 -->
 <resources>
-    <color name="window_background">#FAFAFC</color>
+    <color name="window_background">#FAF9F5</color>
 
     <color name="ic_launcher_background">#FAFAFC</color>
     <color name="ic_launcher_foreground">#333333</color>

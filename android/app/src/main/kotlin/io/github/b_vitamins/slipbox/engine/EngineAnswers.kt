@@ -96,6 +96,11 @@ data class ListNotesResult(
 )
 
 @Serializable
+data class RandomNodeResult(
+    val node: NodeRecord?,
+)
+
+@Serializable
 data class ContentSegment(
     val text: String,
     val matched: Boolean,
@@ -546,6 +551,10 @@ sealed class EngineAnswer {
     data class ListNotes(val result: ListNotesResult) : EngineAnswer(), ReadAnswer
 
     @Serializable
+    @SerialName("randomNode")
+    data class RandomNode(val result: RandomNodeResult) : EngineAnswer(), ReadAnswer
+
+    @Serializable
     @SerialName("searchNodeContent")
     data class SearchNodeContent(val result: SearchNodeContentResult) : EngineAnswer(), ReadAnswer
 
@@ -626,6 +635,7 @@ internal fun ReadOperation.answerIn(answer: EngineAnswer): ReadAnswer? =
         is ReadOperation.IndexedFiles -> answer as? EngineAnswer.IndexedFiles
         is ReadOperation.SearchNodes -> answer as? EngineAnswer.SearchNodes
         is ReadOperation.ListNotes -> answer as? EngineAnswer.ListNotes
+        is ReadOperation.RandomNode -> answer as? EngineAnswer.RandomNode
         is ReadOperation.SearchNodeContent -> answer as? EngineAnswer.SearchNodeContent
         is ReadOperation.SearchCorpus -> answer as? EngineAnswer.SearchCorpus
         is ReadOperation.NodeFromId -> answer as? EngineAnswer.NodeFromId

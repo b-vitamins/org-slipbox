@@ -102,6 +102,7 @@ fn every_read_operation() -> Vec<ReadOperation> {
             limit: 50,
             after: None,
         }),
+        ReadOperation::RandomNode(StateOnlyParams {}),
         ReadOperation::SearchNodeContent(SearchNodeContentParams {
             query: "omega".to_owned(),
             limit: 25,

@@ -6,5 +6,6 @@
 <resources>
     <style name="Theme.Slipbox" parent="android:Theme.DeviceDefault.Light.NoActionBar">
         <item name="android:windowBackground">@color/window_background</item>
+        <item name="android:windowLightStatusBar">true</item>
     </style>
 </resources>
