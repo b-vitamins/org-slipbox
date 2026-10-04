@@ -9,51 +9,66 @@ package io.github.b_vitamins.slipbox.ui.theme
 internal object SlipboxTokens {
 
     object Palette {
-        const val PAPER_LIGHT: Long = 0xFFFAFAFC
-        const val PAPER_DARK: Long = 0xFF16161A
+        const val PAPER_LIGHT: Long = 0xFFFAF9F5
+        const val PAPER_DARK: Long = 0xFF262624
 
-        const val SURFACE_LIGHT: Long = 0xFFFFFFFF
-        const val SURFACE_DARK: Long = 0xFF1D1D21
+        const val SURFACE_LIGHT: Long = 0xFFFFFFFE
+        const val SURFACE_DARK: Long = 0xFF30302E
 
-        const val INK_LIGHT: Long = 0xFF333333
-        const val INK_DARK: Long = 0xFFD7D7DA
+        const val SURFACE_DIM_LIGHT: Long = 0xFFF0EEE8
+        const val SURFACE_DIM_DARK: Long = 0xFF20201E
+        const val SURFACE_BRIGHT_DARK: Long = 0xFF464642
+        const val SURFACE_CONTAINER_LIGHT: Long = 0xFFF5F3ED
+        const val SURFACE_CONTAINER_DARK: Long = 0xFF2B2B29
 
-        const val MUTED_LIGHT: Long = 0xFF6B6B6B
-        const val MUTED_DARK: Long = 0xFF8D8D90
+        const val INK_LIGHT: Long = 0xFF2D2825
+        const val INK_DARK: Long = 0xFFF0EEE6
 
-        const val MUTED_2_LIGHT: Long = 0xFF717171
-        const val MUTED_2_DARK: Long = 0xFF878789
+        const val MUTED_LIGHT: Long = 0xFF6F6D66
+        const val MUTED_DARK: Long = 0xFFB0AEA5
 
-        const val MUTED_3_LIGHT: Long = 0xFFDDDDDD
-        const val MUTED_3_DARK: Long = 0xFF3E3E40
+        const val MUTED_2_LIGHT: Long = 0xFF77746E
+        const val MUTED_2_DARK: Long = 0xFF9C9A92
 
-        const val HAIRLINE_LIGHT: Long = 0xFFDADADA
-        const val HAIRLINE_DARK: Long = 0xFF454547
+        const val MUTED_3_LIGHT: Long = 0xFFE8E6DC
+        const val MUTED_3_DARK: Long = 0xFF3A3936
 
-        const val LINK_LIGHT: Long = 0xFF0A6ED1
-        const val LINK_DARK: Long = 0xFF5AA6EA
+        const val HAIRLINE_LIGHT: Long = 0xFFDEDCD1
+        const val HAIRLINE_DARK: Long = 0xFF484641
 
-        const val LINK_VISITED_LIGHT: Long = 0xFF9333C4
-        const val LINK_VISITED_DARK: Long = 0xFFB78ADA
+        const val LINK_LIGHT: Long = 0xFFA94F35
+        const val LINK_DARK: Long = 0xFFE89578
 
-        const val MATH_ERROR_LIGHT: Long = 0xFFCC0000
-        const val MATH_ERROR_DARK: Long = 0xFFFF6B6B
+        const val LINK_VISITED_LIGHT: Long = 0xFF805841
+        const val LINK_VISITED_DARK: Long = 0xFFC7A189
+
+        const val MATH_ERROR_LIGHT: Long = 0xFFB42318
+        const val MATH_ERROR_DARK: Long = 0xFFFF8A80
 
         /** The web surface's `--edge-shadow`, carried as the wash under a reveal. */
         const val SCRIM_LIGHT: Long = 0x1F000000
-        const val SCRIM_DARK: Long = 0x80000000
+        const val SCRIM_DARK: Long = 0x990F0E0C
     }
 
     object Type {
         const val BODY_SIZE_SP: Float = 17f
-        const val BODY_LINE_SP: Float = 24f
+        const val BODY_LINE_SP: Float = 25f
         const val LETTER_SPACING_EM: Float = -0.0024f
 
         const val H1_SIZE_SP: Float = 28f
         const val H1_LINE_SP: Float = 34f
 
-        const val H2_SIZE_SP: Float = 25f
-        const val H2_LINE_SP: Float = 31f
+        const val H2_SIZE_SP: Float = 23f
+        const val H2_LINE_SP: Float = 29f
+
+        const val TITLE_SIZE_SP: Float = 22f
+        const val TITLE_LINE_SP: Float = 28f
+        const val SUBHEAD_SIZE_SP: Float = 17f
+        const val SUBHEAD_LINE_SP: Float = 23f
+        const val SECONDARY_SIZE_SP: Float = 15f
+        const val SECONDARY_LINE_SP: Float = 21f
+        const val CAPTION_SIZE_SP: Float = 13f
+        const val CAPTION_LINE_SP: Float = 18f
 
         const val CODE_SIZE_SP: Float = 13f
         const val CODE_LINE_SP: Float = 17f

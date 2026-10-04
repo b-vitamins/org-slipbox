@@ -25,7 +25,7 @@
 .org-document h2.org-heading {
   font-size: var(--h2-size);
   line-height: var(--h2-line);
-  font-weight: 400;
+  font-weight: 500;
 }
 
 .org-list {
@@ -59,6 +59,10 @@
   border-radius: 8px;
 }
 
+.org-src {
+  position: relative;
+}
+
 .org-quote {
   margin: 0 0 1em;
   padding-left: 16px;
@@ -79,19 +83,20 @@
 }
 
 .org-src__chrome {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 6px 12px;
+  height: 28px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--hairline);
 }
 
 .org-src__lang {
   font-family: var(--font-body);
   font-size: 12px;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
   color: var(--muted);
 }
 
@@ -101,9 +106,13 @@
   color: var(--link);
   background: none;
   border: none;
-  padding: 4px 6px;
+  padding: 4px 8px;
   border-radius: 4px;
   cursor: pointer;
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
 }
 
 .org-src__copy:hover {
@@ -116,7 +125,72 @@
 
 .org-src__code {
   margin: 0;
-  padding: 12px 16px;
+  padding: 10px 14px 12px;
+  tab-size: 4;
+}
+
+.org-src__code code {
+  white-space: normal;
+}
+
+.org-src__line {
+  display: block;
+  min-height: var(--code-line);
+  padding-inline-start: calc(var(--source-indent, 0) * 1ch);
+  text-indent: calc(var(--source-indent, 0) * -1ch);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--syntax-comment);
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-built_in,
+.hljs-type {
+  color: var(--syntax-keyword);
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition {
+  color: var(--syntax-string);
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-symbol,
+.hljs-bullet {
+  color: var(--syntax-number);
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-name,
+.hljs-attribute {
+  color: var(--syntax-title);
+}
+
+.hljs-meta,
+.hljs-punctuation {
+  color: var(--muted-2);
+}
+
+.hljs-deletion {
+  color: var(--math-error);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 600;
 }
 
 .org-example,

@@ -19,6 +19,10 @@ class DocumentOriginTest {
             DocumentOrigin.PAGE,
         )
         assertEquals(
+            "https://appassets.androidplatform.net/bundle/search.html",
+            DocumentOrigin.SEARCH_PAGE,
+        )
+        assertEquals(
             "https://appassets.androidplatform.net/asset/$TOKEN/",
             DocumentOrigin.assetBase(TOKEN),
         )
@@ -137,6 +141,17 @@ class DocumentOriginTest {
         const val TOKEN = "3f2a9c81-4d5e-4f60-9a1b-0c2d3e4f5061"
         const val FONT = "assets/KaTeX_Main-Regular-D0ONP0R2.woff2"
         val PACKAGED =
-            setOf("index.html", "host.css", "host.js", "document.js", "document.css", FONT)
+            setOf(
+                "index.html",
+                "host.css",
+                "host.js",
+                "palette.css",
+                "search.html",
+                "search-host.css",
+                "search-host.js",
+                "document.js",
+                "document.css",
+                FONT,
+            )
     }
 }

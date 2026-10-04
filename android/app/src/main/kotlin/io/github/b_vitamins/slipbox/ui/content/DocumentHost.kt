@@ -58,6 +58,7 @@ internal class DocumentHost(
     fun present(
         source: DocumentSource,
         presentation: DocumentPresentation,
+        title: String = "",
         initialPosition: DocumentPosition = DocumentPosition(),
         initialHeadingIndex: Int? = null,
     ) {
@@ -66,11 +67,11 @@ internal class DocumentHost(
         }
         val live = mount
         val next =
-            if (live != null && live.source == source) {
+            if (live != null && live.source == source && live.title == title) {
                 live
             } else {
                 revealedHeadingSerial = null
-                DocumentMount(token(), source, initialPosition, initialHeadingIndex)
+                DocumentMount(token(), source, title, initialPosition, initialHeadingIndex)
             }
         mount = next
         view.setBackgroundColor(background(presentation.theme))
@@ -220,8 +221,8 @@ internal class DocumentHost(
 
         fun background(theme: DocumentTheme): Int =
             when (theme) {
-                DocumentTheme.Light -> SlipboxTokens.Palette.SURFACE_LIGHT
-                DocumentTheme.Dark -> SlipboxTokens.Palette.SURFACE_DARK
+                DocumentTheme.Light -> SlipboxTokens.Palette.PAPER_LIGHT
+                DocumentTheme.Dark -> SlipboxTokens.Palette.PAPER_DARK
             }.toInt()
     }
 }

@@ -1,4 +1,5 @@
 export { mountOrgDocument } from "./mount.jsx";
+export { mountOrgSearch } from "./search.jsx";
 export type {
   OrgDocumentContent,
   OrgDocumentGesture,

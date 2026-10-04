@@ -7,6 +7,8 @@
 
 import { Show, createSignal, onCleanup, type Component } from "solid-js";
 
+import { SyntaxCode } from "./SyntaxCode.jsx";
+
 /** How long the copy button reports an outcome before returning to rest. */
 const COPIED_FEEDBACK_MS = 1200;
 
@@ -112,7 +114,7 @@ export const SourceBlock: Component<{ lang: string | null; code: string }> = (
         </button>
       </figcaption>
       <pre class="org-src__code">
-        <code ref={code}>{props.code}</code>
+        <SyntaxCode language={props.lang} code={props.code} ref={(element) => (code = element)} />
       </pre>
     </figure>
   );

@@ -8,6 +8,7 @@ import { RenderDocument } from "../org/RenderDocument.jsx";
 import type { OrgDocumentHandle, OrgDocumentOptions } from "./contract.js";
 import { documentNavigation } from "./navigation.js";
 
+import "@fontsource-variable/source-serif-4/standard.css";
 import "../styles/tokens.css";
 import "../org/org.css";
 import "./document.css";

@@ -13,6 +13,7 @@ import java.util.Locale
 internal data class DocumentMount(
     val token: String,
     val source: DocumentSource,
+    val title: String = "",
     val initialPosition: DocumentPosition = DocumentPosition(),
     val initialHeadingIndex: Int? = null,
 ) {
@@ -56,6 +57,8 @@ internal object DocumentPayload {
         buildString {
             append("{\"token\":")
             appendQuoted(mount.token)
+            append(",\"title\":")
+            appendQuoted(mount.title)
             append(",\"source\":{\"source\":")
             appendQuoted(mount.source.source)
             append(",\"generation\":")
@@ -81,7 +84,7 @@ internal object DocumentPayload {
 private const val LINE_SEPARATOR = '\u2028'
 private const val PARAGRAPH_SEPARATOR = '\u2029'
 
-private fun StringBuilder.appendQuoted(text: String): StringBuilder {
+internal fun StringBuilder.appendQuoted(text: String): StringBuilder {
     append('"')
     for (character in text) {
         when {

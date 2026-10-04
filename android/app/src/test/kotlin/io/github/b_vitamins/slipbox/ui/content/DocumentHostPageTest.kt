@@ -15,15 +15,17 @@ class DocumentHostPageTest {
 
     @Test
     fun thePagePermitsItsOwnBundleAndNothingElse() {
-        val declared = policy()
-        assertEquals("default-src", listOf("'none'"), declared["default-src"])
-        assertEquals("script-src", listOf("'self'"), declared["script-src"])
-        assertEquals("font-src", listOf("'self'"), declared["font-src"])
-        assertEquals("img-src", listOf("'self'"), declared["img-src"])
-        assertEquals("connect-src", listOf("'none'"), declared["connect-src"])
-        assertEquals("base-uri", listOf("'none'"), declared["base-uri"])
-        assertEquals("form-action", listOf("'none'"), declared["form-action"])
-        assertEquals("style-src", listOf("'self'", "'unsafe-inline'"), declared["style-src"])
+        for (page in listOf(PAGE, SEARCH_PAGE)) {
+            val declared = policy(page)
+            assertEquals("default-src", listOf("'none'"), declared["default-src"])
+            assertEquals("script-src", listOf("'self'"), declared["script-src"])
+            assertEquals("font-src", listOf("'self'"), declared["font-src"])
+            assertEquals("img-src", listOf("'self'"), declared["img-src"])
+            assertEquals("connect-src", listOf("'none'"), declared["connect-src"])
+            assertEquals("base-uri", listOf("'none'"), declared["base-uri"])
+            assertEquals("form-action", listOf("'none'"), declared["form-action"])
+            assertEquals("style-src", listOf("'self'", "'unsafe-inline'"), declared["style-src"])
+        }
     }
 
     @Test
@@ -31,7 +33,7 @@ class DocumentHostPageTest {
         val page = source(PAGE)
         val referenced = REFERENCE.findAll(page).map { it.groupValues[2] }.toList()
         assertEquals(
-            listOf("./document.css", "./host.css", "./host.js"),
+            listOf("./document.css", "./host.css", "./host.js", "./palette.css"),
             referenced.sorted(),
         )
         assertFalse("the page names the renderer's own host page", page.contains("host.html"))
@@ -43,38 +45,57 @@ class DocumentHostPageTest {
     }
 
     @Test
-    fun theHostScriptEvaluatesNothing() {
-        val script = source(SCRIPT_FILE)
-        for (construct in
-            listOf(
-                "eval(",
-                "new Function",
-                "innerHTML",
-                "outerHTML",
-                "insertAdjacentHTML",
-                "document.write",
-                "setTimeout(\"",
-                "javascript:",
-            )
-        ) {
-            assertFalse("the host script uses $construct", script.contains(construct))
-        }
+    fun theSearchPageLoadsOnlyItsPackagedHost() {
+        val page = source(SEARCH_PAGE)
+        val referenced = REFERENCE.findAll(page).map { it.groupValues[2] }.toList()
         assertEquals(
-            listOf("./document.js"),
-            IMPORT.findAll(script).map { it.groupValues[1] }.toList(),
+            listOf("./document.css", "./palette.css", "./search-host.css", "./search-host.js"),
+            referenced.sorted(),
         )
-        assertFalse("the host script names an absolute URL", ABSOLUTE.containsMatchIn(script))
+        assertFalse("the search page names an absolute URL", ABSOLUTE.containsMatchIn(withoutPolicy(page)))
+        assertTrue(
+            "a script element carries no inline body",
+            SCRIPT.findAll(page).all { it.groupValues[1].isBlank() },
+        )
+    }
+
+    @Test
+    fun theHostScriptEvaluatesNothing() {
+        for (path in listOf(SCRIPT_FILE, SEARCH_SCRIPT_FILE)) {
+            val script = source(path)
+            for (construct in
+                listOf(
+                    "eval(",
+                    "new Function",
+                    "innerHTML",
+                    "outerHTML",
+                    "insertAdjacentHTML",
+                    "document.write",
+                    "setTimeout(\"",
+                    "javascript:",
+                )
+            ) {
+                assertFalse("$path uses $construct", script.contains(construct))
+            }
+            assertEquals(
+                listOf("./document.js"),
+                IMPORT.findAll(script).map { it.groupValues[1] }.toList(),
+            )
+            assertFalse("$path names an absolute URL", ABSOLUTE.containsMatchIn(script))
+        }
     }
 
     @Test
     fun theHostStylesheetFetchesNothing() {
-        val css = source(STYLE_FILE)
-        assertFalse("the host stylesheet imports", css.contains("@import"))
-        assertFalse("the host stylesheet names an absolute URL", ABSOLUTE.containsMatchIn(css))
+        for (path in listOf(STYLE_FILE, SEARCH_STYLE_FILE, PALETTE_FILE)) {
+            val css = source(path)
+            assertFalse("$path imports", css.contains("@import"))
+            assertFalse("$path names an absolute URL", ABSOLUTE.containsMatchIn(css))
+        }
     }
 
-    private fun policy(): Map<String, List<String>> {
-        val page = source(PAGE)
+    private fun policy(path: String): Map<String, List<String>> {
+        val page = source(path)
         val match = checkNotNull(POLICY.find(page)) { "the page declares no content policy" }
         return match
             .groupValues[1]
@@ -107,8 +128,12 @@ class DocumentHostPageTest {
     private companion object {
         const val ASSETS = "android/app/src/main/assets/document"
         const val PAGE = "$ASSETS/index.html"
+        const val SEARCH_PAGE = "$ASSETS/search.html"
         const val SCRIPT_FILE = "$ASSETS/host.js"
+        const val SEARCH_SCRIPT_FILE = "$ASSETS/search-host.js"
         const val STYLE_FILE = "$ASSETS/host.css"
+        const val SEARCH_STYLE_FILE = "$ASSETS/search-host.css"
+        const val PALETTE_FILE = "$ASSETS/palette.css"
 
         val POLICY =
             Regex(

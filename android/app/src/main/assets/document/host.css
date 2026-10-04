@@ -4,15 +4,63 @@
  */
 
 html {
-  background: var(--surface);
+  background: var(--paper);
 }
 
 body {
   margin: 0;
+  background: var(--paper);
 }
 
 #document {
   max-width: var(--column-width);
   margin: 0 auto;
   padding: var(--note-padding);
+  --font-display: "Source Serif 4 Variable", Georgia, serif;
+  --code-surface: var(--surface);
+  --code-surface-fade: var(--surface-fade);
+  --code-raise: var(--paper);
+  --math-surface: var(--paper);
+  --math-surface-fade: var(--paper-fade);
+}
+
+.org-document-host {
+  background: var(--paper);
+}
+
+/* Phone code reads vertically. Preserve indentation and prefer whitespace,
+ * breaking a single overlong token only when it would escape the viewport. */
+.org-example,
+.org-src__code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.org-example,
+.org-src__code {
+  overflow-x: hidden;
+  touch-action: pan-y;
+  background-image: none;
+}
+
+#document-header {
+  margin: 0 0 24px;
+}
+
+#document-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--h1-size);
+  line-height: var(--h1-line);
+  font-family: var(--font-display);
+  font-weight: 560;
+  letter-spacing: -0.015em;
+  overflow-wrap: anywhere;
+}
+
+#document .org-heading {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.006em;
 }

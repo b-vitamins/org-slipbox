@@ -1,0 +1,22 @@
+/* Copyright (C) 2026 Ayan Das; SPDX-License-Identifier: GPL-3.0-or-later */
+
+/* The native shell owns the Android palette. Keep the embedded renderer on the
+ * same layers without changing the standalone web reader's established theme. */
+:root {
+  --paper: light-dark(#faf9f5, #262624);
+  --surface: light-dark(#fffffe, #30302e);
+  --ink: light-dark(#2d2825, #f0eee6);
+  --muted: light-dark(#6f6d66, #b0aea5);
+  --muted-2: light-dark(#77746e, #9c9a92);
+  --muted-3: light-dark(#e8e6dc, #3a3936);
+  --hairline: light-dark(#dedcd1, #484641);
+  --link: light-dark(#a94f35, #e89578);
+  --link-visited: light-dark(#805841, #c7a189);
+  --link-active-bg: light-dark(
+    rgba(169, 79, 53, 0.14),
+    rgba(232, 149, 120, 0.18)
+  );
+  --edge-shadow: light-dark(rgba(0, 0, 0, 0.12), rgba(15, 14, 12, 0.6));
+  --surface-fade: light-dark(rgba(255, 255, 254, 0), rgba(48, 48, 46, 0));
+  --paper-fade: light-dark(rgba(250, 249, 245, 0), rgba(38, 38, 36, 0));
+}

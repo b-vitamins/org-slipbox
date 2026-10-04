@@ -17,6 +17,25 @@ describe("SourceBlock", () => {
     expect(container.querySelector(".org-src__code")?.textContent).toBe(
       'fn main() {\n    println!("hi");\n}',
     );
+    expect(container.querySelector(".hljs-keyword")?.textContent).toBe("fn");
+  });
+
+  it("renders highlighted source as text and token nodes, never interpreted markup", () => {
+    const code = '<img src=x onerror="alert(1)">';
+    const { container } = render(() => <SourceBlock lang="html" code={code} />);
+    expect(container.querySelector(".org-src__code")?.textContent).toBe(code);
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector(".hljs-tag")).not.toBeNull();
+  });
+
+  it("highlights the languages used densely by the reference corpus", () => {
+    const { container } = render(() => (
+      <SourceBlock lang="scheme" code="(define (square x) (* x x))" />
+    ));
+    expect(container.querySelector(".hljs-built_in")?.textContent).toBe("define");
+    expect(container.querySelector(".org-src__code")?.textContent).toBe(
+      "(define (square x) (* x x))",
+    );
   });
 
   it("omits a language tag when the block declares none", () => {
@@ -150,6 +169,23 @@ describe("SourceBlock", () => {
     expect(container.querySelector(".org-src__chrome")).toHaveAttribute(
       "aria-live",
       "polite",
+    );
+  });
+
+  it("gives wrapped source lines a bounded hanging indent", () => {
+    const { container } = render(() => (
+      <SourceBlock
+        lang="text"
+        code={"outer call with a long continuation\n    nested call with another continuation"}
+      />
+    ));
+    const lines = container.querySelectorAll<HTMLElement>(".org-src__line");
+
+    expect(lines).toHaveLength(2);
+    expect(lines[0]?.style.getPropertyValue("--source-indent")).toBe("0");
+    expect(lines[1]?.style.getPropertyValue("--source-indent")).toBe("4");
+    expect(container.querySelector("code")?.textContent).toBe(
+      "outer call with a long continuation\n    nested call with another continuation",
     );
   });
 });

@@ -1,0 +1,13 @@
+html {
+  background: var(--paper);
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+}
+
+#results {
+  min-height: 100vh;
+  background: var(--paper);
+}

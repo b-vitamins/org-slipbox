@@ -104,7 +104,16 @@ class PackagedDocumentBundleTest {
         const val HOST = "host"
         const val INVENTORY = "assets.json"
 
-        val APP_FILES = setOf(DocumentOrigin.PAGE_FILE, "host.css", "host.js")
+        val APP_FILES =
+            setOf(
+                DocumentOrigin.PAGE_FILE,
+                "host.css",
+                "host.js",
+                "palette.css",
+                DocumentOrigin.SEARCH_PAGE_FILE,
+                "search-host.css",
+                "search-host.js",
+            )
 
         fun sha256(bytes: ByteArray): String =
             MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") {

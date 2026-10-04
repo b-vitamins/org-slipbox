@@ -72,6 +72,7 @@ class DocumentPayloadTest {
         val mount = mount(HOSTILE)
         val payload = decode(DocumentPayload.of(mount, presentation()))
         assertEquals(mount.token, payload["token"]?.jsonPrimitive?.content)
+        assertEquals(mount.title, payload["title"]?.jsonPrimitive?.content)
         assertEquals(
             DocumentOrigin.assetBase(mount.token),
             payload["assetBase"]?.jsonPrimitive?.content,
@@ -108,6 +109,7 @@ class DocumentPayloadTest {
     private fun mount(source: String): DocumentMount =
         DocumentMount(
             token = "3f2a9c81-4d5e-4f60-9a1b-0c2d3e4f5061",
+            title = "A title with </script> and a \"quote\"",
             source =
                 DocumentSource(
                     source = "source-1",

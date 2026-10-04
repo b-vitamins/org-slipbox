@@ -187,7 +187,7 @@ class DocumentPresentationTest {
         val variables = presentation().cssVariables()
         assertEquals(EXPORTED, variables.keys.toList())
         assertEquals("17.00px", variables["--text-size"])
-        assertEquals("24.00px", variables["--text-line"])
+        assertEquals("25.00px", variables["--text-line"])
         assertEquals("-0.0024em", variables["--text-letter-spacing"])
         assertEquals("13.00px", variables["--code-size"])
         assertEquals("12.00px", variables["--slipbox-chrome-size"])

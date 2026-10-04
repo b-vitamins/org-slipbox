@@ -15,7 +15,7 @@ class WebTokenParityTest {
 
     @Test
     fun thePaletteIsTheSurfacesPalette() {
-        val css = webTokens()
+        val css = androidTokens()
         assertPair(
             css,
             "paper",
@@ -71,7 +71,7 @@ class WebTokenParityTest {
     /** The wash under a reveal is the tone the surface shades an edge with. */
     @Test
     fun theScrimIsTheSurfacesEdgeShadow() {
-        val declared = value(webTokens(), "edge-shadow")
+        val declared = value(androidTokens(), "edge-shadow")
         val match =
             EDGE_SHADOW.matchEntire(declared) ?: error("--edge-shadow is not a pair: $declared")
         assertScrim("light", SlipboxTokens.Palette.SCRIM_LIGHT, match.groupValues[1])
@@ -176,7 +176,7 @@ class WebTokenParityTest {
             )
         }
         assertPair(
-            webTokens(),
+            androidTokens(),
             "paper",
             SlipboxTokens.Palette.PAPER_LIGHT,
             SlipboxTokens.Palette.PAPER_DARK,
@@ -270,6 +270,9 @@ class WebTokenParityTest {
 
     private fun webTokens(): String = webSource(WEB_TOKENS)
 
+    /** The Android host stylesheet follows the shared renderer and wins its cascade. */
+    private fun androidTokens(): String = webTokens() + '\n' + webSource(ANDROID_PALETTE)
+
     private fun orgStyles(): String = webSource(ORG_STYLES)
 
     private fun webSource(path: String): String {
@@ -289,6 +292,7 @@ class WebTokenParityTest {
 
     private companion object {
         const val WEB_TOKENS = "crates/slipbox-web/client/src/styles/tokens.css"
+        const val ANDROID_PALETTE = "android/app/src/main/assets/document/palette.css"
         const val ORG_STYLES = "crates/slipbox-web/client/src/org/org.css"
         const val HEX = "(#[0-9a-fA-F]{6})"
         const val NUMBER = "(-?[0-9.]+)"

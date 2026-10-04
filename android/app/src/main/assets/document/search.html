@@ -4,22 +4,17 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta
+    <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'"
     />
-    <title>Slipbox document</title>
+    <title>Slipbox search results</title>
     <link rel="stylesheet" href="./document.css" />
     <link rel="stylesheet" href="./palette.css" />
-    <link rel="stylesheet" href="./host.css" />
+    <link rel="stylesheet" href="./search-host.css" />
   </head>
   <body>
-    <main id="document">
-      <header id="document-header" hidden>
-        <h1 id="document-title"></h1>
-      </header>
-      <div id="document-content"></div>
-    </main>
-    <script src="./host.js"></script>
+    <main id="results"></main>
+    <script src="./search-host.js"></script>
   </body>
 </html>

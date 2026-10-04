@@ -24,6 +24,7 @@ internal fun DocumentContentView(
     source: DocumentSource,
     presentation: DocumentPresentation,
     modifier: Modifier = Modifier,
+    title: String = "",
     initialPosition: DocumentPosition = DocumentPosition(),
     initialHeadingIndex: Int? = null,
     revealHeading: DocumentHeadingRequest? = null,
@@ -60,7 +61,13 @@ internal fun DocumentContentView(
                     } else {
                         View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
                     }
-                host.present(source, presentation, initialPosition, initialHeadingIndex)
+                host.present(
+                    source,
+                    presentation,
+                    title,
+                    initialPosition,
+                    initialHeadingIndex,
+                )
                 host.revealHeading(revealHeading)
             },
             onRelease = { host.dispose() },

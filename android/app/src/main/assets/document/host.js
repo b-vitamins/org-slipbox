@@ -4,6 +4,9 @@
  */
 
 const HOST_ID = "document";
+const CONTENT_ID = "document-content";
+const HEADER_ID = "document-header";
+const TITLE_ID = "document-title";
 
 let mount = null;
 let handle = null;
@@ -26,6 +29,21 @@ function state(value) {
 
 function element() {
   return document.getElementById(HOST_ID);
+}
+
+function contentElement() {
+  return document.getElementById(CONTENT_ID);
+}
+
+function paintTitle() {
+  const header = document.getElementById(HEADER_ID);
+  const title = document.getElementById(TITLE_ID);
+  if (!header || !title) {
+    return;
+  }
+  const text = typeof current.title === "string" ? current.title.trim() : "";
+  title.textContent = text;
+  header.hidden = text.length === 0;
 }
 
 function report(intent) {
@@ -220,7 +238,7 @@ function revealHeading(index, focus = true) {
   if (!Number.isInteger(index) || index < 0 || index > 10000) {
     return false;
   }
-  const heading = element().querySelectorAll("h1,h2,h3,h4,h5,h6").item(index);
+  const heading = contentElement().querySelectorAll("h1,h2,h3,h4,h5,h6").item(index);
   if (!(heading instanceof HTMLElement)) {
     return false;
   }
@@ -297,10 +315,11 @@ function paintViewportLimits() {
 
 function apply() {
   paint();
+  paintTitle();
   if (handle) {
     handle.update(options());
   } else {
-    handle = mount(element(), options());
+    handle = mount(contentElement(), options());
   }
   stampReadingMarks();
   restorePosition();

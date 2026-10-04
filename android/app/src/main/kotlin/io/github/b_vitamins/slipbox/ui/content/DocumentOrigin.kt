@@ -20,8 +20,10 @@ internal object DocumentOrigin {
 
     const val BUNDLE_DIRECTORY = "document"
     const val PAGE_FILE = "index.html"
+    const val SEARCH_PAGE_FILE = "search.html"
 
     const val PAGE = "$ORIGIN$BUNDLE_PREFIX$PAGE_FILE"
+    const val SEARCH_PAGE = "$ORIGIN$BUNDLE_PREFIX$SEARCH_PAGE_FILE"
 
     fun assetBase(token: String): String = "$ORIGIN$ASSET_PREFIX$token/"
 }

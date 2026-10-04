@@ -1,0 +1,127 @@
+.org-search-host {
+  color-scheme: light dark;
+  min-height: 100%;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--text-size);
+  line-height: var(--text-line);
+  letter-spacing: var(--text-letter-spacing);
+}
+
+.org-search-host[data-theme="light"] {
+  color-scheme: light;
+}
+
+.org-search-host[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+.org-search-results {
+  margin: 0;
+  padding: 8px 0 32px;
+  list-style: none;
+}
+
+.org-search-result {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.org-search-result:not(:last-child)::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 12px;
+  height: 1px;
+  background: var(--hairline);
+  content: "";
+  pointer-events: none;
+}
+
+.org-search-result__button {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: var(--touch-target);
+  overflow: hidden;
+  padding: 11px 12px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.org-search-result__button:active {
+  background: var(--link-active-bg);
+}
+
+.org-search-result__button:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+.org-search-result__title,
+.org-search-result__tags,
+.org-search-result__excerpt {
+  display: block;
+}
+
+.org-search-result__title {
+  font-size: 16px;
+  line-height: 21px;
+  font-weight: 400;
+}
+
+.org-search-result__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 1px;
+}
+
+.org-search-result__tag {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.org-search-result__tag::before {
+  content: "#";
+  color: var(--muted-2);
+}
+
+.org-search-result__excerpt {
+  display: -webkit-box;
+  min-width: 0;
+  max-width: 100%;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 20px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.org-search-result__match {
+  border-radius: 3px;
+  background: var(--link-active-bg);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.org-search-result__excerpt .katex {
+  color: inherit;
+  font-size: inherit;
+}
+
+.org-search-result__excerpt .org-math {
+  overflow: hidden;
+  vertical-align: bottom;
+}
