@@ -13,6 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.b_vitamins.slipbox.auth.AuthorizationListener
 import io.github.b_vitamins.slipbox.auth.AuthorizationOutcome
 import io.github.b_vitamins.slipbox.auth.BrowserHandoff
@@ -115,13 +116,15 @@ internal class GithubAuthorizationState(
 
         val LOGGER: Logger = Logger.getLogger("SlipboxAuthorization")
     }
+
 }
 
 @Composable
 internal fun rememberGithubAuthorization(): GithubAuthorizationState {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val state =
-        remember(context) {
+        remember(context, lifecycleOwner) {
             GithubAuthorizationState(
                 owner = GithubAuthorizationOwner.packaged(),
                 browser = SystemBrowserHandoff(context),
@@ -129,6 +132,12 @@ internal fun rememberGithubAuthorization(): GithubAuthorizationState {
                 installationUrl = GithubApp.packaged()?.installationUrl,
             )
         }
-    DisposableEffect(state) { onDispose { state.dispose() } }
+    DisposableEffect(state, lifecycleOwner) {
+        lifecycleOwner.lifecycle.addObserver(state.owner)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(state.owner)
+            state.dispose()
+        }
+    }
     return state
 }

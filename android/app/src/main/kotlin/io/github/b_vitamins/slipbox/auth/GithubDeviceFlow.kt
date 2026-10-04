@@ -48,7 +48,15 @@ internal class GithubDeviceFlow(
     }
 
     /** Poll at GitHub's interval until settlement, expiry or withdrawal. */
-    fun awaitGrant(grant: DeviceGrant, live: () -> Boolean): AuthorizationOutcome {
+    fun awaitGrant(grant: DeviceGrant, live: () -> Boolean): AuthorizationOutcome =
+        awaitGrant(grant, live) { true }
+
+
+    internal fun awaitGrant(
+        grant: DeviceGrant,
+        live: () -> Boolean,
+        awaitPolling: () -> Boolean,
+    ): AuthorizationOutcome {
         val started = clock.elapsedMillis()
         val lifetimeMillis = grant.expiresInSeconds * MILLIS_PER_SECOND
         var intervalMillis = grant.intervalSeconds * MILLIS_PER_SECOND
@@ -60,7 +68,7 @@ internal class GithubDeviceFlow(
             if (!clock.waitFor(intervalMillis)) {
                 return AuthorizationOutcome.Withdrawn
             }
-            if (!live()) {
+            if (!live() || !awaitPolling()) {
                 return AuthorizationOutcome.Withdrawn
             }
             if (clock.elapsedMillis() - started >= lifetimeMillis) {
@@ -81,7 +89,7 @@ internal class GithubDeviceFlow(
                         return AuthorizationOutcome.Unavailable(step.fault)
                     }
                 }
-                is Poll.Granted -> return complete(step, live)
+                is Poll.Granted -> return complete(step, live, awaitPolling)
             }
         }
     }
@@ -137,12 +145,19 @@ internal class GithubDeviceFlow(
     }
 
 
-    private fun complete(granted: Poll.Granted, live: () -> Boolean): AuthorizationOutcome {
+    private fun complete(
+        granted: Poll.Granted,
+        live: () -> Boolean,
+        awaitPolling: () -> Boolean,
+    ): AuthorizationOutcome {
         if (!live()) {
             return AuthorizationOutcome.Withdrawn
         }
         val account =
-            when (val read = retryingTransport(live) { readAccount(granted.accessToken) }) {
+            when (
+                val read =
+                    retryingTransport(live, awaitPolling) { readAccount(granted.accessToken) }
+            ) {
                 is Read.Refused -> return AuthorizationOutcome.Unavailable(read.fault)
                 is Read.Value -> read.value
                 Read.Withdrawn -> return AuthorizationOutcome.Withdrawn
@@ -151,7 +166,12 @@ internal class GithubDeviceFlow(
             return AuthorizationOutcome.Withdrawn
         }
         val access =
-            when (val read = retryingTransport(live) { readInstallations(granted.accessToken) }) {
+            when (
+                val read =
+                    retryingTransport(live, awaitPolling) {
+                        readInstallations(granted.accessToken)
+                    }
+            ) {
                 is Read.Refused -> return AuthorizationOutcome.Unavailable(read.fault)
                 is Read.Value -> read.value
                 Read.Withdrawn -> return AuthorizationOutcome.Withdrawn
@@ -168,10 +188,14 @@ internal class GithubDeviceFlow(
     }
 
 
-    private fun <T> retryingTransport(live: () -> Boolean, read: () -> Read<T>): Read<T> {
+    private fun <T> retryingTransport(
+        live: () -> Boolean,
+        awaitPolling: () -> Boolean,
+        read: () -> Read<T>,
+    ): Read<T> {
         var attempt = 1
         while (true) {
-            if (!live()) {
+            if (!live() || !awaitPolling()) {
                 return Read.Withdrawn
             }
             val answer = read()

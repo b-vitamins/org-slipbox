@@ -12,6 +12,8 @@ import androidx.lifecycle.LifecycleOwner
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 internal fun interface AuthorizationDelivery {
 
@@ -80,6 +82,14 @@ class GithubAuthorizationOwner internal constructor(
         active.getAndSet(null)?.withdraw()
     }
 
+    override fun onPause(owner: LifecycleOwner) {
+        active.get()?.pausePolling()
+    }
+
+    override fun onResume(owner: LifecycleOwner) {
+        active.get()?.resumePolling()
+    }
+
     override fun onDestroy(owner: LifecycleOwner) {
         close()
     }
@@ -109,6 +119,13 @@ class AuthorizationAttempt internal constructor(
 
     private val worker = AtomicReference<Thread?>(null)
 
+    private val pollingLock = ReentrantLock()
+
+    private val pollingChanged = pollingLock.newCondition()
+
+    @Volatile
+    private var pollingPaused = false
+
 
     val isLive: Boolean
         get() = state.get() == State.Running
@@ -122,8 +139,22 @@ class AuthorizationAttempt internal constructor(
 
     internal fun withdraw() {
         if (state.compareAndSet(State.Running, State.Withdrawn)) {
+            resumePolling()
             worker.getAndSet(null)?.interrupt()
             onSettled(this)
+        }
+    }
+
+    internal fun pausePolling() {
+        if (isLive) {
+            pollingLock.withLock { pollingPaused = true }
+        }
+    }
+
+    internal fun resumePolling() {
+        pollingLock.withLock {
+            pollingPaused = false
+            pollingChanged.signalAll()
         }
     }
 
@@ -159,8 +190,20 @@ class AuthorizationAttempt internal constructor(
                 is DeviceCodeOutcome.Requested -> requested.grant
             }
         report { listener.onVerificationWaiting(grant) }
-        settle(flow.awaitGrant(grant) { isLive })
+        settle(flow.awaitGrant(grant, { isLive }, ::awaitPolling))
     }
+
+    private fun awaitPolling(): Boolean =
+        try {
+            pollingLock.withLock {
+                while (pollingPaused && isLive) {
+                    pollingChanged.await()
+                }
+                isLive
+            }
+        } catch (_: InterruptedException) {
+            false
+        }
 
 
     internal fun settle(outcome: AuthorizationOutcome) {

@@ -29,6 +29,8 @@ internal class PendingTransport : AuthorizationTransport {
 
     private val exchanged = CopyOnWriteArrayList<AuthorizationRequest>()
 
+    private val accessTokenRequest = CountDownLatch(1)
+
 
     val requests: List<AuthorizationRequest>
         get() = exchanged.toList()
@@ -40,10 +42,17 @@ internal class PendingTransport : AuthorizationTransport {
         exchanged.add(request)
         return when (request.url) {
             DeviceEndpoint.DEVICE_CODE -> AuthorizationReply.Answered(OK, deviceCodeBody())
-            DeviceEndpoint.ACCESS_TOKEN -> AuthorizationReply.Answered(REFUSED, pendingBody())
+            DeviceEndpoint.ACCESS_TOKEN -> {
+                accessTokenRequest.countDown()
+                AuthorizationReply.Answered(REFUSED, pendingBody())
+            }
             else -> throw AssertionError("nothing prepared an exchange of ${request.url}")
         }
     }
+
+
+    fun awaitAccessToken(millis: Long): Boolean =
+        accessTokenRequest.await(millis, TimeUnit.MILLISECONDS)
 
     private companion object {
 

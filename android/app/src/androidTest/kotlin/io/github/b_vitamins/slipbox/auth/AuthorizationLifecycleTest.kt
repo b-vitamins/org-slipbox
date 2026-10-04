@@ -91,6 +91,35 @@ class AuthorizationLifecycleTest {
         assertEquals("the code was shown more than once", 1, listener.waiting.size)
     }
 
+    @Test
+    fun browserBackgroundingDefersPollingUntilTheScreenResumes() {
+        val transport = PendingTransport()
+        val owner = ownerOf(transport)
+        val listener = ProbeListener()
+        val attempt = verifying(owner, listener)
+        val screen = ProbeLifecycle()
+
+        instrumentation.runOnMainSync {
+            screen.registry.addObserver(owner)
+            screen.registry.currentState = Lifecycle.State.RESUMED
+            screen.registry.currentState = Lifecycle.State.STARTED
+        }
+        clock.release()
+
+        assertFalse(
+            "a backgrounded authorization contacted the grant endpoint",
+            transport.awaitAccessToken(QUIET_MILLIS),
+        )
+
+        instrumentation.runOnMainSync { screen.registry.currentState = Lifecycle.State.RESUMED }
+
+        assertTrue(
+            "returning from the browser did not resume grant polling",
+            transport.awaitAccessToken(ANSWER_MILLIS),
+        )
+        attempt.cancel()
+    }
+
 
     private fun verifying(
         owner: GithubAuthorizationOwner,
@@ -120,5 +149,12 @@ class AuthorizationLifecycleTest {
 
         override val lifecycle: Lifecycle
             get() = registry
+    }
+
+    private companion object {
+
+        const val QUIET_MILLIS = 250L
+
+        const val ANSWER_MILLIS = 30_000L
     }
 }

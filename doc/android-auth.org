@@ -48,6 +48,12 @@ refuses the copy, the visible code remains and the surface asks for manual
 entry. Denial, expiry and service faults produce typed outcomes. The stored token
 expiry is dated at the token response, before account verification.
 
+Same-device browser handoff pauses polling with the Android screen lifecycle.
+Returning to Slipbox resumes the same grant before another HTTPS exchange, so
+Android cannot freeze a token request in flight merely because the verification
+page owns the foreground. Cancellation and grant expiry still apply while the
+screen is away.
+
 A transient transport failure does not consume the user's browser approval.
 Polling retains the grant and its GitHub-defined pace for up to three
 consecutive transport failures. Once GitHub issues a token, account and
@@ -55,10 +61,11 @@ installation reads retry transport failures up to three times with a bounded
 one-second delay. Protocol refusals and malformed answers still settle
 immediately at their own stage.
 
-Browser return alone does not settle authorization. Replacement, cancellation,
-lifecycle destruction and composition disposal withdraw the active attempt.
-An in-flight exchange is bounded by its transport deadline; withdrawn attempts
-drop queued callbacks.
+Browser return alone does not settle authorization. Lifecycle pause holds the
+active attempt without withdrawing it; lifecycle resume releases its polling.
+Replacement, cancellation, lifecycle destruction and composition disposal
+withdraw the attempt. An in-flight exchange is bounded by its transport
+deadline; withdrawn attempts drop queued callbacks.
 
 HTTPS exchanges run off the UI thread, without redirects or unbounded response
 bodies. Diagnostics use closed error values and exception classes, not response
