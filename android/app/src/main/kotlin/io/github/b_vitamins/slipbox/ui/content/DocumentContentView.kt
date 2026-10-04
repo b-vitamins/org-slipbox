@@ -5,6 +5,7 @@
 
 package io.github.b_vitamins.slipbox.ui.content
 
+import android.view.View
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
@@ -27,6 +28,7 @@ internal fun DocumentContentView(
     initialHeadingIndex: Int? = null,
     revealHeading: DocumentHeadingRequest? = null,
     restoreFocus: DocumentFocusRequest? = null,
+    accessible: Boolean = true,
     onIntent: (DocumentIntent) -> Unit = {},
     resolveAsset: DocumentAssetResolver = NoAssets,
 ) {
@@ -52,6 +54,12 @@ internal fun DocumentContentView(
             factory = { host.view },
             modifier = modifier,
             update = {
+                it.importantForAccessibility =
+                    if (accessible) {
+                        View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+                    } else {
+                        View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                    }
                 host.present(source, presentation, initialPosition, initialHeadingIndex)
                 host.revealHeading(revealHeading)
             },

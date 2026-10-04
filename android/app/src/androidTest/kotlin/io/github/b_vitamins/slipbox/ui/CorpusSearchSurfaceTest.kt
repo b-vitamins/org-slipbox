@@ -113,7 +113,7 @@ class CorpusSearchSurfaceTest {
         composeRule.onNodeWithText("Théorie of fixed points").assertIsDisplayed()
         composeRule.onNodeWithText("théorie alias").assertIsDisplayed()
         composeRule.onNodeWithText("Context \\(f(λ)=λ\\) in théorie 3.").assertIsDisplayed()
-        Evidence.image("corpus-search-unicode", composeRule.onRoot().captureToImage())
+        composeRule.accessibleRegression("corpus-search-unicode")
 
         composeRule.onNodeWithTag(CORPUS_SEARCH_LIST_TAG).performScrollToIndex(31)
         composeRule.waitUntil(5_000) { loads == 1 }

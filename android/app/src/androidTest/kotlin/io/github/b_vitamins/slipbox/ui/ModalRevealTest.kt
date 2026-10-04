@@ -238,6 +238,7 @@ class ModalRevealTest {
     fun namesRolesAndSelectionSurviveTheRevealBeingReopened() {
         show()
         reveal()
+        composeRule.assertAccessible()
         composeRule.onNodeWithText(followSystem).assertRole(Role.RadioButton).assertIsSelected()
         composeRule.onNodeWithText(chooseDark).assertRole(Role.RadioButton).assertIsNotSelected()
         composeRule.onNodeWithText(reduceMotion).assertRole(Role.Switch).assertIsOff()
@@ -247,6 +248,7 @@ class ModalRevealTest {
         composeRule.waitForIdle()
         composeRule.onNodeWithText(chooseDark).assertDoesNotExist()
         reveal()
+        composeRule.assertAccessible()
         composeRule.onNode(pane, useUnmergedTree = true).assertExists()
         composeRule.onNodeWithText(chooseDark).assertRole(Role.RadioButton).assertIsSelected()
         composeRule.onNodeWithText(followSystem).assertRole(Role.RadioButton).assertIsNotSelected()

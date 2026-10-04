@@ -21,6 +21,10 @@ package=io.github.b_vitamins.slipbox.debug
 activity=io.github.b_vitamins.slipbox.SlipboxActivity
 test_sources="$MODULE/app/src/androidTest/kotlin/io/github/b_vitamins/slipbox/engine"
 test_package=io.github.b_vitamins.slipbox.engine
+visual_gate="$MODULE/app/src/androidTest/visual-gate.txt"
+engine_runner="$test_package.NativeEngineProbeTest,$test_package.EngineAdapterTest,$test_package.SourceCatalogDeviceTest,$test_package.SourceRefreshWorkerDeviceTest"
+visual_runner=$(paste -sd, "$visual_gate")
+expected_runner="$engine_runner,$visual_runner"
 
 checked=0
 problems=0
@@ -233,6 +237,10 @@ if [ -f "$FIXTURE/results.xml" ]; then
     mkdir -p "$RESULTS_DIR"
     cp "$FIXTURE/results.xml" "$RESULTS_DIR/TEST-mock.xml"
 fi
+if [ -f "$FIXTURE/visual-evidence" ]; then
+    mkdir -p "$ADDITIONAL_OUTPUT_DIR/device/design"
+    cp "$FIXTURE/visual-evidence" "$ADDITIONAL_OUTPUT_DIR/device/design/native.json"
+fi
 exit "$(cat "$FIXTURE/gradle-status")"
 MOCK
 chmod +x "$work/bin/adb" "$work/bin/emulator" "$work/bin/avdmanager" "$work/bin/aapt2" \
@@ -270,8 +278,11 @@ results_document() {
     }
 }
 
-declared_cases >"$work/cases"
-[ -s "$work/cases" ] || {
+declared_cases >"$work/engine-cases"
+awk -F'#' '{ class = $1; sub(/^.*\./, "", class); print class "." $2 }' \
+    "$visual_gate" | sort >"$work/visual-cases"
+cat "$work/engine-cases" "$work/visual-cases" | sort >"$work/cases"
+[ -s "$work/engine-cases" ] || {
     echo "FAIL $test_sources declares no instrumentation case to build a fixture from" >&2
     exit 1
 }
@@ -282,7 +293,7 @@ load_case=$(grep '^NativeEngineProbeTest\.' "$work/cases" | head -n 1)
 }
 
 reset() {
-    rm -rf "$fixture" "$results" "$out"
+    rm -rf "$fixture" "$results" "$out" "$work/additional-output"
     mkdir -p "$fixture" "$results" "$out" "$avd_home"
     echo "$serial" >"$fixture/serial"
     echo normal >"$fixture/devices-mode"
@@ -304,6 +315,7 @@ reset() {
     printf "launchable-activity: name='%s'  label='Slipbox' icon=''\n" "$activity" \
         >>"$fixture/badging"
     results_document "" "" >"$fixture/results.xml"
+    printf '{"fixture":true}\n' >"$fixture/visual-evidence"
     touch "$avd_home/$avd.ini"
 }
 
@@ -311,10 +323,11 @@ smoke() {
     status=0
     env ANDROID_HOME="$work/sdk" ANDROID_USER_HOME="$work/android-user" \
         ANDROID_AVD_HOME="${fixture_avd_home-$avd_home}" FIXTURE="$fixture" \
-        RESULTS_DIR="$results" \
+        RESULTS_DIR="$results" ADDITIONAL_OUTPUT_DIR="$work/additional-output" \
         DEVICE_SMOKE_ADB="$work/bin/adb" DEVICE_SMOKE_EMULATOR="$work/bin/emulator" \
         DEVICE_SMOKE_AVDMANAGER="$work/bin/avdmanager" DEVICE_SMOKE_AAPT2="$work/bin/aapt2" \
         DEVICE_SMOKE_GRADLEW="$work/bin/gradlew" DEVICE_SMOKE_RESULTS="$results" \
+        DEVICE_SMOKE_ADDITIONAL_OUTPUT="$work/additional-output" \
         DEVICE_SMOKE_SERVER_PORT="$server_port" DEVICE_SMOKE_CONSOLE_PORT="$console_port" \
         DEVICE_SMOKE_COMMAND_LIMIT=15 DEVICE_SMOKE_BOOT_LIMIT=8 \
         DEVICE_SMOKE_LAUNCH_LIMIT=15 DEVICE_SMOKE_TEST_LIMIT=30 DEVICE_SMOKE_STOP_LIMIT=2 \
@@ -350,14 +363,16 @@ check "the passing run separates the APK upload from package installation" \
 check "the passing run launches the activity the APK declares" \
     "am start -W -n $package/$activity" "$(cat "$fixture/launch-record")"
 check "the passing run scopes the instrumentation to the reused suites" 1 \
-    "$(grep -c "^-Pandroid.testInstrumentationRunnerArguments.package=$test_package\$" \
+    "$(grep -Fxc -- "-Pandroid.testInstrumentationRunnerArguments.class=$expected_runner" \
         "$fixture/gradle-record" || true)"
 check "the build runs without a daemon, cache or extra workers" "3" \
     "$(grep -Ec '^(--no-daemon|--max-workers=2|--no-build-cache)$' "$fixture/gradle-record" || true)"
 check "the passing run archives the machine-readable results" 1 \
     "$(find "$out/androidTest-results" -name '*.xml' | wc -l | tr -d ' ')"
+check "the passing run archives inspectable visual evidence" 1 \
+    "$(find "$out/visual-evidence" -type f | wc -l | tr -d ' ')"
 check "the passing run accounts for every declared case" 1 \
-    "$(reported "^### declared $(wc -l <"$work/cases" | tr -d ' ') case\(s\), executed $(wc -l <"$work/cases" | tr -d ' '), skipped 0\$")"
+    "$(reported "^### required $(wc -l <"$work/engine-cases" | tr -d ' ') engine case\(s\) and $(wc -l <"$work/visual-cases" | tr -d ' ') visual case\(s\); executed $(wc -l <"$work/cases" | tr -d ' '), skipped 0\$")"
 check "the passing run stops the emulator it started" stopped "$(emulator_stopped)"
 check "the passing run stops the adb server it started" 1 \
     "$(reported '^### cleanup stopped the adb server it started')"
@@ -452,13 +467,13 @@ rm "$fixture/results.xml"
 smoke
 check "an instrumentation run that publishes no results fails the gate" 1 "$status"
 check "the empty run is reported as executing none of the declared cases" 1 \
-    "$(reported '^FAIL the device executed none of the declared case\(s\) above$')"
+    "$(reported '^FAIL the device executed none of the required case\(s\) above$')"
 
 reset
 results_document "$load_case" '<skipped />' >"$fixture/results.xml"
 smoke
 check "a skipped case fails the gate" 1 "$status"
-check "the skipped case is counted" 1 "$(reported '^FAIL the device skipped 1 declared case\(s\)$')"
+check "the skipped case is counted" 1 "$(reported '^FAIL the device skipped 1 required case\(s\)$')"
 
 reset
 grep -v "^$load_case\$" "$work/cases" >"$work/cases.kept"

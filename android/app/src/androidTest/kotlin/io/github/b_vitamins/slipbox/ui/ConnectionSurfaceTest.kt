@@ -46,11 +46,11 @@ class ConnectionSurfaceTest {
         composeRule.onNodeWithText("Repository URL").assertIsDisplayed()
         composeRule.onNodeWithText("Branch").assertIsDisplayed()
         composeRule.onNodeWithText("Notes folder (optional)").assertIsDisplayed()
-        Evidence.image("connection-public", composeRule.onRoot().captureToImage())
+        composeRule.accessibleRegression("connection-public")
 
         composeRule.onNodeWithText("GitHub").performClick()
         composeRule.onNodeWithText("Authorize GitHub").assertIsDisplayed()
-        Evidence.image("connection-github", composeRule.onRoot().captureToImage())
+        composeRule.accessibleRegression("connection-github")
     }
 
     @Test
@@ -67,7 +67,7 @@ class ConnectionSurfaceTest {
 
         composeRule.onNodeWithText("owner/notes").assertIsDisplayed()
         composeRule.onNodeWithText("4 files · 9 indexed nodes · revision 0123456789").assertIsDisplayed()
-        Evidence.image("library-connected", composeRule.onRoot().captureToImage())
+        composeRule.accessibleRegression("library-connected")
     }
 
     private fun ready(): ReadySource {

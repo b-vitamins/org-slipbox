@@ -169,7 +169,8 @@ internal fun IconControl(
 ) {
     HeaderControl(
         onClick = onClick,
-        modifier = modifier.semantics { contentDescription = label },
+        modifier = modifier,
+        accessibleLabel = label,
     ) {
         Icon(
             painter = icon,
@@ -294,7 +295,8 @@ internal fun ContextualSheet(
                             onClickLabel = dismissLabel,
                             role = Role.Button,
                             onClick = onDismiss,
-                        ),
+                        )
+                        .semantics { contentDescription = dismissLabel },
             )
         }
         AnimatedVisibility(
@@ -376,6 +378,7 @@ private fun Modifier.withheld(obscured: Boolean): Modifier =
 private fun HeaderControl(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    accessibleLabel: String? = null,
     content: @Composable () -> Unit,
 ) {
     val action =
@@ -391,7 +394,14 @@ private fun HeaderControl(
                     minWidth = SlipboxDimensions.touchTarget,
                     minHeight = SlipboxDimensions.touchTarget,
                 )
-                .then(action),
+                .then(action)
+                .then(
+                    if (accessibleLabel == null) {
+                        Modifier
+                    } else {
+                        Modifier.semantics { contentDescription = accessibleLabel }
+                    },
+                ),
         contentAlignment = Alignment.Center,
     ) {
         content()

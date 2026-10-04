@@ -64,7 +64,7 @@ class SourceSettingsSurfaceTest {
             .onNodeWithText("Freshness: Ready for offline reading")
             .performScrollTo()
             .assertIsDisplayed()
-        Evidence.image("source-settings", composeRule.onRoot().captureToImage())
+        composeRule.regression("source-settings")
 
         composeRule.onNodeWithText("Remove downloaded data").performScrollTo().performClick()
         composeRule
@@ -74,7 +74,7 @@ class SourceSettingsSurfaceTest {
             )
             .assertExists()
         composeRule.onNodeWithText("Confirm").performScrollTo().assertIsDisplayed()
-        Evidence.image("source-cache-confirmation", composeRule.onRoot().captureToImage())
+        composeRule.accessibleRegression("source-cache-confirmation")
     }
 
     @Test

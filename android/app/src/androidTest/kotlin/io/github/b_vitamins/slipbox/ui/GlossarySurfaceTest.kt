@@ -306,10 +306,7 @@ class GlossarySurfaceTest {
             "The term-1 definition ends here.",
             reader.text("document.querySelector('#document p:last-child').textContent"),
         )
-        Evidence.image(
-            "glossary-list-detail-expanded-dark",
-            composeRule.onRoot().captureToImage(),
-        )
+        composeRule.regression("glossary-list-detail-expanded-dark")
     }
 
     @Test
@@ -345,8 +342,6 @@ class GlossarySurfaceTest {
             "The first definition ends here.",
             first.text("document.querySelector('#document p:last-child').textContent"),
         )
-        Evidence.image("glossary-term-reading", composeRule.onRoot().captureToImage())
-
         composeRule.onNodeWithText("Details").performClick()
         composeRule.onNodeWithText("Identity").assertIsDisplayed()
         composeRule.onNodeWithText("Study schedule").performScrollTo().assertIsDisplayed()
@@ -359,8 +354,10 @@ class GlossarySurfaceTest {
         composeRule.onNodeWithText("owner/knowledge").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText(GENERATION).performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("0123456789abcdef").performScrollTo().assertIsDisplayed()
-        Evidence.image("glossary-term-details", composeRule.onRoot().captureToImage())
+        composeRule.regression("glossary-term-details")
         Espresso.pressBack()
+        composeRule.onNodeWithText("Identity").assertDoesNotExist()
+        composeRule.regression("glossary-term-reading")
 
         first.answer("window.scrollTo(0, document.documentElement.scrollHeight)")
         first.awaitTrue("the first definition scrolled", "window.scrollY > 0")
@@ -376,7 +373,7 @@ class GlossarySurfaceTest {
         )
         composeRule.onNodeWithText("Uniform continuity").assertIsDisplayed()
         assertEquals(0.0, second.number("window.scrollY"), 0.0)
-        Evidence.image("glossary-term-switch", composeRule.onRoot().captureToImage())
+        composeRule.regression("glossary-term-switch")
     }
 
     @Test
@@ -415,7 +412,7 @@ class GlossarySurfaceTest {
         composeRule.onNodeWithText("Successful recalls").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("2.50").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Grade").assertDoesNotExist()
-        Evidence.image("glossary-study-facts", composeRule.onRoot().captureToImage())
+        composeRule.regression("glossary-study-facts")
     }
 
     private fun shown(): WebView {

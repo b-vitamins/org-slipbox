@@ -18,12 +18,22 @@ It uploads lint and unit-test reports and records APK digests. Gradle uses
 Gradle modules, wrapper distributions and Cargo inputs, not build outputs.
 
 =android-device= installs and launches the debug APK on one accelerated x86_64
-emulator. It runs =NativeEngineProbeTest=, =EngineAdapterTest= and
-=SourceRefreshWorkerDeviceTest=, requires every
-declared case to execute without skips, and checks logcat for crashes and hangs.
+emulator. It runs =NativeEngineProbeTest=, =EngineAdapterTest=,
+=SourceCatalogDeviceTest= and =SourceRefreshWorkerDeviceTest= plus the exact
+instrumentation cases declared in =app/src/androidTest/visual-gate.txt=. The
+visual set covers principal native surfaces, contextual sheets and complete
+documents across light/dark schemes, large type, compact/expanded windows and
+loading, empty and failure states. Native surfaces run Android's accessibility
+validator; focused semantic and document-structure assertions cover modal
+ownership, headings, links, labels and complete touch targets. The gate requires
+every declared case to execute without skips and checks logcat for crashes and
+hangs.
 Diagnostics include the APK digest, device ABI, page size, API level, launch
 output, pre-install =/data= capacity and instrumentation results. The script
-bounds waits and cleans up the emulator and adb server it started; it refuses
+bounds waits and copies the gate's PNG, semantic and measurement evidence beside
+the machine-readable instrumentation result. It requires API 34 or newer for
+platform accessibility validation. The script cleans up the emulator and adb
+server it started; it refuses
 occupied ports, insufficient install capacity and a device whose ABI is not the
 one its system image implements. It also waits for Android's package service,
 whose registration can lag the boot-complete property or restart during initial
@@ -103,6 +113,12 @@ tools/ci/inputs-tests.sh
 tools/ci/verify-device-smoke-tests.sh
 tools/ci/verify-device-smoke.sh --page-size 4096
 #+end_src
+
+When an intentional visual change has been inspected on the pinned image, record
+candidate low-resolution fingerprints with
+=tools/ci/verify-device-smoke.sh --page-size 4096 --record-screenshot-baselines=,
+review the emitted PNGs, and update =ScreenshotBaselines.kt= in the same patch.
+The ordinary gate never updates reviewed baselines.
 
 The device script requires Bash for process-group deadlines. It accepts
 =DEVICE_SMOKE_ADB=, =DEVICE_SMOKE_EMULATOR=,

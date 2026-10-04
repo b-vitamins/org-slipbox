@@ -7,6 +7,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Gate Android's principal library, connection, search, reader, glossary,
+  source and modal surfaces with reviewed light/dark, large-type, adaptive and
+  state-specific screenshots plus Android's accessibility validator. Device
+  evidence now preserves the exact captures and measurements behind the gate.
 - Verify Android's complete Git-to-offline-reading promise with repeatable
   32-note and 256-note corpus journeys across initial publication, incremental
   rename/delete updates, divergent history, complete note/glossary/relation
@@ -229,6 +233,9 @@ The format follows Keep a Changelog, and this project follows SemVer.
   `desktop-decryptors`.
 
 ### Fixed
+- Keep icon controls' complete touch targets in the accessibility tree, give
+  contextual scrims an explicit dismiss action, and hide the document host
+  while a native reader sheet owns modal focus.
 - Recover interrupted generation publication at startup through crash-released
   filesystem locking and sealed publication intents. Validate source and index
   before completing activation, restore a retained verified generation when the

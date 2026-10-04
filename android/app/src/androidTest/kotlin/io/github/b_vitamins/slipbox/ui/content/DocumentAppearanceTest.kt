@@ -106,9 +106,9 @@ class DocumentAppearanceTest {
             measure(view, scheme)
         }
         assertEquals(
-            "reading the note raised nothing",
+            "visual inspection raised no navigation or asset action",
             emptyList<DocumentIntent>(),
-            raised.reported(),
+            raised.reported().filterNot { it is DocumentIntent.Position },
         )
     }
 
@@ -117,7 +117,7 @@ class DocumentAppearanceTest {
         view.answer("window.scrollTo(0, 0);")
         view.awaitTrue("the note is back at its head", "window.scrollY === 0")
         val page = snapshot()
-        Evidence.image("content-$label", page)
+        Evidence.regression("content-$label", page)
         val canvas = page.pixels()[EDGE, EDGE]
         assertEquals(
             "$label: the note is set on the app's own paper",

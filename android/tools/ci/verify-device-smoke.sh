@@ -5,6 +5,7 @@
 # Usage: tools/ci/verify-device-smoke.sh [--avd NAME] [--image PACKAGE]
 #                                      [--apk APK] [--page-size BYTES]
 #                                      [--out DIRECTORY]
+#                                      [--record-screenshot-baselines]
 #
 # Requires Bash process groups, an assembled debug APK and ANDROID_HOME
 # (or ANDROID_SDK_ROOT).
@@ -16,7 +17,9 @@ set -eu
 CI_INPUTS_LIB=1
 . "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/inputs.sh"
 
-REQUIRED_SUITES="NativeEngineProbeTest EngineAdapterTest SourceRefreshWorkerDeviceTest"
+REQUIRED_SUITES="NativeEngineProbeTest EngineAdapterTest SourceCatalogDeviceTest SourceRefreshWorkerDeviceTest"
+VISUAL_GATE="$MODULE/app/src/androidTest/visual-gate.txt"
+VISUAL_MIN_API=34
 
 TEST_SOURCE_ROOT="$MODULE/app/src/androidTest/kotlin"
 
@@ -68,12 +71,14 @@ esac
 [ "$LAUNCH_ATTEMPTS" -gt 0 ] ||
     abort "DEVICE_SMOKE_LAUNCH_ATTEMPTS must be a positive integer"
 RESULTS=${DEVICE_SMOKE_RESULTS:-$MODULE/app/build/outputs/androidTest-results/connected}
+ADDITIONAL_OUTPUT=${DEVICE_SMOKE_ADDITIONAL_OUTPUT:-$MODULE/app/build/outputs/connected_android_test_additional_output}
 
 avd=slipbox-ci
 image=""
 apk="$MODULE/app/build/outputs/apk/debug/app-debug.apk"
 expected_page_size=""
 out="$MODULE/app/build/reports/device-smoke"
+record_baselines=0
 
 while [ $# -gt 0 ]; do
     case $1 in
@@ -101,6 +106,10 @@ while [ $# -gt 0 ]; do
         [ $# -ge 2 ] || abort "--out needs a directory"
         out=$2
         shift 2
+        ;;
+    --record-screenshot-baselines)
+        record_baselines=1
+        shift
         ;;
     --)
         shift
@@ -134,6 +143,32 @@ for suite in $REQUIRED_SUITES; do
     fi
 done
 test_package=$(echo "${test_sources#"$TEST_SOURCE_ROOT/"}" | tr '/' '.')
+
+[ -f "$VISUAL_GATE" ] || abort "$VISUAL_GATE does not exist"
+awk '
+    NF == 0 { exit 4 }
+    !/^[A-Za-z_][A-Za-z0-9_.]*#[A-Za-z_][A-Za-z0-9_]*$/ { exit 2 }
+    seen[$0]++ { exit 3 }
+    { count++ }
+    END { if (count == 0) exit 5 }
+' "$VISUAL_GATE" >/dev/null 2>&1 ||
+    abort "$VISUAL_GATE contains an invalid or duplicate case"
+while IFS='#' read -r class method; do
+    source="$TEST_SOURCE_ROOT/$(echo "$class" | tr . /).kt"
+    [ -f "$source" ] || abort "$VISUAL_GATE names missing class $class"
+    grep -Eq "^[[:space:]]*fun[[:space:]]+$method[[:space:]]*\\(" "$source" ||
+        abort "$VISUAL_GATE names missing method $class#$method"
+done <"$VISUAL_GATE"
+
+engine_classes=""
+for suite in $REQUIRED_SUITES; do
+    case $engine_classes in
+    '') engine_classes="$test_package.$suite" ;;
+    *) engine_classes="$engine_classes,$test_package.$suite" ;;
+    esac
+done
+visual_cases=$(paste -sd, "$VISUAL_GATE")
+runner_cases="$engine_classes,$visual_cases"
 
 [ -f "$apk" ] || abort "$apk does not exist; assemble the debug APK before this gate"
 for tool in "$ADB" "$EMULATOR" "$AVDMANAGER" "$AAPT2" "$GRADLEW"; do
@@ -483,6 +518,8 @@ echo "### $SERIAL abi $abi page size $page_size api $api"
     fail "$SERIAL reports page size $page_size, not $expected_page_size"
 [ "$api" -ge "$(pin min-sdk)" ] ||
     fail "$SERIAL runs API $api, below the declared minimum $(pin min-sdk)"
+[ "$api" -ge "$VISUAL_MIN_API" ] ||
+    fail "$SERIAL runs API $api, below the visual gate minimum $VISUAL_MIN_API"
 
 wait_for_package_service
 
@@ -562,11 +599,18 @@ ask "pidof $package || true" || fail "$SERIAL did not answer which process $pack
 [ -n "$value" ] || fail "$package left no process running after its launch"
 echo "### $package runs as pid $value"
 
-echo "### gradlew :app:connectedDebugAndroidTest for $test_package"
+echo "### gradlew :app:connectedDebugAndroidTest for engine and reviewed visual cases"
 tests=0
+runner_arguments=("-Pandroid.testInstrumentationRunnerArguments.class=$runner_cases")
+if [ "$record_baselines" -eq 1 ]; then
+    runner_arguments+=(
+        "-Pandroid.testInstrumentationRunnerArguments.recordScreenshotBaselines=true"
+    )
+    echo "### recording screenshot baselines; comparisons are disabled for this local run"
+fi
 bounded "$TEST_LIMIT" "$GRADLEW" --no-daemon --max-workers=2 --no-build-cache \
     -p "$MODULE" :app:connectedDebugAndroidTest \
-    "-Pandroid.testInstrumentationRunnerArguments.package=$test_package" \
+    "${runner_arguments[@]}" \
     >"$out/instrumentation.log" 2>&1 || tests=$?
 tail -n 20 "$out/instrumentation.log" | sed 's/^/  /'
 
@@ -578,6 +622,14 @@ if [ -d "$RESULTS" ]; then
         "result document(s) under $out/androidTest-results"
 else
     echo "### the connected run left no results tree at $RESULTS"
+fi
+if [ -d "$ADDITIONAL_OUTPUT" ]; then
+    rm -rf "$out/visual-evidence"
+    cp -R "$ADDITIONAL_OUTPUT" "$out/visual-evidence"
+    echo "### archived $(find "$out/visual-evidence" -type f | wc -l | tr -d ' ')" \
+        "visual evidence file(s) under $out/visual-evidence"
+else
+    echo "### the connected run left no visual evidence tree at $ADDITIONAL_OUTPUT"
 fi
 
 [ "$tests" -ne 124 ] || fail "the connected tests exceeded $TEST_LIMIT seconds"
@@ -592,6 +644,9 @@ find "$test_sources" -name '*.kt' -exec awk '
     }
 ' {} + | sort >"$WORK/declared"
 [ -s "$WORK/declared" ] || fail "the instrumentation sources declare no test case"
+awk -F'#' '{ class = $1; sub(/^.*\./, "", class); print class "." $2 }' \
+    "$VISUAL_GATE" | sort >"$WORK/visual-declared"
+cat "$WORK/declared" "$WORK/visual-declared" | sort -u >"$WORK/required"
 
 : >"$WORK/results"
 find "$out/androidTest-results" -name '*.xml' -exec cat {} + >"$WORK/results" 2>/dev/null || true
@@ -607,14 +662,15 @@ awk '
     }
 ' "$WORK/results" | sort >"$WORK/executed"
 skipped=$(grep -c '<skipped' "$WORK/results" || true)
-echo "### declared $(wc -l <"$WORK/declared" | tr -d ' ') case(s), executed" \
-    "$(wc -l <"$WORK/executed" | tr -d ' '), skipped $skipped"
-absent=$(comm -23 "$WORK/declared" "$WORK/executed")
+echo "### required $(wc -l <"$WORK/declared" | tr -d ' ') engine case(s) and" \
+    "$(wc -l <"$WORK/visual-declared" | tr -d ' ') visual case(s);" \
+    "executed $(wc -l <"$WORK/executed" | tr -d ' '), skipped $skipped"
+absent=$(comm -23 "$WORK/required" "$WORK/executed")
 if [ -n "$absent" ]; then
     echo "$absent" | sed 's/^/  /'
-    fail "the device executed none of the declared case(s) above"
+    fail "the device executed none of the required case(s) above"
 fi
-[ "$skipped" -eq 0 ] || fail "the device skipped $skipped declared case(s)"
+[ "$skipped" -eq 0 ] || fail "the device skipped $skipped required case(s)"
 
 adb -s "$SERIAL" logcat -d -b crash -b main >"$out/logcat.txt"
 echo "### logcat lines $(wc -l <"$out/logcat.txt" | tr -d ' ')"
@@ -628,4 +684,4 @@ fi
 echo "  none"
 
 [ "$tests" -eq 0 ] || fail "the connected tests exited $tests"
-echo "PASS $package launched and every declared case of $test_package ran on $abi"
+echo "PASS $package launched and every engine and reviewed visual case ran on $abi"

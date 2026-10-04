@@ -135,6 +135,12 @@ internal fun ReaderScreen(
                 maxOf(160.dp, naturalPreviewHeight),
             )
         val previewVisible = previewPhase != ReaderPreviewPhase.Hidden
+        val surfaceObscured =
+            appearanceVisible ||
+                previewVisible ||
+                contextVisible ||
+                relationsVisible ||
+                explorationVisible
         val presentation =
             rememberDocumentPresentation(
                 appearance = settings.preferences.appearance,
@@ -151,12 +157,7 @@ internal fun ReaderScreen(
                             R.string.reader_title
                         },
                     ),
-            obscured =
-                appearanceVisible ||
-                    previewVisible ||
-                    contextVisible ||
-                    relationsVisible ||
-                    explorationVisible,
+            obscured = surfaceObscured,
             scrollable = document == null,
             contentPadding =
                 if (document == null) {
@@ -423,6 +424,7 @@ internal fun ReaderScreen(
                                 .takeIf { it >= 0 },
                         revealHeading = headingRequest,
                         restoreFocus = deliveredFocus,
+                        accessible = !surfaceObscured,
                         modifier =
                             Modifier
                                 .fillMaxWidth()

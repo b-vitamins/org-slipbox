@@ -62,7 +62,8 @@ class OrdinarySurfacesTest {
         show()
         composeRule.onNodeWithText(library).assertIsDisplayed()
         composeRule.onNodeWithText(empty).assertIsDisplayed()
-        val target = composeRule.onNodeWithText(about).bounds().height / density.density
+        val target =
+            composeRule.onNodeWithContentDescription(about).bounds().height / density.density
         assertTrue(
             "the way on keeps the touch floor: ${target}dp",
             target >= SlipboxTokens.Geometry.TOUCH_TARGET_DP - 1f,
@@ -73,7 +74,7 @@ class OrdinarySurfacesTest {
     @Test
     fun theAboutSurfaceIsCapturedInEitherScheme() {
         show()
-        composeRule.onNodeWithText(about).performClick()
+        composeRule.onNodeWithContentDescription(about).performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithContentDescription(back).assertIsDisplayed()
         composeRule.onNodeWithText(version).assertIsDisplayed()
@@ -105,7 +106,8 @@ class OrdinarySurfacesTest {
     /** Writes one surface as it stands, and answers with the canvas it stands on. */
     private fun capture(name: String): Color {
         val image: ImageBitmap = composeRule.onRoot().captureToImage()
-        Evidence.image(name, image)
+        composeRule.assertAccessible()
+        Evidence.regression(name, image)
         val pixels = image.pixels()
         val canvas = pixels[2, 2]
         Evidence.record(

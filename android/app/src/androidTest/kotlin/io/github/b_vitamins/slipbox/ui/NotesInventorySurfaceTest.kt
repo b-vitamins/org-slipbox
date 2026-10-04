@@ -113,7 +113,7 @@ class NotesInventorySurfaceTest {
         }
 
         composeRule.onNodeWithText("Notes could not be loaded.").assertIsDisplayed()
-        Evidence.image("notes-inventory-error", composeRule.onRoot().captureToImage())
+        composeRule.accessibleRegression("notes-inventory-error")
         composeRule.onNodeWithText("Try again").performClick()
         composeRule.onNodeWithText("Note 1").assertIsDisplayed()
         composeRule.onNodeWithText("More notes could not be loaded.").assertIsDisplayed()

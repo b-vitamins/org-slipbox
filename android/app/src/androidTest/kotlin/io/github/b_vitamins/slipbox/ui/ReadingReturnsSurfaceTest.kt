@@ -107,7 +107,7 @@ class ReadingReturnsSurfaceTest {
         }
 
         composeRule.onNodeWithText("Continue reading").assertIsDisplayed()
-        Evidence.image("reading-returns", composeRule.onRoot().captureToImage())
+        composeRule.accessibleRegression("reading-returns")
         composeRule.onNodeWithText("Long reading").performClick()
         composeRule.runOnIdle { assertEquals("Long reading", opened?.title) }
         composeRule.onNodeWithText("continue.org · 63%").assertIsDisplayed()

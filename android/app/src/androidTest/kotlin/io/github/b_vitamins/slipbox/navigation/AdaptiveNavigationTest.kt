@@ -14,10 +14,8 @@ import androidx.compose.ui.test.DeviceConfigurationOverride
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.WindowSize
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
@@ -26,9 +24,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SdkSuppress
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.b_vitamins.slipbox.R
-import io.github.b_vitamins.slipbox.ui.Evidence
 import io.github.b_vitamins.slipbox.ui.MemoryStore
 import io.github.b_vitamins.slipbox.ui.Specimen
+import io.github.b_vitamins.slipbox.ui.regression
 import io.github.b_vitamins.slipbox.ui.settings.ReadingSettings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -70,7 +68,7 @@ class AdaptiveNavigationTest {
         composeRule.waitForIdle()
         assertFalse("Back dismisses the retained sheet first", composeRule.revealing(appearancePane))
         assertEquals(2, history().entries.size)
-        Evidence.image("navigation-list-detail-expanded", composeRule.onRoot().captureToImage())
+        composeRule.regression("navigation-list-detail-expanded")
 
         composeRule.runOnIdle {
             assertTrue(history().open(Synthetic.note(source = Synthetic.BETA)))
@@ -85,7 +83,7 @@ class AdaptiveNavigationTest {
         composeRule.onNodeWithText(Synthetic.LIBRARY).assertDoesNotExist()
         composeRule.onNodeWithText(Specimen.TITLE).assertIsDisplayed()
         assertEquals(2, history().entries.size)
-        Evidence.image("navigation-list-detail-compact", composeRule.onRoot().captureToImage())
+        composeRule.regression("navigation-list-detail-compact")
 
         Espresso.pressBack()
         composeRule.waitForIdle()

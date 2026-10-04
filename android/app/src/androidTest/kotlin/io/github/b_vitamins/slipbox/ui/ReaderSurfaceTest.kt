@@ -65,6 +65,7 @@ import io.github.b_vitamins.slipbox.ui.settings.ReadingSettings
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxAppearance
 import io.github.b_vitamins.slipbox.ui.theme.SlipboxTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -107,19 +108,31 @@ class ReaderSurfaceTest {
             "The complete final paragraph.",
             view.text("document.querySelector('#document p:last-child').textContent"),
         )
-        Evidence.image("reader-rich-light", composeRule.onRoot().captureToImage())
-
         composeRule.onNodeWithText("Info").performClick()
         composeRule.onNodeWithText("Outline").assertIsDisplayed()
         composeRule.onNodeWithText("Filed 2 of 3").assertIsDisplayed()
         composeRule.onNodeWithText("Notes").assertIsDisplayed()
         composeRule.onNodeWithText("note.org").assertIsDisplayed()
         composeRule.onNodeWithText("0123456789abcdef").assertIsDisplayed()
-        Evidence.image("reader-note-details", composeRule.onRoot().captureToImage())
+        composeRule.runOnIdle {
+            assertFalse("the covered document leaves the accessibility tree", view.isImportantForAccessibility)
+        }
+        composeRule.regression("reader-note-details")
 
+        Espresso.pressBack()
+        composeRule.onNodeWithText("Note details").assertDoesNotExist()
+        composeRule.runOnIdle {
+            assertTrue("the uncovered document returns to accessibility", view.isImportantForAccessibility)
+        }
+        composeRule.regression("reader-rich-light")
+
+        composeRule.onNodeWithText("Info").performClick()
         composeRule.onNodeWithText("The table it settles into").performClick()
         composeRule.onNodeWithText("Note details").assertDoesNotExist()
-        Evidence.image("reader-outline-target", composeRule.onRoot().captureToImage())
+        composeRule.runOnIdle {
+            assertTrue("the uncovered document returns to accessibility", view.isImportantForAccessibility)
+        }
+        composeRule.regression("reader-outline-target")
         view.awaitTrue(
             "the outline reached the rendered heading",
             "(() => {" +
@@ -154,7 +167,7 @@ class ReaderSurfaceTest {
             "the selected reader scheme reached the document",
             "document.querySelector('.org-document-host').dataset.theme === 'dark'",
         )
-        Evidence.image("reader-rich-dark", composeRule.onRoot().captureToImage())
+        composeRule.regression("reader-rich-dark")
 
         composeRule.onNodeWithContentDescription("Back").performClick()
         composeRule.runOnIdle { assertEquals(1, backed) }
@@ -526,7 +539,7 @@ class ReaderSurfaceTest {
                     "Reduce or split it, then refresh the repository.",
             )
             .assertExists()
-        Evidence.image("reader-size-limit", composeRule.onRoot().captureToImage())
+        composeRule.accessibleRegression("reader-size-limit")
 
         composeRule.runOnIdle { phase = DocumentReaderPhase.Failed }
         composeRule.onNodeWithText("This note could not be loaded.").assertExists()
