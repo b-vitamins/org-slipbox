@@ -7,6 +7,13 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Verify Android's complete Git-to-offline-reading promise with repeatable
+  32-note and 256-note corpus journeys across initial publication, incremental
+  rename/delete updates, divergent history, complete note/glossary/relation
+  paging, search, assets and interrupted work. The explicit private-GitHub
+  device smoke now crosses refresh, catalog and native reads, switches public
+  and private sources, then proves an airplane-mode process restart restores
+  the ready corpus, trail, bookmarks and recents without credentials.
 - Adapt Android reading surfaces to the space and input actually available.
   Compact windows retain one complete pane, while larger windows pair notes or
   glossary terms with their selected list without changing route or Back

@@ -348,6 +348,14 @@ rebuild reporting, simulated storage pressure, abandoned-candidate reclamation,
 leased-generation deferral, bounded retention and open-asset behavior are also
 covered.
 
+The complete reading journey builds 32-note and 256-note Git corpora with
+glossary terms, dense ID links and repository assets. It publishes the initial
+generation, applies an incremental rename/delete/content/asset update, then
+replaces the branch with divergent history. Every ready generation is checked
+through complete note, glossary and directed-relation keyset paging, title and
+body search and immutable asset reads. Cancellation before index creation and
+during source sealing proves the previous generation remains readable.
+
 The focused Kotlin tests prove that a rotated credential is the byte sequence
 given to the actual native-call seam, that its temporary byte array is then
 cleared, that a foreign credential owner is refused before vault access, that a
@@ -367,26 +375,39 @@ supported API stack, inspect the actual network/storage/battery/backoff request
 constraints and prove that stopping it reaches the active native-operation seam
 without blocking the UI thread.
 
-An explicit device journey proves the remaining network and filesystem path
-against real GitHub. It clones this project's public repository without a
-credential, materializes that exact revision in application-private storage,
-feeds a locally supplied private credential through the production renewal owner into a
-native authenticated clone, and repeats the authenticated fetch. The credential
-is staged over standard input into an application-private mode-600 file, is
-absent from instrumentation arguments and Git URLs, and is deleted before the
-network result is published. The result document contains booleans only; it
-contains no repository identity, revision, path or credential.
+An explicit two-phase device journey proves the remaining network, publication
+and cold-start path against real GitHub. The online phase clones this project's
+public repository without a credential, materializes that exact revision, then
+feeds a locally supplied private credential through the production renewal
+owner into an authenticated clone and repeated fetch of one explicitly selected
+private repository. Both sources traverse native refresh, immutable generation
+publication, catalog admission and engine reads; the journey switches between
+them and stores one private-source trail, bookmark and recent entry.
+
+The runner then force-stops the process, enables device airplane mode and starts
+a second instrumentation. That process loads the active private generation
+without a credential or network request, follows note and glossary pages,
+performs search and a relation read, and restores the saved trail and returns.
+The runner restores the device's prior airplane-mode state and clears the app's
+private data even on failure.
+
+The credential is staged over standard input into an application-private
+mode-600 file, is absent from instrumentation arguments and Git URLs, and is
+deleted before the network result is published. Both result documents contain
+booleans only; they contain no repository identity, revision, path, note text or
+credential.
 
 With an emulator or device already attached and the private token stored outside
 the repository, run from the repository root:
 
 #+begin_src bash
-android/tools/git-smoke/live-git.sh EVIDENCE_DIRECTORY \
-  "$HOME/sync/.env.local.github"
+android/tools/git-smoke/live-git.sh EVIDENCE_DIRECTORY OWNER/PRIVATE_REPOSITORY
 #+end_src
 
-The second argument defaults to that path. This manual journey uses the token as
-the result of a controlled refresh exchange so the production renewal-to-Git
-handoff is exercised. It does not replace the separate device-flow and token
-rotation qualifications in [[file:android-auth.org][android-auth.org]]. Evidence directories are local artifacts and
-must not be committed.
+The two-argument form reads the ignored repository-local
+=.env.github.local=. An explicit token file may be supplied between the evidence
+directory and repository name. The journey uses the token as the result of a
+controlled refresh exchange so the production renewal-to-Git handoff is
+exercised. It does not replace the separate device-flow and token rotation
+qualifications in [[file:android-auth.org][android-auth.org]]. Evidence directories are local artifacts and must not be
+committed.
