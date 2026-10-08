@@ -126,6 +126,12 @@ class EngineAdapterTest {
         assertEquals(listOf("alpha.org", "beta.org", "riemann.org"), filed.map(NodeRecord::filePath).distinct())
         assertTrue(filed.any { it.nodeKey == beta.nodeKey })
 
+        val random =
+            requireNotNull(
+                answered<EngineAnswer.RandomNode>(read, ReadOperation.RandomNode).result.node,
+            ) { "the indexed corpus yielded no random note" }
+        assertTrue(random.nodeKey, filed.any { it.nodeKey == random.nodeKey })
+
         assertEquals(listOf("Target heading"), titles(search(read, "target")))
         val content = ReadOperation.SearchNodeContent("Target body", 10)
         val hits = answered<EngineAnswer.SearchNodeContent>(read, content).result.hits

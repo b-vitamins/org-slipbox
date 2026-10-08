@@ -329,9 +329,12 @@ class GlossarySurfaceTest {
             }
         }
 
-        composeRule.onNodeWithText("Fixed point").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Bookmark").assertDoesNotExist()
         val first = shown()
+        assertEquals(
+            "Fixed point",
+            first.text("document.querySelector('#document-title').textContent"),
+        )
         assertTrue(first.number("document.querySelectorAll('#document .katex').length") >= 1)
         assertEquals(
             1.0,
@@ -342,7 +345,7 @@ class GlossarySurfaceTest {
             "The first definition ends here.",
             first.text("document.querySelector('#document p:last-child').textContent"),
         )
-        composeRule.onNodeWithText("Details").performClick()
+        composeRule.onNodeWithContentDescription("Term options").performClick()
         composeRule.onNodeWithText("Identity").assertIsDisplayed()
         composeRule.onNodeWithText("Study schedule").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Never reviewed").performScrollTo().assertIsDisplayed()
@@ -371,7 +374,10 @@ class GlossarySurfaceTest {
                 "document.querySelector('#document p:last-child').textContent === " +
                 "'The second definition ends here.'",
         )
-        composeRule.onNodeWithText("Uniform continuity").assertIsDisplayed()
+        assertEquals(
+            "Uniform continuity",
+            second.text("document.querySelector('#document-title').textContent"),
+        )
         assertEquals(0.0, second.number("window.scrollY"), 0.0)
         composeRule.regression("glossary-term-switch")
     }
@@ -405,7 +411,7 @@ class GlossarySurfaceTest {
         }
 
         composeRule.onNodeWithText("Study schedule").assertDoesNotExist()
-        composeRule.onNodeWithText("Details").performClick()
+        composeRule.onNodeWithContentDescription("Term options").performClick()
         composeRule.onNodeWithText("Study schedule").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("2026-10-03").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("6 days").performScrollTo().assertIsDisplayed()
