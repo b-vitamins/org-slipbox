@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 Ayan Das
+  SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <profileable android:shell="true" />
+
+        <activity
+            android:name=".benchmark.BenchmarkCorpusActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Slipbox" />
+
+        <activity
+            android:name=".benchmark.BenchmarkSlipboxActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.Slipbox" />
+
+        <receiver
+            android:name=".benchmark.BenchmarkIndexReceiver"
+            android:exported="true" />
+    </application>
+
+</manifest>

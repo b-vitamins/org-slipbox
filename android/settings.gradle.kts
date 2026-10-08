@@ -35,3 +35,4 @@ dependencyResolutionManagement {
 rootProject.name = "slipbox-android"
 
 include(":app")
+include(":benchmark")

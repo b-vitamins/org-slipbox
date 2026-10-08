@@ -2,11 +2,10 @@
 
 * Scope
 
-The standalone Gradle build in =android/= provides the native Compose shell.
-It opens an empty Library and an About screen; notes, Git sources, and credentials
-are not connected. The build packages the Rust engine, which only a private
-fixture probe exercises; see [[file:android-native.org][doc/android-native.org]] for its cross-compilation,
-ABIs and device tests. See [[file:android.org][doc/android.org]] for the reader contract.
+The standalone Gradle build in =android/= provides the native Compose reader and
+packages its Rust engine. See [[file:android-native.org][doc/android-native.org]] for cross-compilation,
+ABIs and device tests, [[file:android.org][doc/android.org]] for the reader contract, and
+[[file:android-performance.org][doc/android-performance.org]] for release performance qualification.
 Android remains unreleased; desktop and Emacs release metadata are independent.
 
 * Prerequisites
@@ -51,6 +50,9 @@ and SHA-256 in =android/gradle/wrapper/gradle-wrapper.properties=.
 | androidx.test runner  | 1.7.0         |
 | androidx.test junit   | 1.3.0         |
 | Espresso              | 3.7.0         |
+| UI Automator           | 2.4.0         |
+| Macrobenchmark         | 1.5.0         |
+| Profile Installer      | 1.4.1         |
 | compileSdk/targetSdk  | 37            |
 | minSdk                | 23            |
 | SDK Build Tools       | 36.0.0        |
@@ -91,6 +93,7 @@ Run all Gradle commands from =android/=:
 ./gradlew --no-daemon --max-workers=2 :app:assembleDebug
 ./gradlew --no-daemon --max-workers=2 :app:testDebugUnitTest
 ./gradlew --no-daemon --max-workers=2 :app:lintDebug
+./gradlew --no-daemon --max-workers=2 :benchmark:assembleBenchmark :app:assembleBenchmark
 #+end_src
 
 Lint treats warnings as errors and checks dependencies and tests. The
@@ -119,7 +122,9 @@ fail normal resolution. The generated files are:
 
 - =android/gradle/verification-metadata.xml=;
 - =android/app/gradle.lockfile=;
-- =android/buildscript-gradle.lockfile= and =android/app/buildscript-gradle.lockfile=;
+- =android/benchmark/gradle.lockfile=;
+- =android/buildscript-gradle.lockfile=, =android/app/buildscript-gradle.lockfile=
+  and =android/benchmark/buildscript-gradle.lockfile=;
 - =android/settings-gradle.lockfile= for settings resolution.
 
 See [[https://docs.gradle.org/current/userguide/dependency_locking.html][Gradle dependency locking]] and [[https://docs.gradle.org/current/userguide/dependency_verification.html][dependency verification]].
@@ -157,7 +162,9 @@ provenance, then repeat the ordinary clean build/tests without generation option
 #+begin_src bash
 ./gradlew --no-daemon --max-workers=2 \
   --write-locks --write-verification-metadata sha256 \
-  :app:dependencies :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest \
+  :app:dependencies :benchmark:dependencies \
+  :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest \
+  :benchmark:assembleBenchmark :app:assembleBenchmark \
   :app:testDebugUnitTest :app:lintDebug
 #+end_src
 

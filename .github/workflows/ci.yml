@@ -174,7 +174,8 @@ jobs:
       - name: Assemble the debug, instrumentation and release APKs
         run: >-
           android/gradlew --no-daemon --max-workers=2 --no-build-cache -p android
-          assembleDebug assembleDebugAndroidTest assembleRelease
+          :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease
+          :benchmark:assembleBenchmark :app:assembleBenchmark
 
       - name: Run unit tests
         run: >-
@@ -196,6 +197,11 @@ jobs:
         run: >-
           android/tools/verify-private-storage.sh
           android/app/build/outputs/apk/debug/app-debug.apk
+          android/app/build/outputs/apk/release/app-release-unsigned.apk
+
+      - name: Verify the packaged performance profile
+        run: >-
+          android/tools/verify-performance-profile.sh
           android/app/build/outputs/apk/release/app-release-unsigned.apk
 
       - name: Check provisioning and device gates
@@ -224,6 +230,7 @@ jobs:
             android/app/build/reports/lint-results-debug.xml
             android/app/build/reports/tests/testDebugUnitTest
             android/app/build/test-results/testDebugUnitTest
+            android/benchmark/build/reports
           if-no-files-found: warn
 
   android-device:

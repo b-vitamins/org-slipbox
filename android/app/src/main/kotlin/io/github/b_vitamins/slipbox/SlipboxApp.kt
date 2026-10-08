@@ -70,8 +70,12 @@ import io.github.b_vitamins.slipbox.ui.theme.rememberPlatformMotionScale
 
 @Composable
 fun SlipboxApp() {
+    SlipboxApp(rememberSourceLibraryState())
+}
+
+@Composable
+internal fun SlipboxApp(library: SourceLibraryState) {
     val settings = rememberReadingSettings()
-    val library = rememberSourceLibraryState()
     val motion = SlipboxMotion(rememberPlatformMotionScale(), settings.preferences.reduceMotion)
     SlipboxTheme(appearance = settings.preferences.appearance) {
         when (val phase = library.phase) {

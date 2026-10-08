@@ -7,6 +7,11 @@ The format follows Keep a Changelog, and this project follows SemVer.
 ## [Unreleased]
 
 ### Added
+- Baseline Android startup, search, linked reading, glossary navigation, rich
+  document scrolling and reading under incremental-index contention on
+  deterministic 250-, 2,500- and 10,000-node Rust-indexed fixtures. Release
+  builds now carry generated baseline/startup profiles; Pixel 9 budgets gate
+  startup, frames and memory while emulator runs remain diagnostic.
 - Gate Android's principal library, connection, search, reader, glossary,
   source and modal surfaces with reviewed light/dark, large-type, adaptive and
   state-specific screenshots plus Android's accessibility validator. Device

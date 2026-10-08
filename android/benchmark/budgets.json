@@ -1,0 +1,88 @@
+{
+  "schema": 1,
+  "reference": {
+    "model": "Pixel 9",
+    "minimumSdk": 36,
+    "buildType": "user",
+    "minimumIterations": 5,
+    "calibratedBuild": "CP2A.260805.005",
+    "calibratedSdk": 37,
+    "calibratedOn": "2026-10-08"
+  },
+  "benchmarks": {
+    "StartupBenchmark.coldSmall": {
+      "metrics": {
+        "metrics.timeToInitialDisplayMs.median": 400,
+        "metrics.timeToFullDisplayMs.median": 450,
+        "metrics.timeToInitialDisplayMs.coefficientOfVariation": 0.15
+      }
+    },
+    "StartupBenchmark.coldMedium": {
+      "metrics": {
+        "metrics.timeToInitialDisplayMs.median": 450,
+        "metrics.timeToFullDisplayMs.median": 500,
+        "metrics.timeToInitialDisplayMs.coefficientOfVariation": 0.15
+      }
+    },
+    "StartupBenchmark.coldLarge": {
+      "metrics": {
+        "metrics.timeToInitialDisplayMs.median": 450,
+        "metrics.timeToFullDisplayMs.median": 500,
+        "metrics.timeToInitialDisplayMs.coefficientOfVariation": 0.15
+      }
+    },
+    "StartupBenchmark.warmMedium": {
+      "metrics": {
+        "metrics.timeToInitialDisplayMs.median": 150,
+        "metrics.timeToFullDisplayMs.median": 175,
+        "metrics.timeToInitialDisplayMs.coefficientOfVariation": 0.25
+      }
+    },
+    "InteractionBenchmark.searchSmall": {
+      "metrics": {
+        "sampledMetrics.frameOverrunMs.P95": 60,
+        "metrics.memoryRssAnonMaxKb.maximum": 131072,
+        "metrics.memoryHeapSizeMaxKb.maximum": 28672
+      }
+    },
+    "InteractionBenchmark.searchMedium": {
+      "metrics": {
+        "sampledMetrics.frameOverrunMs.P95": 60,
+        "metrics.memoryRssAnonMaxKb.maximum": 131072,
+        "metrics.memoryHeapSizeMaxKb.maximum": 28672
+      }
+    },
+    "InteractionBenchmark.searchLarge": {
+      "metrics": {
+        "sampledMetrics.frameOverrunMs.P95": 60,
+        "metrics.memoryRssAnonMaxKb.maximum": 131072,
+        "metrics.memoryHeapSizeMaxKb.maximum": 28672
+      }
+    },
+    "InteractionBenchmark.richDocumentScroll": {
+      "metrics": {
+        "sampledMetrics.frameOverrunMs.P95": 8,
+        "metrics.memoryRssAnonMaxKb.maximum": 131072
+      }
+    },
+    "InteractionBenchmark.linkedReading": {
+      "metrics": {
+        "sampledMetrics.frameOverrunMs.P95": 16,
+        "metrics.memoryRssAnonMaxKb.maximum": 131072
+      }
+    },
+    "InteractionBenchmark.glossaryNavigation": {
+      "metrics": {
+        "sampledMetrics.frameOverrunMs.P95": 35,
+        "metrics.memoryRssAnonMaxKb.maximum": 131072
+      }
+    },
+    "InteractionBenchmark.readingDuringIncrementalIndexing": {
+      "metrics": {
+        "sampledMetrics.frameOverrunMs.P95": 16,
+        "metrics.memoryRssAnonMaxKb.maximum": 131072,
+        "metrics.memoryHeapSizeMaxKb.maximum": 28672
+      }
+    }
+  }
+}

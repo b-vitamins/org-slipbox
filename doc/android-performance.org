@@ -1,0 +1,102 @@
+#+title: org-slipbox Android Performance Qualification
+
+* Scope
+
+Android performance is qualified against the release-like =benchmark= variant,
+not the debuggable application. The target is non-debuggable, shell-profileable,
+uses the packaged release Rust libraries, and carries no benchmark activities in
+the shipping release. The separate =benchmark= test module owns Macrobenchmark
+and Baseline Profile collection.
+
+The benchmark fixture is deterministic and generated only inside the benchmark
+variant. Org files remain its source of truth. The packaged Rust maintenance
+adapter builds the SQLite index, and the ordinary Rust read adapter answers the
+application. Kotlin neither scans the fixture nor substitutes an in-memory
+search. At most one fixture is retained: selecting another size removes the
+previous fixture. Indexed node count may exceed the requested size by at most
+24 nodes, and stored fixture plus index bytes are bounded by 4 MiB plus 12 KiB
+per requested node.
+
+* Journeys
+
+The fixture sizes are 250, 2,500 and 10,000 requested nodes. They contain file
+and heading nodes, glossary terms, links, aliases, long prose, display and inline
+math, a table, highlighted code and a mutable note. The following real UI paths
+are recorded:
+
+- cold startup at every fixture size and warm startup at 2,500 nodes;
+- unified search and opening the result at every fixture size;
+- sustained scrolling through the rich document;
+- following an Org link into another note;
+- entering the glossary, scrolling its inventory and opening a definition;
+- reading and scrolling the 10,000-node fixture while a background lane rewrites
+  and incrementally indexes one file 24 times.
+
+Startup uses =StartupTimingMetric=. Interactions use frame timing and maximum
+heap/file/anonymous RSS. Each release measurement repeats five to eight times
+and preserves AndroidX's JSON and Perfetto traces. =BenchmarkSmokeTest= is a
+single-iteration functional qualification; it is not a performance result.
+
+The existing Rust benchmark gate remains authoritative for query complexity and
+engine latency. These device journeys add rendering, WebView, JNI, scheduling
+and memory evidence; they do not replace or weaken any engine threshold.
+
+* Reference And Budgets
+
+The release reference is a retail Google Pixel 9 running a =user= build at API
+36 or newer, with animations disabled, the screen awake, no thermal throttling,
+and no other interactive workload. The exact fingerprint, CPU and memory facts
+are embedded in every AndroidX JSON report. A run on another model, a
+=userdebug= image, an emulator, or a thermally throttled device is diagnostic
+only. Host-emulator results qualify journeys and profile generation but must not
+move release thresholds.
+
+=android/benchmark/budgets.json= is the executable budget record. Its initial
+calibration is a retail Pixel 9 on build =CP2A.260805.005= (API 37), using five
+to eight repetitions per journey. Cold initial display medians were 271--328
+ms, cold full-display medians 273--334 ms, and warm medians 63--71 ms. The
+corresponding gates are 400--450 ms for cold initial display, 450--500 ms for
+cold full display, and 150--175 ms for warm startup. Cold-start variation above
+15% and warm variation above 25% invalidates a comparison instead of being
+explained away as a regression.
+
+Search/open observed 41--42 ms of P95 frame overrun across all three corpus
+sizes and is capped at 60 ms. Linked reading and sustained rich scrolling stayed
+within their frame deadlines and are bounded at 16 ms and 8 ms respectively;
+glossary navigation observed 22 ms and is bounded at 35 ms. Reading during 24
+overlapping incremental publications stayed within its frame deadline and is
+bounded at 16 ms. Peak anonymous RSS was 100 MiB and peak managed heap was 22
+MiB, producing caps of 128 MiB and 28 MiB.
+
+The budgets express user-visible limits, not the fastest observed number. A
+threshold is changed only with retained before/after reports from the same
+reference environment and a stated product reason.
+
+* Commands
+
+Run from =android/= with exactly one booted device selected by =adb=:
+
+#+begin_src bash
+tools/performance.sh smoke
+tools/performance.sh profile
+tools/performance.sh measure
+tools/performance.sh check \
+  benchmark/build/outputs/connected_android_test_additional_output/benchmark/connected/*/*benchmarkData.json
+#+end_src
+
+=profile= replaces =app/src/main/baseline-prof.txt= with the stable,
+application-package-only union of startup, search, linked-reading and scroll
+rules. It replaces =startup-prof.txt= with the startup capture alone, keeping
+interaction code out of primary-DEX layout decisions.
+=verify-performance-profile.sh= bounds the human-readable profiles and verifies
+=assembleRelease= compiled
+=assets/dexopt/baseline.prof= and =baseline.profm= into the APK.
+
+For an emulator or non-reference phone, use =tools/performance.sh observe REPORT=
+to print the same metrics without treating host noise as a product regression.
+Raw JSON and Perfetto traces are run artifacts; retain them together whenever a
+budget decision is made.
+
+The setup follows Android's [[https://developer.android.com/topic/performance/benchmarking/macrobenchmark-overview][Macrobenchmark guidance]], including a
+release-like target, and its [[https://developer.android.com/topic/performance/baselineprofiles/create-baselineprofile][Baseline Profile collection guidance]]. Metric
+interpretation follows the documented [[https://developer.android.com/topic/performance/benchmarking/macrobenchmark-metrics][Macrobenchmark metrics]].
