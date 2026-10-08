@@ -11,6 +11,7 @@ import io.github.b_vitamins.slipbox.sync.RefreshSource
 import io.github.b_vitamins.slipbox.sync.RefreshVisibility
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -103,6 +104,58 @@ class SourceLibraryStateTest {
         assertEquals("next", state.catalog?.sources?.last()?.branch)
         assertEquals("generation-a", state.readyGeneration(ALPHA))
         assertNull(state.readyGeneration(BETA))
+        state.close()
+    }
+
+    @Test
+    fun aStaleCatalogLoadCannotReplaceANewerSourceSelection() {
+        val firstEntered = CountDownLatch(1)
+        val releaseFirst = CountDownLatch(1)
+        val delivered = CountDownLatch(2)
+        val calls = AtomicInteger()
+        val first = listing()
+        val second = SourceCatalogListing(5, listOf(alpha(), beta()), beta())
+        val gateway =
+            object : SourceLibraryCatalog {
+                override fun list(): SourceCatalogListingResult {
+                    if (calls.incrementAndGet() == 1) {
+                        firstEntered.countDown()
+                        assertTrue(releaseFirst.await(5, TimeUnit.SECONDS))
+                        return SourceCatalogListingResult.Loaded(first)
+                    }
+                    return SourceCatalogListingResult.Loaded(second)
+                }
+
+                override fun load(listing: SourceCatalogListing): SourceCatalogResult =
+                    SourceCatalogResult.Active(
+                        listing.revision,
+                        ready(requireNotNull(listing.activeSource)),
+                    )
+
+                override fun activate(
+                    expectedRevision: Long,
+                    source: RefreshSource,
+                ): SourceCatalogResult = throw AssertionError("selection was not requested")
+            }
+        val state =
+            SourceLibraryState(
+                gateway = gateway,
+                delivery =
+                    ImportDelivery { action ->
+                        action()
+                        delivered.countDown()
+                    },
+            )
+        assertTrue(firstEntered.await(5, TimeUnit.SECONDS))
+
+        state.reload()
+        await { (state.phase as? SourceLibraryPhase.Ready)?.source?.source?.id == BETA }
+        releaseFirst.countDown()
+        assertTrue(delivered.await(5, TimeUnit.SECONDS))
+
+        assertEquals(BETA, state.catalog?.activeSource?.id)
+        assertEquals("generation-b", state.readyGeneration(BETA))
+        assertNull(state.readyGeneration(ALPHA))
         state.close()
     }
 

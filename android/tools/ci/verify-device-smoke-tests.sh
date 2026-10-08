@@ -22,9 +22,11 @@ activity=io.github.b_vitamins.slipbox.SlipboxActivity
 test_sources="$MODULE/app/src/androidTest/kotlin/io/github/b_vitamins/slipbox/engine"
 test_package=io.github.b_vitamins.slipbox.engine
 visual_gate="$MODULE/app/src/androidTest/visual-gate.txt"
+security_gate="$MODULE/app/src/androidTest/security-gate.txt"
 engine_runner="$test_package.NativeEngineProbeTest,$test_package.EngineAdapterTest,$test_package.SourceCatalogDeviceTest,$test_package.SourceRefreshWorkerDeviceTest"
+security_runner=$(paste -sd, "$security_gate")
 visual_runner=$(paste -sd, "$visual_gate")
-expected_runner="$engine_runner,$visual_runner"
+expected_runner="$engine_runner,$security_runner,$visual_runner"
 
 checked=0
 problems=0
@@ -280,8 +282,11 @@ results_document() {
 
 declared_cases >"$work/engine-cases"
 awk -F'#' '{ class = $1; sub(/^.*\./, "", class); print class "." $2 }' \
+    "$security_gate" | sort >"$work/security-cases"
+awk -F'#' '{ class = $1; sub(/^.*\./, "", class); print class "." $2 }' \
     "$visual_gate" | sort >"$work/visual-cases"
-cat "$work/engine-cases" "$work/visual-cases" | sort >"$work/cases"
+cat "$work/engine-cases" "$work/security-cases" "$work/visual-cases" |
+    sort >"$work/cases"
 [ -s "$work/engine-cases" ] || {
     echo "FAIL $test_sources declares no instrumentation case to build a fixture from" >&2
     exit 1
@@ -372,7 +377,7 @@ check "the passing run archives the machine-readable results" 1 \
 check "the passing run archives inspectable visual evidence" 1 \
     "$(find "$out/visual-evidence" -type f | wc -l | tr -d ' ')"
 check "the passing run accounts for every declared case" 1 \
-    "$(reported "^### required $(wc -l <"$work/engine-cases" | tr -d ' ') engine case\(s\) and $(wc -l <"$work/visual-cases" | tr -d ' ') visual case\(s\); executed $(wc -l <"$work/cases" | tr -d ' '), skipped 0\$")"
+    "$(reported "^### required $(wc -l <"$work/engine-cases" | tr -d ' ') engine case\(s\), $(wc -l <"$work/security-cases" | tr -d ' ') security case\(s\) and $(wc -l <"$work/visual-cases" | tr -d ' ') visual case\(s\); executed $(wc -l <"$work/cases" | tr -d ' '), skipped 0\$")"
 check "the passing run stops the emulator it started" stopped "$(emulator_stopped)"
 check "the passing run stops the adb server it started" 1 \
     "$(reported '^### cleanup stopped the adb server it started')"

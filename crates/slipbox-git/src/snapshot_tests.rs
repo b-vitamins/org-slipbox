@@ -267,6 +267,68 @@ fn cancellation_and_budget_failures_leave_last_good_content_untouched() {
 }
 
 #[test]
+fn a_malformed_object_pack_leaves_the_last_good_snapshot_untouched() {
+    let fixture = Fixture::new();
+    fixture.write("notes/note.org", b"* Last good\n");
+    fixture.commit_all("pack fixture");
+
+    let published = fixture.root.path().join("published");
+    materialize(
+        &fixture.request(&published, "notes"),
+        &AtomicBool::new(false),
+        |_| {},
+    )
+    .expect("last good snapshot");
+    let before = fs::read(published.join("content/notes/note.org")).expect("last good note");
+
+    run_git(["--git-dir", text(&fixture.remote), "repack", "-ad"]);
+    let pack = fs::read_dir(fixture.remote.join("objects/pack"))
+        .expect("packed object directory")
+        .map(|entry| entry.expect("packed object entry").path())
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "pack")
+        })
+        .expect("fixture object pack");
+    let mut permissions = fs::metadata(&pack)
+        .expect("object pack metadata")
+        .permissions();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        permissions.set_mode(0o600);
+    }
+    #[cfg(not(unix))]
+    permissions.set_readonly(false);
+    fs::set_permissions(&pack, permissions).expect("writable malformed-pack fixture");
+    let mut bytes = fs::read(&pack).expect("object pack bytes");
+    assert!(bytes.len() > 12, "fixture pack has a complete header");
+    bytes[..4].copy_from_slice(b"FAIL");
+    fs::write(&pack, bytes).expect("malformed object pack");
+
+    let candidate = fixture.root.path().join("malformed-pack");
+    let failure = materialize(
+        &fixture.request(&candidate, "notes"),
+        &AtomicBool::new(false),
+        |_| {},
+    )
+    .expect_err("malformed object pack");
+
+    assert!(
+        matches!(
+            failure,
+            SnapshotError::RevisionUnavailable | SnapshotError::ObjectInvalid
+        ),
+        "malformed pack failed as {failure:?}"
+    );
+    assert!(!candidate.exists());
+    assert_eq!(
+        fs::read(published.join("content/notes/note.org")).expect("preserved last good note"),
+        before
+    );
+}
+
+#[test]
 fn revisions_notes_roots_destinations_and_tree_paths_are_closed() {
     let fixture = Fixture::new();
     fixture.write("notes/note.org", b"* Note\n");

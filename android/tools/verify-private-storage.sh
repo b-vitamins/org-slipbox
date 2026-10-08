@@ -70,7 +70,7 @@ RULE_ATTRIBUTES="domain path"
 
 # Application attributes that would widen what leaves the device or outlives an
 # uninstall. Absent or false is the only acceptable state.
-REFUSED_FLAGS="backupAgent fullBackupOnly restoreAnyVersion
+REFUSED_FLAGS="backupAgent fullBackupOnly restoreAnyVersion testOnly
 requestLegacyExternalStorage preserveLegacyExternalStorage hasFragileUserData"
 
 # Permissions that would move private data onto shared storage or hand it to a
@@ -461,6 +461,25 @@ inspect_apk() {
     element_attributes manifest "$tree/manifest" >"$tree/root"
     element_attributes application "$tree/manifest" >"$tree/application"
     element_attributes uses-sdk "$tree/manifest" >"$tree/uses-sdk"
+
+    package=$(value_of "$tree/root" package)
+    debuggable=$(value_of "$tree/application" debuggable)
+    case $package in
+    io.github.b_vitamins.slipbox)
+        case ${debuggable:-absent} in
+        absent | false) ;;
+        *) fail "$apk makes the release application debuggable" ;;
+        esac
+        ;;
+    io.github.b_vitamins.slipbox.debug)
+        [ "$debuggable" = true ] ||
+            fail "$apk does not mark the debug application debuggable"
+        ;;
+    *) fail "$apk declares unexpected application identity ${package:-absent}" ;;
+    esac
+    cleartext=$(value_of "$tree/application" usesCleartextTraffic)
+    [ "$cleartext" = false ] ||
+        fail "$apk declares android:usesCleartextTraffic=${cleartext:-absent}, not false"
 
     backup=$(value_of "$tree/application" allowBackup)
     [ "$backup" = false ] || fail "$apk declares android:allowBackup=${backup:-absent}, not false"

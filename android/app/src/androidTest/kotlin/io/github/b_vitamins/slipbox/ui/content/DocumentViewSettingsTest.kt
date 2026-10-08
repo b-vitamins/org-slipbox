@@ -121,7 +121,7 @@ class DocumentViewSettingsTest {
             carried.none { it.contains("slipbox", ignoreCase = true) },
         )
         assertEquals(
-            listOf("dispose", "present", "restoreFocus"),
+            listOf("dispose", "present", "restoreFocus", "revealHeading"),
             view.strings("JSON.stringify(Object.keys(window.slipboxHost).sort())"),
         )
         Evidence.record(

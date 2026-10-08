@@ -100,6 +100,41 @@ class SourceRefreshCoordinatorTest {
     }
 
     @Test
+    fun everyCredentialOwnershipMismatchIsRefusedBeforeVaultOrNativeAccess() {
+        val storage = TestRenewalStorage(temporary.newFolder("ownership"))
+        try {
+            storage.beforeRead = { throw AssertionError("a mismatched vault was opened") }
+            val owner = owner(storage, RecordedTransport(), MovingClock())
+            val original = privateSource()
+            val mismatches =
+                listOf(
+                    original.copy(id = "fedcba9876543210fedcba9876543210"),
+                    original.copy(provider = RefreshProvider.GENERIC_HTTPS),
+                    original.copy(visibility = RefreshVisibility.PUBLIC),
+                    original.copy(account = "U_kgDOElsewhere"),
+                    original.copy(credential = "slipbox.source.other-vault-handle"),
+                )
+
+            for (source in mismatches) {
+                val seam = RecordingRefreshSeam(ready())
+                assertEquals(
+                    source.toString(),
+                    SourceRefreshOutcome.Refused(
+                        RefreshFailure(
+                            RefreshFailureReason.AUTHORIZATION_FAILED,
+                            RefreshRetry.Never,
+                        ),
+                    ),
+                    coordinator(seam).refresh(refresh(source), owner),
+                )
+                assertNull(seam.refreshRequest)
+            }
+        } finally {
+            storage.closeAll()
+        }
+    }
+
+    @Test
     fun foregroundAndTlsFailuresDoNotReachCredentialsOrNativeCode() {
         val foreground = RecordingRefreshSeam(ready())
         assertEquals(

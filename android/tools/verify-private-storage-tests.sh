@@ -24,7 +24,7 @@ VERIFY_PRIVATE_STORAGE_LIB=1
 RULES_SOURCE="$MODULE/app/src/main/res/xml"
 
 # The attributes a control manifest carries when nothing is mutated.
-INTACT_FLAGS='android:allowBackup="false"'
+INTACT_FLAGS='android:allowBackup="false" android:usesCleartextTraffic="false"'
 INTACT_LEGACY='android:fullBackupContent="@xml/backup_rules"'
 INTACT_MODERN='android:dataExtractionRules="@xml/data_extraction_rules"'
 
@@ -80,7 +80,7 @@ write_manifest() {
     cat >"$file" <<EOF
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="io.github.b_vitamins.slipbox.control">
+    package="io.github.b_vitamins.slipbox">
     <uses-sdk android:minSdkVersion="$min_api" android:targetSdkVersion="$target_api" />
     <application$attributes />
 </manifest>
@@ -391,9 +391,19 @@ verify "a missing input fails rather than skipping" 1 "$work/absent.apk"
 reported "the missing input is named" "does not exist"
 
 backup_on=$(control_apk backup-on \
-    "android:allowBackup=\"true\" $INTACT_LEGACY $INTACT_MODERN" "")
+    "android:allowBackup=\"true\" android:usesCleartextTraffic=\"false\" $INTACT_LEGACY $INTACT_MODERN" "")
 verify "a control that allows backup is rejected" 1 "$backup_on"
 reported "the permissive flag is named" 'android:allowBackup=true, not false'
+
+cleartext_on=$(control_apk cleartext-on \
+    "android:allowBackup=\"false\" android:usesCleartextTraffic=\"true\" $INTACT_LEGACY $INTACT_MODERN" "")
+verify "a control that allows cleartext traffic is rejected" 1 "$cleartext_on"
+reported "the cleartext flag is named" 'android:usesCleartextTraffic=true, not false'
+
+debuggable_release=$(control_apk debuggable-release \
+    "$INTACT_FLAGS android:debuggable=\"true\" $INTACT_LEGACY $INTACT_MODERN" "")
+verify "a debuggable release identity is rejected" 1 "$debuggable_release"
+reported "the debuggable release is named" 'makes the release application debuggable'
 
 wrong_reference=$(control_apk wrong-reference \
     "$INTACT_FLAGS android:fullBackupContent=\"@xml/data_extraction_rules\" $INTACT_MODERN" "")

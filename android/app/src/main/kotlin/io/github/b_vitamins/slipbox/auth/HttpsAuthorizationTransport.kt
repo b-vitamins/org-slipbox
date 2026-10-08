@@ -17,8 +17,8 @@ internal class HttpsAuthorizationTransport(
 ) : AuthorizationTransport {
 
     override fun exchange(request: AuthorizationRequest): AuthorizationReply {
-        if (!request.url.startsWith(HTTPS)) {
-            return AuthorizationReply.Failed(INSECURE_ADDRESS)
+        if (!AuthorizationRequestPolicy.accepts(request)) {
+            return AuthorizationReply.Failed(REFUSED_REQUEST)
         }
         var connection: HttpsURLConnection? = null
         return try {
@@ -79,9 +79,6 @@ internal class HttpsAuthorizationTransport(
 
     private companion object {
 
-        const val HTTPS = "https://"
-
-
         const val ACCEPT = "application/json, application/vnd.github+json"
 
         const val API_VERSION = "2022-11-28"
@@ -97,7 +94,7 @@ internal class HttpsAuthorizationTransport(
 
         const val MAX_BODY_BYTES = 32 * 1024
 
-        const val INSECURE_ADDRESS = "insecure address"
+        const val REFUSED_REQUEST = "request refused"
 
         const val AGENT = "Slipbox-Android"
     }

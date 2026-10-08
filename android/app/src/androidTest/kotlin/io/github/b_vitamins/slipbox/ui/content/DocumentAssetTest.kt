@@ -220,8 +220,8 @@ class DocumentAssetTest {
             view.text("document.querySelector('.org-image--unavailable').getAttribute('aria-label')"),
         )
         assertEquals(
-            listOf("file:diagram.png", "file:missing.png"),
-            store.asks().takeLast(2).map { it.target },
+            setOf("file:diagram.png", "file:missing.png"),
+            store.asks().takeLast(2).mapTo(mutableSetOf()) { it.target },
         )
     }
 

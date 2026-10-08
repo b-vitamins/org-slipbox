@@ -18,6 +18,7 @@ CI_INPUTS_LIB=1
 . "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/inputs.sh"
 
 REQUIRED_SUITES="NativeEngineProbeTest EngineAdapterTest SourceCatalogDeviceTest SourceRefreshWorkerDeviceTest"
+SECURITY_GATE="$MODULE/app/src/androidTest/security-gate.txt"
 VISUAL_GATE="$MODULE/app/src/androidTest/visual-gate.txt"
 VISUAL_MIN_API=34
 
@@ -144,21 +145,27 @@ for suite in $REQUIRED_SUITES; do
 done
 test_package=$(echo "${test_sources#"$TEST_SOURCE_ROOT/"}" | tr '/' '.')
 
-[ -f "$VISUAL_GATE" ] || abort "$VISUAL_GATE does not exist"
-awk '
-    NF == 0 { exit 4 }
-    !/^[A-Za-z_][A-Za-z0-9_.]*#[A-Za-z_][A-Za-z0-9_]*$/ { exit 2 }
-    seen[$0]++ { exit 3 }
-    { count++ }
-    END { if (count == 0) exit 5 }
-' "$VISUAL_GATE" >/dev/null 2>&1 ||
-    abort "$VISUAL_GATE contains an invalid or duplicate case"
-while IFS='#' read -r class method; do
-    source="$TEST_SOURCE_ROOT/$(echo "$class" | tr . /).kt"
-    [ -f "$source" ] || abort "$VISUAL_GATE names missing class $class"
-    grep -Eq "^[[:space:]]*fun[[:space:]]+$method[[:space:]]*\\(" "$source" ||
-        abort "$VISUAL_GATE names missing method $class#$method"
-done <"$VISUAL_GATE"
+validate_gate() {
+    gate=$1
+    [ -f "$gate" ] || abort "$gate does not exist"
+    awk '
+        NF == 0 { exit 4 }
+        !/^[A-Za-z_][A-Za-z0-9_.]*#[A-Za-z_][A-Za-z0-9_]*$/ { exit 2 }
+        seen[$0]++ { exit 3 }
+        { count++ }
+        END { if (count == 0) exit 5 }
+    ' "$gate" >/dev/null 2>&1 ||
+        abort "$gate contains an invalid or duplicate case"
+    while IFS='#' read -r class method; do
+        source="$TEST_SOURCE_ROOT/$(echo "$class" | tr . /).kt"
+        [ -f "$source" ] || abort "$gate names missing class $class"
+        grep -Eq "^[[:space:]]*fun[[:space:]]+$method[[:space:]]*\\(" "$source" ||
+            abort "$gate names missing method $class#$method"
+    done <"$gate"
+}
+
+validate_gate "$SECURITY_GATE"
+validate_gate "$VISUAL_GATE"
 
 engine_classes=""
 for suite in $REQUIRED_SUITES; do
@@ -167,8 +174,9 @@ for suite in $REQUIRED_SUITES; do
     *) engine_classes="$engine_classes,$test_package.$suite" ;;
     esac
 done
+security_cases=$(paste -sd, "$SECURITY_GATE")
 visual_cases=$(paste -sd, "$VISUAL_GATE")
-runner_cases="$engine_classes,$visual_cases"
+runner_cases="$engine_classes,$security_cases,$visual_cases"
 
 [ -f "$apk" ] || abort "$apk does not exist; assemble the debug APK before this gate"
 for tool in "$ADB" "$EMULATOR" "$AVDMANAGER" "$AAPT2" "$GRADLEW"; do
@@ -599,7 +607,7 @@ ask "pidof $package || true" || fail "$SERIAL did not answer which process $pack
 [ -n "$value" ] || fail "$package left no process running after its launch"
 echo "### $package runs as pid $value"
 
-echo "### gradlew :app:connectedDebugAndroidTest for engine and reviewed visual cases"
+echo "### gradlew :app:connectedDebugAndroidTest for engine, security and reviewed visual cases"
 tests=0
 runner_arguments=("-Pandroid.testInstrumentationRunnerArguments.class=$runner_cases")
 if [ "$record_baselines" -eq 1 ]; then
@@ -645,8 +653,11 @@ find "$test_sources" -name '*.kt' -exec awk '
 ' {} + | sort >"$WORK/declared"
 [ -s "$WORK/declared" ] || fail "the instrumentation sources declare no test case"
 awk -F'#' '{ class = $1; sub(/^.*\./, "", class); print class "." $2 }' \
+    "$SECURITY_GATE" | sort >"$WORK/security-declared"
+awk -F'#' '{ class = $1; sub(/^.*\./, "", class); print class "." $2 }' \
     "$VISUAL_GATE" | sort >"$WORK/visual-declared"
-cat "$WORK/declared" "$WORK/visual-declared" | sort -u >"$WORK/required"
+cat "$WORK/declared" "$WORK/security-declared" "$WORK/visual-declared" |
+    sort -u >"$WORK/required"
 
 : >"$WORK/results"
 find "$out/androidTest-results" -name '*.xml' -exec cat {} + >"$WORK/results" 2>/dev/null || true
@@ -662,7 +673,8 @@ awk '
     }
 ' "$WORK/results" | sort >"$WORK/executed"
 skipped=$(grep -c '<skipped' "$WORK/results" || true)
-echo "### required $(wc -l <"$WORK/declared" | tr -d ' ') engine case(s) and" \
+echo "### required $(wc -l <"$WORK/declared" | tr -d ' ') engine case(s)," \
+    "$(wc -l <"$WORK/security-declared" | tr -d ' ') security case(s) and" \
     "$(wc -l <"$WORK/visual-declared" | tr -d ' ') visual case(s);" \
     "executed $(wc -l <"$WORK/executed" | tr -d ' '), skipped $skipped"
 absent=$(comm -23 "$WORK/required" "$WORK/executed")
@@ -684,4 +696,4 @@ fi
 echo "  none"
 
 [ "$tests" -eq 0 ] || fail "the connected tests exited $tests"
-echo "PASS $package launched and every engine and reviewed visual case ran on $abi"
+echo "PASS $package launched and every engine, security and reviewed visual case ran on $abi"

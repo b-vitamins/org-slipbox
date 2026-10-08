@@ -254,6 +254,14 @@ The format follows Keep a Changelog, and this project follows SemVer.
   `desktop-decryptors`.
 
 ### Fixed
+- Close Android's credential and release boundaries under adversarial input.
+  Authorization traffic is limited to the exact GitHub endpoints and credential
+  channels the device flow requires, redirects stay disabled, and cleartext is
+  disabled in both APK variants. The hosted device gate now exercises private
+  storage, Keystore rotation, authorization lifecycle, browser handoff and
+  contained document/assets alongside malformed Git packs, stale source loads
+  and credential-ownership mismatches; APK inspection refuses a debuggable
+  release identity.
 - Make Android GitHub authorization a reliable one-action browser handoff: the
   verification code is copied before GitHub opens, copy failure remains
   explicit, polling waits while the browser owns the foreground, and bounded

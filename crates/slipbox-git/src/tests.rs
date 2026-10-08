@@ -3,8 +3,8 @@ use std::io::{Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -174,6 +174,46 @@ fn cancellation_and_failures_publish_no_sensitive_diagnostics() {
 }
 
 #[test]
+fn a_credential_never_follows_a_redirect_or_enters_the_failure() {
+    let fixture = Fixture::new(1);
+    let destination = fixture.root.path().join("redirected.git");
+    let request = request(&destination);
+    let secret = "github_pat_synthetic_redirect_secret";
+
+    let failure = synchronize_url(
+        &request,
+        &fixture.server.url("redirect.git"),
+        true,
+        Some(AccessToken::new(secret.as_bytes().to_vec()).expect("synthetic token")),
+        &AtomicBool::new(false),
+        |_| {},
+    )
+    .expect_err("redirecting smart HTTP transport");
+
+    assert_eq!(failure, GitError::TransportFailed);
+    assert!(!destination.exists());
+    let seen = fixture.server.seen();
+    assert!(
+        seen.iter()
+            .any(|request| request.path.starts_with("/redirect.git/")),
+        "the redirecting endpoint was not exercised: {seen:?}"
+    );
+    assert!(
+        seen.iter().all(|request| !request.authorized),
+        "a credential reached the redirecting transport: {seen:?}"
+    );
+    assert!(
+        seen.iter()
+            .all(|request| !request.path.starts_with("/credential-capture.git/")),
+        "the redirect destination was reached: {seen:?}"
+    );
+    let diagnostic = format!("{failure:?} {failure}");
+    assert!(!diagnostic.contains(secret));
+    assert!(!diagnostic.contains("redirect.git"));
+    assert!(!diagnostic.contains("credential-capture.git"));
+}
+
+#[test]
 fn an_in_flight_smart_http_clone_can_be_cancelled() {
     let fixture = Fixture::new(32);
     fixture.server.hold_upload();
@@ -263,6 +303,7 @@ struct SmartHttp {
     address: SocketAddr,
     stop: Arc<AtomicBool>,
     requests: Arc<AtomicUsize>,
+    seen: Arc<Mutex<Vec<SeenRequest>>>,
     hold_upload: Arc<AtomicBool>,
     upload_ready: Arc<AtomicBool>,
     worker: Option<thread::JoinHandle<()>>,
@@ -274,10 +315,12 @@ impl SmartHttp {
         let address = listener.local_addr().expect("fixture address");
         let stop = Arc::new(AtomicBool::new(false));
         let requests = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::new(Mutex::new(Vec::new()));
         let hold_upload = Arc::new(AtomicBool::new(false));
         let upload_ready = Arc::new(AtomicBool::new(false));
         let worker_stop = Arc::clone(&stop);
         let worker_requests = Arc::clone(&requests);
+        let worker_seen = Arc::clone(&seen);
         let worker_hold = Arc::clone(&hold_upload);
         let worker_ready = Arc::clone(&upload_ready);
         let worker = thread::spawn(move || {
@@ -295,6 +338,7 @@ impl SmartHttp {
                     address.port(),
                     &worker_hold,
                     &worker_ready,
+                    &worker_seen,
                 );
             }
         });
@@ -302,6 +346,7 @@ impl SmartHttp {
             address,
             stop,
             requests,
+            seen,
             hold_upload,
             upload_ready,
             worker: Some(worker),
@@ -314,6 +359,10 @@ impl SmartHttp {
 
     fn requests(&self) -> usize {
         self.requests.load(Ordering::Relaxed)
+    }
+
+    fn seen(&self) -> Vec<SeenRequest> {
+        self.seen.lock().expect("seen-request lock").clone()
     }
 
     fn hold_upload(&self) {
@@ -354,6 +403,7 @@ fn serve(
     port: u16,
     hold_upload: &AtomicBool,
     upload_ready: &AtomicBool,
+    seen: &Mutex<Vec<SeenRequest>>,
 ) {
     stream
         .set_read_timeout(Some(Duration::from_secs(10)))
@@ -361,6 +411,18 @@ fn serve(
     let Some(request) = read_request(&mut stream) else {
         return;
     };
+    seen.lock().expect("seen-request lock").push(SeenRequest {
+        path: request.path.clone(),
+        authorized: request.authorized,
+    });
+    if request.path.starts_with("/redirect.git/") {
+        write!(
+            stream,
+            "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{port}/credential-capture.git/info/refs?service=git-upload-pack\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        )
+        .expect("write redirect fixture");
+        return;
+    }
     let mut command = Command::new(git_program());
     command
         .arg("http-backend")
@@ -426,7 +488,14 @@ struct HttpRequest {
     query: String,
     content_type: Option<String>,
     git_protocol: Option<String>,
+    authorized: bool,
     body: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+struct SeenRequest {
+    path: String,
+    authorized: bool,
 }
 
 fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
@@ -445,7 +514,7 @@ fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
             break end + 4;
         }
     };
-    let (method, path, query, length, content_type, git_protocol) = {
+    let (method, path, query, length, content_type, git_protocol, authorized) = {
         let headers = std::str::from_utf8(&bytes[..header_end - 4]).ok()?;
         let mut lines = headers.lines();
         let mut first = lines.next()?.split_whitespace();
@@ -457,6 +526,7 @@ fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
         let mut length = 0usize;
         let mut content_type = None;
         let mut git_protocol = None;
+        let mut authorized = false;
         for line in lines {
             let Some((name, value)) = line.split_once(':') else {
                 continue;
@@ -468,6 +538,8 @@ fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
                 content_type = Some(value.to_owned());
             } else if name.eq_ignore_ascii_case("git-protocol") {
                 git_protocol = Some(value.to_owned());
+            } else if name.eq_ignore_ascii_case("authorization") {
+                authorized = true;
             }
         }
         (
@@ -477,6 +549,7 @@ fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
             length,
             content_type,
             git_protocol,
+            authorized,
         )
     };
     while bytes.len() < header_end + length {
@@ -492,6 +565,7 @@ fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
         query,
         content_type,
         git_protocol,
+        authorized,
         body: bytes[header_end..header_end + length].to_vec(),
     })
 }

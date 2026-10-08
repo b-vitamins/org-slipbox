@@ -20,14 +20,16 @@ Gradle modules, wrapper distributions and Cargo inputs, not build outputs.
 =android-device= installs and launches the debug APK on one accelerated x86_64
 emulator. It runs =NativeEngineProbeTest=, =EngineAdapterTest=,
 =SourceCatalogDeviceTest= and =SourceRefreshWorkerDeviceTest= plus the exact
-instrumentation cases declared in =app/src/androidTest/visual-gate.txt=. The
-visual set covers principal native surfaces, contextual sheets and complete
-documents across light/dark schemes, large type, compact/expanded windows and
-loading, empty and failure states. Native surfaces run Android's accessibility
-validator; focused semantic and document-structure assertions cover modal
-ownership, headings, links, labels and complete touch targets. The gate requires
-every declared case to execute without skips and checks logcat for crashes and
-hangs.
+instrumentation cases declared in =app/src/androidTest/security-gate.txt= and
+=app/src/androidTest/visual-gate.txt=. The security set covers packaged backup
+policy, private storage and Keystore isolation, authorization lifetime and
+browser handoff, plus contained documents, assets and external links. The visual
+set covers principal native surfaces, contextual sheets and complete documents
+across light/dark schemes, large type, compact/expanded windows and loading,
+empty and failure states. Native surfaces run Android's accessibility validator;
+focused semantic and document-structure assertions cover modal ownership,
+headings, links, labels and complete touch targets. The gate requires every
+declared case to execute without skips and checks logcat for crashes and hangs.
 Diagnostics include the APK digest, device ABI, page size, API level, launch
 output, pre-install =/data= capacity and instrumentation results. The script
 bounds waits and copies the gate's PNG, semantic and measurement evidence beside

@@ -12,8 +12,36 @@ internal class AuthorizationRequest(
 ) {
 
     override fun toString(): String =
-        "AuthorizationRequest($url, ${if (form == null) "read" else "form ${form.keys.sorted()}"}," +
+        "AuthorizationRequest(${AuthorizationRequestPolicy.label(url)}," +
+            " ${if (form == null) "read" else "form ${form.keys.sorted()}"}," +
             " ${if (bearer == null) "unauthorized" else "bearer redacted"})"
+}
+
+/** The only destinations and credential channels the device flow requires. */
+internal object AuthorizationRequestPolicy {
+
+    private val FORM_ENDPOINTS =
+        setOf(
+            "https://github.com/login/device/code",
+            "https://github.com/login/oauth/access_token",
+        )
+
+    private val BEARER_ENDPOINTS =
+        setOf(
+            "https://api.github.com/user",
+            "https://api.github.com/user/installations",
+        )
+
+    fun accepts(request: AuthorizationRequest): Boolean =
+        when {
+            request.url in FORM_ENDPOINTS -> request.form != null && request.bearer == null
+            request.url in BEARER_ENDPOINTS ->
+                request.form == null && !request.bearer.isNullOrEmpty()
+            else -> false
+        }
+
+    fun label(url: String): String = url.takeIf { it in FORM_ENDPOINTS || it in BEARER_ENDPOINTS }
+        ?: "refused address"
 }
 
 internal sealed interface AuthorizationReply {
