@@ -261,13 +261,14 @@
     <string name="menu_title">Settings</string>
 
     <string name="connection_title">Connect repository</string>
-    <string name="connection_public">Public HTTPS</string>
+    <string name="connection_public">Public URL</string>
     <string name="connection_github">GitHub</string>
     <string name="connection_url">Repository URL</string>
     <string name="connection_branch">Branch</string>
     <string name="connection_folder">Notes folder (optional)</string>
     <string name="connection_invalid_public">Enter a public HTTPS Git repository.</string>
-    <string name="connection_authorize">Authorize GitHub</string>
+    <string name="connection_authorize">Continue with GitHub</string>
+    <string name="connection_github_intro">Read-only access. You choose the repositories.</string>
     <string name="connection_installations">Choose an account or organization</string>
     <string name="connection_repositories">Choose a repository</string>
     <string name="connection_branches">Choose a branch</string>
