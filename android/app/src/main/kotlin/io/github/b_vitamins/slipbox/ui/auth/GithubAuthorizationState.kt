@@ -98,6 +98,7 @@ internal class GithubAuthorizationState(
 
     override fun onVerificationWaiting(grant: DeviceGrant) {
         phase = AuthorizationPhase.Verifying(grant)
+        openVerification()
     }
 
     override fun onSettled(outcome: AuthorizationOutcome) {

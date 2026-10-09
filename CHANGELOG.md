@@ -263,9 +263,10 @@ The format follows Keep a Changelog, and this project follows SemVer.
   and credential-ownership mismatches; APK inspection refuses a debuggable
   release identity.
 - Make Android GitHub authorization a reliable one-action browser handoff: the
-  verification code is copied before GitHub opens, copy failure remains
-  explicit, polling waits while the browser owns the foreground, and bounded
-  transport retries preserve an approved device grant across transient polling,
+  verification code is copied before GitHub opens automatically in a closable
+  Custom Tab, copy failure remains explicit, and its integrated close control
+  returns directly to Slipbox. Polling resumes with the same grant on return;
+  bounded transport retries preserve an approval across transient polling,
   account and installation failures.
 - Keep icon controls' complete touch targets in the accessibility tree, give
   contextual scrims an explicit dismiss action, and hide the document host

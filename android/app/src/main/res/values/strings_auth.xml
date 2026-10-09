@@ -5,9 +5,9 @@
 -->
 <resources>
     <string name="auth_requesting">Contacting GitHub.</string>
-    <string name="auth_code_name">Verification code</string>
-    <string name="auth_verification_instruction">Open %1$s, then paste the copied code to authorize Slipbox.</string>
-    <string name="auth_action_open">Open GitHub</string>
+    <string name="auth_code_name">Copied code</string>
+    <string name="auth_verification_instruction">Paste this code on GitHub. When GitHub confirms, close the tab to return to Slipbox.</string>
+    <string name="auth_action_open">Open GitHub again</string>
     <string name="auth_action_cancel">Cancel</string>
     <string name="auth_action_retry">Try again</string>
     <string name="auth_action_install">Install on GitHub</string>

@@ -78,6 +78,7 @@ private sealed interface GithubStep {
         val installation: GithubInstallation,
         val repository: GithubRepository,
         val values: List<GithubBranch>,
+        val selected: GithubBranch?,
     ) : GithubStep
     data object Confirming : GithubStep
     data object Failed : GithubStep
@@ -109,7 +110,7 @@ internal fun ConnectionScreen(
     val scheduler = remember(context) { SourceRefreshScheduler.packaged(context.applicationContext) }
     DisposableEffect(importer) { onDispose(importer::close) }
 
-    var kind by remember { mutableStateOf(ConnectionKind.Public) }
+    var kind by remember { mutableStateOf(ConnectionKind.Github) }
     var url by remember { mutableStateOf("") }
     var branch by remember { mutableStateOf("main") }
     var folder by remember { mutableStateOf("") }
@@ -240,6 +241,7 @@ private fun GithubConnection(
 
     if (authorization == null) {
         if (authorizationState.phase is AuthorizationPhase.Idle) {
+            NoticeText(stringResource(R.string.connection_github_intro))
             TextControl(
                 label = stringResource(R.string.connection_authorize),
                 onClick = authorizationState::begin,
@@ -261,10 +263,79 @@ private fun GithubConnection(
     DisposableEffect(browsing) { onDispose(browsing::close) }
     var step by remember(authorization) { mutableStateOf<GithubStep>(GithubStep.Loading) }
 
+    fun confirm(
+        installation: GithubInstallation,
+        repository: GithubRepository,
+        selectedBranch: GithubBranch,
+    ) {
+        step = GithubStep.Confirming
+        val request =
+            GithubSelectionRequest(
+                accountId = authorization.account.id,
+                installationId = installation.id,
+                repositoryId = repository.id,
+                branch = selectedBranch.name,
+                folder = folder,
+            )
+        browsing.browse({ it.confirm(request) }) { outcome ->
+            val confirmed = (outcome as? GithubOutcome.Read)?.value
+            if (confirmed == null) {
+                step = GithubStep.Failed
+            } else {
+                secureAndImport(
+                    context = context.applicationContext,
+                    authorization = authorization,
+                    repository = repository,
+                    selection = confirmed,
+                    onSecuring = onSecuring,
+                    onFailure = {
+                        onCredentialFailure()
+                        step = GithubStep.Failed
+                    },
+                    onSource = onSource,
+                )
+            }
+        }
+    }
+
+    fun branches(installation: GithubInstallation, repository: GithubRepository) {
+        step = GithubStep.Loading
+        browsing.browse({ it.branches(repository) }) { outcome ->
+            step =
+                outcome.listing()?.let { listing ->
+                    val selected =
+                        listing.entries.firstOrNull { it.name == repository.defaultBranch }
+                            ?: listing.entries.singleOrNull()
+                    GithubStep.Branches(installation, repository, listing.entries, selected)
+                } ?: GithubStep.Failed
+        }
+    }
+
+    fun repositories(installation: GithubInstallation) {
+        step = GithubStep.Loading
+        browsing.browse({ it.repositories(installation) }) { outcome ->
+            val listing = outcome.listing()
+            step =
+                when {
+                    listing == null -> GithubStep.Failed
+                    listing.entries.size == 1 -> GithubStep.Loading
+                    else -> GithubStep.Repositories(installation, listing.entries)
+                }
+            listing?.entries?.singleOrNull()?.let { branches(installation, it) }
+        }
+    }
+
     fun installations() {
         step = GithubStep.Loading
         browsing.browse({ it.installations() }) { outcome ->
-            step = outcome.listing()?.let { GithubStep.Installations(it.entries) } ?: GithubStep.Failed
+            val listing = outcome.listing()
+            step =
+                when {
+                    listing == null -> GithubStep.Failed
+                    listing.entries.size == 1 -> GithubStep.Loading
+                    else -> GithubStep.Installations(listing.entries)
+                }
+            listing?.entries?.singleOrNull()?.let(::repositories)
         }
     }
 
@@ -278,15 +349,7 @@ private fun GithubConnection(
                 ChoiceRow(
                     label = installation.accountLogin,
                     selected = false,
-                    onSelect = {
-                        step = GithubStep.Loading
-                        browsing.browse({ it.repositories(installation) }) { outcome ->
-                            step =
-                                outcome.listing()?.let {
-                                    GithubStep.Repositories(installation, it.entries)
-                                } ?: GithubStep.Failed
-                        }
-                    },
+                    onSelect = { repositories(installation) },
                 )
             }
         }
@@ -294,17 +357,9 @@ private fun GithubConnection(
             SectionLabel(stringResource(R.string.connection_repositories))
             current.values.forEach { repository ->
                 ChoiceRow(
-                    label = "${repository.owner}/${repository.name}",
+                    label = repository.name,
                     selected = false,
-                    onSelect = {
-                        step = GithubStep.Loading
-                        browsing.browse({ it.branches(repository) }) { outcome ->
-                            step =
-                                outcome.listing()?.let {
-                                    GithubStep.Branches(current.installation, repository, it.entries)
-                                } ?: GithubStep.Failed
-                        }
-                    },
+                    onSelect = { branches(current.installation, repository) },
                 )
             }
         }
@@ -320,37 +375,14 @@ private fun GithubConnection(
             current.values.forEach { selectedBranch ->
                 ChoiceRow(
                     label = selectedBranch.name,
-                    selected = false,
-                    onSelect = {
-                        step = GithubStep.Confirming
-                        val request =
-                            GithubSelectionRequest(
-                                accountId = authorization.account.id,
-                                installationId = current.installation.id,
-                                repositoryId = current.repository.id,
-                                branch = selectedBranch.name,
-                                folder = folder,
-                            )
-                        browsing.browse({ it.confirm(request) }) { outcome ->
-                            val confirmed = (outcome as? GithubOutcome.Read)?.value
-                            if (confirmed == null) {
-                                step = GithubStep.Failed
-                            } else {
-                                secureAndImport(
-                                    context = context.applicationContext,
-                                    authorization = authorization,
-                                    repository = current.repository,
-                                    selection = confirmed,
-                                    onSecuring = onSecuring,
-                                    onFailure = {
-                                        onCredentialFailure()
-                                        step = GithubStep.Failed
-                                    },
-                                    onSource = onSource,
-                                )
-                            }
-                        }
-                    },
+                    selected = current.selected == selectedBranch,
+                    onSelect = { step = current.copy(selected = selectedBranch) },
+                )
+            }
+            current.selected?.let { selected ->
+                TextControl(
+                    label = stringResource(R.string.action_connect),
+                    onClick = { confirm(current.installation, current.repository, selected) },
                 )
             }
         }
@@ -585,7 +617,11 @@ private fun <T> GithubOutcome<GithubListing<T>>.listing(): GithubListing<T>? =
 
 @Composable
 private fun SectionLabel(text: String) {
-    Text(text = text, style = MaterialTheme.typography.titleMedium)
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.onBackground,
+    )
 }
 
 @Composable

@@ -7,6 +7,7 @@ package io.github.b_vitamins.slipbox.auth
 
 import android.content.Context
 import android.content.Intent
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.net.toUri
 
 fun interface BrowserHandoff {
@@ -15,7 +16,7 @@ fun interface BrowserHandoff {
     fun open(url: String): Boolean
 }
 
-/** Opens HTTPS verification pages in the system browser. */
+/** Opens HTTPS verification pages in a browser-owned tab over the application. */
 class SystemBrowserHandoff(context: Context) : BrowserHandoff {
 
     private val context = context.applicationContext
@@ -39,7 +40,12 @@ class SystemBrowserHandoff(context: Context) : BrowserHandoff {
         if (!address.isAbsolute || address.host.isNullOrEmpty()) {
             return null
         }
-        return Intent(Intent.ACTION_VIEW, address)
+        return CustomTabsIntent.Builder()
+            .setShowTitle(true)
+            .setCloseButtonEnabled(true)
+            .build()
+            .intent
+            .setData(address)
             .addCategory(Intent.CATEGORY_BROWSABLE)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }

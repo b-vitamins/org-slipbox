@@ -61,8 +61,7 @@ class AuthorizationSurfaceTest {
 
     private val requesting = context.getString(R.string.auth_requesting)
     private val codeName = context.getString(R.string.auth_code_name)
-    private val instruction =
-        context.getString(R.string.auth_verification_instruction, VERIFICATION_PAGE)
+    private val instruction = context.getString(R.string.auth_verification_instruction)
     private val open = context.getString(R.string.auth_action_open)
     private val cancel = context.getString(R.string.auth_action_cancel)
     private val retry = context.getString(R.string.auth_action_retry)
@@ -133,11 +132,9 @@ class AuthorizationSurfaceTest {
 
     @Test
     fun aBrowserThatTookNothingIsSaidOnTheSurfaceWithTheCodeStillThere() {
-        val state = stateOf()
+        val state = stateOf(browser = BrowserHandoff { false })
         show(state)
         verifying(state)
-
-        composeRule.runOnIdle { state.openVerification() }
         composeRule.waitForIdle()
 
         composeRule.onNodeWithText(unavailableBrowser).assertIsDisplayed()
@@ -236,7 +233,10 @@ class AuthorizationSurfaceTest {
     }
 
 
-    private fun stateOf(installationUrl: String? = INSTALLATION_PAGE): GithubAuthorizationState {
+    private fun stateOf(
+        installationUrl: String? = INSTALLATION_PAGE,
+        browser: BrowserHandoff = BrowserHandoff { true },
+    ): GithubAuthorizationState {
         val owner =
             GithubAuthorizationOwner(
                 requireNotNull(GithubApp.of(PROBE_CLIENT_ID, INSTALLATION_PAGE)),
@@ -247,7 +247,7 @@ class AuthorizationSurfaceTest {
         owners.add(owner)
         return GithubAuthorizationState(
             owner,
-            BrowserHandoff { false },
+            browser,
             VerificationCodeClipboard { true },
             installationUrl,
         )

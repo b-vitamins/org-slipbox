@@ -97,6 +97,8 @@ class GithubAuthorizationStateTest {
         val waiting = codeOf(state)
         assertEquals(USER_CODE, waiting.userCode)
         assertEquals(VERIFICATION_URI, waiting.verificationUri)
+        assertEquals(listOf(VERIFICATION_URI), browser.opened)
+        assertEquals(listOf(USER_CODE), clipboard.copied)
         gate.countDown()
     }
 
@@ -105,7 +107,6 @@ class GithubAuthorizationStateTest {
         val gate = held()
         val state = verifying()
 
-        state.openVerification()
         state.openVerification()
         delivery.drain()
 
@@ -120,10 +121,11 @@ class GithubAuthorizationStateTest {
     @Test
     fun aCodeThatCannotBeCopiedRemainsVisibleAndIsSaidToNeedEntry() {
         val gate = held()
-        val state = verifying()
-
         clipboard.accepts = false
-        state.openVerification()
+        val state = stateOver(transport = grantingTransport(polls = listOf(pending())))
+        state.begin()
+        assertTrue(delivery.awaitPosts(1))
+        delivery.drain()
 
         assertTrue(state.codeCopyRefused)
         assertEquals(USER_CODE, codeOf(state).userCode)

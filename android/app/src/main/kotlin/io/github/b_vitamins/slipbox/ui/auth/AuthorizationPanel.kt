@@ -16,6 +16,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.sp
 import io.github.b_vitamins.slipbox.R
 import io.github.b_vitamins.slipbox.auth.AuthorizationOutcome
 import io.github.b_vitamins.slipbox.auth.DeviceGrant
@@ -56,19 +58,24 @@ private fun Verification(
     onOpen: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}) {
+    Column(
+        modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
+        verticalArrangement = Arrangement.spacedBy(SlipboxDimensions.headerPaddingVertical),
+    ) {
         Text(
             text = stringResource(R.string.auth_code_name),
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
             text = grant.userCode,
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.onBackground,
+            fontFamily = FontFamily.Monospace,
+            letterSpacing = 1.sp,
         )
     }
-    Notice(stringResource(R.string.auth_verification_instruction, grant.verificationUri))
+    Notice(stringResource(R.string.auth_verification_instruction))
     if (refused) {
         Notice(stringResource(R.string.auth_browser_unavailable), problem = true)
     }
